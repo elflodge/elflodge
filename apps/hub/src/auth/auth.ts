@@ -19,7 +19,7 @@ export class Auth extends Context.Service<
   {
     /**
      * Calls Better Auth. Its errors become oRPC's, which name statuses as Better Auth's do, such as
-     * `BAD_REQUEST` and `NOT_FOUND`; oRPC would answer one it does not know with a 500.
+     * `BAD_REQUEST` and `NOT_FOUND`; oRPC would answer one it does not know with a 400.
      */
     readonly call: <A>(
       run: (betterAuth: BetterAuth) => Promise<A>,
