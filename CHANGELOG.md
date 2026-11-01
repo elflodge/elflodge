@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0](https://github.com/elflodge/elflodge/compare/v0.6.0...v0.7.0) (2026-11-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename agent-batch to Elflodge ([#76](https://github.com/elflodge/elflodge/issues/76))
+
+### Features
+
+* rename agent-batch to Elflodge ([#76](https://github.com/elflodge/elflodge/issues/76)) ([5e1d61d](https://github.com/elflodge/elflodge/commit/5e1d61d7bd7e2aea980f914a2970e834a6c1afb3))
+
+
+### Bug Fixes
+
+* **deps:** move to @orpc/effect and the renamed error body options ([#77](https://github.com/elflodge/elflodge/issues/77)) ([c6dae83](https://github.com/elflodge/elflodge/commit/c6dae83c4a0663341c69977a04e4161282d0fef4))
+* **hub:** answer failures outside oRPC, such as a hub missing its settings, as Problem Details instead of 500 text/plain ([2dcab2a](https://github.com/elflodge/elflodge/commit/2dcab2a4a704b28363f388df2f8c9d4f8fbedfaa))
+* **hub:** give error codes oRPC does not know its default status in Problem Details ([2dcab2a](https://github.com/elflodge/elflodge/commit/2dcab2a4a704b28363f388df2f8c9d4f8fbedfaa))
+
 ## [0.6.0](https://github.com/chuse-ai/agent-batch/compare/v0.5.0...v0.6.0) (2026-10-31)
 
 

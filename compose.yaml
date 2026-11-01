@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   hub:
-    image: ghcr.io/elflodge/elflodge-hub:${ELFLODGE_VERSION:-0.6.0} # x-release-please-version
+    image: ghcr.io/elflodge/elflodge-hub:${ELFLODGE_VERSION:-0.7.0} # x-release-please-version
     depends_on:
       database:
         condition: service_healthy
@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
 
   runner:
-    image: ghcr.io/elflodge/elflodge-runner:${ELFLODGE_VERSION:-0.6.0} # x-release-please-version
+    image: ghcr.io/elflodge/elflodge-runner:${ELFLODGE_VERSION:-0.7.0} # x-release-please-version
     # The hub's image checks its health: healthy once it serves requests.
     depends_on:
       hub:
