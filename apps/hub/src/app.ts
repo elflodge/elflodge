@@ -466,7 +466,8 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
   app.notFound(() => problemDetails({ status: 404 }).getResponse());
   // hono-problem-details 0.12 is written for Hono 4, whose error handler takes `(error, c)`. Hono 5
   // runs error middleware with the error as `c.error`, so the handler is called the Hono 4 way, which
-  // its types under Hono 5 do not describe.
+  // its types under Hono 5 do not describe (paveg/hono-problem-details#226); pass it to `onError`
+  // directly once it supports Hono 5.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- its runtime signature under Hono 5.
   const answerError = problemDetailsHandler({
     onUnhandledError: (error) => console.error(error),
