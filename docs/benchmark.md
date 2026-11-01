@@ -1,6 +1,6 @@
 # Benchmark: one Runner against one container per job
 
-How many agent jobs one small server holds, and what each costs in CPU, when the agent loops share a Runner process instead of each getting a container. Measured on 2026-10-25 and 26 with the Runner from Elflodge 0.2.0, its model calls pointed at the replay server described below. Later releases raised the Runner's throughput, so these figures are conservative for current versions.
+How many agent jobs one small server holds, and what each costs in CPU, when the agent loops share a Runner process instead of each getting a container. Measured on 2026-10-25 and 26 with the Runner from agent-batch 0.2.0, as Elflodge was then called, its model calls pointed at the replay server described below. Later releases raised the Runner's throughput, so these figures are conservative for current versions.
 
 ## Setup
 
