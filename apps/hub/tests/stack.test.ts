@@ -283,17 +283,25 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
     await elflodge("stack", "stop");
     await elflodge("stack", "logout");
     // Cancelling a readiness wait must finish cleanup before another command takes the lock.
+    // A stopped container keeps the restart count from its last run until it is started again,
+    // so a restart counts only once this start has started the Runner.
+    const startedAt = async () =>
+      (
+        await run("docker", ["inspect", "--format", "{{.State.StartedAt}}", forwardedRunner])
+      ).stdout.trim();
+    const previousStart = await startedAt();
     const interruptedRestart = elflodge("stack", "start");
     await expect
       .poll(
         async () =>
+          (await startedAt()) !== previousStart &&
           Number(
             (await run("docker", ["inspect", "--format", "{{.RestartCount}}", forwardedRunner]))
               .stdout,
-          ),
+          ) > 0,
         { timeout: 30_000 },
       )
-      .toBeGreaterThan(0);
+      .toBe(true);
     interruptedRestart.child.kill("SIGINT");
     await expect(interruptedRestart).rejects.toMatchObject({
       code: 130,
