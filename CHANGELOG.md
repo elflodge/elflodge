@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/elflodge/elflodge/compare/v0.6.0...v0.6.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **deps:** move to @orpc/effect and the renamed error body options ([#77](https://github.com/elflodge/elflodge/issues/77)) ([c6dae83](https://github.com/elflodge/elflodge/commit/c6dae83c4a0663341c69977a04e4161282d0fef4))
+
 ## [0.6.0](https://github.com/chuse-ai/agent-batch/compare/v0.5.0...v0.6.0) (2026-10-31)
 
 
