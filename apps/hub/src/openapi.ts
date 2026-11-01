@@ -6,6 +6,7 @@ import {
   apiContract,
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
+  PROBLEM_DETAILS_CONTENT_TYPE,
   problemDetailsSchema,
 } from "contract";
 
@@ -44,5 +45,6 @@ export function generateOpenAPIDocument(sessionCookie: string) {
       },
     },
     errorResponseBodySchema: converter.convert(problemDetailsSchema, "output")[0],
+    errorResponseContentType: PROBLEM_DETAILS_CONTENT_TYPE,
   });
 }

@@ -330,11 +330,13 @@ const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSche
 // JSON body.
 const uploads = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
+  errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
 const api = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
+  errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
@@ -483,9 +485,6 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
       ),
     );
     if (!matched) return c.notFound();
-    // oRPC labels every JSON body `application/json`, errors included, with no setting to change
-    // it (middleapi/orpc#2317); its error bodies are Problem Details.
-    if (response.status >= 400) response.headers.set("content-type", PROBLEM_JSON_CONTENT_TYPE);
     return response;
   };
 

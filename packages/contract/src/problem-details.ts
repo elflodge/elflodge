@@ -55,7 +55,7 @@ export function problemOf(error: unknown): ProblemDetails | undefined {
  */
 export function createProblemDetailsLink<T extends ClientContext>(
   contract: RouterContract,
-  options: Omit<OpenAPILinkOptions<T>, "errorResponseBodyDecoder">,
+  options: Omit<OpenAPILinkOptions<T>, "errorResponseBodyDecoder" | "errorResponseContentType">,
 ): OpenAPILink<T> {
   const send = options.fetch ?? ((url: string, init: RequestInit) => globalThis.fetch(url, init));
   return new OpenAPILink<T>(contract, {
@@ -82,19 +82,7 @@ export function createProblemDetailsLink<T extends ClientContext>(
       }
       if (response.ok) return response;
       const contentType = parseContentType(response.headers.get("content-type") ?? "");
-      if (contentType.type === "application/problem+json") {
-        // Read as JSON also for a call whose answer is a file, which oRPC reads by its headers
-        // rather than as the JSON every other call answers: the `standard-server` header is how
-        // oRPC's client is told a body's kind. oRPC itself counts only `application/json` as JSON
-        // (middleapi/orpc#2317).
-        const headers = new Headers(response.headers);
-        headers.set("standard-server", "json");
-        return new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        });
-      }
+      if (contentType.type === "application/problem+json") return response;
       await response.body?.cancel();
       const title = STATUS_CODES[response.status] ?? String(response.status);
       return Response.json(
@@ -102,10 +90,13 @@ export function createProblemDetailsLink<T extends ClientContext>(
         {
           status: response.status,
           statusText: response.statusText,
-          headers: { "content-type": PROBLEM_DETAILS_CONTENT_TYPE, "standard-server": "json" },
+          headers: { "content-type": PROBLEM_DETAILS_CONTENT_TYPE },
         },
       );
     },
+    // Read as JSON also for a call whose answer is a file, whose body oRPC otherwise reads by its
+    // headers rather than as the JSON every other call answers.
+    errorResponseContentType: PROBLEM_DETAILS_CONTENT_TYPE,
     errorResponseBodyDecoder: (body) => {
       const problem = problemDetailsSchema.safeParse(body);
       if (!problem.success) return undefined;
