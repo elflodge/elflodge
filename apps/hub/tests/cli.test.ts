@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { startSystem } from "./harness.ts";
 import { callTool, lastToolResult, reply } from "./scripted-model.ts";
 
-// The `agent-batch` command against a real hub and Runner, run as a caller runs it: in a
+// The `elflodge` command against a real hub and Runner, run as a caller runs it: in a
 // process of its own, through the link pnpm makes to its bin. What it prints, the error it prints
 // and how it exits.
 
@@ -23,8 +23,8 @@ const system = startSystem();
 beforeAll(async () => {
   await system.start();
   await system.startRunner();
-  process.env["AGENT_BATCH_URL"] = system.url().origin;
-  process.env["AGENT_BATCH_API_KEY"] = await system.newJobsKey();
+  process.env["ELFLODGE_URL"] = system.url().origin;
+  process.env["ELFLODGE_API_KEY"] = await system.newJobsKey();
 });
 afterAll(() => system.stop());
 
@@ -33,24 +33,24 @@ const SUBMISSION = {
   input: "Count to a million.",
 };
 
-const CLI = path.join(import.meta.dirname, "../node_modules/.bin/agent-batch");
+const CLI = path.join(import.meta.dirname, "../node_modules/.bin/elflodge");
 const NodeServices = NodeChildProcessSpawner.layer.pipe(
   Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
 );
 
 /**
- * Runs `agent-batch` with `argv` until it ends: the one line of JSON it printed, its stderr and its
+ * Runs `elflodge` with `argv` until it ends: the one line of JSON it printed, its stderr and its
  * exit code, read as the Runner's `runCommand` reads a command's. A command that cannot start fails.
  */
-function agentBatch(...argv: string[]) {
-  return agentBatchIn(undefined, argv).pipe(
+function elflodge(...argv: string[]) {
+  return elflodgeIn(undefined, argv).pipe(
     Effect.map(({ lines, ...rest }) => ({ printed: lines[0], ...rest })),
     Effect.runPromise,
   );
 }
 
-/** Runs `agent-batch` with `argv` in the folder `cwd`: each line of JSON it printed, and the rest. */
-function agentBatchIn(cwd: string | undefined, argv: readonly string[]) {
+/** Runs `elflodge` with `argv` in the folder `cwd`: each line of JSON it printed, and the rest. */
+function elflodgeIn(cwd: string | undefined, argv: readonly string[]) {
   return Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const handle = yield* spawner.spawn(ChildProcess.make(CLI, argv, { cwd }));
@@ -75,15 +75,15 @@ function agentBatchIn(cwd: string | undefined, argv: readonly string[]) {
 
 test("jobs submit prints the job it accepted from a file, and jobs wait prints it once it has ended", async () => {
   system.model.setResponses([callTool("submit_output", { value: 1_000_000 })]);
-  const dir = await mkdtemp(path.join(tmpdir(), "agent-batch-cli-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "elflodge-cli-"));
   const file = path.join(dir, "job.json");
   await writeFile(file, JSON.stringify(SUBMISSION));
-  const submitted = await agentBatch("jobs", "submit", "--input", file);
+  const submitted = await elflodge("jobs", "submit", "--input", file);
   await rm(dir, { recursive: true });
   expect(submitted).toMatchObject({ printed: { status: "queued" }, exitCode: 0 });
 
   const { id } = z.parse(z.object({ id: z.string() }), submitted.printed);
-  expect(await agentBatch("jobs", "wait", "--id", id)).toMatchObject({
+  expect(await elflodge("jobs", "wait", "--id", id)).toMatchObject({
     printed: { id, status: "succeeded", output: 1_000_000 },
     exitCode: 0,
   });
@@ -91,16 +91,16 @@ test("jobs submit prints the job it accepted from a file, and jobs wait prints i
 
 test("jobs wait exits non-zero for a job that ended without succeeding", async () => {
   system.model.setResponses([reply("I cannot count that far.")]);
-  const submitted = await agentBatch("jobs", "submit", "--json", JSON.stringify(SUBMISSION));
+  const submitted = await elflodge("jobs", "submit", "--json", JSON.stringify(SUBMISSION));
   const { id } = z.parse(z.object({ id: z.string() }), submitted.printed);
-  expect(await agentBatch("jobs", "wait", "--id", id)).toMatchObject({
+  expect(await elflodge("jobs", "wait", "--id", id)).toMatchObject({
     printed: { id, status: "failed" },
     exitCode: 1,
   });
 });
 
 test("a call the hub refuses prints its Problem Details and exits non-zero", async () => {
-  const { stderr, exitCode } = await agentBatch("jobs", "get", "--id", crypto.randomUUID());
+  const { stderr, exitCode } = await elflodge("jobs", "get", "--id", crypto.randomUUID());
   expect(exitCode).toBe(1);
   expect(JSON.parse(stderr)).toMatchObject({ status: 404, title: "Not Found" });
 });
@@ -118,7 +118,7 @@ const listInputs: FauxResponseFactory = ({ messages }) =>
 // them ended at its first read. The CLI's own tests cover a wait that reads again.
 test("batches submit --each uploads each file and folder as a job's Input files, and --wait --output-dir saves their outputs in order", async () => {
   system.model.setResponses([listInputs, listInputs, listInputs, listInputs]);
-  const dir = await mkdtemp(path.join(tmpdir(), "agent-batch-cli-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "elflodge-cli-"));
   await mkdir(path.join(dir, "claim/photos"), { recursive: true });
   await writeFile(path.join(dir, "notes.txt"), "one");
   await writeFile(path.join(dir, "claim/form.txt"), "form");
@@ -138,7 +138,7 @@ test("batches submit --each uploads each file and folder as a job's Input files,
     id,
   ];
 
-  const submitted = await Effect.runPromise(agentBatchIn(dir, submit));
+  const submitted = await Effect.runPromise(elflodgeIn(dir, submit));
   expect(submitted.exitCode).toBe(0);
   const client = await system.clientWithNewJobsKey();
   await expect
@@ -151,7 +151,7 @@ test("batches submit --each uploads each file and folder as a job's Input files,
     )
     .toBe(0);
   const { lines, exitCode } = await Effect.runPromise(
-    agentBatchIn(dir, [...submit, "--wait", "--output-dir", "outputs"]),
+    elflodgeIn(dir, [...submit, "--wait", "--output-dir", "outputs"]),
   );
   const saved = (await readFile(path.join(dir, "outputs/output.jsonl"), "utf8"))
     .trim()

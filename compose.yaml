@@ -1,21 +1,21 @@
 # A hub and a Runner on one machine, from the images of the release this file comes from. Settings
-# come from `.env` beside this file; set `AGENT_BATCH_VERSION` there to run other images. Put a
+# come from `.env` beside this file; set `ELFLODGE_VERSION` there to run other images. Put a
 # deployment's own changes in `compose.override.yaml`, which Compose merges into this file.
 #
 # The Runner's registration key exists only once the hub runs, so the Runner starts after the hub
 # and nothing here requires its settings. On `main`, the images default to the last release, which
 # may lag changes made since.
-name: agent-batch
+name: elflodge
 
 services:
   database:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: agent_batch
+      POSTGRES_USER: elflodge
       # Set only when the database is created, on its first start: a change in `.env` later must be
       # made in the database too, or the hub can no longer connect.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env, as from openssl rand -hex 24}
-      POSTGRES_DB: agent_batch
+      POSTGRES_DB: elflodge
     volumes:
       - database:/var/lib/postgresql
     # Docker gives a container 64 MB of shared memory, which Postgres can run out of; the image's
@@ -32,12 +32,12 @@ services:
     restart: unless-stopped
 
   hub:
-    image: ghcr.io/chuse-ai/agent-batch-hub:${AGENT_BATCH_VERSION:-0.6.0} # x-release-please-version
+    image: ghcr.io/elflodge/elflodge-hub:${ELFLODGE_VERSION:-0.6.0} # x-release-please-version
     depends_on:
       database:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://agent_batch:${POSTGRES_PASSWORD}@database:5432/agent_batch
+      DATABASE_URL: postgres://elflodge:${POSTGRES_PASSWORD}@database:5432/elflodge
       # The address the hub's callers use; one that other machines reach is set in `.env`.
       HUB_URL: ${HUB_URL:-http://localhost:8787}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set it in .env, as from openssl rand -base64 32}
@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
 
   runner:
-    image: ghcr.io/chuse-ai/agent-batch-runner:${AGENT_BATCH_VERSION:-0.6.0} # x-release-please-version
+    image: ghcr.io/elflodge/elflodge-runner:${ELFLODGE_VERSION:-0.6.0} # x-release-please-version
     # The hub's image checks its health: healthy once it serves requests.
     depends_on:
       hub:

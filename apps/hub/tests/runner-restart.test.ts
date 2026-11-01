@@ -88,9 +88,9 @@ test(
       // The job's events record its recovery by the restarted Runner, between its start and end.
       const { events } = yield* Effect.promise(() => client.jobs.events({ id }));
       expect(lifecycleOf(events)).toEqual([
-        "agent-batch.job.started",
-        "agent-batch.job.recovered",
-        "agent-batch.job.succeeded",
+        "elflodge.job.started",
+        "elflodge.job.recovered",
+        "elflodge.job.succeeded",
       ]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices), Effect.runPromise),
   60_000,

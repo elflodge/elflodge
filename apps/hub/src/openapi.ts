@@ -31,7 +31,7 @@ export function generateOpenAPIDocument(sessionCookie: string) {
     base: {
       // The hub's own version, which a release sets to the release's.
       info: {
-        title: "agent-batch",
+        title: "elflodge",
         version: packageJson.version,
         // A limit every call shares, which no one operation's description would carry.
         description: `A request's body may hold at most ${MAX_BODY_BYTES / 1024 / 1024} MiB, and an upload's at most ${MAX_FILE_BYTES / 1024 / 1024} MiB; a larger body is refused with 413.`,

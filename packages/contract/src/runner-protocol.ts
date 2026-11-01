@@ -27,7 +27,7 @@ import { api, byKey, forOrganization, NotFound } from "./procedure.ts";
  * a version only fields are added, which a receiver ignores; a new method or a new value in a closed
  * set bumps it. Before 1.0 the hub supports one version at a time.
  */
-export const RUNNER_PROTOCOL_VERSION = "agent-batch.v1";
+export const RUNNER_PROTOCOL_VERSION = "elflodge.v1";
 /** The versions this hub supports, newest first. */
 export const RUNNER_PROTOCOL_VERSIONS = [RUNNER_PROTOCOL_VERSION] as const;
 
@@ -137,13 +137,13 @@ export type Load = z.infer<typeof loadSchema>;
  * end, one kind per outcome. The hub reads the job's lifecycle from them, as they reach it
  * with the job's other events.
  */
-export const JOB_STARTED = "agent-batch.job.started";
-export const JOB_RECOVERED = "agent-batch.job.recovered";
-export const JOB_PAUSED = "agent-batch.job.paused";
-export const JOB_RESUMED = "agent-batch.job.resumed";
-export const JOB_SUCCEEDED = "agent-batch.job.succeeded";
-export const JOB_FAILED = "agent-batch.job.failed";
-export const JOB_CANCELLED = "agent-batch.job.cancelled";
+export const JOB_STARTED = "elflodge.job.started";
+export const JOB_RECOVERED = "elflodge.job.recovered";
+export const JOB_PAUSED = "elflodge.job.paused";
+export const JOB_RESUMED = "elflodge.job.resumed";
+export const JOB_SUCCEEDED = "elflodge.job.succeeded";
+export const JOB_FAILED = "elflodge.job.failed";
+export const JOB_CANCELLED = "elflodge.job.cancelled";
 
 /**
  * A time the Runner records in Unix milliseconds, within what the hub's `timestamptz` holds and a

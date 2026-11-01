@@ -1,4 +1,4 @@
-# agent-batch
+# Elflodge
 
 Runs many one-off AI agent jobs unattended, each returning an output that meets a declared contract, on the organization's provisioned Runners.
 

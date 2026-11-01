@@ -2,30 +2,30 @@
 // constructors of its ID types. The rest of the hub imports them only from here.
 import { Brand } from "effect";
 
-import type { ApikeyId as ApikeyIdType } from "./generated/agent_batch/Apikey.ts";
-import type { BatchUid as BatchUidType } from "./generated/agent_batch/Batch.ts";
-import type { BlobSha256 as BlobSha256Type } from "./generated/agent_batch/Blob.ts";
-import type { InputFilePath as InputFilePathType } from "./generated/agent_batch/InputFile.ts";
-import type { JobId as JobIdType } from "./generated/agent_batch/Job.ts";
-import type { JobEventChunkLastId } from "./generated/agent_batch/JobEventChunk.ts";
-import type { MemberId as MemberIdType } from "./generated/agent_batch/Member.ts";
-import type { OrganizationId } from "./generated/agent_batch/Organization.ts";
-import type { RunnerId as RunnerIdType } from "./generated/agent_batch/Runner.ts";
-import type { UploadId as UploadIdType } from "./generated/agent_batch/Upload.ts";
-import type { UploadChunkIndex as UploadChunkIndexType } from "./generated/agent_batch/UploadChunk.ts";
-import type { UsageRecordId } from "./generated/agent_batch/UsageRecord.ts";
+import type { ApikeyId as ApikeyIdType } from "./generated/elflodge/Apikey.ts";
+import type { BatchUid as BatchUidType } from "./generated/elflodge/Batch.ts";
+import type { BlobSha256 as BlobSha256Type } from "./generated/elflodge/Blob.ts";
+import type { InputFilePath as InputFilePathType } from "./generated/elflodge/InputFile.ts";
+import type { JobId as JobIdType } from "./generated/elflodge/Job.ts";
+import type { JobEventChunkLastId } from "./generated/elflodge/JobEventChunk.ts";
+import type { MemberId as MemberIdType } from "./generated/elflodge/Member.ts";
+import type { OrganizationId } from "./generated/elflodge/Organization.ts";
+import type { RunnerId as RunnerIdType } from "./generated/elflodge/Runner.ts";
+import type { UploadId as UploadIdType } from "./generated/elflodge/Upload.ts";
+import type { UploadChunkIndex as UploadChunkIndexType } from "./generated/elflodge/UploadChunk.ts";
+import type { UsageRecordId } from "./generated/elflodge/UsageRecord.ts";
 
 export type { default as Database } from "./generated/Database.ts";
-export type { Job as JobRow, JobUpdate, NewJob } from "./generated/agent_batch/Job.ts";
-export type { Batch as BatchRow } from "./generated/agent_batch/Batch.ts";
-export type { default as BatchPausedBy } from "./generated/agent_batch/BatchPausedBy.ts";
-export type { JobProgress as JobProgressRow } from "./generated/agent_batch/JobProgress.ts";
-export type { default as JobStatus } from "./generated/agent_batch/JobStatus.ts";
-export type { default as JobControl } from "./generated/agent_batch/JobControl.ts";
-export type { default as JobFailureReason } from "./generated/agent_batch/JobFailureReason.ts";
-export type { JobDeletion as JobDeletionRow } from "./generated/agent_batch/JobDeletion.ts";
+export type { Job as JobRow, JobUpdate, NewJob } from "./generated/elflodge/Job.ts";
+export type { Batch as BatchRow } from "./generated/elflodge/Batch.ts";
+export type { default as BatchPausedBy } from "./generated/elflodge/BatchPausedBy.ts";
+export type { JobProgress as JobProgressRow } from "./generated/elflodge/JobProgress.ts";
+export type { default as JobStatus } from "./generated/elflodge/JobStatus.ts";
+export type { default as JobControl } from "./generated/elflodge/JobControl.ts";
+export type { default as JobFailureReason } from "./generated/elflodge/JobFailureReason.ts";
+export type { JobDeletion as JobDeletionRow } from "./generated/elflodge/JobDeletion.ts";
 export type { OrganizationId, UsageRecordId };
-export type { NewUploadChunk } from "./generated/agent_batch/UploadChunk.ts";
+export type { NewUploadChunk } from "./generated/elflodge/UploadChunk.ts";
 
 // Each ID type with its constructor under the same name, as Effect brands are declared. A string
 // becomes an ID through the constructor, once, where the ID enters the hub (ADR 0020): a new UUID,

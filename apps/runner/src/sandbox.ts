@@ -281,13 +281,13 @@ function setUpSandboxRuntime(
     // starts, with the score every job's daemon starts with.
     yield* Effect.tryPromise({ try: () => initializeSandboxRuntime(), catch: ensureError });
     const scratch = yield* FileSystem.FileSystem.use((fs) =>
-      fs.makeTempDirectoryScoped({ prefix: "agent-batch-sandbox-check-" }),
+      fs.makeTempDirectoryScoped({ prefix: "elflodge-sandbox-check-" }),
     );
     const wrapped = yield* Effect.acquireRelease(
       Effect.tryPromise({
         try: () =>
           SandboxManager.wrapWithSandbox(
-            `test -x "$AGENT_BATCH_DAEMON"`,
+            `test -x "$ELFLODGE_DAEMON"`,
             JOB_SHELL,
             jobPolicy({ workspace: scratch, temp: scratch }, readable),
           ),
@@ -298,7 +298,7 @@ function setUpSandboxRuntime(
     const [command, ...args] = withJobOomScore(["/bin/sh", "-c", wrapped]);
     const { failure } = yield* runCommand(
       ChildProcess.make(command, args, {
-        env: { ...keptEnvironment(), AGENT_BATCH_DAEMON: daemon },
+        env: { ...keptEnvironment(), ELFLODGE_DAEMON: daemon },
       }),
     );
     return failure === undefined ? undefined : `a sandboxed command failed: ${failure}`;
@@ -317,7 +317,7 @@ function tryMemoryCap(
   memoryLimit: string,
 ): Effect.Effect<string | undefined, never, ChildProcessSpawner.ChildProcessSpawner> {
   if (process.platform !== "linux") return Effect.succeed(`${process.platform} has no systemd`);
-  const [command, ...args] = cappedScope(`agent-batch-check-${randomUUID()}.scope`, memoryLimit, [
+  const [command, ...args] = cappedScope(`elflodge-check-${randomUUID()}.scope`, memoryLimit, [
     "true",
   ]);
   return runCommand(ChildProcess.make(command, args)).pipe(
@@ -429,7 +429,7 @@ function asPath(dir: string) {
  * in as `$3`.
  */
 const START_DAEMON = `export PI_ENV_TOKEN="$3"; exec /bin/sh -c "$0"`;
-const DAEMON_IN_SANDBOX = `token="$PI_ENV_TOKEN"; daemon="$AGENT_BATCH_DAEMON"; export TMPDIR="$AGENT_BATCH_TEMP" HOME="$AGENT_BATCH_TEMP"; unset PI_ENV_TOKEN AGENT_BATCH_DAEMON AGENT_BATCH_TEMP; exec "$daemon" serve --token "$token"`;
+const DAEMON_IN_SANDBOX = `token="$PI_ENV_TOKEN"; daemon="$ELFLODGE_DAEMON"; export TMPDIR="$ELFLODGE_TEMP" HOME="$ELFLODGE_TEMP"; unset PI_ENV_TOKEN ELFLODGE_DAEMON ELFLODGE_TEMP; exec "$daemon" serve --token "$token"`;
 
 function openJobEnvironment(options: {
   jobId: string;
@@ -474,7 +474,7 @@ function openJobEnvironment(options: {
         wraps += 1;
       }
       const daemonEnv = Record.collect(
-        { ...keptEnvironment(), AGENT_BATCH_DAEMON: daemon, AGENT_BATCH_TEMP: dirs.temp },
+        { ...keptEnvironment(), ELFLODGE_DAEMON: daemon, ELFLODGE_TEMP: dirs.temp },
         (name, value) => `${name}=${value}`,
       );
       const start = withJobOomScore([
@@ -487,7 +487,7 @@ function openJobEnvironment(options: {
         inner,
       ]);
       if (memoryLimit === undefined) return start;
-      scope = `agent-batch-job-${randomUUID()}.scope`;
+      scope = `elflodge-job-${randomUUID()}.scope`;
       return cappedScope(scope, memoryLimit, start);
     },
   });

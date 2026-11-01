@@ -24,14 +24,18 @@ export default defineConfig({
     },
   },
   pack: {
-    // The package is the `agent-batch` command alone: a library export would freeze internals that
+    // The package is the `elflodge` command alone: a library export would freeze internals that
     // are still changing (ADR 0004), so it exports none, and needs no type declarations.
     entry: ["src/bin.ts"],
     dts: false,
     // In the workspace the bin points to the source, as the other packages' exports do (ADR 0006),
     // so the hub's tests run the command unbuilt; publishing takes `publishConfig`'s, which points
-    // to `dist`.
-    exports: { devExports: true, bin: true, exclude: ["bin"] },
+    // to `dist`. `elf` is the short name of the same command.
+    exports: {
+      devExports: true,
+      bin: { elflodge: "./src/bin.ts", elf: "./src/bin.ts" },
+      exclude: ["bin"],
+    },
     // The bundle carries everything the command imports, its own dev dependencies and `contract`
     // with what `contract` imports, as create-vite's does: one package to install, with exactly the
     // versions its tests ran. Besides the unused peers, the output may import only Node's

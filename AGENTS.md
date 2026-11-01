@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues for `chuse-ai/agent-batch`, used through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for `elflodge/elflodge`, used through the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -14,6 +14,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ## Conventions
 
+- The product is Elflodge in prose, one word with a capital E, and `elflodge` wherever it is typed: the package, the command, URLs.
 - Two Node floors. What users run on their own Node, the CLI, the Runner and their shared contract, supports Node 22 from 22.19: it uses only what Node 22 has (`lib: es2024`), and CI tests it on Node 22. The hub runs only on runtimes we choose, Node 26 and workerd, and may use anything they implement.
 - After `vp add`, check `package.json`: with `catalogMode: prefer`, it turns `workspace:*` dependencies into `catalog:` entries; set them back to `workspace:*`.
 - After changing a migration, run `vp run hub#db:types`; after upgrading Better Auth, run `vp run hub#db:draft-auth-migration`. CI fails on either otherwise.

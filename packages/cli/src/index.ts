@@ -66,7 +66,7 @@ import * as z from "zod/mini";
 
 import { runToEnd, stackCommands, savedHub } from "./stack.ts";
 
-// The `agent-batch` command: one command per call of the hub's public API that an API key can
+// The `elflodge` command: one command per call of the hub's public API that an API key can
 // make, derived from the contract, so the commands cannot drift from the API, plus `jobs submit`,
 // `jobs wait` and `batches submit`. Each prints the API's JSON on stdout; an error from the hub
 // prints its Problem Details on stderr and exits non-zero.
@@ -90,24 +90,24 @@ const isHeaderValue = Schema.makeFilter<string>((value) => {
 
 /** Where the hub is and the API key to call it with, from the environment. */
 const settingsFromEnv = Config.all({
-  url: Config.URL("AGENT_BATCH_URL"),
-  apiKey: Config.schema(Schema.Redacted(Schema.String.check(isHeaderValue)), "AGENT_BATCH_API_KEY"),
+  url: Config.URL("ELFLODGE_URL"),
+  apiKey: Config.schema(Schema.Redacted(Schema.String.check(isHeaderValue)), "ELFLODGE_API_KEY"),
 });
 
 /**
  * Where the hub is and the API key to call it with, read when a command runs, not for `--help`:
- * from the environment, or, when neither is set there, the hub `agent-batch stack` runs and the key it
+ * from the environment, or, when neither is set there, the hub `elflodge stack` runs and the key it
  * made, together, so a key never goes to a hub it was not made for.
  */
 const settings = Effect.gen(function* () {
-  const url = yield* Config.option(Config.String("AGENT_BATCH_URL"));
-  const apiKey = yield* Config.option(Config.String("AGENT_BATCH_API_KEY"));
+  const url = yield* Config.option(Config.String("ELFLODGE_URL"));
+  const apiKey = yield* Config.option(Config.String("ELFLODGE_API_KEY"));
   if (Option.isNone(url) && Option.isNone(apiKey)) {
     const saved = yield* savedHub();
     if (saved !== undefined) {
       yield* Effect.sync(() =>
         process.stderr.write(
-          `Calling the hub agent-batch stack runs at ${saved.url.origin}, as AGENT_BATCH_URL and AGENT_BATCH_API_KEY are unset\n`,
+          `Calling the hub elflodge stack runs at ${saved.url.origin}, as ELFLODGE_URL and ELFLODGE_API_KEY are unset\n`,
         ),
       );
       return { url: saved.url, apiKey: Redacted.make(saved.apiKey) };
@@ -199,7 +199,7 @@ function commandError(error: unknown): Error {
     return new Error(problem ? JSON.stringify(problem) : error.message, { cause: error });
   }
   if (error instanceof Config.ConfigError) {
-    return new Error(`agent-batch is not configured: ${settingsProblems(error)}`, {
+    return new Error(`elflodge is not configured: ${settingsProblems(error)}`, {
       cause: error,
     });
   }
@@ -355,8 +355,8 @@ function submitCommand() {
       jsonInput: "always",
       // `--input` is read before trpc-cli parses the command line, so its help shows it only here.
       examples: [
-        "agent-batch jobs submit --input job.json",
-        "agent-batch jobs submit --input - < job.json",
+        "elflodge jobs submit --input job.json",
+        "elflodge jobs submit --input - < job.json",
       ],
     })
     .input(
@@ -413,7 +413,7 @@ function createBatchCommand() {
     os
       .meta({
         description: getOpenAPIMeta(apiContract.batches.create)?.description,
-        examples: ["agent-batch batches create --input batch.json"],
+        examples: ["elflodge batches create --input batch.json"],
       })
       // A copy of the creation, strict as it is, without its registered id, so each field gets a
       // flag: trpc-cli reads a schema registered with an id, which Zod's JSON Schema gives as a
@@ -1016,7 +1016,7 @@ function waitAndSave(
     const unsucceeded = sumAll(Object.values(others));
     const failure =
       batch.pausedBy === "breaker"
-        ? `The Batch's failure breaker paused it, as its jobs failed. Once their failures are fixed, resume it with ${CommandLine.display(["agent-batch", "batches", "resume", "--id", batch.id])}, and ${again}${outputDir === undefined ? "" : " and a new --output-dir"}.`
+        ? `The Batch's failure breaker paused it, as its jobs failed. Once their failures are fixed, resume it with ${CommandLine.display(["elflodge", "batches", "resume", "--id", batch.id])}, and ${again}${outputDir === undefined ? "" : " and a new --output-dir"}.`
         : batch.status === "cancelled"
           ? "The Batch was cancelled"
           : unsucceeded > 0
@@ -1043,8 +1043,8 @@ function submitBatchCommand() {
       description:
         "Creates a Batch running an agent given by its flags, with the jobs of a JSONL file, one job's JSON per line as batches add-jobs takes it, or with --each, a job for each file or folder: a file becomes a job with that file as its Input file, and a folder a job with every file in its tree, at its path in the folder, hidden ones left out; each job's custom ID is its path as given, normalized. --each uploads the files the hub does not hold yet. Prints the Batch, with --wait once its jobs have ended, or then on a terminal the tokens and cost it used, and with --output-dir saves each job's output or failure in that folder. Running the command again with the Batch's --id adds only the jobs the Batch lacks.",
       examples: [
-        'agent-batch batches submit --id invoices --each invoices/*.pdf --instructions "Extract the supplier, number, currency and total." --output-schema invoice.schema.json --wait --output-dir ./results',
-        "agent-batch batches submit jobs.jsonl --output-schema answer.schema.json",
+        'elflodge batches submit --id invoices --each invoices/*.pdf --instructions "Extract the supplier, number, currency and total." --output-schema invoice.schema.json --wait --output-dir ./results',
+        "elflodge batches submit jobs.jsonl --output-schema answer.schema.json",
       ],
     })
     .input(
@@ -1215,7 +1215,7 @@ function submitBatchCommand() {
             if (personWatches()) {
               yield* Effect.sync(() =>
                 process.stderr.write(
-                  `To wait for it and save each job's line, ${again} ${CommandLine.display(["--wait", "--output-dir", "NEW_DIR"])}; to see how it stands, run ${CommandLine.display(["agent-batch", "batches", "get", "--id", created.id])}.\n`,
+                  `To wait for it and save each job's line, ${again} ${CommandLine.display(["--wait", "--output-dir", "NEW_DIR"])}; to see how it stands, run ${CommandLine.display(["elflodge", "batches", "get", "--id", created.id])}.\n`,
                 ),
               );
             }
@@ -1246,11 +1246,11 @@ function submitBatchCommand() {
     );
 }
 
-/** The `agent-batch` command line. */
-export function agentBatchCli(version: string) {
+/** The `elflodge` command line. */
+export function elflodgeCli(version: string) {
   const commands = commandsOf(apiContract);
   return createCli({
-    name: "agent-batch",
+    name: "elflodge",
     version,
     // A command takes its whole input as JSON with `--json`, as well as one flag per field.
     jsonInput: "auto",
@@ -1271,8 +1271,8 @@ export function agentBatchCli(version: string) {
 }
 
 /** Runs the command line, keeping an exit code its work or output has already set. */
-export function runAgentBatchCli(version: string, argv: readonly string[], logger?: Logger) {
-  return agentBatchCli(version).run({
+export function runElflodgeCli(version: string, argv: readonly string[], logger?: Logger) {
+  return elflodgeCli(version).run({
     argv: [...argv],
     logger,
     formatError,

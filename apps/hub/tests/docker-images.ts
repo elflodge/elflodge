@@ -11,7 +11,7 @@ const run = promisify(execFile);
 // TODO: Recheck Testcontainers builds when the WSL2 build-context issue is resolved upstream:
 // https://github.com/testcontainers/testcontainers-node/issues/1361
 export async function buildRepositoryImage(target: "hub" | "runner") {
-  const name = `agent-batch-${target}:test`;
+  const name = `elflodge-${target}:test`;
   await run("docker", ["buildx", "build", "--load", "--target", target, "--tag", name, "."], {
     cwd: path.join(import.meta.dirname, "../../.."),
     timeout: 540_000,

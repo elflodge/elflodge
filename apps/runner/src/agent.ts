@@ -114,7 +114,7 @@ const FILES_ONLY_NOTE = "Follow your instructions, using your files in the `inpu
  * since `null` is itself an output.
  */
 const AcceptedOutput = defineDoc<{ output?: JsonValue }>({
-  kind: "agent-batch.output",
+  kind: "elflodge.output",
   version: 1,
   scope: "conversation",
   history: "latest",
@@ -285,7 +285,7 @@ export function openJob(
     registry.install(CodingTools);
     registry.install(
       defineExtension({
-        name: "agent-batch",
+        name: "elflodge",
         tools: [submitOutputTool(job.outputContract.schema)],
         hooks: [
           // An accepted output ends the run only when every call of its round asks to; the job

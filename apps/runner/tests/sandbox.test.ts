@@ -162,7 +162,7 @@ it("a job's commands have no network, directly or through the sandbox's proxies"
 });
 
 it("a job's processes see none of the Runner's variables, nor its processes or another job's", async () => {
-  vi.stubEnv("AGENT_BATCH_TEST_RUNNER_VARIABLE", "runner-only");
+  vi.stubEnv("ELFLODGE_TEST_RUNNER_VARIABLE", "runner-only");
   onTestFinished(() => {
     vi.unstubAllEnvs();
   });

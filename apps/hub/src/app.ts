@@ -361,7 +361,7 @@ const api = new OpenAPIHandler(router, {
  * with an API key in `x-api-key`, or members with Better Auth's session cookie, for which HTTP has no
  * scheme.
  */
-export const AUTH_CHALLENGE = 'ApiKey realm="agent-batch"';
+export const AUTH_CHALLENGE = 'ApiKey realm="elflodge"';
 
 /** What the app needs from the platform it runs on. */
 export interface HubPlatform<Bindings> {

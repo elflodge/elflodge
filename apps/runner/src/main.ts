@@ -220,7 +220,7 @@ function loginProvider(
     }
     if (!withApiKey && !hasTerminal()) {
       yield* refuse(
-        "Interactive login needs a terminal. To save a provider API key, pipe it to agent-batch stack login --with-api-key.",
+        "Interactive login needs a terminal. To save a provider API key, pipe it to elflodge stack login --with-api-key.",
       );
     }
     const apiKey = withApiKey
@@ -235,7 +235,7 @@ function loginProvider(
         baseUrl: settings.baseUrl,
         // The provider sees this app's name. A returning sign-in reuses this installation's ID;
         // Pi otherwise creates a new client each time (earendil-works/pi#10670).
-        agentName: "agent-batch",
+        agentName: "elflodge",
         getDeviceId: () => id,
       })
       .pipe(
@@ -342,7 +342,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
       Effect.catchTag("SandboxUnavailable", (error) => refuse(error.message)),
       Effect.catchTag("Removed", () =>
         // FIXME: re-registering belongs to the CLI. Once it exists, this message names its command
-        // (such as `agent-batch runner register`) and `register` moves out of this entry point.
+        // (such as `elflodge runner register`) and `register` moves out of this entry point.
         refuse(
           "This Runner was removed from the hub, or the hub no longer knows it (for example after a reset). To add it again, start it once with `register`.",
         ),

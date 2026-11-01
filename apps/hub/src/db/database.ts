@@ -10,7 +10,7 @@ import type { Database } from "./types.ts";
  * it keeps to its own schema, and every statement names it: Hyperdrive resets `search_path` after
  * each transaction.
  */
-export const DB_SCHEMA = "agent_batch";
+export const DB_SCHEMA = "elflodge";
 
 /**
  * A set of rows from the caller, as one JSON parameter the statement expands, however many rows

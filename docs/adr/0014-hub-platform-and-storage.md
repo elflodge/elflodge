@@ -1,6 +1,6 @@
 # The hub runs on Workers and in Docker alike, with Postgres
 
-The hub runs both on Cloudflare Workers and as a Docker image for Railway, a VPS, Kubernetes, or a company's own machine, and every feature lands on both. It is written to Web standards, with Durable Objects used only to hold runner connections on Workers. Its only database is Postgres, reached through Hyperdrive on Workers and directly elsewhere. Its tables live in their own schema, `agent_batch`, named in every statement, so the hub can share a database with other software; Hyperdrive resets `search_path` after each transaction, so the schema cannot be set once per connection. Jobs' events land in Postgres as runners send them.
+The hub runs both on Cloudflare Workers and as a Docker image for Railway, a VPS, Kubernetes, or a company's own machine, and every feature lands on both. It is written to Web standards, with Durable Objects used only to hold runner connections on Workers. Its only database is Postgres, reached through Hyperdrive on Workers and directly elsewhere. Its tables live in their own schema, `elflodge`, named in every statement, so the hub can share a database with other software; Hyperdrive resets `search_path` after each transaction, so the schema cannot be set once per connection. Jobs' events land in Postgres as runners send them.
 
 ## Considered options
 

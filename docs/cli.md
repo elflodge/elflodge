@@ -1,15 +1,15 @@
-# The agent-batch command
+# The Elflodge command
 
-`agent-batch` calls a hub's API with an API key: one command for each call a key can make, with the API's names, flags and help. It needs Node 22.19 or later, and runs with `npx agent-batch`. `agent-batch --help` lists every command, and `agent-batch <command> --help` its flags.
+`elflodge` calls a hub's API with an API key: one command for each call a key can make, with the API's names, flags and help. It needs Node 22.19 or later, and runs with `npx elflodge`. `elflodge --help` lists every command, and `elflodge <command> --help` its flags.
 
 Calls only a signed-in member can make, such as creating API keys, are not commands.
 
 ## Which hub it calls
 
-- `AGENT_BATCH_URL`: the hub's URL.
-- `AGENT_BATCH_API_KEY`: an API key holding the permissions the calls need, such as `job: ["create", "read"]`.
+- `ELFLODGE_URL`: the hub's URL.
+- `ELFLODGE_API_KEY`: an API key holding the permissions the calls need, such as `job: ["create", "read"]`.
 
-Without either, the commands call the hub `agent-batch stack` runs with the key it made, and say so on stderr.
+Without either, the commands call the hub `elflodge stack` runs with the key it made, and say so on stderr.
 
 ## Input and output
 
@@ -18,10 +18,10 @@ Each command takes its input as one flag per field, or whole as JSON: from a fil
 ## Jobs and Batches
 
 ```sh
-agent-batch jobs submit --input job.json
-agent-batch jobs wait --id <job ID>
-agent-batch batches submit --each invoices/*.pdf --instructions "Extract the total." --output-schema schema.json --wait --output-dir ./results
-agent-batch jobs --help
+elflodge jobs submit --input job.json
+elflodge jobs wait --id <job ID>
+elflodge batches submit --each invoices/*.pdf --instructions "Extract the total." --output-schema schema.json --wait --output-dir ./results
+elflodge jobs --help
 ```
 
 - `jobs submit` submits one job as a Batch of one, without a failure breaker: it creates the Batch, running the job's `agent`, and adds the job. It retries each call that got no answer or a server error, at most twice, under one ID, the job's custom ID and its Batch's ID: yours, as `customId` in the job's JSON, in a Batch ID's syntax (1 to 100 letters, digits, `_` and `-`, not beginning with `-`), or a UUID it makes for this run. A made ID is printed on stderr only if the command fails or is stopped with Ctrl-C, which exits with 130. Submitting again with that ID tells whether the job was accepted; give a job an ID of your own to make submitting it safe to repeat, also after the command was killed outright.
@@ -35,11 +35,11 @@ agent-batch jobs --help
 
 ## A hub and a Runner on this machine
 
-`agent-batch stack start` runs a hub, a Runner and Postgres with Docker, from the images released with this version of the command. It returns once the hub is healthy and the Runner has started, and leaves the stack running in the background. The containers restart with Docker unless explicitly stopped. `--provider` and `--model` select the model every job runs on, using Pi's exact names (`openrouter` and `openrouter/free` initially, then the last ones given). `--port` sets the local hub port, initially 8787.
+`elflodge stack start` runs a hub, a Runner and Postgres with Docker, from the images released with this version of the command. It returns once the hub is healthy and the Runner has started, and leaves the stack running in the background. The containers restart with Docker unless explicitly stopped. `--provider` and `--model` select the model every job runs on, using Pi's exact names (`openrouter` and `openrouter/free` initially, then the last ones given). `--port` sets the local hub port, initially 8787.
 
 ```sh
-agent-batch stack start
-agent-batch stack start --provider anthropic --model claude-sonnet-5-5
+elflodge stack start
+elflodge stack start --provider anthropic --model claude-sonnet-5-5
 ```
 
 The `stack` commands manage this machine regardless of the hub selected for `jobs` and `batches`.
@@ -51,7 +51,7 @@ An interactive start offers login if the selected provider has no credentials. `
 For externally managed credentials, repeat `--env NAME` to forward variables under Pi's existing names, only to the Runner:
 
 ```sh
-OPENROUTER_API_KEY="$MY_KEY" agent-batch stack start --env OPENROUTER_API_KEY
+OPENROUTER_API_KEY="$MY_KEY" elflodge stack start --env OPENROUTER_API_KEY
 ```
 
 The stack imports no provider keys merely because they exist in your shell. It saves forwarded names, never their values. Docker retains the values in the existing container, so an unchanged start or a restart after `stack stop` needs no original variables. Recreating the Runner requires them again. Omitting `--env` retains the names; an explicit list replaces them and refreshes their values; `--clear-env` removes them. Saved provider login takes precedence over ordinary environment credentials, as in Pi. A failed sign-in refresh requires repair rather than silently switching to an environment key.
@@ -60,4 +60,4 @@ The stack imports no provider keys merely because they exist in your shell. It s
 
 `stack stop` keeps the containers, database, Runner data and credentials. `stack delete` removes the database and Runner volumes, including saved logins, and the stack's saved configuration, without a prompt. `stack status` shows the hub URL, container state and health, image versions, and authentication source where available. `stack logs` prints logs; `--follow` keeps following them.
 
-`stack env` prints the hub's address and jobs API key as shell exports. `AGENT_BATCH_VERSION` selects another image version. To upgrade, stop the stack, back up its volumes if the data matters, then start with the new CLI version. Supply forwarded variables again for Runner replacement; saved logins survive in its volume.
+`stack env` prints the hub's address and jobs API key as shell exports. `ELFLODGE_VERSION` selects another image version. To upgrade, stop the stack, back up its volumes if the data matters, then start with the new CLI version. Supply forwarded variables again for Runner replacement; saved logins survive in its volume.

@@ -19,7 +19,7 @@ In the image, run `node dist/main.mjs login` in a temporary container with the R
 
 ```sh
 docker run --rm -it --volume runner-data:/data --env RUNNER_MODEL_PROVIDER=openai \
-  ghcr.io/chuse-ai/agent-batch-runner node dist/main.mjs login
+  ghcr.io/elflodge/elflodge-runner node dist/main.mjs login
 ```
 
 For scripts, `login --with-api-key` reads a provider API key from stdin and saves it through the same Pi login flow. Use a pipe without a TTY (`docker run --rm -i` or `docker compose run --rm --no-deps -T`). The key is never a command argument. Empty input and input over 64 KiB fail. This mode supplies one secret only: providers asking for selections or additional fields, such as Bedrock, Vertex and Cloudflare, require interactive login. If a provider asks for more input, the command fails without replacing saved authentication.
@@ -42,13 +42,13 @@ A Runner that stops, or is killed outright (by the out-of-memory killer, `kill -
 
 - **macOS**: poppler's `pdftotext` and `pdftoppm`, for example `brew install poppler`; the sandbox is Seatbelt, and jobs run without a memory limit.
 - **Windows**: run the Runner in WSL 2, as on Linux.
-- **Docker**: the Runner's image, `ghcr.io/chuse-ai/agent-batch-runner`, runs as a non-root user and needs three options for its jobs' sandboxes, as BuildKit's rootless image does: Docker's defaults deny bubblewrap the namespaces it needs and mask the paths under `/proc` that a sandbox mounts its own over.
+- **Docker**: the Runner's image, `ghcr.io/elflodge/elflodge-runner`, runs as a non-root user and needs three options for its jobs' sandboxes, as BuildKit's rootless image does: Docker's defaults deny bubblewrap the namespaces it needs and mask the paths under `/proc` that a sandbox mounts its own over.
 
   ```sh
   docker run --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped --volume runner-data:/data \
     --env HUB_URL --env RUNNER_REGISTRATION_KEY --env RUNNER_MODEL_PROVIDER --env RUNNER_MODEL_ID \
-    --env ANTHROPIC_API_KEY ghcr.io/chuse-ai/agent-batch-runner
+    --env ANTHROPIC_API_KEY ghcr.io/elflodge/elflodge-runner
   ```
 
   `apparmor=unconfined` is needed only on hosts with AppArmor; on Ubuntu 24.04 the host also needs `kernel.apparmor_restrict_unprivileged_userns=0` (in `/etc/sysctl.d`), as BuildKit's rootless image does, and on Ubuntu 25.04 and later its jobs cannot run in a sandbox yet, as on the host. `--restart` starts the Runner again after it stops, as when it could not reach the hub on its first start. `RUNNER_DATA_DIR` is `/data` in the image, so keep it on a volume. A container has no user systemd, so jobs run without a memory limit of their own: `--memory` caps the Runner and its jobs together. Jobs' commands find the programs of Debian's slim image; for more, build an image from this one.
