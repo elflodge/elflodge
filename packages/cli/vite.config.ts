@@ -33,7 +33,8 @@ export default defineConfig({
     // to `dist`. `elf` is the short name of the same command.
     exports: {
       devExports: true,
-      bin: { elflodge: "./src/bin.ts", elf: "./src/bin.ts" },
+      // In the order the formatter sorts package.json into, so a build leaves it unchanged.
+      bin: { elf: "./src/bin.ts", elflodge: "./src/bin.ts" },
       exclude: ["bin"],
     },
     // The bundle carries everything the command imports, its own dev dependencies and `contract`
