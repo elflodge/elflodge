@@ -57,10 +57,10 @@ test("a finished job's events, read in pages, run from its start to its end with
   expect(await readAll(client, id, 2)).toEqual(events);
   expect(events[0]).toMatchObject({ type: "conversation" });
   expect(entryKinds(events)).toContain("pi.tool-result");
-  expect(entryKinds(events)[0]).toBe("agent-batch.job.started");
+  expect(entryKinds(events)[0]).toBe("elflodge.job.started");
   expect(events.at(-1)).toMatchObject({
     type: "entry",
-    record: { kind: "agent-batch.job.succeeded", data: { output: { greeting: "Hello" } } },
+    record: { kind: "elflodge.job.succeeded", data: { output: { greeting: "Hello" } } },
   });
 });
 
@@ -78,7 +78,7 @@ test("a running job's pages say it is running", async () => {
   const { id } = await submitJob(client, SUBMISSION);
   await expect
     .poll(async () => entryKinds((await client.jobs.events({ id })).events), { timeout: 10_000 })
-    .toContain("agent-batch.job.started");
+    .toContain("elflodge.job.started");
 
   const { events } = await client.jobs.events({ id });
   const page = await client.jobs.events({ id, after: events.at(-1)?.id ?? 0 });

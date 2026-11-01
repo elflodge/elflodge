@@ -9,7 +9,7 @@ import { describe, expect, onTestFinished, vi } from "vite-plus/test";
 
 import { runnerCli } from "../src/main.ts";
 
-// `agent-batch stack` and the Runner image call the Runner with these exact arguments. With no
+// `elflodge stack` and the Runner image call the Runner with these exact arguments. With no
 // settings, a list the command line accepts stops at reading them, and one it refuses never gets
 // there.
 

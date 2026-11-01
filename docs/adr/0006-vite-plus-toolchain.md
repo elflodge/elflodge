@@ -14,4 +14,4 @@ The private `contract` and `runner` packages export their TypeScript source: the
 
 ## Considered options
 
-- A namespaced export condition, such as `@chuse-ai/source`, for workspace packages to resolve each other's source: every tool that resolves imports must be configured with it, or it silently falls back to `dist/`.
+- A namespaced export condition, such as `@elflodge/source`, for workspace packages to resolve each other's source: every tool that resolves imports must be configured with it, or it silently falls back to `dist/`.

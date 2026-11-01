@@ -7,5 +7,5 @@ export function entryKinds(events: readonly JobEvent[]) {
 
 /** The kinds of the Runner's own entries among `events`, in order: the job's lifecycle. */
 export function lifecycleOf(events: readonly JobEvent[]) {
-  return entryKinds(events).filter((kind) => kind.startsWith("agent-batch."));
+  return entryKinds(events).filter((kind) => kind.startsWith("elflodge."));
 }

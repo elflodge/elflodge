@@ -24,10 +24,10 @@ In Docker, also:
 
 ## Docker
 
-Each release publishes the hub's image as `ghcr.io/chuse-ai/agent-batch-hub`. Run one container per hub: it runs as a single process. Its health check fetches `/healthz`, which answers once the hub serves requests; platforms that ignore the image's check, such as Kubernetes, can probe the same path. To build it from the repository's root:
+Each release publishes the hub's image as `ghcr.io/elflodge/elflodge-hub`. Run one container per hub: it runs as a single process. Its health check fetches `/healthz`, which answers once the hub serves requests; platforms that ignore the image's check, such as Kubernetes, can probe the same path. To build it from the repository's root:
 
 ```sh
-docker build . --target hub --tag agent-batch-hub
+docker build . --target hub --tag elflodge-hub
 ```
 
 `vp run build` builds the same Node hub into `dist/`, and `vp run start` runs it.

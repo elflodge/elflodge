@@ -134,7 +134,7 @@ describe.skipIf(inject("hub") !== "node")("the Docker images", () => {
     });
 
     // The Runner registers only once a sandboxed command has run: without one it refuses to start.
-    await using runner = await new UnmaskedProcContainer("agent-batch-runner:test")
+    await using runner = await new UnmaskedProcContainer("elflodge-runner:test")
       .withNetwork(network)
       .withSecurityOpt("seccomp=unconfined", "apparmor=unconfined")
       .withEnvironment({

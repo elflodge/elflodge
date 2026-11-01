@@ -118,7 +118,7 @@ export function createRunnerAuth(models: MutableModels, credentials: CredentialS
           return {
             kind: "missing",
             message: yield* withAvailable(
-              `Pi finds no authentication for provider "${provider}". Run agent-batch stack login --provider ${provider}, or supply its environment explicitly with stack start --env NAME`,
+              `Pi finds no authentication for provider "${provider}". Run elflodge stack login --provider ${provider}, or supply its environment explicitly with stack start --env NAME`,
             ),
           };
         }
@@ -154,7 +154,7 @@ export function createRunnerAuth(models: MutableModels, credentials: CredentialS
           Effect.catchTag("TimeoutError", () =>
             Effect.succeed<AuthProblem>({
               kind: "invalid",
-              message: `Authentication for provider "${provider}" did not resolve within 60 seconds. Check its connection and configuration, or repair the sign-in with agent-batch stack login --provider ${provider}.`,
+              message: `Authentication for provider "${provider}" did not resolve within 60 seconds. Check its connection and configuration, or repair the sign-in with elflodge stack login --provider ${provider}.`,
             }),
           ),
           Effect.catch((error) =>

@@ -1,0 +1,35 @@
+{
+  "name": "agent-batch",
+  "version": "0.6.0",
+  "description": "The former name of Elflodge: installs elflodge and runs it as `agent-batch`.",
+  "homepage": "https://github.com/elflodge/elflodge#readme",
+  "bugs": {
+    "url": "https://github.com/elflodge/elflodge/issues"
+  },
+  "license": "MIT",
+  "author": "FluteBlade",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elflodge/elflodge.git",
+    "directory": "packages/agent-batch"
+  },
+  "bin": {
+    "agent-batch": "./bin.js"
+  },
+  "files": [
+    "bin.js"
+  ],
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "elflodge": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

@@ -19,25 +19,25 @@ import lockfile from "proper-lockfile";
 import { os } from "trpc-cli";
 import * as z from "zod/mini";
 
-// `agent-batch stack`: a hub, a Runner and the hub's Postgres on this machine, from the images
+// `elflodge stack`: a hub, a Runner and the hub's Postgres on this machine, from the images
 // released with this version of the command, through Docker Compose (ADR 0034). The containers
 // run in the background until stopped. Their volumes and the user's saved secrets and keys keep
 // the same jobs, keys and Runner, with any sign-in the Runner holds, across starts.
 
 /**
- * The Compose project, apart from the Compose deployment's `agent-batch`, so neither touches the other.
- * `AGENT_BATCH_STACK_PROJECT` names another, so the repository's tests never touch a contributor's own.
+ * The Compose project, apart from the Compose deployment's `elflodge`, so neither touches the other.
+ * `ELFLODGE_STACK_PROJECT` names another, so the repository's tests never touch a contributor's own.
  */
-const PROJECT = process.env["AGENT_BATCH_STACK_PROJECT"] ?? "agent-batch-stack";
+const PROJECT = process.env["ELFLODGE_STACK_PROJECT"] ?? "elflodge-stack";
 
 /** The owner the hub creates on its first start; nobody signs in as it but this command. */
 const OWNER_EMAIL = "owner@example.com";
 
 /** Where the state lives: the user's data folder, never the working directory, where it could be committed. */
-const STATE_DIR = path.join(envPaths("agent-batch").data, "stack");
+const STATE_DIR = path.join(envPaths("elflodge").data, "stack");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 const COMPOSE_FILE = path.join(STATE_DIR, "compose.json");
-const RUNNER_CONFIG_LABEL = "ai.chuse.agent-batch.runner-config";
+const RUNNER_CONFIG_LABEL = "com.elflodge.runner-config";
 
 /** The model the Runner runs every job on, as the Runner's settings name it. */
 const modelSchema = z.object({
@@ -68,7 +68,7 @@ const DEFAULT_MODEL = { provider: "openrouter", id: "openrouter/free" };
 /** The error for a state file that is not as this command wrote it. */
 function corruptState() {
   return new Error(
-    `${STATE_FILE} is not as agent-batch stack wrote it; agent-batch stack delete deletes it with the data it belongs to`,
+    `${STATE_FILE} is not as elflodge stack wrote it; elflodge stack delete deletes it with the data it belongs to`,
   );
 }
 
@@ -120,7 +120,7 @@ function secret() {
   return randomBytes(24).toString("hex");
 }
 
-/** The hub `agent-batch stack` runs and the key it made, for commands run without their own settings. */
+/** The hub `elflodge stack` runs and the key it made, for commands run without their own settings. */
 export function savedHub(): Effect.Effect<{ url: URL; apiKey: string } | undefined, Error> {
   return Effect.map(readState(), (state) =>
     state?.apiKey === undefined
@@ -141,7 +141,7 @@ function literal(value: string) {
 /** The Runner declaration contains forwarding names, never their external values. */
 function runnerService(state: State, version: string) {
   return {
-    image: `ghcr.io/chuse-ai/agent-batch-runner:${version}`,
+    image: `ghcr.io/elflodge/elflodge-runner:${version}`,
     // The image's healthcheck reports the Runner healthy once it has finished starting.
     depends_on: { hub: { condition: "service_healthy" } },
     security_opt: ["seccomp=unconfined", "systempaths=unconfined", "apparmor=unconfined"],
@@ -175,9 +175,9 @@ function runnerConfiguration(state: State, version: string) {
 /** The repository's Compose deployment with the stack's settings and a localhost-only hub. */
 function composeFile(state: State, version: string) {
   const database = {
-    user: "agent_batch",
+    user: "elflodge",
     password: literal(state.postgresPassword),
-    name: "agent_batch",
+    name: "elflodge",
   };
   return {
     name: PROJECT,
@@ -199,7 +199,7 @@ function composeFile(state: State, version: string) {
         restart: "unless-stopped",
       },
       hub: {
-        image: `ghcr.io/chuse-ai/agent-batch-hub:${version}`,
+        image: `ghcr.io/elflodge/elflodge-hub:${version}`,
         depends_on: { database: { condition: "service_healthy" } },
         environment: {
           DATABASE_URL: `postgres://${database.user}:${database.password}@database:5432/${database.name}`,
@@ -301,7 +301,7 @@ function compose(
     const fs = yield* FileSystem.FileSystem;
     const file = options.file ?? COMPOSE_FILE;
     if (!(yield* fs.exists(file))) {
-      yield* say("agent-batch stack has not started a hub yet");
+      yield* say("elflodge stack has not started a hub yet");
       return;
     }
     const logLevel = options.errorsOnly ? ["--log-level", "error"] : [];
@@ -325,7 +325,7 @@ function compose(
   }).pipe(
     Effect.catchReason("PlatformError", "NotFound", () =>
       Effect.fail(
-        new Error("agent-batch stack runs the hub and a Runner with Docker: install Docker"),
+        new Error("elflodge stack runs the hub and a Runner with Docker: install Docker"),
       ),
     ),
     Effect.mapError(ensureError),
@@ -353,7 +353,7 @@ function dockerOutput(args: readonly string[]) {
     Effect.scoped,
     Effect.catchReason("PlatformError", "NotFound", () =>
       Effect.fail(
-        new Error("agent-batch stack runs the hub and a Runner with Docker: install Docker"),
+        new Error("elflodge stack runs the hub and a Runner with Docker: install Docker"),
       ),
     ),
     Effect.mapError(ensureError),
@@ -414,14 +414,14 @@ const lockState = Effect.acquireRelease(
             // ends outside the command's error handling.
             onCompromised: (error) =>
               process.stderr.write(
-                `agent-batch stack lost its lock (${error.message}), so another command could change the stack\n`,
+                `elflodge stack lost its lock (${error.message}), so another command could change the stack\n`,
               ),
           }),
         catch: (caught) => {
           const error = ensureError(caught);
           return "code" in error && error.code === "ELOCKED"
             ? new Error(
-                "Another agent-batch stack command is changing the stack; if it was killed, its lock expires after 10 seconds",
+                "Another elflodge stack command is changing the stack; if it was killed, its lock expires after 10 seconds",
               )
             : error;
         },
@@ -473,14 +473,14 @@ function createKeys(client: MemberClient) {
     try: async (signal) => {
       const runners = await client.apiKeys.create(
         {
-          name: "agent-batch stack runners",
+          name: "elflodge stack runners",
           permissions: { runner: ["register"] },
         },
         { signal },
       );
       const jobs = await client.apiKeys.create(
         {
-          name: "agent-batch stack jobs",
+          name: "elflodge stack jobs",
           permissions: { job: ["create", "read", "pause", "resume", "cancel", "delete"] },
         },
         { signal },
@@ -555,16 +555,16 @@ function requireForwardedEnvironment(names: readonly string[]) {
     if (missing.length > 0) {
       yield* Effect.fail(
         new Error(
-          `Creating the Runner requires these forwarded variables: ${missing.join(", ")}. Set them again, or use --clear-env and agent-batch stack login for persistent authentication`,
+          `Creating the Runner requires these forwarded variables: ${missing.join(", ")}. Set them again, or use --clear-env and elflodge stack login for persistent authentication`,
         ),
       );
     }
   });
 }
 
-/** The version of the images to run: this command's, unless `AGENT_BATCH_VERSION` names another. */
+/** The version of the images to run: this command's, unless `ELFLODGE_VERSION` names another. */
 function imageVersion(version: string) {
-  return Config.String("AGENT_BATCH_VERSION").pipe(Config.withDefault(version));
+  return Config.String("ELFLODGE_VERSION").pipe(Config.withDefault(version));
 }
 
 function say(message: string) {
@@ -639,7 +639,7 @@ function start(version: string, flags: StartFlags) {
         Effect.mapError(
           (error) =>
             new Error(
-              `${error.message}. The existing Runner was not stopped. Check agent-batch stack logs; to repair provider authentication, run ${CommandLine.display(["agent-batch", "stack", "login", "--provider", state.model.provider])}, then agent-batch stack start.`,
+              `${error.message}. The existing Runner was not stopped. Check elflodge stack logs; to repair provider authentication, run ${CommandLine.display(["elflodge", "stack", "login", "--provider", state.model.provider])}, then elflodge stack start.`,
             ),
         ),
       );
@@ -679,7 +679,7 @@ function start(version: string, flags: StartFlags) {
               )
             : "The existing Runner was not stopped";
           yield* say(
-            `Runner startup did not complete. ${disposition}; the hub and saved data remain. Check agent-batch stack status and agent-batch stack logs. If provider authentication is missing or needs repair, run ${CommandLine.display(["agent-batch", "stack", "login", "--provider", state.model.provider])}, then agent-batch stack start.`,
+            `Runner startup did not complete. ${disposition}; the hub and saved data remain. Check elflodge stack status and elflodge stack logs. If provider authentication is missing or needs repair, run ${CommandLine.display(["elflodge", "stack", "login", "--provider", state.model.provider])}, then elflodge stack start.`,
           );
         }),
       ),
@@ -687,9 +687,9 @@ function start(version: string, flags: StartFlags) {
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
-        "agent-batch commands use it while AGENT_BATCH_URL and AGENT_BATCH_API_KEY are unset;",
-        "agent-batch stack env prints them for other clients.",
-        "Use agent-batch stack status or agent-batch stack logs to check it, and agent-batch stack stop to stop it.",
+        "elflodge commands use it while ELFLODGE_URL and ELFLODGE_API_KEY are unset;",
+        "elflodge stack env prints them for other clients.",
+        "Use elflodge stack status or elflodge stack logs to check it, and elflodge stack stop to stop it.",
       ].join("\n"),
     );
   }).pipe(Effect.scoped);
@@ -706,7 +706,7 @@ function runCredentialCommand(
     if (input.withApiKey && process.stdin.isTTY) {
       yield* Effect.fail(
         new Error(
-          "Pipe the API key to agent-batch stack login --with-api-key, or use agent-batch stack login for hidden entry.",
+          "Pipe the API key to elflodge stack login --with-api-key, or use elflodge stack login for hidden entry.",
         ),
       );
     }
@@ -752,7 +752,7 @@ export function runToEnd(
         if (Exit.isSuccess(exit)) resolve();
         else if (Cause.hasInterruptsOnly(exit.cause)) Runtime.defaultTeardown(exit, onExit);
         else {
-          // Set before trpc-cli exits, as `runAgentBatchCli` keeps a code already set: 124 for a
+          // Set before trpc-cli exits, as `runElflodgeCli` keeps a code already set: 124 for a
           // timed-out wait, say, rather than trpc-cli's 1.
           process.exitCode = Runtime.getErrorExitCode(Cause.squash(exit.cause));
           reject(ensureError(Cause.squash(exit.cause)));
@@ -769,7 +769,7 @@ export function stackCommands(version: string) {
       .meta({
         default: true,
         description:
-          "Run and manage a hub, a Runner and Postgres on this machine. Starts the stack in the background with Docker and returns once the hub is healthy and the Runner has initialized and synced with it. The first start creates the hub's owner and an API key, which agent-batch commands use while AGENT_BATCH_URL and AGENT_BATCH_API_KEY are unset. Use stack login for persistent provider authentication, or --env to forward explicitly named variables to the Runner. An interactive first start offers login if authentication is missing.",
+          "Run and manage a hub, a Runner and Postgres on this machine. Starts the stack in the background with Docker and returns once the hub is healthy and the Runner has initialized and synced with it. The first start creates the hub's owner and an API key, which elflodge commands use while ELFLODGE_URL and ELFLODGE_API_KEY are unset. Use stack login for persistent provider authentication, or --env to forward explicitly named variables to the Runner. An interactive first start offers login if authentication is missing.",
       })
       .input(
         z.object({
@@ -943,7 +943,7 @@ export function stackCommands(version: string) {
     env: os
       .meta({
         description:
-          "Prints the hub's address and the API key agent-batch stack made as shell exports, for clients other than agent-batch.",
+          "Prints the hub's address and the API key elflodge stack made as shell exports, for clients other than elflodge.",
       })
       // Without an input, trpc-cli offers a `--json` it cannot describe.
       .input(z.object({}))
@@ -952,11 +952,11 @@ export function stackCommands(version: string) {
           Effect.gen(function* () {
             const hub = yield* savedHub();
             if (hub === undefined) {
-              return yield* Effect.fail(new Error("agent-batch stack has not started a hub yet"));
+              return yield* Effect.fail(new Error("elflodge stack has not started a hub yet"));
             }
             return yield* Effect.sync(() => {
               process.stdout.write(
-                `export AGENT_BATCH_URL=${hub.url.origin}\nexport AGENT_BATCH_API_KEY=${hub.apiKey}\n`,
+                `export ELFLODGE_URL=${hub.url.origin}\nexport ELFLODGE_API_KEY=${hub.apiKey}\n`,
               );
             });
           }),

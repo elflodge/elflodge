@@ -39,7 +39,7 @@ import runnerPackage from "../package.json" with { type: "json" };
 // The journal's entries and conversation records become the job's events; our own entries
 // record the job's start, its recovery after a Runner restart, each pause and resume, and its end,
 // one kind per outcome, and the hub reads the job's lifecycle from them. Their kinds and data
-// are the contract's: kinds name their subject in the past tense under `agent-batch.`, and each
+// are the contract's: kinds name their subject in the past tense under `elflodge.`, and each
 // carries its time as `timestamp`, Unix milliseconds by the Runner's clock, as pi-ai's messages do.
 
 /**
@@ -91,10 +91,10 @@ export const JobCancelled = defineEntry<JobEnding>(JOB_CANCELLED);
  * resume, opens and closes again.
  */
 export function openingRequest(runId: string): string {
-  return `agent-batch.job.opening:${runId}`;
+  return `elflodge.job.opening:${runId}`;
 }
 export function closingRequest(runId: string): string {
-  return `agent-batch.job.closing:${runId}`;
+  return `elflodge.job.closing:${runId}`;
 }
 
 /**

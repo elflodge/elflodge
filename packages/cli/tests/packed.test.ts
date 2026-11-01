@@ -21,15 +21,15 @@ const PACKAGE_DIR = path.join(import.meta.dirname, "..");
 const VP = path.join(PACKAGE_DIR, "../../node_modules/.bin/vp");
 
 let dir: string | undefined;
-let agentBatch: string;
+let elflodge: string;
 beforeAll(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "agent-batch-packed-"));
+  dir = await mkdtemp(path.join(tmpdir(), "elflodge-packed-"));
   // Packing builds, through the package's `prepack`.
-  await run(VP, ["pm", "pack", "--out", path.join(dir, "agent-batch.tgz")], { cwd: PACKAGE_DIR });
+  await run(VP, ["pm", "pack", "--out", path.join(dir, "elflodge.tgz")], { cwd: PACKAGE_DIR });
   await writeFile(path.join(dir, "package.json"), "{}");
   // The package bundles everything it runs and has no dependencies, so npm installs it alone.
-  await run("npm", ["install", "--no-audit", "--no-fund", "./agent-batch.tgz"], { cwd: dir });
-  agentBatch = path.join(dir, "node_modules/.bin/agent-batch");
+  await run("npm", ["install", "--no-audit", "--no-fund", "./elflodge.tgz"], { cwd: dir });
+  elflodge = path.join(dir, "node_modules/.bin/elflodge");
 }, 300_000);
 // Apart from the setup, so the directory goes even when a step of the setup fails.
 afterAll(async () => {
@@ -37,7 +37,7 @@ afterAll(async () => {
 });
 
 test("the packed package installs and runs outside the workspace", async () => {
-  const { stdout: help } = await run(agentBatch, ["jobs", "--help"]);
+  const { stdout: help } = await run(elflodge, ["jobs", "--help"]);
   expect(help).toContain("Available subcommands: submit, get, pause, resume, cancel");
 });
 
@@ -57,10 +57,10 @@ test("a call the hub refuses prints its Problem Details and exits non-zero", asy
   await once(hub, "listening");
   const { port } = z.parse(z.object({ port: z.int() }), hub.address());
   const { exitCode, stderr } = await runCommand(
-    agentBatch,
+    elflodge,
     ["jobs", "get", "--id", crypto.randomUUID()],
     {
-      env: { AGENT_BATCH_URL: `http://127.0.0.1:${port}`, AGENT_BATCH_API_KEY: "key" },
+      env: { ELFLODGE_URL: `http://127.0.0.1:${port}`, ELFLODGE_API_KEY: "key" },
       extendEnv: true,
     },
   );
@@ -69,24 +69,24 @@ test("a call the hub refuses prints its Problem Details and exits non-zero", asy
   expect(JSON.parse(stderr)).toEqual(problem);
 });
 
-// `agent-batch stack` runs its own bundled dependencies before Docker: the lock, the state it saves and
+// `elflodge stack` runs its own bundled dependencies before Docker: the lock, the state it saves and
 // the Compose file it writes. Without Docker on the `PATH`, it stops there and says so. The data
 // folder follows `XDG_DATA_HOME` on Linux only.
 test.skipIf(process.platform !== "linux")(
-  "agent-batch stack saves its state, then asks for Docker where there is none",
+  "elflodge stack saves its state, then asks for Docker where there is none",
   async () => {
-    const data = await mkdtemp(path.join(tmpdir(), "agent-batch-stack-"));
+    const data = await mkdtemp(path.join(tmpdir(), "elflodge-stack-"));
     onTestFinished(() => rm(data, { recursive: true, force: true }));
-    const { exitCode, stderr } = await runCommand(agentBatch, ["stack", "start"], {
+    const { exitCode, stderr } = await runCommand(elflodge, ["stack", "start"], {
       env: { PATH: path.dirname(process.execPath), XDG_DATA_HOME: data },
     });
 
     expect({ exitCode, stderr: stderr.trim() }).toEqual({
       exitCode: 1,
-      stderr: "agent-batch stack runs the hub and a Runner with Docker: install Docker",
+      stderr: "elflodge stack runs the hub and a Runner with Docker: install Docker",
     });
     await expect(
-      readFile(path.join(data, "agent-batch-nodejs/stack/state.json"), "utf8").then(JSON.parse),
+      readFile(path.join(data, "elflodge-nodejs/stack/state.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ port: 8787, model: { provider: "openrouter" } });
   },
 );

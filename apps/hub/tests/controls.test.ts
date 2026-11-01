@@ -80,15 +80,9 @@ test("cancelling a running job stops its work at once and ends it cancelled, wit
   expect(await client.jobs.get({ id })).not.toHaveProperty("pendingControl");
   const page = await client.jobs.events({ id });
   expect(page.status).toBe("cancelled");
-  expect(lifecycleOf(page.events)).toEqual([
-    "agent-batch.job.started",
-    "agent-batch.job.cancelled",
-  ]);
+  expect(lifecycleOf(page.events)).toEqual(["elflodge.job.started", "elflodge.job.cancelled"]);
   // The command the cancel cut off has its result recorded before the job's end.
-  expect(entryKinds(page.events).slice(-2)).toEqual([
-    "pi.tool-result",
-    "agent-batch.job.cancelled",
-  ]);
+  expect(entryKinds(page.events).slice(-2)).toEqual(["pi.tool-result", "elflodge.job.cancelled"]);
 });
 
 test("a cancel that reaches the Runner after the job's output was accepted leaves it succeeded", async () => {
@@ -160,10 +154,10 @@ test("pausing a running job stops it with its work kept, and resuming it carries
   await untilStatus(client, id, "succeeded");
   const { events } = await client.jobs.events({ id });
   expect(lifecycleOf(events)).toEqual([
-    "agent-batch.job.started",
-    "agent-batch.job.paused",
-    "agent-batch.job.resumed",
-    "agent-batch.job.succeeded",
+    "elflodge.job.started",
+    "elflodge.job.paused",
+    "elflodge.job.resumed",
+    "elflodge.job.succeeded",
   ]);
   // The agent carries on its conversation: the pause settled the model call it cut off, so the
   // agent is asked to carry on after the job's Prompt.
@@ -182,10 +176,10 @@ test("a cancelled job resumes from where it stopped", async () => {
   await untilStatus(client, id, "succeeded");
   const { events } = await client.jobs.events({ id });
   expect(lifecycleOf(events)).toEqual([
-    "agent-batch.job.started",
-    "agent-batch.job.cancelled",
-    "agent-batch.job.resumed",
-    "agent-batch.job.succeeded",
+    "elflodge.job.started",
+    "elflodge.job.cancelled",
+    "elflodge.job.resumed",
+    "elflodge.job.succeeded",
   ]);
 });
 
@@ -227,7 +221,7 @@ test("a pause waits for the Runner to confirm it before a resume, and a cancel r
   await untilStatus(client, id, "cancelled", 20_000);
   expect(system.model.state.callCount).toBe(calls);
   const { events } = await client.jobs.events({ id });
-  expect(lifecycleOf(events)).toEqual(["agent-batch.job.started", "agent-batch.job.cancelled"]);
+  expect(lifecycleOf(events)).toEqual(["elflodge.job.started", "elflodge.job.cancelled"]);
 }, 40_000);
 
 test("cancelling a paused job ends it at once, though its Runner is away", async () => {

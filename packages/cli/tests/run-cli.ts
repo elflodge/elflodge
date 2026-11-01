@@ -6,7 +6,7 @@ import { FailedToExitError } from "trpc-cli";
 import { afterAll, onTestFinished, vi } from "vite-plus/test";
 import * as z from "zod/mini";
 
-import { runAgentBatchCli } from "../src/index.ts";
+import { runElflodgeCli } from "../src/index.ts";
 
 // `runCommand` (index.ts) and `runToEnd` (stack.ts) start their own Effect roots without a way to
 // provide a ConfigProvider layer. Effect's cached default ConfigProvider keeps the first run's
@@ -30,7 +30,7 @@ async function tick() {
 }
 
 /**
- * Runs `agent-batch` with `argv` in this process, as `src/bin.ts` runs it, in the folder `cwd`,
+ * Runs `elflodge` with `argv` in this process, as `src/bin.ts` runs it, in the folder `cwd`,
  * calling a hub that answers with `hub`: its exit code and what it printed. Starting the command as
  * a process takes about half a second; `packed.test.ts` starts the packed command, so what only a
  * process shows, such as its exit code reaching the shell, is covered there.
@@ -52,8 +52,8 @@ export async function runCli(
   options: { hub: RequestListener; cwd?: string; clockFrom?: Promise<unknown> },
 ) {
   answer = options.hub;
-  vi.stubEnv("AGENT_BATCH_URL", `http://127.0.0.1:${port}`);
-  vi.stubEnv("AGENT_BATCH_API_KEY", "key");
+  vi.stubEnv("ELFLODGE_URL", `http://127.0.0.1:${port}`);
+  vi.stubEnv("ELFLODGE_API_KEY", "key");
   const cwd = process.cwd();
   const exitCode = process.exitCode;
   process.exitCode = undefined;
@@ -96,7 +96,7 @@ export async function runCli(
   }
   onTestFinished(restore);
   try {
-    const run = runAgentBatchCli("0.0.0", argv, {
+    const run = runElflodgeCli("0.0.0", argv, {
       // trpc-cli's own logger holds the `console` it had when loaded, out of reach of a spy.
       info: (...args) => stdout.push(`${args.join(" ")}\n`),
       error: (...args) => stderr.push(`${args.join(" ")}\n`),

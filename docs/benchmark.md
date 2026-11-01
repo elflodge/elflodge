@@ -1,6 +1,6 @@
 # Benchmark: one Runner against one container per job
 
-How many agent jobs one small server holds, and what each costs in CPU, when the agent loops share a Runner process instead of each getting a container. Measured on 2026-10-25 and 26 with the Runner from agent-batch 0.2.0, its model calls pointed at the replay server described below. Later releases raised the Runner's throughput, so these figures are conservative for current versions.
+How many agent jobs one small server holds, and what each costs in CPU, when the agent loops share a Runner process instead of each getting a container. Measured on 2026-10-25 and 26 with the Runner from agent-batch 0.2.0, as Elflodge was then called, its model calls pointed at the replay server described below. Later releases raised the Runner's throughput, so these figures are conservative for current versions.
 
 ## Setup
 
@@ -29,7 +29,7 @@ Each workload ramped up to its break point, then a coarse search found its limit
 | C        | about 400                                 | CPU from about 100; memory near full at 400 | 6.8 MiB                             | 0.70–0.88                                 | 2.2 jobs/s at 100     | 90%          |
 | D        | about 12                                  | CPU                                         | up to 320 MiB while its script runs | 7.3–7.8                                   | 0.2 jobs/s            | 75%          |
 
-Accuracy measures the model on these tasks, not agent-batch.
+Accuracy measures the model on these tasks, not Elflodge.
 
 ## 500 at once
 
@@ -66,5 +66,5 @@ At the recorded model speed the host's CPU caps throughput early, so holding mor
 
 - These are particular workloads on one machine, not a capacity guarantee. The job sandboxes, the model's speed and the jobs' own work set the limits.
 - Under replay a job whose sandbox failed would still finish, since its recorded turn is answered regardless. Tool failures were counted from the replay server's log of tool results that differed from the recording.
-- Defaults broke before the hardware did: systemd's `TasksMax`, the WebSocket library's maximum message size and Node's maximum string length. Later releases fixed the ones in agent-batch's own code; `TasksMax` is a host setting, to raise for several hundred jobs at once.
+- Defaults broke before the hardware did: systemd's `TasksMax`, the WebSocket library's maximum message size and Node's maximum string length. Later releases fixed the ones in Elflodge's own code; `TasksMax` is a host setting, to raise for several hundred jobs at once.
 - The benchmark harness is not published.

@@ -1,32 +1,32 @@
-# agent-batch
+# Elflodge
 
-<!-- Links to repository files are absolute because npmjs.com shows this file too, as the agent-batch package's README. -->
+<!-- Links to repository files are absolute because npmjs.com shows this file too, as the Elflodge package's README. -->
 
-[![npm](https://img.shields.io/npm/v/agent-batch)](https://www.npmjs.com/package/agent-batch) [![License: MIT](https://img.shields.io/npm/l/agent-batch)](https://github.com/chuse-ai/agent-batch/blob/main/LICENSE)
+[![npm](https://img.shields.io/npm/v/elflodge)](https://www.npmjs.com/package/elflodge) [![License: MIT](https://img.shields.io/npm/l/elflodge)](https://github.com/elflodge/elflodge/blob/main/LICENSE)
 
 > Map one agent over many inputs, on machines you own, and get back JSON that matches your schema
 
-agent-batch runs real agents on unattended jobs. Give it one agent definition and a few hundred inputs, and each job comes back as JSON checked against your schema, or as a failure with its reason. The agent is [Pi](https://github.com/earendil-works/pi), working with real files and real shell commands in a sandbox of its own. The first five jobs run before the rest, and a Batch pauses itself when too many fail, so you can go to bed.
+Elflodge runs real agents on unattended jobs. Give it one agent definition and a few hundred inputs, and each job comes back as JSON checked against your schema, or as a failure with its reason. The agent is [Pi](https://github.com/earendil-works/pi), working with real files and real shell commands in a sandbox of its own. The first five jobs run before the rest, and a Batch pauses itself when too many fail, so you can go to bed.
 
 Given a folder of invoices and a JSON Schema for what you want from each, one line runs them all:
 
 ```sh
-npx agent-batch batches submit --id invoices --each invoices/*.pdf --instructions "Extract the supplier, number, currency and total." --output-schema invoice.schema.json --wait --output-dir ./results
+npx elflodge batches submit --id invoices --each invoices/*.pdf --instructions "Extract the supplier, number, currency and total." --output-schema invoice.schema.json --wait --output-dir ./results
 ```
 
 Here it is with 500 invoices, the Runner on one 4 GB server, the model's replies replayed from a recording and the wait sped up:
 
-<img alt="A terminal runs batches submit on 500 invoice PDFs: the Canary of 5 runs first, then 495 agents run at once while the server's memory bar climbs to 3.6 of 3.7 GiB, and the first three results print as JSON" src="https://raw.githubusercontent.com/chuse-ai/agent-batch/main/docs/images/hero.svg">
+<img alt="A terminal runs batches submit on 500 invoice PDFs: the Canary of 5 runs first, then 495 agents run at once while the server's memory bar climbs to 3.6 of 3.7 GiB, and the first three results print as JSON" src="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/hero.svg">
 
 Each PDF is a job. Each line of `results/output.jsonl` is one invoice's JSON, and each line of `results/error.jsonl` one that failed, with why.
 
 It does this without giving every job its own sandbox, so you don't pay for agents to wait on the model. Five hundred agents in their own 1 GB sandboxes hold 500 GB of memory; on one Runner, for jobs that mostly wait on the model, they fit in a 4 GB server.
 
-Try it on your machine with Docker and Node: `npx agent-batch stack start`, then [the first job](#an-everyday-chore-done-by-an-agent).
+Try it on your machine with Docker and Node: `npx elflodge stack start`, then [the first job](#an-everyday-chore-done-by-an-agent).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/chuse-ai/agent-batch/main/docs/images/memory-dark.svg">
-  <img alt="Memory held by 500 agents: 500 one-gigabyte sandboxes against 4 GB for one Runner, each square 1 GB, to scale" src="https://raw.githubusercontent.com/chuse-ai/agent-batch/main/docs/images/memory-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/memory-dark.svg">
+  <img alt="Memory held by 500 agents: 500 one-gigabyte sandboxes against 4 GB for one Runner, each square 1 GB, to scale" src="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/memory-light.svg">
 </picture>
 
 Open source, MIT, TypeScript. Early: versions are 0.x.
@@ -44,7 +44,7 @@ $ wc -l notes.txt
 The same chore, done by an agent in a sandbox on your machine. The answer is known in advance, so you can check the run yourself. You need Docker, Node and `jq` (versions, and a step for Ubuntu 24.04, in [the host notes](#host-notes)).
 
 ```sh
-npx agent-batch stack start
+npx elflodge stack start
 ```
 
 That runs a hub, a Runner and Postgres in the background, and on first run offers to sign you in to a model provider. The default is OpenRouter's free models, which still need an OpenRouter sign-in or key. Then the job:
@@ -57,14 +57,14 @@ cat > job.json <<'EOF'
   "input": "Count the lines of this text and submit the count:\none\ntwo\nthree\n"
 }
 EOF
-ID=$(npx agent-batch jobs submit --input job.json | jq -er .id)
-npx agent-batch jobs wait --id "$ID"             # prints the job when it ends; exits 1 unless it succeeded
-npx agent-batch jobs get --id "$ID" | jq .output # 3
+ID=$(npx elflodge jobs submit --input job.json | jq -er .id)
+npx elflodge jobs wait --id "$ID"             # prints the job when it ends; exits 1 unless it succeeded
+npx elflodge jobs get --id "$ID" | jq .output # 3
 ```
 
 What happened: the agent read the input, counted, and could only finish by calling `submit_output`. The output was checked against the Output schema, the JSON Schema in the agent definition's Output contract. Had it submitted `"3"` instead of `3`, the validation error would have gone back to the agent to fix; had it given up, the job would have failed with `noOutput`. A job never succeeds with nothing in it. The schema checks the shape, not the facts: `4` is also an integer, so read some outputs.
 
-If you did not see `3`: `npx agent-batch jobs events --id "$ID"` prints what the agent did, and `npx agent-batch stack logs --follow` prints the stack. Submit `job.json` a second time and you get the same job back, because the `customId` is the same. `npx agent-batch stack stop` keeps your data; `npx agent-batch stack delete` removes it and does not ask.
+If you did not see `3`: `npx elflodge jobs events --id "$ID"` prints what the agent did, and `npx elflodge stack logs --follow` prints the stack. Submit `job.json` a second time and you get the same job back, because the `customId` is the same. `npx elflodge stack stop` keeps your data; `npx elflodge stack delete` removes it and does not ask.
 
 Now change the input: put your own text in `input`, change the schema to whatever you want back, give it a new `customId`, and submit. That is the whole programming model; everything below is doing it many times at once.
 
@@ -88,12 +88,12 @@ one Runner process (Node, on your machine)
 | CPU per job, CPU-heavy jobs (data scripts over large CSVs, code fixes with test runs) | **1.45–4.9× less**; 1.45× for the heaviest, where the jobs' own work dominates                                                                                                                                                                                                                                                                                | baseline                         |
 | Conditions                                                                            | Arm, 2 vCPU, 4 GB RAM, about €7 a month. Real commands in real sandboxes; the hub on another machine. Model responses replayed from real recordings: at 20× their recorded latency for the jobs held open, standing for a slow model; at their recorded timing for CPU. Several hundred need systemd's `TasksMax` raised. Server cost only, not model tokens. | same server                      |
 
-One container too many hung the host for about 30 minutes instead of failing a job. These are particular workloads on one machine, not a capacity guarantee. Method and results: [docs/benchmark.md](https://github.com/chuse-ai/agent-batch/blob/main/docs/benchmark.md).
+One container too many hung the host for about 30 minutes instead of failing a job. These are particular workloads on one machine, not a capacity guarantee. Method and results: [docs/benchmark.md](https://github.com/elflodge/elflodge/blob/main/docs/benchmark.md).
 
 A Runner runs 8 jobs at a time by default. That is the concurrency limit, and it is a setting:
 
 ```sh
-RUNNER_MAX_JOBS=100 npx agent-batch stack start --env RUNNER_MAX_JOBS
+RUNNER_MAX_JOBS=100 npx elflodge stack start --env RUNNER_MAX_JOBS
 ```
 
 `--env` replaces the list of forwarded variables, so name every one you forward, such as `--env RUNNER_MAX_JOBS --env OPENROUTER_API_KEY`.
@@ -125,7 +125,7 @@ cat > postings.jsonl <<'EOF'
 {"customId": "posting-0001", "input": "Software Engineer II, Example Corp\nYou will own the billing service end to end and mentor two engineers. Required: 5+ years TypeScript, Postgres. Nice: Effect, Cloudflare Workers.\n"}
 {"customId": "posting-0002", "input": "Junior Developer, Example GmbH\nYou will fix bugs in our Node services with a senior engineer reviewing every change. Required: JavaScript. Nice: Docker.\n"}
 EOF
-npx agent-batch batches submit postings.jsonl --id postings \
+npx elflodge batches submit postings.jsonl --id postings \
   --instructions "The input is a job posting. Submit the requirements it treats as mandatory, the ones it treats as optional, and the seniority it is really asking for, judged from the responsibilities rather than the title." \
   --output-schema postings.schema.json --wait --output-dir ./results
 ```
@@ -139,7 +139,7 @@ npx agent-batch batches submit postings.jsonl --id postings \
 
 The first title said II; the responsibilities said senior.
 
-`npx agent-batch <command> --help` lists a command's flags, and the hub's reference at `/` every field of the API.
+`npx elflodge <command> --help` lists a command's flags, and the hub's reference at `/` every field of the API.
 
 ## Stop watching your agents
 
@@ -152,23 +152,23 @@ Two postings you can watch. Five hundred you count. With five hundred, this happ
 The hub records every job's events (what the agent did), activity, usage in tokens and cost, and output. A Batch counts its jobs by status, and jobs can be listed by status, label, Batch and custom ID:
 
 ```sh
-npx agent-batch batches get --id postings | jq -c .jobCounts   # {"queued":0,"running":0,...,"succeeded":2,...}
-npx agent-batch jobs list --batch-id postings --status failed
-npx agent-batch jobs list --batch-id postings --status succeeded   # listed jobs carry no output: read one with jobs get
+npx elflodge batches get --id postings | jq -c .jobCounts   # {"queued":0,"running":0,...,"succeeded":2,...}
+npx elflodge jobs list --batch-id postings --status failed
+npx elflodge jobs list --batch-id postings --status succeeded   # listed jobs carry no output: read one with jobs get
 ```
 
 Jobs can be added continuously (`add-jobs`, `jobs submit`) and read continuously (`jobs wait`, `jobs list`). A job's journal is on disk, so a restarted Runner recovers its jobs where they stopped. A prompt that gives wrong but valid answers passes the Canary. Read some outputs.
 
 ## Read it before you run it
 
-Underneath, it is a plain job queue whose worker happens to think: an HTTP API on Postgres (Node or Docker, or Cloudflare Workers with Postgres through Hyperdrive), and Runners that connect out to it. The repository is `chuse-ai/agent-batch`: TypeScript on Effect, oRPC, Hono and Zod, with Pi and sandbox-runtime inside. The CLI, the npm package `agent-batch`, only calls the hub's HTTP API.
+Underneath, it is a plain job queue whose worker happens to think: an HTTP API on Postgres (Node or Docker, or Cloudflare Workers with Postgres through Hyperdrive), and Runners that connect out to it. The repository is `elflodge/elflodge`: TypeScript on Effect, oRPC, Hono and Zod, with Pi and sandbox-runtime inside. The CLI, the npm package `elflodge`, only calls the hub's HTTP API.
 
 So can anything else. Your hub serves an OpenAPI 3.2 document at `/spec.json` and a browsable reference at `/`:
 
 ```sh
-eval "$(npx agent-batch stack env)"   # exports AGENT_BATCH_URL and AGENT_BATCH_API_KEY
-curl -sS -H "x-api-key: $AGENT_BATCH_API_KEY" "$AGENT_BATCH_URL/spec.json" | jq '.paths | keys'
-curl -sS -H "x-api-key: $AGENT_BATCH_API_KEY" "$AGENT_BATCH_URL/jobs?status=succeeded"
+eval "$(npx elflodge stack env)"   # exports ELFLODGE_URL and ELFLODGE_API_KEY
+curl -sS -H "x-api-key: $ELFLODGE_API_KEY" "$ELFLODGE_URL/spec.json" | jq '.paths | keys'
+curl -sS -H "x-api-key: $ELFLODGE_API_KEY" "$ELFLODGE_URL/jobs?status=succeeded"
 ```
 
 ### Job commands never see your model key
@@ -184,35 +184,35 @@ cat > look.json <<'EOF'
   "input": "Run `env` and submit the names of the environment variables you see, names only. Then run `node -e \"fetch('https://example.com').then(r => console.log(r.status))\"` and submit whether it printed a status."
 }
 EOF
-ID=$(npx agent-batch jobs submit --input look.json | jq -er .id)
-npx agent-batch jobs wait --id "$ID" | jq -c '.output | {networkWorks, keys: [.names[] | select(test("KEY|TOKEN|SECRET"))]}'
+ID=$(npx elflodge jobs submit --input look.json | jq -er .id)
+npx elflodge jobs wait --id "$ID" | jq -c '.output | {networkWorks, keys: [.names[] | select(test("KEY|TOKEN|SECRET"))]}'
 ```
 
 A run whose Runner held an OpenAI key printed `{"networkWorks":false,"keys":[]}`; the same `fetch` run in the Runner's own container printed `200`.
 
 The model is per Runner. `stack start --provider anthropic --model claude-sonnet-5-5` picks any provider and model Pi supports; `stack login --provider P` adds a provider's sign-in (`--with-api-key` reads a key from stdin); `--env NAME` forwards a host variable, such as a provider key, to the Runner. For several models, run several Runners.
 
-## When not to use agent-batch
+## When not to use Elflodge
 
 - You want to talk to the agent. Jobs run unattended and end; there is no chat.
 - You want one answer to one request, right now. Submitting and reading are separate steps, and there is no push or callback.
 - The job needs the web. Job commands have no network.
-- People who must not see each other's work share the machine. The sandbox is around each job's commands; agent-batch is for one organization, not hostile multi-tenant use.
+- People who must not see each other's work share the machine. The sandbox is around each job's commands; Elflodge is for one organization, not hostile multi-tenant use.
 - Every job wants a different model. The model is per Runner; run a Runner per model.
 - Your jobs must move between hosts. A job's journal and Workspace stay with the Runner that took it, and each data directory takes one Runner process.
 
-Full list: [docs/release-scope.md](https://github.com/chuse-ai/agent-batch/blob/main/docs/release-scope.md).
+Full list: [docs/release-scope.md](https://github.com/elflodge/elflodge/blob/main/docs/release-scope.md).
 
 ## Host notes
 
-agent-batch needs Docker Engine 29+ with Compose 5+, and Node 22.19+. If you add yourself to the `docker` group to run Docker without `sudo`, log out and back in first, or `stack start` cannot reach Docker. On Ubuntu 24.04, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` before `stack start`, so the sandboxes can start, and add a file in `/etc/sysctl.d` to keep it. Ubuntu 25.04 and later are not supported yet. Logins, status, logs and upgrading: [docs/deploy.md](https://github.com/chuse-ai/agent-batch/blob/main/docs/deploy.md).
+Elflodge needs Docker Engine 29+ with Compose 5+, and Node 22.19+. If you add yourself to the `docker` group to run Docker without `sudo`, log out and back in first, or `stack start` cannot reach Docker. On Ubuntu 24.04, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` before `stack start`, so the sandboxes can start, and add a file in `/etc/sysctl.d` to keep it. Ubuntu 25.04 and later are not supported yet. Logins, status, logs and upgrading: [docs/deploy.md](https://github.com/elflodge/elflodge/blob/main/docs/deploy.md).
 
 ## More than one machine
 
-`stack start` is for one machine. For a hub that Runners on other machines connect to, the repository's [`compose.yaml`](https://github.com/chuse-ai/agent-batch/blob/main/compose.yaml) runs the hub, Postgres and a Runner from the published images, `ghcr.io/chuse-ai/agent-batch-hub` and `ghcr.io/chuse-ai/agent-batch-runner` (linux/amd64 and arm64). Today you create API keys there with `curl` against the hub, because the CLI cannot sign in yet. Steps: [docs/deploy.md](https://github.com/chuse-ai/agent-batch/blob/main/docs/deploy.md#several-machines-docker-compose).
+`stack start` is for one machine. For a hub that Runners on other machines connect to, the repository's [`compose.yaml`](https://github.com/elflodge/elflodge/blob/main/compose.yaml) runs the hub, Postgres and a Runner from the published images, `ghcr.io/elflodge/elflodge-hub` and `ghcr.io/elflodge/elflodge-runner` (linux/amd64 and arm64). Today you create API keys there with `curl` against the hub, because the CLI cannot sign in yet. Steps: [docs/deploy.md](https://github.com/elflodge/elflodge/blob/main/docs/deploy.md#several-machines-docker-compose).
 
-## Working on agent-batch
+## Working on Elflodge
 
-Issues are welcome, including ones about this page. Outside pull requests are not accepted for now; [CONTRIBUTING.md](https://github.com/chuse-ai/agent-batch/blob/main/CONTRIBUTING.md) explains and has the development commands. `npx agent-batch --help` lists every command, and [docs/cli.md](https://github.com/chuse-ai/agent-batch/blob/main/docs/cli.md) describes them.
+Issues are welcome, including ones about this page. Outside pull requests are not accepted for now; [CONTRIBUTING.md](https://github.com/elflodge/elflodge/blob/main/CONTRIBUTING.md) explains and has the development commands. `npx elflodge --help` lists every command, and [docs/cli.md](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) describes them.
 
-agent-batch is made by FluteBlade at chuse. MIT licence.
+Elflodge was called agent-batch through 0.6; the `agent-batch` package still installs it and runs it under that name. Elflodge is made by FluteBlade. MIT licence.

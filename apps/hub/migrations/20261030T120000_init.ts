@@ -8,32 +8,32 @@ import { type Kysely, sql } from "kysely";
 // 1.7.8 with the hub's plugins, copied here rather than generated at run time. The driver runs one
 // statement per query.
 const betterAuthStatements = [
-  'create table "agent_batch"."user" ("id" text not null primary key, "name" text not null, "email" text not null unique, "emailVerified" boolean not null, "image" text, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz default CURRENT_TIMESTAMP not null)',
-  'create table "agent_batch"."session" ("id" text not null primary key, "expiresAt" timestamptz not null, "token" text not null unique, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz not null, "ipAddress" text, "userAgent" text, "userId" text not null references "agent_batch"."user" ("id") on delete cascade, "activeOrganizationId" text)',
-  'create table "agent_batch"."account" ("id" text not null primary key, "accountId" text not null, "providerId" text not null, "userId" text not null references "agent_batch"."user" ("id") on delete cascade, "accessToken" text, "refreshToken" text, "idToken" text, "accessTokenExpiresAt" timestamptz, "refreshTokenExpiresAt" timestamptz, "scope" text, "password" text, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz not null)',
-  'create table "agent_batch"."verification" ("id" text not null primary key, "identifier" text not null, "value" text not null, "expiresAt" timestamptz not null, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz default CURRENT_TIMESTAMP not null)',
-  'create table "agent_batch"."organization" ("id" text not null primary key, "name" text not null, "slug" text not null unique, "logo" text, "createdAt" timestamptz not null, "metadata" text)',
-  'create table "agent_batch"."member" ("id" text not null primary key, "organizationId" text not null references "agent_batch"."organization" ("id") on delete cascade, "userId" text not null references "agent_batch"."user" ("id") on delete cascade, "role" text not null, "createdAt" timestamptz not null)',
-  'create table "agent_batch"."invitation" ("id" text not null primary key, "organizationId" text not null references "agent_batch"."organization" ("id") on delete cascade, "email" text not null, "role" text, "status" text not null, "expiresAt" timestamptz not null, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "inviterId" text not null references "agent_batch"."user" ("id") on delete cascade)',
-  'create table "agent_batch"."apikey" ("id" text not null primary key, "configId" text not null, "name" text, "start" text, "referenceId" text not null, "prefix" text, "key" text not null, "refillInterval" integer, "refillAmount" integer, "lastRefillAt" timestamptz, "enabled" boolean, "rateLimitEnabled" boolean, "rateLimitTimeWindow" integer, "rateLimitMax" integer, "requestCount" integer, "remaining" integer, "lastRequest" timestamptz, "expiresAt" timestamptz, "createdAt" timestamptz not null, "updatedAt" timestamptz not null, "permissions" text, "metadata" text)',
-  'create table "agent_batch"."rateLimit" ("id" text not null primary key, "key" text not null unique, "count" integer not null, "lastRequest" bigint not null)',
-  'create index "session_userId_idx" on "agent_batch"."session" ("userId")',
-  'create index "account_userId_idx" on "agent_batch"."account" ("userId")',
-  'create index "verification_identifier_idx" on "agent_batch"."verification" ("identifier")',
-  'create index "member_organizationId_idx" on "agent_batch"."member" ("organizationId")',
-  'create index "member_userId_idx" on "agent_batch"."member" ("userId")',
-  'create index "invitation_organizationId_idx" on "agent_batch"."invitation" ("organizationId")',
-  'create index "invitation_email_idx" on "agent_batch"."invitation" ("email")',
-  'create index "apikey_configId_idx" on "agent_batch"."apikey" ("configId")',
-  'create index "apikey_referenceId_idx" on "agent_batch"."apikey" ("referenceId")',
-  'create index "apikey_key_idx" on "agent_batch"."apikey" ("key")',
+  'create table "elflodge"."user" ("id" text not null primary key, "name" text not null, "email" text not null unique, "emailVerified" boolean not null, "image" text, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz default CURRENT_TIMESTAMP not null)',
+  'create table "elflodge"."session" ("id" text not null primary key, "expiresAt" timestamptz not null, "token" text not null unique, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz not null, "ipAddress" text, "userAgent" text, "userId" text not null references "elflodge"."user" ("id") on delete cascade, "activeOrganizationId" text)',
+  'create table "elflodge"."account" ("id" text not null primary key, "accountId" text not null, "providerId" text not null, "userId" text not null references "elflodge"."user" ("id") on delete cascade, "accessToken" text, "refreshToken" text, "idToken" text, "accessTokenExpiresAt" timestamptz, "refreshTokenExpiresAt" timestamptz, "scope" text, "password" text, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz not null)',
+  'create table "elflodge"."verification" ("id" text not null primary key, "identifier" text not null, "value" text not null, "expiresAt" timestamptz not null, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "updatedAt" timestamptz default CURRENT_TIMESTAMP not null)',
+  'create table "elflodge"."organization" ("id" text not null primary key, "name" text not null, "slug" text not null unique, "logo" text, "createdAt" timestamptz not null, "metadata" text)',
+  'create table "elflodge"."member" ("id" text not null primary key, "organizationId" text not null references "elflodge"."organization" ("id") on delete cascade, "userId" text not null references "elflodge"."user" ("id") on delete cascade, "role" text not null, "createdAt" timestamptz not null)',
+  'create table "elflodge"."invitation" ("id" text not null primary key, "organizationId" text not null references "elflodge"."organization" ("id") on delete cascade, "email" text not null, "role" text, "status" text not null, "expiresAt" timestamptz not null, "createdAt" timestamptz default CURRENT_TIMESTAMP not null, "inviterId" text not null references "elflodge"."user" ("id") on delete cascade)',
+  'create table "elflodge"."apikey" ("id" text not null primary key, "configId" text not null, "name" text, "start" text, "referenceId" text not null, "prefix" text, "key" text not null, "refillInterval" integer, "refillAmount" integer, "lastRefillAt" timestamptz, "enabled" boolean, "rateLimitEnabled" boolean, "rateLimitTimeWindow" integer, "rateLimitMax" integer, "requestCount" integer, "remaining" integer, "lastRequest" timestamptz, "expiresAt" timestamptz, "createdAt" timestamptz not null, "updatedAt" timestamptz not null, "permissions" text, "metadata" text)',
+  'create table "elflodge"."rateLimit" ("id" text not null primary key, "key" text not null unique, "count" integer not null, "lastRequest" bigint not null)',
+  'create index "session_userId_idx" on "elflodge"."session" ("userId")',
+  'create index "account_userId_idx" on "elflodge"."account" ("userId")',
+  'create index "verification_identifier_idx" on "elflodge"."verification" ("identifier")',
+  'create index "member_organizationId_idx" on "elflodge"."member" ("organizationId")',
+  'create index "member_userId_idx" on "elflodge"."member" ("userId")',
+  'create index "invitation_organizationId_idx" on "elflodge"."invitation" ("organizationId")',
+  'create index "invitation_email_idx" on "elflodge"."invitation" ("email")',
+  'create index "apikey_configId_idx" on "elflodge"."apikey" ("configId")',
+  'create index "apikey_referenceId_idx" on "elflodge"."apikey" ("referenceId")',
+  'create index "apikey_key_idx" on "elflodge"."apikey" ("key")',
 ];
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-  await db.schema.createSchema("agent_batch").ifNotExists().execute();
+  await db.schema.createSchema("elflodge").ifNotExists().execute();
   for (const statement of betterAuthStatements) await sql.raw(statement).execute(db);
 
-  const schema = db.schema.withSchema("agent_batch");
+  const schema = db.schema.withSchema("elflodge");
   await schema
     .createType("jobStatus")
     .asEnum(["queued", "running", "paused", "succeeded", "failed", "cancelled"])
@@ -123,9 +123,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .execute();
   // zstd's output does not compress further, so Postgres stores it as it is rather than trying
   // its own compression on every value first.
-  await sql`alter table agent_batch."uploadChunk" alter column bytes set storage external`.execute(
-    db,
-  );
+  await sql`alter table elflodge."uploadChunk" alter column bytes set storage external`.execute(db);
 
   // Content an organization uploaded, which its jobs may reference: a verified upload adds or renews
   // the row, also when the bytes were already stored for another organization. An organization
@@ -201,7 +199,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("submitterMemberId", "text", (col) => col.notNull())
     .addColumn("createdAt", "timestamptz", (col) => col.notNull())
     // Who paused the Batch and when, by the hub's clock; both null while it is not paused.
-    .addColumn("pausedBy", sql`agent_batch."batchPausedBy"`)
+    .addColumn("pausedBy", sql`elflodge."batchPausedBy"`)
     .addColumn("pausedAt", "timestamptz")
     // When the breaker's rule tripped while a caller had the Batch paused, by the hub's clock; null
     // otherwise. The caller's resume then starts a new Canary, as a resume of the breaker's pause
@@ -259,7 +257,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .createTable("job")
     .addColumn("id", "uuid", (col) => col.primaryKey())
     .addColumn("organizationId", "text", (col) => col.notNull())
-    .addColumn("status", sql`agent_batch."jobStatus"`, (col) => col.notNull())
+    .addColumn("status", sql`elflodge."jobStatus"`, (col) => col.notNull())
     // What the job gives its Batch's agent. Null when the job gives its agent no text, only its own
     // files.
     .addColumn("input", "text")
@@ -292,10 +290,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     // Runner reads which as the placement's intent. Both are null while none waits: a control the hub
     // applies itself, as a pause or cancel of a job no Runner was sent, never waits, and one that
     // waits is cleared once the job's status confirms it or the job ends first.
-    .addColumn("pendingControl", sql`agent_batch."jobControl"`)
+    .addColumn("pendingControl", sql`elflodge."jobControl"`)
     .addColumn("pendingControlRequestedAt", "timestamptz")
     // Why the job failed: null unless it failed, and cleared when it is resumed.
-    .addColumn("failureReason", sql`agent_batch."jobFailureReason"`)
+    .addColumn("failureReason", sql`elflodge."jobFailureReason"`)
     // What the cause of the job's failure said: null when the cause has no text and when the job
     // has not failed, and cleared when it is resumed. It is job content, so a Usage record does not
     // copy it and it goes with the job's row when the job is deleted.
@@ -468,9 +466,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("id", "bigint", (col) => col.primaryKey().generatedAlwaysAsIdentity())
     .addColumn("jobId", "uuid", (col) => col.notNull())
     .addColumn("organizationId", "text", (col) => col.notNull())
-    .addColumn("status", sql`agent_batch."jobStatus"`, (col) => col.notNull())
+    .addColumn("status", sql`elflodge."jobStatus"`, (col) => col.notNull())
     // Why the job failed: null unless this end is a failure.
-    .addColumn("failureReason", sql`agent_batch."jobFailureReason"`)
+    .addColumn("failureReason", sql`elflodge."jobFailureReason"`)
     // Null for a job that ended before a Runner was sent it or started it.
     .addColumn("runnerId", "text")
     .addColumn("submitterKeyId", "text", (col) => col.notNull())
@@ -492,7 +490,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("deletedAt", "timestamptz")
     // What became of the deleted job's files on its host, and when, by the hub's clock; null while
     // its Runner still owes their deletion, and before the job is deleted.
-    .addColumn("hostDeletionOutcome", sql`agent_batch."hostDeletionOutcome"`)
+    .addColumn("hostDeletionOutcome", sql`elflodge."hostDeletionOutcome"`)
     .addColumn("hostDeletionOutcomeAt", "timestamptz")
     // The job's Batch and labels as it ended, to group cost by after the job is deleted. The Batch
     // is copied rather than referenced, as the Runner is.
@@ -547,8 +545,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("requestedAt", "timestamptz", (col) => col.notNull())
     // The deleted job as it reads while the deletion waits: its final status, why it failed, null
     // unless it did, its times, null for a start it never had, and its totals.
-    .addColumn("status", sql`agent_batch."jobStatus"`, (col) => col.notNull())
-    .addColumn("failureReason", sql`agent_batch."jobFailureReason"`)
+    .addColumn("status", sql`elflodge."jobStatus"`, (col) => col.notNull())
+    .addColumn("failureReason", sql`elflodge."jobFailureReason"`)
     .addColumn("createdAt", "timestamptz", (col) => col.notNull())
     .addColumn("startedAt", "timestamptz")
     .addColumn("endedAt", "timestamptz", (col) => col.notNull())
@@ -574,7 +572,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-  const schema = db.schema.withSchema("agent_batch");
+  const schema = db.schema.withSchema("elflodge");
   for (const table of [
     "jobDeletion",
     "usageRecord",

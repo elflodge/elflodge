@@ -113,7 +113,7 @@ function exportTypeAliasesAsTypes(path, lines) {
 /** @type {import("kanel").ConfigV4} */
 module.exports = {
   connection: process.env.DATABASE_URL,
-  schemaNames: ["agent_batch"],
+  schemaNames: ["elflodge"],
   filter: kyselyTypeFilter,
   outputPath: OUTPUT_PATH,
   // Removes files for dropped tables, so CI notices when they are still committed.

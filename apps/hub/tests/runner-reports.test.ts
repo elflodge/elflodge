@@ -23,7 +23,7 @@ import { callTool, scriptedModel } from "./scripted-model.ts";
 
 /** Whether `report` carries the job's success, the end the Runner writes for its accepted output. */
 function carriesSuccess(report: JobReport) {
-  return entryKinds(report.events).includes("agent-batch.job.succeeded");
+  return entryKinds(report.events).includes("elflodge.job.succeeded");
 }
 
 // What a Runner reports must reach the hub even when the hub loses it: the connection drops while
@@ -127,8 +127,8 @@ test("a report the hub never answered is read again on the next connection", asy
   );
   const kinds = applied.flatMap((report) => entryKinds(report.events));
   // The job's start went with the report that was never answered.
-  expect(kinds).toContain("agent-batch.job.started");
-  expect(kinds).toContain("agent-batch.job.succeeded");
+  expect(kinds).toContain("elflodge.job.started");
+  expect(kinds).toContain("elflodge.job.succeeded");
 }, 15_000);
 
 test("a job whose end the hub lost after dropping it ends again with the same events, without running again", async () => {
