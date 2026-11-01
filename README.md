@@ -215,4 +215,4 @@ Elflodge needs Docker Engine 29+ with Compose 5+, and Node 22.19+. If you add yo
 
 Issues are welcome, including ones about this page. Outside pull requests are not accepted for now; [CONTRIBUTING.md](https://github.com/elflodge/elflodge/blob/main/CONTRIBUTING.md) explains and has the development commands. `npx elflodge --help` lists every command, and [docs/cli.md](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) describes them.
 
-Elflodge was called agent-batch through 0.6; the `agent-batch` package still installs it and runs it under that name. Elflodge is made by FluteBlade. MIT licence.
+Elflodge was called agent-batch through 0.6; the `agent-batch` package still installs it and runs it under that name. Elflodge is made by lodgekeeper. MIT licence.
