@@ -55,7 +55,7 @@ export function problemOf(error: unknown): ProblemDetails | undefined {
  */
 export function createProblemDetailsLink<T extends ClientContext>(
   contract: RouterContract,
-  options: Omit<OpenAPILinkOptions<T>, "customErrorResponseBodyDecoder">,
+  options: Omit<OpenAPILinkOptions<T>, "errorResponseBodyDecoder">,
 ): OpenAPILink<T> {
   const send = options.fetch ?? ((url: string, init: RequestInit) => globalThis.fetch(url, init));
   return new OpenAPILink<T>(contract, {
@@ -106,7 +106,7 @@ export function createProblemDetailsLink<T extends ClientContext>(
         },
       );
     },
-    customErrorResponseBodyDecoder: (body) => {
+    errorResponseBodyDecoder: (body) => {
       const problem = problemDetailsSchema.safeParse(body);
       if (!problem.success) return undefined;
       const { status, title, detail } = problem.data;
