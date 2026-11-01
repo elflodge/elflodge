@@ -3,8 +3,6 @@ import { openapi } from "@orpc/openapi";
 import { en } from "zod/locales";
 import * as z from "zod/mini";
 
-import { PROBLEM_DETAILS_CONTENT_TYPE } from "./problem-details.ts";
-
 // What every procedure of the API and of the Runner protocol is built from: the errors they share,
 // the builder and who may make a call.
 
@@ -36,27 +34,10 @@ export const HubNotSetUp = error("SERVICE_UNAVAILABLE", { message: "The hub is n
 export const NotFound = error("NOT_FOUND");
 
 /**
- * Every HTTP call, the API's and the Runner's, whose bodies are JSON unless the call says otherwise.
- * oRPC's client reads only `application/json` as JSON by itself, and errors arrive as Problem
- * Details. Every call says who may make it (`byKey`, `byMember` or `byKeyOrMember`), and the hub
- * refuses anyone else with `UNAUTHORIZED`.
+ * Every HTTP call, the API's and the Runner's. Every call says who may make it (`byKey`, `byMember`
+ * or `byKeyOrMember`), and the hub refuses anyone else with `UNAUTHORIZED`.
  */
-export const api = oc.errors({ [Unauthorized.code]: Unauthorized }).meta(
-  openapi({ responseBodyHint: "json" }),
-  // oRPC's OpenAPI document labels every error response `application/json`, with no setting to
-  // change it (middleapi/orpc#2317).
-  openapi.spec((operation) => ({
-    ...operation,
-    responses: Object.fromEntries(
-      Object.entries(operation.responses ?? {}).map(([status, response]) => {
-        const body = "content" in response ? response.content?.["application/json"] : undefined;
-        return /^[45]/.test(status) && body
-          ? [status, { ...response, content: { [PROBLEM_DETAILS_CONTENT_TYPE]: body } }]
-          : [status, response];
-      }),
-    ),
-  })),
-);
+export const api = oc.errors({ [Unauthorized.code]: Unauthorized });
 /**
  * How the OpenAPI document describes an API key, sent in `x-api-key`. A call's security lists the
  * permissions the key needs as role names.
