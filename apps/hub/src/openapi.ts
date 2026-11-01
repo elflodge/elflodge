@@ -15,8 +15,8 @@ import { Auth } from "./auth/auth.ts";
 
 // The API's OpenAPI document (ADR 0018), generated from the public contract by oRPC, so every
 // public procedure appears in it as it is added; the Runner's own calls are not in it. The contract
-// says who may make each call and labels its errors as Problem Details (ADR 0023); the hub adds what
-// depends on its deployment.
+// says who may make each call; the hub describes its errors as Problem Details (ADR 0023) and adds
+// what depends on its deployment.
 
 const converter = new ZodToJsonSchemaConverter();
 const generator = new OpenAPIGenerator({ converters: [converter] });

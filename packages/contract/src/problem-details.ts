@@ -94,8 +94,7 @@ export function createProblemDetailsLink<T extends ClientContext>(
         },
       );
     },
-    // Read as JSON also for a call whose answer is a file, whose body oRPC otherwise reads by its
-    // headers rather than as the JSON every other call answers.
+    // oRPC's client reads only `application/json` as JSON by itself, errors included.
     errorResponseContentType: PROBLEM_DETAILS_CONTENT_TYPE,
     errorResponseBodyDecoder: (body) => {
       const problem = problemDetailsSchema.safeParse(body);
