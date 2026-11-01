@@ -50,12 +50,13 @@ jobs:
       - run: vp run --no-cache hub#db:draft-auth-migration --check
       # The committed database types must be what the migrations produce.
       - run: vp run --no-cache hub#db:types
-      - name: Fail if the generated database types differ
+      # The build also records the CLI's bundled dependencies in its package.json.
+      - name: Fail if generated files differ
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git status --porcelain
             git diff
-            echo "::error::The hub's database types are out of date. Run \`vp run hub#db:types\` and commit the result."
+            echo "::error::Generated files are out of date. Run \`vp run -r build\` and \`vp run hub#db:types\`, and commit the result."
             exit 1
           fi
 
