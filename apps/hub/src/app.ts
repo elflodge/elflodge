@@ -464,7 +464,14 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
 
   // Paths outside the API, and failures outside oRPC, answer as the API does.
   app.notFound(() => problemDetails({ status: 404 }).getResponse());
-  app.onError(problemDetailsHandler({ onUnhandledError: (error) => console.error(error) }));
+  // hono-problem-details 0.12 is written for Hono 4, whose error handler takes `(error, c)`. Hono 5
+  // runs error middleware with the error as `c.error`, so the handler is called the Hono 4 way, which
+  // its types under Hono 5 do not describe.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- its runtime signature under Hono 5.
+  const answerError = problemDetailsHandler({
+    onUnhandledError: (error) => console.error(error),
+  }) as unknown as (error: Error, c: HonoContext) => Response | Promise<Response>;
+  app.onError((c, next) => (c.error ? answerError(c.error, c) : next()));
 
   app.get(RUNNER_CONNECT_PATH, async (c) => {
     const runner = await platform.run(c.env, decideRunnerUpgrade(c.req.raw));
