@@ -1,9 +1,5 @@
-import {
-  catchORPCErrorCode,
-  middlewareGen,
-  type WithEffectContext,
-} from "@orpc/experimental-effect";
-import "@orpc/experimental-effect/extensions/effect";
+import { catchORPCErrorCode, middlewareGen, type WithEffectContext } from "@orpc/effect";
+import "@orpc/effect/extensions/effect";
 import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
@@ -333,12 +329,12 @@ const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSche
 // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
 // JSON body.
 const uploads = new OpenAPIHandler(router, {
-  customErrorResponseBodyEncoder: toProblemDetails,
+  errorResponseBodyEncoder: toProblemDetails,
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
 const api = new OpenAPIHandler(router, {
-  customErrorResponseBodyEncoder: toProblemDetails,
+  errorResponseBodyEncoder: toProblemDetails,
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,

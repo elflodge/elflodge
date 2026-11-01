@@ -43,6 +43,6 @@ export function generateOpenAPIDocument(sessionCookie: string) {
         },
       },
     },
-    customErrorResponseBodySchema: converter.convert(problemDetailsSchema, "output")[0],
+    errorResponseBodySchema: converter.convert(problemDetailsSchema, "output")[0],
   });
 }
