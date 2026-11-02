@@ -33,15 +33,16 @@ Accuracy measures the model on these tasks, not Elflodge.
 
 ## 500 at once
 
-On 2026-10-29, 500 of workload A's invoices ran on the same server, the model replayed 20 times slower, with the Runner's process cap lifted.
+On 2026-10-29, 500 of workload A's invoices ran on the same server, the model replayed 20 times slower, with the Runner's process cap lifted. On 2026-11-02 the released 0.7.0 ran 505 of them as PDFs, submitted with `batches submit --each`, so that 500 ran at once after the Canary of 5.
 
-| Jobs | Runner        | Result                                                  | Server memory at most | CPU at most |
-| ---- | ------------- | ------------------------------------------------------- | --------------------- | ----------- |
-| 500  | in Docker     | all succeeded; 495 at once after the Canary             | 3,697 of 3,817 MiB    | 96%         |
-| 500  | plain process | the same                                                | 3,720 of 3,817 MiB    | 91%         |
-| 550  | plain process | not clean: memory ran out and job processes were killed | 3,761 of 3,817 MiB    | 98%         |
+| Jobs | Runner           | Result                                                  | Server memory at most | CPU at most |
+| ---- | ---------------- | ------------------------------------------------------- | --------------------- | ----------- |
+| 500  | in Docker        | all succeeded; 495 at once after the Canary             | 3,697 of 3,817 MiB    | 96%         |
+| 500  | plain process    | the same                                                | 3,720 of 3,817 MiB    | 91%         |
+| 505  | in Docker, 0.7.0 | all succeeded; 500 at once after the Canary             | 3,697 of 3,817 MiB    | 90%         |
+| 550  | plain process    | not clean: memory ran out and job processes were killed | 3,761 of 3,817 MiB    | 98%         |
 
-500 was the largest clean level tested. Containers were not re-measured: the README's 35 is their 30 scaled by the Runner's gain from 425 to 495.
+500 at once was the largest clean level tested; the 0.7.0 Runner peaked at 3,150 MiB, with no model call missing or drifting from its recording and no process killed for memory. Containers were not re-measured: the README's 35 is their 30 scaled by the Runner's gain from 425 to 500.
 
 ## Against one container per job
 
