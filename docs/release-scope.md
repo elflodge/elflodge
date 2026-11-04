@@ -4,16 +4,18 @@ The current implementation runs unattended jobs on provisioned Runners in Batche
 
 The hub runs on Cloudflare Workers with Postgres through Hyperdrive, or on Node/Docker with Postgres directly. Each Runner is a separate Node process. The hub assigns jobs to connected Runners that report available capacity. A job's journal and Workspace remain on its Runner's host.
 
-## Planned capabilities
+## Not in this release
 
-Automatic cloud overflow, moving jobs between hosts, per-job model selection and governance, secret injection and network egress, richer file upload/download flows, validation scripts, incremental output submission, a dashboard, SSO, and CLI login are planned.
-
-A Batch's breaker counts every failure a Runner reports alike, including jobs that fail because their host ran out of memory, so a host that keeps running out of memory can pause the Batches whose jobs it runs. Only jobs failed by their Runner's removal are not counted.
-
-Events currently remain in Postgres. Object storage, event compaction and retention policies are planned. Deployments must account for database growth. The Docker hub runs as one process; multiple replicas do not yet coordinate Runner connections.
+- A Runner's model is chosen when it starts; a job cannot choose its own.
+- A job returns one JSON output. It cannot return files; what it writes stays in its Workspace on the Runner's host.
+- Results are read by polling the CLI or the HTTP API. There is no callback and no web UI.
+- Jobs do not move between hosts. A job runs where it was placed, with its journal and Workspace there.
+- Events remain in Postgres. Deployments must account for database growth.
+- The Docker hub runs as one process; multiple replicas do not coordinate Runner connections.
 
 ## Operating constraints
 
+- A Batch's breaker counts every failure a Runner reports alike, including jobs that fail because their host ran out of memory, so a host that keeps running out of memory can pause the Batches whose jobs it runs. Only jobs failed by their Runner's removal are not counted.
 - Run one Runner process per data directory and one process per registered Runner identity. Do not clone a registered data directory onto another live host or use overlapping rolling updates. The application does not yet enforce exclusive ownership; duplicates can execute the same job twice.
 - Restart recovery assumes an intact journal and Workspace on the same host. Deleting a journal or restoring an older copy can repeat work and model spend. This differs from an ordinary process restart and is not yet detected reliably.
 - A job whose Runner stops communicating can continue to display `running` with stale activity and usage. That status does not prove the host is reachable. Pause and cancel requests for that host wait for it to reconnect.
