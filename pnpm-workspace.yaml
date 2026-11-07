@@ -33,7 +33,7 @@ catalog:
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
   "@earendil-works/chord": ^1.4.0
-  "@earendil-works/pi-ai": ^1.4.0
+  "@earendil-works/pi-ai": ^1.5.0
   "@earendil-works/pi-durable": ^1.4.0
   "@earendil-works/pi-env": ^1.4.0
   "@effect/platform-node-shared": ^4.1.0

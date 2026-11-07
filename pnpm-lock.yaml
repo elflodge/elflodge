@@ -180,8 +180,8 @@ catalogs:
       specifier: ^1.4.0
       version: 1.4.0
     '@earendil-works/pi-ai':
-      specifier: ^1.4.0
-      version: 1.4.0
+      specifier: ^1.5.0
+      version: 1.5.0
     '@earendil-works/pi-durable':
       specifier: ^1.4.0
       version: 1.4.0
@@ -462,7 +462,7 @@ importers:
     devDependencies:
       '@earendil-works/pi-ai':
         specifier: 'catalog:'
-        version: 1.4.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)
       '@orpc/client':
         specifier: 'catalog:'
         version: 2.0.0-beta.47
@@ -528,7 +528,7 @@ importers:
         version: 1.4.0
       '@earendil-works/pi-ai':
         specifier: 'catalog:'
-        version: 1.4.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)
       '@earendil-works/pi-durable':
         specifier: 'catalog:'
         version: 1.4.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)
@@ -1245,6 +1245,11 @@ packages:
     engines: {node: '>=22.19.0'}
     hasBin: true
 
+  '@earendil-works/pi-ai@1.5.0':
+    resolution: {integrity: sha512-VeWxNqTHSqRCf8AcY/6kvNwh+neRL6MPxZPePVztIQy6qqK9MR/YoCSN/ZgDnIyCD3pqEXgRyQbzk4KV4uvjbg==}
+    engines: {node: '>=22.19.0'}
+    hasBin: true
+
   '@earendil-works/pi-codemode@1.4.0':
     resolution: {integrity: sha512-23CNAXpS9DuLzPMyYuvrXVVio46x4YhffCgCqaWmF7F5H8PooqjrQvX4ucF6M0BhUd+x2tV6r1J0dv8cCME4Cg==}
     engines: {node: '>=22.19.0'}
@@ -1257,8 +1262,16 @@ packages:
     resolution: {integrity: sha512-WOO3ltw36D6YFDRCbByYQMl1+dbR8C2rJAmZ8MxBAX/sTKe4HSNLxPEGYWrQjs4EmNyeh6smrQ+7GGoLbBv/Jg==}
     engines: {node: '>=22.19.0'}
 
+  '@earendil-works/pi-schema@1.5.0':
+    resolution: {integrity: sha512-RW0MbT2tR65OY6xMsgB/yVBb7m/RTNwA+9hurSN1vVXfHZRVmVnXbruBPrx/PzbrQnW5yLVlMRWxErGDQtF1Hg==}
+    engines: {node: '>=22.19.0'}
+
   '@earendil-works/pi-telemetry@1.4.0':
     resolution: {integrity: sha512-MLIfowwUYIY65jSjMX82paZOrX/NTvLk6D08h+3Jq42a99RzUOewzuCR0zOlPul3D6UBfddat76VT6LvsHEs1w==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-telemetry@1.5.0':
+    resolution: {integrity: sha512-VW3tcVdnNfl/Vk8wHPTzZdKkxcsCOM12ppiO4DXnd9wMxUCmOfLt/wvUnWeKWbTVlVSRg0uqKtnnhE2UCsG2Bw==}
     engines: {node: '>=22.19.0'}
 
   '@effect/platform-node-shared@4.1.0':
@@ -6035,6 +6048,31 @@ snapshots:
       - ws
       - zod
 
+  '@earendil-works/pi-ai@1.5.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)':
+    dependencies:
+      '@anthropic-ai/sdk': 0.129.0(zod@4.6.7)
+      '@aws-sdk/client-bedrock-runtime': 3.1127.0
+      '@earendil-works/pi-schema': 1.5.0
+      '@earendil-works/pi-telemetry': 1.5.0
+      '@google/genai': 2.21.0(supports-color@10.2.2)
+      '@smithy/node-http-handler': 4.12.1
+      http-proxy-agent: 9.1.0(supports-color@10.2.2)
+      https-proxy-agent: 9.1.0(supports-color@10.2.2)
+      openai: 7.19.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(undici@8.11.2)(ws@8.22.0)(zod@4.6.7)
+      partial-json: 0.1.7
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
   '@earendil-works/pi-codemode@1.4.0':
     dependencies:
       quickjs-wasi: 3.6.2
@@ -6078,7 +6116,11 @@ snapshots:
       - ws
       - zod
 
+  '@earendil-works/pi-schema@1.5.0': {}
+
   '@earendil-works/pi-telemetry@1.4.0': {}
+
+  '@earendil-works/pi-telemetry@1.5.0': {}
 
   '@effect/platform-node-shared@4.1.0(effect@4.1.0)':
     dependencies:
