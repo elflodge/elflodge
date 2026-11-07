@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "required": [
+    "supplier",
+    "service",
+    "autoRenews",
+    "earliestEnd",
+    "noticeBy",
+    "noticePeriod",
+    "annualCost",
+    "currency",
+    "quote",
+    "notes"
+  ],
+  "properties": {
+    "supplier": { "type": "string" },
+    "service": { "type": "string", "description": "What the contract is for, in English" },
+    "autoRenews": { "type": ["boolean", "null"] },
+    "earliestEnd": { "type": ["string", "null"], "format": "date" },
+    "noticeBy": { "type": ["string", "null"], "format": "date" },
+    "noticePeriod": {
+      "type": ["string", "null"],
+      "description": "As the contract states it, in English"
+    },
+    "annualCost": { "type": ["number", "null"] },
+    "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" },
+    "quote": { "type": "string" },
+    "notes": {
+      "type": "string",
+      "description": "Anything a person should check, or an empty string"
+    }
+  }
+}

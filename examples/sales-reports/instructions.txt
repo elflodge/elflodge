@@ -1,0 +1,9 @@
+The input is one bakery shop's till export for one month, as CSV: one line per product on a receipt. A negative quantity is a refund. Prices exclude tax. The shops open every day.
+
+Write a node script that reads the file and works out the figures below, run it, and submit its results together with the script, so a person can run it again. Do not total anything by hand.
+
+- revenue: the sum of quantity × unit_price over every line, refunds included, so it is net of refunds.
+- refunds: the value refunded, as a positive number.
+- orders: the number of receipts with at least one sale.
+- topProducts: the three products with the highest revenue, highest first.
+- anomalies: every day in the month with no lines at all (missingDay); every refund line worth more than 50 (largeRefund); every line with a quantity over 40 (outlierQuantity). An empty list if there are none.

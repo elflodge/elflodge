@@ -1,0 +1,4 @@
+From: Tom Becker <tom@example.org>
+Subject: Locked out - lost my phone
+
+I lost my phone over the weekend and with it the authenticator app. Now I can't log in and I have to send invoices to three clients today. I still have access to this email address. What can I do?

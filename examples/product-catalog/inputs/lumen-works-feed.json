@@ -1,0 +1,33 @@
+{
+  "supplier": "Lumen Works Ltd",
+  "currency": "GBP",
+  "items": [
+    {
+      "code": "LW-HL-900",
+      "name": "Beacon headtorch 900",
+      "specs": { "output": "900 lm", "battery": "18650 Li-ion", "mass": "112g" },
+      "finish": "matte black",
+      "trade": 34.0
+    },
+    {
+      "code": "LW-LN-200",
+      "name": "Glow lantern",
+      "specs": { "output": "200 lm", "power": "3x AA", "mass": "0.21 kg" },
+      "finish": "white",
+      "trade": 15.5
+    },
+    {
+      "code": "LW-SL-001",
+      "name": "Strip light for tents, 1 m",
+      "specs": { "output": "120 lm", "power": "USB" },
+      "trade": 9.25
+    },
+    {
+      "code": "LW-PB-10K",
+      "name": "Powerbank 10000 mAh",
+      "specs": { "mass": "190 g" },
+      "finish": "grey",
+      "trade": 18.0
+    }
+  ]
+}

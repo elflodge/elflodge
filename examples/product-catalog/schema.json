@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "required": ["supplier", "products"],
+  "properties": {
+    "supplier": { "type": "string" },
+    "products": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "sku",
+          "title",
+          "category",
+          "weightGrams",
+          "colours",
+          "costPrice",
+          "currency",
+          "missing",
+          "notes"
+        ],
+        "properties": {
+          "sku": { "type": "string" },
+          "title": { "type": "string" },
+          "category": {
+            "enum": [
+              "tents",
+              "sleeping",
+              "packs",
+              "cooking",
+              "lighting",
+              "clothing",
+              "accessories",
+              "other"
+            ]
+          },
+          "weightGrams": { "type": ["integer", "null"] },
+          "colours": { "type": "array", "items": { "type": "string" } },
+          "costPrice": { "type": "number" },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "missing": { "type": "array", "items": { "enum": ["weightGrams", "colours"] } },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}

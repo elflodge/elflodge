@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": [
+    "shop",
+    "month",
+    "revenue",
+    "refunds",
+    "orders",
+    "topProducts",
+    "anomalies",
+    "script"
+  ],
+  "properties": {
+    "shop": { "type": "string" },
+    "month": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$" },
+    "revenue": { "type": "number" },
+    "refunds": { "type": "number" },
+    "orders": { "type": "integer" },
+    "topProducts": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["product", "revenue"],
+        "properties": { "product": { "type": "string" }, "revenue": { "type": "number" } }
+      }
+    },
+    "anomalies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["date", "kind", "detail"],
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "kind": { "enum": ["missingDay", "largeRefund", "outlierQuantity"] },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "script": { "type": "string", "description": "The node script that computed the figures" }
+  }
+}

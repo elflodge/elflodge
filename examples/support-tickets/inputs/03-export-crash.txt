@@ -1,0 +1,4 @@
+From: Ana Souza <ana@example.net>
+Subject: App closes when I export to PDF
+
+Since yesterday's update, whenever I click Export > PDF on an invoice with more than about 20 lines the app just closes. Smaller invoices export fine. Windows 11, desktop app 4.2.1. I can work around it for now by splitting invoices but it's annoying.

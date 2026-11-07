@@ -1,0 +1,4 @@
+From: Martin Okafor <martin@example.com>
+Subject: paid for an upgrade I didn't need?
+
+My accountant wants all of last year's invoices as a spreadsheet. Your chat bot told me bulk export needs the Pro plan, so I upgraded yesterday ($49 instead of $19). Now I'm on Pro and I still can't find any export button, only the PDF one on each invoice. So either it's hidden somewhere or I paid extra for nothing. Which is it? If it's the second I'd like the difference back.

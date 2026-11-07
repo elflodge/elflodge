@@ -1,0 +1,5 @@
+The input is one supplier contract, with any amendments after it, in any language. Read it and submit an entry for the company's renewal register: when the contract can end, and what must be done by when to end it. Amendments replace what they name.
+
+Take today's date from the date command. earliestEnd is the earliest date the contract can end if notice were given today; noticeBy is the last day to give notice for it to end then, or null if it ends by itself. When a notice date for the current term has already passed, the contract renews, so give the dates for the next term and say so in notes. Work the dates out with a short node script, not in your head.
+
+annualCost is what the contract costs per year from now on, in its own currency. quote is the contract's own words that the dates come from, copied exactly, in its language. Use null for anything the contract does not say, and say in notes anything a person should check.

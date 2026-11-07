@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["category", "urgency", "summary", "reply"],
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": ["billing", "bug", "account-access", "how-to", "feature-request", "other"]
+    },
+    "urgency": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+    "summary": { "type": "string" },
+    "reply": { "type": "string" }
+  }
+}

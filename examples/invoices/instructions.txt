@@ -1,0 +1,5 @@
+The input is one PDF saved from a supplier's email: usually an invoice or a credit note, in any language. Read it (pdftotext -layout prints its text) and submit its header facts. If it is neither, such as a quote or a delivery note, set documentType to other, leave the amounts null and say in notes what it is.
+
+Give amounts as plain numbers in the document's own currency, without symbols or thousands separators, and the currency as its ISO 4217 code. A credit note's amounts are negative. Dates are ISO 8601 (YYYY-MM-DD).
+
+Check the arithmetic with a short node script rather than in your head: that the lines add up to the subtotal, and the subtotal and tax to the total. Set totalsAddUp to the result. Always submit the figures the document states, and say in notes what does not add up.
