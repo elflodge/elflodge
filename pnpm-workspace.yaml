@@ -39,14 +39,14 @@ catalog:
   "@effect/platform-node-shared": ^4.1.0
   "@effect/vitest": 4.1.0
   "@hono/node-server": ^2.1.5
-  "@orpc/client": 2.0.0-beta.47
-  "@orpc/contract": 2.0.0-beta.47
-  "@orpc/effect": 2.0.0-beta.47
-  "@orpc/json-schema": 2.0.0-beta.47
-  "@orpc/openapi": 2.0.0-beta.47
-  "@orpc/server": 2.0.0-beta.47
-  "@orpc/shared": 2.0.0-beta.47
-  "@orpc/zod": 2.0.0-beta.47
+  "@orpc/client": 2.0.0-beta.48
+  "@orpc/contract": 2.0.0-beta.48
+  "@orpc/effect": 2.0.0-beta.48
+  "@orpc/json-schema": 2.0.0-beta.48
+  "@orpc/openapi": 2.0.0-beta.48
+  "@orpc/server": 2.0.0-beta.48
+  "@orpc/shared": 2.0.0-beta.48
+  "@orpc/zod": 2.0.0-beta.48
   "@standard-schema/utils": ^0.3.0
   "@testcontainers/postgresql": ^12.2.1
   "@types/node": ^22.20.5
