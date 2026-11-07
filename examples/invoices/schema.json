@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "required": [
+    "documentType",
+    "supplier",
+    "documentNumber",
+    "issueDate",
+    "currency",
+    "subtotal",
+    "tax",
+    "total",
+    "totalsAddUp",
+    "notes"
+  ],
+  "properties": {
+    "documentType": { "enum": ["invoice", "creditNote", "other"] },
+    "supplier": { "type": "string" },
+    "documentNumber": { "type": "string" },
+    "issueDate": { "type": "string", "format": "date" },
+    "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" },
+    "subtotal": { "type": ["number", "null"] },
+    "tax": { "type": ["number", "null"] },
+    "total": { "type": ["number", "null"] },
+    "totalsAddUp": {
+      "type": ["boolean", "null"],
+      "description": "Whether the lines, subtotal, tax and total add up; null without amounts"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Anything a person should check, or an empty string"
+    }
+  }
+}

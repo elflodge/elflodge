@@ -1,0 +1,5 @@
+From: ops@example.com
+Subject: URGENT: API returning 500 on every invoice create
+
+Since 09:40 UTC every POST /v2/invoices from our checkout returns HTTP 500 (request IDs below). Our customers can't complete purchases. Nothing changed on our side.
+req_8f2a1c, req_8f2a9e, req_8f2b03

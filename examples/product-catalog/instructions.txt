@@ -1,0 +1,10 @@
+The input is one supplier's price list for an outdoor shop, in whatever form the supplier sent it. Submit every product in it as an entry for the shop's catalogue, in English, in the shop's own format.
+
+- title: brand, model and product type, then its one most important spec, such as "Fjellvik Tind waterproof jacket, men's". The brand is the supplier's unless the list names another.
+- category: tents, sleeping (bags, pads, pillows), packs, cooking, lighting, clothing, accessories (other outdoor gear), or other (anything this shop does not stock: it sells no pet products and no shop fittings).
+- weightGrams: a whole number of grams; convert pounds, ounces and kilograms with a short node script rather than in your head.
+- colours: every colour offered, in English and lower case, or an empty list if none is given.
+- costPrice and currency: the supplier's price per unit and its ISO 4217 code.
+- missing: which of weightGrams and colours the supplier did not give, so someone can ask.
+
+Never invent a spec the list does not give. Say in notes anything a person should check, or leave it empty.
