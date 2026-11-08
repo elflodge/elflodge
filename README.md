@@ -4,6 +4,8 @@
 
 [![npm](https://img.shields.io/npm/v/elflodge)](https://www.npmjs.com/package/elflodge) [![License: MIT](https://img.shields.io/npm/l/elflodge)](https://github.com/elflodge/elflodge/blob/main/LICENSE)
 
+Website: [elflodge.com](https://elflodge.com)
+
 > Map one agent over many inputs, on machines you own, and get back JSON that matches your schema
 
 Elflodge runs real agents on unattended jobs. Give it one agent definition and a few hundred inputs, and each job comes back as JSON checked against your schema, or as a failure with its reason. The agent is [Pi](https://github.com/earendil-works/pi), working with real files and real shell commands in a sandbox of its own. The first five jobs run before the rest, and a Batch pauses itself when too many fail, so you can go to bed.
