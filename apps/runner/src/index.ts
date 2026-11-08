@@ -489,9 +489,9 @@ function openSocket(
         handshakeTimeout: CONNECT_TIMEOUT_MS,
         closeTimeout: CLOSE_TIMEOUT_MS,
       });
-      // Failures reach the Runner through Effect's socket, whose own listener hears only the first
-      // and is gone once the socket is released (Effect-TS/effect#9463); without this, a later one
-      // would end the process.
+      // Failures reach the Runner through Effect's socket, whose own listener hears only the first;
+      // Effect handles later ones once the socket is released, but without this, one arriving
+      // before that would end the process.
       socket.on("error", () => {});
       socket.on("unexpected-response", (_request, response) => {
         // The body is read before the socket is dropped, which would discard it.
