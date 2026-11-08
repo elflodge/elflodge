@@ -1,142 +1,85 @@
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { it } from "@effect/vitest";
-import type { JobContent } from "contract";
-import { Effect, Fiber, Latch } from "effect";
+import { Clock, Effect } from "effect";
 import { TestClock } from "effect/testing";
 import { expect } from "vite-plus/test";
 
 import { makePromptCacheWarmup } from "../src/prompt-cache.ts";
 
-const OPENING = {
+// The warm-up's timing, on Effect's test clock. Which jobs wait for which, and what releases
+// them, is tested through the hub in warm-up.test.ts.
+
+const PROMPT = {
   instructions: "Extract a count.",
   outputContract: { schema: { type: "integer" } },
 };
 
-/** Agents whose calls and ends the test controls, behind the same startup gate as real jobs. */
+/** Jobs sharing a prompt, whose agents start and respond as the test says. */
 const fixture = Effect.gen(function* () {
-  const cache = yield* makePromptCacheWarmup;
+  const warmup = yield* makePromptCacheWarmup;
   const started: string[] = [];
-  const calls = new Map<string, (succeeded: boolean) => void>();
-  const ends = new Map<string, Latch.Latch>();
-  const launch = (
-    name: string,
-    opening: Pick<JobContent, "instructions" | "outputContract"> = OPENING,
-  ) =>
+  const responders = new Map<string, (requestStartedAt: number) => void>();
+  const launch = (name: string) =>
     Effect.gen(function* () {
-      const end = Latch.makeUnsafe(false);
-      ends.set(name, end);
-      const fiber = yield* Effect.forkScoped(
-        cache.run(opening, ({ ready, modelCallCompleted, agentStarted }) =>
+      yield* Effect.forkScoped(
+        warmup.run(PROMPT, ({ ready, modelResponded }) =>
           ready.pipe(
             Effect.andThen(
               Effect.sync(() => {
                 started.push(name);
-                calls.set(name, modelCallCompleted);
-                agentStarted();
+                responders.set(name, (timestamp) =>
+                  modelResponded({ ...fauxAssistantMessage("Counted."), timestamp }),
+                );
               }),
             ),
-            Effect.andThen(end.await),
+            Effect.andThen(Effect.never),
           ),
         ),
       );
       yield* TestClock.adjust(0);
-      return fiber;
     });
-  const complete = (name: string, succeeded = true) => {
-    const completed = calls.get(name);
-    if (!completed) throw new Error(`The agent ${name} has not started`);
-    completed(succeeded);
-  };
-  return { launch, complete, started, end: (name: string) => ends.get(name)?.openUnsafe() };
+  /** Ends a successful call of `name`'s model whose request started `ago` before now. */
+  const respond = (name: string, ago = 0) =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      responders.get(name)?.(now - ago);
+      yield* TestClock.adjust(0);
+    });
+  return { launch, respond, started };
 });
 
-it.effect.each(["response", "failure", "end", "cap"] as const)(
-  "%s releases the waiting agents once, even if the first call arrives again or late",
-  (release) =>
-    Effect.gen(function* () {
-      const jobs = yield* fixture;
-      yield* jobs.launch("first");
-      yield* jobs.launch("second");
-      yield* jobs.launch("third");
-      expect(jobs.started).toEqual(["first"]);
-      if (release === "response") jobs.complete("first");
-      if (release === "failure") jobs.complete("first", false);
-      if (release === "end") jobs.end("first");
-      if (release === "cap") {
-        yield* TestClock.adjust("9 seconds");
-        expect(jobs.started).toEqual(["first"]);
-        yield* TestClock.adjust("1 second");
-      }
-      yield* TestClock.adjust(0);
-      expect(jobs.started).toEqual(["first", "second", "third"]);
-      jobs.complete("first");
-      jobs.complete("first");
-      yield* TestClock.adjust("10 seconds");
-      expect(jobs.started).toEqual(["first", "second", "third"]);
-    }),
-);
-
-it.effect("a failed first call leaves the prefix cold for the next job", () =>
+it.effect("a first call that has not returned holds the others for ten seconds", () =>
   Effect.gen(function* () {
     const jobs = yield* fixture;
     yield* jobs.launch("first");
-    jobs.complete("first", false);
-    yield* jobs.launch("new first");
-    yield* jobs.launch("waiting");
-    expect(jobs.started).toEqual(["first", "new first"]);
+    yield* TestClock.adjust("4 seconds");
+    yield* jobs.launch("second");
+    yield* TestClock.adjust("5 seconds");
+    expect(jobs.started).toEqual(["first"]);
+    yield* TestClock.adjust("1 second");
+    expect(jobs.started).toEqual(["first", "second"]);
   }),
 );
 
 it.effect(
-  "warmth lasts five minutes from the latest completed call, not the latest job start",
+  "a prompt stays warm for five minutes from the start of its latest successful request",
   () =>
     Effect.gen(function* () {
       const jobs = yield* fixture;
       yield* jobs.launch("first");
-      jobs.complete("first");
-      yield* TestClock.adjust("4 minutes");
-      yield* jobs.launch("second");
-      expect(jobs.started).toEqual(["first", "second"]);
-      jobs.complete("second");
-      yield* TestClock.adjust("299 seconds");
-      yield* jobs.launch("third");
-      expect(jobs.started).toEqual(["first", "second", "third"]);
+      // The first call took a minute, so its prompt is cached for four more.
+      yield* jobs.respond("first", 60_000);
+      yield* TestClock.adjust("239 seconds");
+      yield* jobs.launch("warm");
+      expect(jobs.started).toEqual(["first", "warm"]);
       yield* TestClock.adjust("1 second");
-      yield* jobs.launch("new first");
-      yield* jobs.launch("waiting");
-      expect(jobs.started).toEqual(["first", "second", "third", "new first"]);
-      jobs.complete("new first");
-      yield* TestClock.adjust(0);
-      expect(jobs.started.at(-1)).toBe("waiting");
+      yield* jobs.launch("warms again");
+      yield* jobs.launch("waits");
+      expect(jobs.started).toEqual(["first", "warm", "warms again"]);
+      yield* jobs.respond("warms again");
+      expect(jobs.started.at(-1)).toBe("waits");
+      yield* TestClock.adjust("299 seconds");
+      yield* jobs.launch("still warm");
+      expect(jobs.started.at(-1)).toBe("still warm");
     }),
-);
-
-it.effect("different instructions or Output contracts warm independently", () =>
-  Effect.gen(function* () {
-    const jobs = yield* fixture;
-    yield* jobs.launch("first");
-    yield* jobs.launch("same opening", { ...OPENING });
-    yield* jobs.launch("other instructions", { ...OPENING, instructions: "Extract a total." });
-    yield* jobs.launch("other contract", {
-      ...OPENING,
-      outputContract: { schema: { type: "string" } },
-    });
-    expect(jobs.started).toEqual(["first", "other instructions", "other contract"]);
-    jobs.complete("first");
-    yield* TestClock.adjust(0);
-    expect(jobs.started.at(-1)).toBe("same opening");
-  }),
-);
-
-it.effect("interrupting a waiting job cannot start it or release the other waiting jobs", () =>
-  Effect.gen(function* () {
-    const jobs = yield* fixture;
-    yield* jobs.launch("first");
-    const stopped = yield* jobs.launch("stopped");
-    yield* jobs.launch("waiting");
-    yield* Fiber.interrupt(stopped);
-    expect(jobs.started).toEqual(["first"]);
-    jobs.complete("first");
-    yield* TestClock.adjust("10 seconds");
-    expect(jobs.started).toEqual(["first", "waiting"]);
-  }),
 );

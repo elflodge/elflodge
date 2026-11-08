@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { isJsonValue, type JsonValue } from "@earendil-works/chord";
 import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
+import { type AssistantMessage, type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
   type ConversationHandle,
   createRegistry,
@@ -266,7 +266,7 @@ export function openJob(
       runId: string;
       openedBefore: boolean;
       journalOpened: (journal: Harness) => void;
-      modelCallCompleted: (succeeded: boolean) => void;
+      modelResponded: (message: AssistantMessage) => void;
     },
 ): Effect.Effect<Effect.Effect<void>, never, Scope.Scope> {
   const context = BACKGROUND_CONTEXT;
@@ -291,14 +291,13 @@ export function openJob(
         name: "elflodge",
         tools: [submitOutputTool(job.outputContract.schema)],
         hooks: [
-          // An accepted output ends the run only when every call of its round asks to; the job
-          // ends once the round's other calls are done, without another model turn. The output is
-          // read from the journal, so a round a restarted Runner finishes ends the run too.
           hook(GenerationTask, {
-            afterResponse: (message) =>
-              options.modelCallCompleted(
-                message.stopReason !== "error" && message.stopReason !== "aborted",
-              ),
+            // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
+            // whether the prompt this job shares with others is cached.
+            afterResponse: (message) => options.modelResponded(message),
+            // An accepted output ends the run only when every call of its round asks to; the job
+            // ends once the round's other calls are done, without another model turn. The output is
+            // read from the journal, so a round a restarted Runner finishes ends the run too.
             afterTools: async (_assistant, _results, api) => {
               const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
               if (!accepted || !("output" in accepted)) return;

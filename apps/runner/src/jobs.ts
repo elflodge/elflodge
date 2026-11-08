@@ -411,7 +411,7 @@ export class JobRunner {
     const working = (content: JobContent) =>
       Effect.scoped(
         promptCache
-          .run(content, ({ ready, modelCallCompleted, agentStarted }) =>
+          .run(content, ({ ready, modelResponded }) =>
             Effect.gen(function* () {
               // Looked up once the earlier run is done, since it may have opened the journal. A
               // journal that cannot be looked up may be there.
@@ -454,14 +454,13 @@ export class JobRunner {
                 runTimeoutSeconds: run.runTimeoutSeconds,
                 modelBudgetUsd: run.modelBudgetUsd,
                 openedBefore,
-                modelCallCompleted,
+                modelResponded,
                 // Held as soon as it opens, so whatever fails after that is read from the journal.
                 journalOpened: (journal: Harness) => {
                   opened.add(ref.jobId);
                   held.journal = journal;
                 },
               });
-              agentStarted();
               changed();
               yield* runAgent;
             }),

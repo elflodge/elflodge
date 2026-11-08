@@ -1,3 +1,5 @@
+import { setTimeout } from "node:timers/promises";
+
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
 import { type ApiClient, startSystem, untilStatus } from "./harness.ts";
@@ -66,39 +68,39 @@ test.for([
   "the jobs sharing a first job's prompt start once its first model call %s, before it ends",
   async ([, response]) => {
     const client = await system.clientWithNewJobsKey();
-    const first = heldCall(response);
-    system.model.setResponses([first.respond, untilAborted, untilAborted, untilAborted]);
+    const firstCall = heldCall(response);
+    system.model.setResponses([firstCall.respond, untilAborted, untilAborted, untilAborted]);
     const ids = await addJobs(client, 3);
 
     await expect.poll(() => started(client, ids)).toHaveLength(1);
-    const [opener = ""] = await started(client, ids);
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    expect(await started(client, ids)).toEqual([opener]);
-    for (const id of ids.filter((other) => other !== opener)) {
+    const [firstJob = ""] = await started(client, ids);
+    await setTimeout(1_000);
+    expect(await started(client, ids)).toEqual([firstJob]);
+    for (const id of ids.filter((other) => other !== firstJob)) {
       expect(await client.jobs.events({ id })).toMatchObject({ events: [] });
     }
 
-    first.release();
+    firstCall.release();
     await expect.poll(() => started(client, ids)).toHaveLength(3);
-    expect((await client.jobs.get({ id: opener })).status).toBe("running");
+    expect((await client.jobs.get({ id: firstJob })).status).toBe("running");
     await Promise.all(ids.map((id) => client.jobs.cancel({ id })));
   },
 );
 
 test("a waiting job that is paused or cancelled does not start, and the others still do", async () => {
   const client = await system.clientWithNewJobsKey();
-  const first = heldCall(callTool("submit_output", { value: "not an integer" }));
-  system.model.setResponses([first.respond, untilAborted, untilAborted]);
+  const firstCall = heldCall(callTool("submit_output", { value: "not an integer" }));
+  system.model.setResponses([firstCall.respond, untilAborted, untilAborted]);
   const ids = await addJobs(client, 4);
   await expect.poll(() => started(client, ids)).toHaveLength(1);
-  const [opener = ""] = await started(client, ids);
-  const [paused = "", cancelled = "", waiting = ""] = ids.filter((other) => other !== opener);
+  const [firstJob = ""] = await started(client, ids);
+  const [paused = "", cancelled = "", waiting = ""] = ids.filter((other) => other !== firstJob);
 
   await client.jobs.pause({ id: paused });
   await client.jobs.cancel({ id: cancelled });
   await untilStatus(client, paused, "paused");
   await untilStatus(client, cancelled, "cancelled");
-  first.release();
+  firstCall.release();
 
   await expect.poll(() => started(client, ids)).toEqual(expect.arrayContaining([waiting]));
   expect(await started(client, ids)).toHaveLength(2);
@@ -110,7 +112,23 @@ test("a waiting job that is paused or cancelled does not start, and the others s
     status: "cancelled",
     startedAt: null,
   });
-  await Promise.all([opener, paused, waiting].map((id) => client.jobs.cancel({ id })));
+  await Promise.all([firstJob, paused, waiting].map((id) => client.jobs.cancel({ id })));
+});
+
+test("jobs with another prompt do not wait for a warm-up", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const firstCall = heldCall(callTool("submit_output", { value: "not an integer" }));
+  system.model.setResponses([firstCall.respond, untilAborted, untilAborted]);
+  const warming = await addJobs(client, 2);
+  await expect.poll(() => started(client, warming)).toHaveLength(1);
+
+  const other = await addJobs(client, 1);
+  await expect.poll(() => started(client, other)).toHaveLength(1);
+  expect(await started(client, warming)).toHaveLength(1);
+
+  firstCall.release();
+  await expect.poll(() => started(client, warming)).toHaveLength(2);
+  await Promise.all([...warming, ...other].map((id) => client.jobs.cancel({ id })));
 });
 
 test("a first job that ends releases the others, whose run timeout starts only with their agents", async () => {
@@ -119,13 +137,13 @@ test("a first job that ends releases the others, whose run timeout starts only w
   const ids = await addJobs(client, 2, 1);
 
   for (const id of ids) await untilStatus(client, id, "failed");
-  const [opener, follower] = (await Promise.all(ids.map((id) => client.jobs.get({ id })))).toSorted(
-    (a, b) => (a.startedAt?.getTime() ?? 0) - (b.startedAt?.getTime() ?? 0),
-  );
-  expect(opener).toMatchObject({ failure: { reason: "runTimedOut" } });
+  const [firstJob, follower] = (
+    await Promise.all(ids.map((id) => client.jobs.get({ id })))
+  ).toSorted((a, b) => (a.startedAt?.getTime() ?? 0) - (b.startedAt?.getTime() ?? 0));
+  expect(firstJob).toMatchObject({ failure: { reason: "runTimedOut" } });
   // The follower waited out the first job's run, and then had its own whole second.
   expect(follower).toMatchObject({ failure: { reason: "runTimedOut" } });
-  expect(follower?.startedAt?.getTime()).toBeGreaterThanOrEqual(opener?.endedAt?.getTime() ?? 0);
+  expect(follower?.startedAt?.getTime()).toBeGreaterThanOrEqual(firstJob?.endedAt?.getTime() ?? 0);
   expect(
     (follower?.endedAt?.getTime() ?? 0) - (follower?.startedAt?.getTime() ?? 0),
   ).toBeGreaterThanOrEqual(1_000);
