@@ -1,6 +1,6 @@
 ---
 name: elflodge-batch-agents
-description: Run unattended AI agents in parallel through Elflodge (formerly agent-batch). Use for batch document extraction, invoice processing, classification, enrichment, or other repeated tasks that need agent reasoning and structured results on your own machine. Prepare inputs and JSON output schemas, test representative jobs, submit batches, inspect failures, and collect results through the Elflodge job API or CLI.
+description: Run repeated tasks through Elflodge (formerly agent-batch) with parallel agents and structured results. Use for document extraction, classification, enrichment, and submitting or recovering Elflodge batches.
 ---
 
 # Elflodge batch agents
@@ -11,9 +11,9 @@ Turn a repeated task into independent agent jobs with structured results. Each j
 
 Identify one unit of work, the files it needs, and what a correct answer looks like. Choose an output schema that represents uncertainty rather than encouraging guesses: for extraction, allow `null` for missing facts and include a reason when useful. Put task instructions, definitions and edge cases in the instructions, not just field names in the schema.
 
-Inspect representative inputs before selecting tooling. A PDF may contain text, scans, tables or multiple documents. The standard Docker Runner includes `pdftotext` and `pdftoppm` for extracting text and rendering pages. Check representative PDFs; reading scanned pages needs an image-capable model or an OCR step. Verify tools on custom Runners. Job shell commands have no network access by default; do not promise web research on a default setup.
+Job shell commands have no network access by default; web research needs a setup that supports it.
 
-Use [the worked example](references/invoice-extraction.md) for a complete small extraction batch and checks. Adapt it to the user's task rather than limiting the skill to invoices.
+For PDF extraction or a runnable sample batch, read [the invoice example](references/invoice-extraction.md) for tooling requirements, commands and output checks.
 
 ## Connect
 
@@ -24,8 +24,6 @@ For flags and behavior, consult `npx elflodge --help` and the [CLI reference](ht
 ## Try representative jobs, then run the batch
 
 Prepare a small pilot containing ordinary and difficult cases with expected answers. A pilot is a separate Batch: the built-in first-five Canary catches execution failures, but does not establish factual quality or wait for a human review when it succeeds. Compare pilot outputs with the source before scaling. When the user already has a tested agent, reuse that work.
-
-Use the commands and quality checks in [the released invoice example](references/invoice-extraction.md), or reuse the user's existing agent and inputs.
 
 Each file after `--each` becomes one job. Each directory becomes one job with that directory's files; passing a parent directory does not create a job per file. Expand the intended paths and check the job count before submission. For related files that must be reasoned over together, use a directory per job. A glob such as `invoices/*.pdf` is not recursive. For deep or very large collections, inventory the files first and consult the CLI reference for JSONL submission rather than assuming an arbitrarily large shell argument list will fit. Keep source-to-preprocessed-input mappings and exclude sidecar files from the job list.
 
