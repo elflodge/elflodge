@@ -259,7 +259,7 @@ export async function readActivity(
           ],
     );
     const compactions = (state?.compactions ?? []).map(
-      ({ taskId, reason, blocking, attempt, retry }) => ({
+      ({ taskId, trigger: reason, blocking, attempt, retry }) => ({
         reason,
         blocking,
         attempt,
