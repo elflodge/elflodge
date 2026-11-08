@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.1](https://github.com/elflodge/elflodge/compare/v0.7.0...v0.7.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **cli:** skip lines holding only whitespace in a batches submit JSONL file ([#109](https://github.com/elflodge/elflodge/issues/109)) ([33c1439](https://github.com/elflodge/elflodge/commit/33c143965f820c20023fd1ea45e74d5342887fd9))
+* **hub:** the Node.js hub answers a request whose path holds a raw backslash with 400, so a reverse proxy's path-based rules cannot be bypassed (GHSA-jpvv-r467-5p4w) ([5d35f35](https://github.com/elflodge/elflodge/commit/5d35f354cc0b58340f876d43ce1aa2c7c3e0d5c3))
+* **runner:** a job whose agent was cut off by Runner restarts more times than the restart limit fails at once as `runFaulted`, instead of waiting out its timeout ([d3054b9](https://github.com/elflodge/elflodge/commit/d3054b9ebd63c43991b9762369a62fd134bd5918))
+* **runner:** a job's cost, its budget and the CLI's cost figure are what OpenRouter bills, instead of an estimate from the model's list price; other providers still give the estimate ([d3054b9](https://github.com/elflodge/elflodge/commit/d3054b9ebd63c43991b9762369a62fd134bd5918))
+* **runner:** a model call cut off by a crash counts as a failed attempt and is retried after the retry backoff, instead of being resent at once ([d3054b9](https://github.com/elflodge/elflodge/commit/d3054b9ebd63c43991b9762369a62fd134bd5918))
+
 ## [0.7.0](https://github.com/elflodge/elflodge/compare/v0.6.0...v0.7.0) (2026-11-01)
 
 
