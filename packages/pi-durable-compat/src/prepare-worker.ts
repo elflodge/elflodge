@@ -13,11 +13,12 @@ import { build, type Plugin } from "rolldown";
 
 /**
  * The packages Pi supplies to extensions, which extensions declare as peers and never install
- * (Pi's packages.md, "Declare dependencies"). The bundle takes them from this package's own copy of
- * the coding agent, as Pi supplies its own, so every extension runs on the versions this package was
- * tested with.
+ * (Pi's packages.md, "Declare dependencies"), under their current and former names. The bundle
+ * takes them from this package's own copy of the coding agent, as Pi supplies its own, so every
+ * extension runs on the versions this package was tested with.
  */
-const HOST_PACKAGES = /^(@earendil-works\/pi-(ai|agent-core|coding-agent|tui)|typebox)(\/.*)?$/;
+const HOST_PACKAGES =
+  /^(?:@(?:earendil-works|mariozechner)\/pi-(?:ai|agent-core|coding-agent|tui)|typebox|@sinclair\/typebox)(?:\/.*)?$/;
 
 /**
  * Pi's packages declare no `sideEffects` (pi-ai declares a list), so a bundler must keep every module
@@ -27,6 +28,26 @@ const HOST_PACKAGES = /^(@earendil-works\/pi-(ai|agent-core|coding-agent|tui)|ty
  * `pi-ai/compat` registering every built-in provider, which esbuild keeps.
  */
 const PI_MODULES = /[\\/]node_modules[\\/](@earendil-works[\\/]pi-(ai|agent-core|coding-agent|tui)|typebox)[\\/]/;
+
+/**
+ * What Pi's loader gives an extension that imports pi-ai's root or `pi-ai/compat`: the compat entry
+ * point plus TypeBox's `Type` and a `StringEnum`, which pi-ai's root no longer exports. Pi builds it
+ * in a file of its own (`pi-ai-extension-view.js`) that its package does not export, so the bundle
+ * builds the same module.
+ */
+const PI_AI_VIEW = "\0pi-ai-extension-view";
+const PI_AI_VIEW_SOURCE = `import { Type } from "typebox";
+export * from "@earendil-works/pi-ai/compat";
+export { Type };
+export function StringEnum(values, options) {
+  return Type.Unsafe({
+    type: "string",
+    enum: values,
+    ...(options?.description && { description: options.description }),
+    ...(options?.default && { default: options.default }),
+  });
+}
+`;
 
 /** The coding agent's entry, from which the packages Pi supplies resolve to its own dependencies. */
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
@@ -123,13 +144,25 @@ async function buildEntries(input: Record<string, string>, outDir: string) {
   });
 }
 
-/** Resolves the packages Pi supplies from this package's coding agent, wherever an extension imports them. */
+/**
+ * Resolves the packages Pi supplies from this package's coding agent, wherever an extension imports
+ * them, as Pi's loader aliases them: former names to current ones, and pi-ai's root and compat
+ * entry to the extension view. Pi's own modules import pi-ai itself.
+ */
 function hostPackages(): Plugin {
   return {
     name: "pi-host-packages",
     async resolveId(source, importer, extraOptions) {
       if (!HOST_PACKAGES.test(source) || importer === codingAgentEntry) return null;
-      return this.resolve(source, codingAgentEntry, { ...extraOptions, skipSelf: true });
+      const name = source
+        .replace(/^@mariozechner\//, "@earendil-works/")
+        .replace(/^@sinclair\/typebox/, "typebox");
+      const fromExtension = importer !== PI_AI_VIEW && !(importer && PI_MODULES.test(importer));
+      if (fromExtension && /^@earendil-works\/pi-ai(?:\/compat)?$/.test(name)) return PI_AI_VIEW;
+      return this.resolve(name, codingAgentEntry, { ...extraOptions, skipSelf: true });
+    },
+    load(id) {
+      return id === PI_AI_VIEW ? PI_AI_VIEW_SOURCE : null;
     },
   };
 }
