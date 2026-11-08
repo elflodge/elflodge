@@ -68,7 +68,11 @@ type Runner = ExtensionRunner;
  */
 export interface DispatchFunctions {
   emit(key: string, event: Parameters<Runner["emit"]>[0]): Promise<unknown>;
-  toolCall(key: string, event: Parameters<Runner["emitToolCall"]>[0]): ReturnType<Runner["emitToolCall"]>;
+  /** Also returns the call's input, which Pi's handlers change in place. */
+  toolCall(
+    key: string,
+    event: Parameters<Runner["emitToolCall"]>[0],
+  ): Promise<{ result: Awaited<ReturnType<Runner["emitToolCall"]>>; input: unknown }>;
   toolResult(key: string, event: Parameters<Runner["emitToolResult"]>[0]): ReturnType<Runner["emitToolResult"]>;
   context(key: string, messages: Parameters<Runner["emitContext"]>[0]): ReturnType<Runner["emitContext"]>;
   providerRequest(key: string, payload: unknown): Promise<unknown>;
@@ -91,8 +95,8 @@ export interface WorkerFunctions extends DispatchFunctions {
 
 /** The actions extensions take that the host carries out. */
 export type Action =
-  | { readonly type: "sendMessage"; readonly args: readonly unknown[] }
-  | { readonly type: "sendUserMessage"; readonly args: readonly unknown[] }
+  | { readonly type: "sendMessage"; readonly args: Parameters<ExtensionActions["sendMessage"]> }
+  | { readonly type: "sendUserMessage"; readonly args: Parameters<ExtensionActions["sendUserMessage"]> }
   | { readonly type: "appendEntry"; readonly customType: string; readonly data: unknown }
   | { readonly type: "setSessionName"; readonly name: string }
   | { readonly type: "setLabel"; readonly entryId: string; readonly label: string | undefined }

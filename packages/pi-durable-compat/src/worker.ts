@@ -138,7 +138,7 @@ const functions: WorkerFunctions = {
     if (found) found.state = state;
   },
   emit: (key, event) => runnerFor(key).emit(event),
-  toolCall: (key, event) => runnerFor(key).emitToolCall(event),
+  toolCall: async (key, event) => ({ result: await runnerFor(key).emitToolCall(event), input: event.input }),
   toolResult: (key, event) => runnerFor(key).emitToolResult(event),
   context: (key, messages) => runnerFor(key).emitContext(messages),
   providerRequest: (key, payload) => runnerFor(key).emitBeforeProviderRequest(payload),
@@ -223,5 +223,5 @@ function modelRegistry(key: string, entry: { state: ConversationState }): ModelR
 const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   post: (message) => workerData.rpc.postMessage(message),
   on: (handler) => workerData.rpc.on("message", handler),
-  timeout: Number.POSITIVE_INFINITY,
+  timeout: -1,
 });
