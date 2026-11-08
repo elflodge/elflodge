@@ -1,12 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { JobContent } from "contract";
-import { Cache, Clock, Duration, Effect, Exit, Latch, Option } from "effect";
-
-/**
- * How long a prefix stays cached after a request that writes or reads it, counted from the start
- * of that request: pi-ai asks Anthropic for its default retention, which is this long.
- */
-const CACHE_LIFETIME_MS = 5 * 60 * 1000;
+import { Cache, Effect, Latch } from "effect";
 
 /** The stop reasons of a response the provider answered, as pi-durable classifies them. */
 const ANSWERED = new Set<AssistantMessage["stopReason"]>(["stop", "length", "toolUse"]);
@@ -19,18 +13,16 @@ const ANSWERED = new Set<AssistantMessage["stopReason"]>(["stop", "length", "too
 export const makePromptCacheWarmup = Effect.gen(function* () {
   const context = yield* Effect.context();
   const runSync = Effect.runSyncWith(context);
-  const clock = yield* Clock.Clock;
-  // When the latest successful request of each warm prefix started.
-  const warm = yield* Cache.makeWith((_key: string) => Effect.succeed(0), {
+  // The prefixes a successful response has warmed lately.
+  const warm = yield* Cache.make({
     // Bounds what a long-running Runner keeps, far above the few prefixes its jobs use at once; a
     // warm prefix evicted costs one more stagger.
     capacity: 256,
-    timeToLive: (exit) =>
-      Duration.millis(
-        Exit.isSuccess(exit)
-          ? Math.max(0, exit.value + CACHE_LIFETIME_MS - clock.currentTimeMillisUnsafe())
-          : 0,
-      ),
+    lookup: (_key: string) => Effect.void,
+    // pi-ai asks Anthropic for its default retention: five minutes from the start of a request
+    // that writes or reads the prefix. Four from the end of a response stays within that for any
+    // response under a minute, and a later response always extends it, whatever order they end in.
+    timeToLive: "4 minutes",
   });
   const warming = new Map<string, Latch.Latch>();
 
@@ -57,29 +49,14 @@ export const makePromptCacheWarmup = Effect.gen(function* () {
         // pi-durable has no hook for when a response starts, which is when Anthropic makes the
         // cache entry available, so a finished response is the first sign the prefix is cached.
         // Cache reads cannot tell either: the first response to a cold prefix reads none.
-        const warmed =
-          ANSWERED.has(message.stopReason) &&
-          runSync(
-            Effect.gen(function* () {
-              // Responses can end out of order: the latest request to start keeps it cached longest.
-              const known = yield* Cache.getSuccess(warm, key);
-              const startedAt = Option.match(known, {
-                onNone: () => message.timestamp,
-                onSome: (latest) => Math.max(latest, message.timestamp),
-              });
-              // Removed first, so the prefix refreshed last is the last the capacity evicts.
-              yield* Cache.invalidate(warm, key);
-              yield* Cache.set(warm, key, startedAt);
-              return yield* Cache.has(warm, key);
-            }),
-          );
-        if (!warmed) {
-          // A failed call, or one whose request started too long ago to keep the prefix cached,
-          // releases the jobs waiting on this job rather than serializing them, but never a
-          // later job's warm-up.
+        if (!ANSWERED.has(message.stopReason)) {
+          // A failed call releases the jobs waiting on this job rather than serializing them, but
+          // leaves the prefix cold, and never releases a later job's warm-up.
           release();
           return;
         }
+        // Removed first, so the prefix refreshed last is the last the capacity evicts.
+        runSync(Cache.invalidate(warm, key).pipe(Effect.andThen(Cache.set(warm, key, undefined))));
         // Whichever job's call warmed the prefix, the jobs waiting for it can start.
         const pending = warming.get(key);
         warming.delete(key);
