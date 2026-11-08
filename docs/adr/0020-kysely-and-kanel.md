@@ -10,7 +10,7 @@ Nested results are built in SQL. Each relation is read with one correlated `json
 
 ## Considered options
 
-- MikroORM: on Workers it needs pre-compiled functions, which are used without warning when stale, and one instance per isolate relies on behaviour its documentation does not describe (mikro-orm/mikro-orm#8459). Its entity manager and its Kysely builder give different write guarantees; the hub's writes are conditional statements, which already went through Kysely.
+- MikroORM: on Workers it needs pre-compiled functions, which are used without warning when stale. Its entity manager and its Kysely builder give different write guarantees; the hub's writes are conditional statements, which already went through Kysely.
 - MikroORM for the schema and migrations only, with Kysely at runtime: keeps generated migration drafts, but an edited migration and the entities become two sources of truth, and replacing it later would need the baseline migration above.
 - Prisma, alone or with prisma-kysely for queries: Prisma ORM 8 replaces the client and the migration format and is a release candidate, with Prisma ORM 7 supported for twelve more months. Prisma Client has no row locking (prisma/prisma#5983).
 - Drizzle's schema with Kysely: Drizzle 1.0 drops `drizzle-orm/kysely`.
