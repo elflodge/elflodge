@@ -1,13 +1,13 @@
 # Benchmark: one Runner against one container per job
 
-How many agent jobs one small server holds, and what each costs in CPU, when the agent loops share a Runner process instead of each getting a container. Measured on 2026-10-25 and 26 with the Runner from agent-batch 0.2.0, as Elflodge was then called, its model calls pointed at the replay server described below. Later releases raised the Runner's throughput, so these figures are conservative for current versions.
+How many agent jobs one small server holds, and what each costs in CPU, when the agent loops share a Runner process instead of each getting a container. Measured on Elflodge 0.7.1 in November 2026, on one Hetzner CAX11, with the model's responses replayed from recordings of real runs.
 
 ## Setup
 
-- **Server:** a Hetzner CAX11: arm64 (Neoverse-N1), 2 vCPU, 4 GB RAM, Debian 13, about €7 a month. One Runner, with real commands in its per-job OS sandboxes.
+- **Server:** a Hetzner CAX11: arm64 (Neoverse-N1), 2 vCPU, 4 GB RAM, Debian 13, about €7 a month. One Runner as a plain process, with real commands in its per-job OS sandboxes, and systemd's `TasksMax` raised. Inessential services were stopped during runs; for the 500 level the server's Tailscale client was stopped too.
 - **Hub:** on another machine, so the server's figures are the Runner's alone.
 - **Model:** each workload's jobs were run once against a real model (`gpt-6-luna`, 8 jobs at once) and recorded. In the benchmark a replay server on another machine answered every model call with the recorded response at the recorded timing, or slowed down to stand for a slower model. Tools and sandboxes ran for real. A real endpoint cannot be the load source: the one used was full at about 8 jobs at once, and at 1,000 at once its answers changed. Accuracy was measured against the real model at a modest level; the framework's cost, by replay.
-- **Baseline:** the Runner's own image as one container per job (`RUNNER_MAX_JOBS=1`, `--memory 1g`) on the same server. One job per container is the fair comparison; the tables also give 3 jobs per container in turn, which spreads a container's start cost.
+- **Baseline:** one plain Pi agent per container, as a developer would run it without Elflodge: the Pi CLI (the same Pi version the Runner uses) in a minimal Debian image with Node and the programs the Runner's image gives jobs, one job per container, `--memory 1g`, on the same server. Each container gets what a Runner job gets: the same tools (read, write, edit, bash, and a submit tool added as a Pi extension), the Runner's instructions followed by the job's input, the same model and thinking level, and the same file layout with the input files in `inputs/`. It lacks what the Runner adds around a job: an OS sandbox for its commands, resuming after a crash, and reporting to the hub.
 
 ## Workloads
 
@@ -18,54 +18,53 @@ How many agent jobs one small server holds, and what each costs in CPU, when the
 | C, code fixes     | Fix a Python project with one mutated operator until its tests pass | 31 projects  | 6.9                 |
 | D, large data     | B's task on 30–46 MB CSVs                                           | 8 files      | 4.8                 |
 
-Each workload ramped up to its break point, then a coarse search found its limit.
+Each workload ran at rising levels of jobs at once, two or more rounds each, until a level was no longer clean: a job failed, a model call drifted from its recording more than at healthy levels, or a process was killed for memory.
 
 ## Results
 
-| Workload | Limit, jobs at once                       | What broke first                            | Memory per open job                 | Host CPU-s per job                        | Peak throughput       | Accuracy     |
-| -------- | ----------------------------------------- | ------------------------------------------- | ----------------------------------- | ----------------------------------------- | --------------------- | ------------ |
-| A        | 350; 425 with systemd's `TasksMax` raised | systemd's task cap, then memory             | 6.5 MiB                             | 0.20 (recorded speed) – 0.33 (20× slower) | 6.8 jobs/s at 100–200 | 87% of facts |
-| B        | about 75 allowed (64 open)                | CPU, from about 40                          | 20 MiB                              | 1.05–1.17                                 | 1.6 jobs/s at 75      | 70%          |
-| C        | about 400                                 | CPU from about 100; memory near full at 400 | 6.8 MiB                             | 0.70–0.88                                 | 2.2 jobs/s at 100     | 90%          |
-| D        | about 12                                  | CPU                                         | up to 320 MiB while its script runs | 7.3–7.8                                   | 0.2 jobs/s            | 75%          |
+| Workload | Limit, jobs at once    | What broke first                 | Memory per open job | Host CPU-s per job                        | Peak throughput   | Accuracy     |
+| -------- | ---------------------- | -------------------------------- | ------------------- | ----------------------------------------- | ----------------- | ------------ |
+| A        | 500 (model 20× slower) | memory, at 550                   | 6.3 MiB             | 0.17 (recorded speed) – 0.31 (20× slower) | 8.1 jobs/s at 200 | 87% of facts |
+| B        | about 300              | CPU from about 75; memory at 400 | 9.8 MiB             | 0.93                                      | 2.0 jobs/s at 100 | 70%          |
+| C        | about 400              | CPU from 100; memory at 500      | 7.8 MiB             | 0.64                                      | 2.7 jobs/s at 100 | 90%          |
+| D        | about 24               | CPU from 12; memory at 32        | 122 MiB             | 7.2                                       | 0.3 jobs/s at 20  | 76%          |
 
-Accuracy measures the model on these tasks, not Elflodge.
+Memory per open job is the server's memory in use at the peak, less what it used before the first job, divided by the most jobs open in the run. Host CPU-s per job is the server's busy CPU time over the run, divided by the jobs run. Each figure is the best of the clean levels measured. Accuracy measures the model on these tasks, not Elflodge.
 
-## 500 at once
+## Hundreds at once
 
-On 2026-10-29, 500 of workload A's invoices ran on the same server, the model replayed 20 times slower, with the Runner's process cap lifted. On 2026-11-02 the released 0.7.0 ran 505 of them as PDFs, submitted with `batches submit --each`, so that 500 ran at once after the Canary of 5.
+Workload A with the model replayed 20 times slower, two rounds of jobs at each level:
 
-| Jobs | Runner           | Result                                                  | Server memory at most | CPU at most |
-| ---- | ---------------- | ------------------------------------------------------- | --------------------- | ----------- |
-| 500  | in Docker        | all succeeded; 495 at once after the Canary             | 3,697 of 3,817 MiB    | 96%         |
-| 500  | plain process    | the same                                                | 3,720 of 3,817 MiB    | 91%         |
-| 505  | in Docker, 0.7.0 | all succeeded; 500 at once after the Canary             | 3,697 of 3,817 MiB    | 90%         |
-| 550  | plain process    | not clean: memory ran out and job processes were killed | 3,761 of 3,817 MiB    | 98%         |
+| Jobs at once | Result                                                                                                               | Server memory at most | CPU at most |
+| ------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- | ----------- |
+| 425          | all 850 succeeded, clean                                                                                             | 3,571 of 3,817 MiB    | 86%         |
+| 475          | all 950 succeeded, clean                                                                                             | 3,706 of 3,817 MiB    | 86%         |
+| 500          | all 1,000 succeeded, clean, with the server's Tailscale client stopped                                               | 3,723 of 3,817 MiB    | 90%         |
+| 500          | with Tailscale running, in two runs: all jobs succeeded, but one job's sandbox process was killed for memory in each | 3,785 of 3,817 MiB    | 100%        |
+| 550          | not clean: 13 job sandboxes were stopped for memory and 13 more timed out                                            | 3,792 of 3,817 MiB    | 100%        |
 
-500 at once was the largest clean level tested; the 0.7.0 Runner peaked at 3,150 MiB, with no model call missing or drifting from its recording and no process killed for memory. Containers were not re-measured: the README's 35 is their 30 scaled by the Runner's gain from 425 to 500.
+500 at once was the largest clean level, with the server's Tailscale client stopped: no model call missing or drifting from its recording and no process killed for memory. With Tailscale running, the largest clean level was 475. The Runner's own process peaked at 806 MiB; the rest was the jobs' sandboxes and the system.
 
 ## Against one container per job
 
-| Measure                                      | One Runner | Containers                       | Ratio             |
-| -------------------------------------------- | ---------- | -------------------------------- | ----------------- |
-| A, jobs open at once (model 20× slower)      | 350–425    | about 30, then the host thrashed | 12–14×            |
-| A, memory per open job                       | 6.5 MiB    | about 90 MiB                     | 14×               |
-| A, host CPU-s per job (model 20× slower)     | 0.33       | 1.50                             | 4.5×              |
-| B, jobs open at once                         | 64         | about 25                         | 2.6×              |
-| B, host CPU-s per job, one job per container | 1.05–1.17  | 4.0–4.1                          | 3.6×              |
-| C, host CPU-s per job, one job per container | 0.73       | 3.6                              | 4.9×              |
-| D, host CPU-s per job, one job per container | 7.3        | 10.5–10.9                        | 1.45×             |
-| B, C and D with 3 jobs per container in turn |            |                                  | 2×, 2.6× and 1.2× |
+| Measure                                  | One Runner | Containers                       | Ratio     |
+| ---------------------------------------- | ---------- | -------------------------------- | --------- |
+| A, jobs open at once (model 20× slower)  | 500        | about 30, with 3% of memory left | about 16× |
+| A, memory per open job                   | 6.3 MiB    | about 100 MiB                    | 16×       |
+| A, host CPU-s per job (recorded speed)   | 0.17       | 1.70                             | 10×       |
+| A, host CPU-s per job (model 20× slower) | 0.31       | 2.36                             | 7.6×      |
+| B, host CPU-s per job                    | 0.93       | 2.62                             | 2.8×      |
+| C, host CPU-s per job                    | 0.64       | 2.42                             | 3.8×      |
+| D, host CPU-s per job                    | 7.2        | 8.3                              | 1.16×     |
 
-A container costs about 75–80 MiB for its own Runner before its job does anything, and about 3 CPU-seconds to start and run, measured with one B, C or D job per container. So the gap is widest when jobs mostly wait on the model and narrows towards the jobs' own work when they compute: D, bound by its own scripts, gains least. Containers also failed worse at the edge: one too many hung the host for about 30 minutes instead of failing a job.
+A container with a Pi agent costs about 100 MiB however little its job does, and 1–2 CPU-seconds more per job than the same job in a Runner. So the gap is widest when jobs mostly wait on the model and narrows towards the jobs' own work when they compute: D, bound by its own scripts, gains least. The containers were not pushed past 30: 30 left 102 MiB free, less than one more container uses. They ran with the server's Tailscale client running, which holds memory two or three more containers would use, so the ratio under equal conditions is about 16× rather than 500 / 30.
 
 ## Throughput and density
 
-At the recorded model speed the host's CPU caps throughput early, so holding more jobs helps only until the CPU is full (A: 5.3 jobs/s at 50 allowed, 6.8 at 200, 4.6 at 400). With a slower model, jobs mostly wait, and the number of jobs to hold is throughput times job duration: replayed 20 times slower, A's throughput kept rising to 2.9 jobs/s at 400 open. Density matters for slow models and long jobs; CPU per job matters for fast ones.
+At the recorded model speed the host's CPU caps throughput early, so holding more jobs helps only until the CPU is full (A: 5.8 jobs/s at 50 at once, 8.1 at 200, 5.5 at 400, where tool calls began to fail). With a slower model, jobs mostly wait, and the number of jobs to hold is throughput times job duration: replayed 20 times slower, A's throughput kept rising to 3.2 jobs/s at 500 at once. Density matters for slow models and long jobs; CPU per job matters for fast ones.
 
 ## Limits of these numbers
 
 - These are particular workloads on one machine, not a capacity guarantee. The job sandboxes, the model's speed and the jobs' own work set the limits.
-- Under replay a job whose sandbox failed would still finish, since its recorded turn is answered regardless. Tool failures were counted from the replay server's log of tool results that differed from the recording.
-- Defaults broke before the hardware did: systemd's `TasksMax`, the WebSocket library's maximum message size and Node's maximum string length. Later releases fixed the ones in Elflodge's own code; `TasksMax` is a host setting, to raise for several hundred jobs at once.
+- Under replay a job whose sandbox failed would still finish, since its recorded turn is answered regardless. Tool failures were counted from the replay server's log of tool results that differed from the recording. In the containers, Pi's own bash tool words empty and truncated output differently from the Runner's, so their tool results differ from the recordings in wording; every container job took its recorded turns and wrote its output.
 - The benchmark harness is not published.
