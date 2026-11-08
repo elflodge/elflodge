@@ -34,6 +34,9 @@ const env: NodeJS.ProcessEnv = {
   XDG_DATA_HOME: stateHome,
   ELFLODGE_STACK_PROJECT: PROJECT,
   ELFLODGE_VERSION: VERSION,
+  // The cancellation test reads Compose's progress, whatever the shell's settings.
+  COMPOSE_PROGRESS: "plain",
+  COMPOSE_ANSI: "never",
   // The Runner starts only with a key for its provider; the job's paused Batch keeps it from running.
   OPENROUTER_API_KEY: "not-a-key",
 };
@@ -282,27 +285,20 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
     );
     await elflodge("stack", "stop");
     await elflodge("stack", "logout");
-    // Cancelling a readiness wait must finish cleanup before another command takes the lock.
-    // A stopped container keeps the restart count from its last run until it is started again,
-    // so a restart counts only once this start has started the Runner.
-    const startedAt = async () =>
-      (
-        await run("docker", ["inspect", "--format", "{{.State.StartedAt}}", forwardedRunner])
-      ).stdout.trim();
-    const previousStart = await startedAt();
+    // Cancelling a readiness wait must finish cleanup before another command takes the lock. The
+    // signal goes as Compose starts waiting: once the logged-out Runner has restarted, its failed
+    // health check can end the wait first, and a signal during that failure's cleanup rightly
+    // exits 1, not 130.
     const interruptedRestart = elflodge("stack", "start");
-    await expect
-      .poll(
-        async () =>
-          (await startedAt()) !== previousStart &&
-          Number(
-            (await run("docker", ["inspect", "--format", "{{.RestartCount}}", forwardedRunner]))
-              .stdout,
-          ) > 0,
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-    interruptedRestart.child.kill("SIGINT");
+    let progress = "";
+    const interruptWhenWaiting = (chunk: string) => {
+      progress += chunk;
+      if (new RegExp(`${PROJECT}-runner-1\\s+Waiting\\b`).test(progress)) {
+        interruptedRestart.child.stderr?.off("data", interruptWhenWaiting);
+        interruptedRestart.child.kill("SIGINT");
+      }
+    };
+    interruptedRestart.child.stderr?.on("data", interruptWhenWaiting);
     await expect(interruptedRestart).rejects.toMatchObject({
       code: 130,
       stderr: expect.stringContaining("The Runner was stopped"),
