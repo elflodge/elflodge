@@ -12,10 +12,16 @@ Run sandboxed agents in parallel on your own machine, without a costly fleet of 
 
 Define the agent's instructions and output schema once. Each job runs [Pi](https://github.com/earendil-works/pi) with real files and shell commands in its own sandbox, returning JSON checked against your schema or a failure with its reason. The first five jobs run before the rest, and a Batch pauses itself when too many fail.
 
-Given a folder of invoices and a JSON Schema for what you want from each, one line runs them all:
+Given a folder of invoices and a JSON Schema for what you want from each, one command runs them all:
 
 ```sh
-npx elflodge batches submit --id invoices --each invoices/*.pdf --instructions "Extract the supplier, number, currency and total." --output-schema invoice.schema.json --wait --output-dir ./results
+npx elflodge batches submit \
+  --id invoices \
+  --each invoices/*.pdf \
+  --instructions "Extract the supplier, number, currency and total." \
+  --output-schema invoice.schema.json \
+  --wait \
+  --output-dir ./results
 ```
 
 Here it is with 500 invoices, the Runner on one 4 GB server, the model's replies replayed from a recording and the wait sped up:
