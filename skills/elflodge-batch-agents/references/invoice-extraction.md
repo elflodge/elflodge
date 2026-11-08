@@ -1,55 +1,41 @@
-# A small invoice extraction pilot
+# Run the released invoice example
 
-This uses synthetic text invoices so the result is independently checkable and no PDF tooling is required. Run it in a new working directory. An existing authenticated hub or a local stack is required; model calls may cost money.
+Use the maintained [invoice example from Elflodge 0.7.1](https://github.com/elflodge/elflodge/tree/v0.7.1/examples/invoices). Its seven synthetic PDFs include different languages, a credit note, a delivery note and an incorrect total. The instructions ask the agent to read each PDF, classify it, extract its facts and check the arithmetic with code. The schema also gives downstream code a `totalsAddUp` flag and notes for human review.
+
+## Prepare and submit
+
+Use a new working directory with Git and Node available. Copy the example outside the source checkout: the repository's contributor package-manager policy prevents `npx` there. The tag pins the inputs, instructions and schema; do not rewrite them just to run the example.
 
 ```sh
-mkdir pilot
-cat > pilot/alder.txt <<'EOF'
-Alder Supplies
-Invoice: AL-104
-Currency: GBP
-Subtotal: 100.00
-Tax: 20.00
-Total payable: 120.00
-EOF
-cat > pilot/birch.txt <<'EOF'
-Birch Studio
-Invoice: BS-209
-Total payable: $48.50
-No currency code stated.
-EOF
-cat > invoice.schema.json <<'EOF'
-{
-  "type": "object",
-  "properties": {
-    "supplier": { "type": ["string", "null"] },
-    "number": { "type": ["string", "null"] },
-    "currency": { "type": ["string", "null"] },
-    "total": { "type": ["number", "null"] }
-  },
-  "required": ["supplier", "number", "currency", "total"],
-  "additionalProperties": false
-}
-EOF
+git clone --depth 1 --branch v0.7.1 \
+  https://github.com/elflodge/elflodge elflodge-example-src
+cp -R elflodge-example-src/examples/invoices invoice-pilot
+cd invoice-pilot
+```
+
+Connect to the user's existing authenticated hub, or follow the skill's local stack setup. The standard Docker Runner already includes PDF text extraction and page rendering. Use the configured model unless changing it is part of the user's request; the model is a Runner setting, not a Batch option.
+
+```sh
 npx elflodge batches submit \
   --id invoices-pilot-v1 \
-  --each pilot/*.txt \
-  --instructions "Extract the supplier, invoice number, currency and total payable. Use null for missing fields; never infer a currency from an ambiguous symbol." \
-  --output-schema invoice.schema.json \
+  --each inputs/*.pdf \
+  --instructions "$(cat instructions.txt)" \
+  --output-schema schema.json \
   --wait \
   --wait-timeout 30m \
   --output-dir ./pilot-results-v1
 ```
 
-Expected `output` values, matched to their `customId` paths:
+## Check more than the output shape
 
-| Input           | supplier       | number | currency | total |
-| --------------- | -------------- | ------ | -------- | ----- |
-| pilot/alder.txt | Alder Supplies | AL-104 | GBP      | 120   |
-| pilot/birch.txt | Birch Studio   | BS-209 | null     | 48.5  |
+Match each result's `customId` to its `inputs/` path and read its `output`. The following checks exercise distinctions that shape validation alone cannot catch:
 
-Read every pilot result, including any `error.jsonl`. Alder checks total versus subtotal; Birch checks whether the agent invents a currency. This is a smoke test, not evidence that real scans, multiple currencies, credit notes or unusual layouts work. Add representative real cases and expected answers before processing the full collection.
+| Input                                      | What to check                                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `inputs/morgenfeld-druck-R-88731.pdf`      | The stated total is €10 too high. Keep the stated figures, set `totalsAddUp` to false, and explain the mismatch in notes. |
+| `inputs/harbor-pine-DN-2026-0398.pdf`      | Recognize a delivery note, use `documentType: "other"`, and leave amounts null.                                           |
+| `inputs/bluefin-logistics-CN-2026-031.pdf` | Recognize a credit note and return negative amounts as instructed.                                                        |
 
-For PDF inputs, first verify the Runner can read them with the tools available, or preprocess them into text/images. Then replace the input glob with `invoices/*.pdf`, choose a new Batch ID and a fresh results directory. Keep instructions and schema unchanged within a Batch. If tuning them, submit a new pilot with a new ID.
+Inspect all seven results and any `error.jsonl`, not just these checks. The [recorded example run](https://github.com/elflodge/elflodge/blob/v0.7.1/examples/README.md#what-our-run-gave) reports seven successful invoice jobs on November 7, 2026 with `deepseek/deepseek-v4.1-flash-1017` through OpenRouter: 0.3¢ in model charges and 20 seconds from the first job starting to the last ending. This is the project's recorded run, not a new run performed by installing this skill. Model output, time and cost can differ; run and inspect the example on the selected model before relying on it.
 
-The workflow returns JSON results. It does not export agent-generated files as job artifacts.
+Then try representative documents from the user's own collection. A fixed-format export with deterministic extraction rules is usually better handled by a script. Use agents where document variation needs judgment or adaptive inspection. Keep the checked instructions and schema for the full batch; use a new Batch ID and fresh output directory for changed inputs or instructions. The workflow returns JSON, not agent-generated file artifacts.
