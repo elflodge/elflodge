@@ -47,11 +47,16 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
   const model = faux.getModel();
   let seen: readonly Message[] = [];
   faux.setResponses([
-    // The tags arrive as JSON text, which the tool's `prepareArguments` makes Pi accept.
+    // The tags arrive as JSON text: pi-durable validates them on the host, where an array sent as
+    // text is parsed for a tool with `prepareArguments`, before the tool's own runs in the worker.
     fauxAssistantMessage([fauxToolCall("remember", { text: "milk", tags: '["shop"]' })], {
       stopReason: "toolUse",
     }),
     fauxAssistantMessage([fauxToolCall("remember", { text: "eggs", tags: [] })], {
+      stopReason: "toolUse",
+    }),
+    // Saved already, which the extension's `tool_call` handler reads from the session.
+    fauxAssistantMessage([fauxToolCall("remember", { text: "milk", tags: [] })], {
       stopReason: "toolUse",
     }),
     fauxAssistantMessage([fauxToolCall("recall", { order: "newest" })], { stopReason: "toolUse" }),
@@ -84,6 +89,7 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
   expect(toolResults(seen)).toEqual([
     { tool: "remember", text: "Saved milk", isError: false },
     { tool: "remember", text: "Saved eggs", isError: false },
+    { tool: "remember", text: expect.stringContaining("Already saved"), isError: true },
     {
       tool: "recall",
       text: JSON.stringify([

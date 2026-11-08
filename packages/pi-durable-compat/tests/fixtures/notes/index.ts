@@ -50,8 +50,19 @@ export default function extension(pi: ExtensionAPI) {
       return { content: [{ type: "text", text: "ran" }], details: {} };
     },
   });
-  pi.on("tool_call", (event) =>
-    event.toolName === "danger" ? { block: true, reason: "Not allowed" } : undefined,
-  );
+  // Blocks `danger`, and a second save of a note already saved, which it reads from the session.
+  pi.on("tool_call", (event, ctx) => {
+    if (event.toolName === "danger") return { block: true, reason: "Not allowed" };
+    if (event.toolName !== "remember") return undefined;
+    const saved = ctx.sessionManager
+      .getBranch()
+      .some(
+        (entry) =>
+          entry.type === "custom" &&
+          entry.customType === "note" &&
+          entry.data?.text === event.input.text,
+      );
+    return saved ? { block: true, reason: "Already saved" } : undefined;
+  });
   pi.on("input", (event) => ({ action: "transform", text: `${event.text}!` }));
 }

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { MessageChannel, Worker } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Api, ImageContent, Message, Model, Models } from "@earendil-works/pi-ai";
 import type { InputEventResult } from "@earendil-works/pi-coding-agent";
 import {
@@ -252,7 +252,11 @@ async function attachConversation(
     state: await session.state(context),
   });
   session.install(opened);
-  await hosted.rpc.emit(key, { type: "session_start", reason: "startup" });
+  // A conversation with entries is one a host opened again, as after a restart, which extensions
+  // learn as Pi tells them about a session it opens again.
+  const earlier = await conversation.entries({ order: "ascending" }, 1, undefined, context);
+  const reason = earlier.items.length > 0 ? "resume" : "startup";
+  await hosted.rpc.emit(key, { type: "session_start", reason });
   return {
     errors: opened.errors,
     input: (text, images, inputContext) => session.input(text, images, inputContext),
@@ -712,5 +716,3 @@ function toolOutput(result: ToolResult) {
 function isContentPart(part: unknown): part is { type: "text"; text: string } | ImageContent {
   return isJsonObject(part) && (part.type === "text" || part.type === "image");
 }
-
-void withAbortSignal;
