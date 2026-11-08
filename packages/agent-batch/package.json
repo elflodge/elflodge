@@ -1,7 +1,6 @@
 {
   "name": "agent-batch",
   "version": "0.7.0",
-  "private": true,
   "description": "The former name of Elflodge: installs elflodge and runs it as `agent-batch`.",
   "homepage": "https://elflodge.com",
   "bugs": {
