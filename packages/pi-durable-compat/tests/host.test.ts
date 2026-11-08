@@ -70,7 +70,7 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
   const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
-    agent: { model: { provider: model.provider, modelId: model.id } },
+    agent: { model: { provider: model.provider, modelId: model.id }, instructions: "Be brief." },
   });
   const extensions = await host.attach(
     { harness, conversation, registry, models, cwd: dir },
@@ -87,8 +87,8 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
   await submission.wait(context);
 
   expect(toolResults(seen)).toEqual([
-    { tool: "remember", text: "Saved milk", isError: false },
-    { tool: "remember", text: "Saved eggs", isError: false },
+    { tool: "remember", text: "Saved milk (1)", isError: false },
+    { tool: "remember", text: "Saved eggs (2)", isError: false },
     { tool: "remember", text: expect.stringContaining("Already saved"), isError: true },
     {
       tool: "recall",
@@ -100,5 +100,57 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
     },
     { tool: "danger", text: expect.stringContaining("Not allowed"), isError: true },
   ]);
+  // The extension's `context` handler leaves the system prompt in place, as Pi does.
+  expect(seen.filter((message) => message.role === "system")).not.toEqual([]);
   await extensions.close();
+});
+
+test("conversations attached through one registry each have their own extensions", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({ sources: [fixture], dir }),
+  });
+  onTestFinished(() => host.close());
+
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  const seen: (readonly Message[])[] = [];
+  const done = (request: { messages: readonly Message[] }) => {
+    seen.push(request.messages);
+    return fauxAssistantMessage([fauxText("Done.")]);
+  };
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("remember", { text: "milk", tags: [] })], {
+      stopReason: "toolUse",
+    }),
+    done,
+    fauxAssistantMessage([fauxToolCall("recall", { order: "oldest" })], { stopReason: "toolUse" }),
+    done,
+  ]);
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const agent = { model: { provider: model.provider, modelId: model.id } };
+  const first = await harness.root(context, { agent });
+  const second = await harness.createConversation(
+    { ownership: { kind: "ownerless" }, agent },
+    context,
+  );
+  for (const conversation of [first, second]) {
+    await host.attach({ harness, conversation, registry, models, cwd: dir }, context);
+  }
+
+  await (await first.submit({ type: "input", content: "Note milk" }, context)).wait(context);
+  await (
+    await second.submit({ type: "input", content: "What did I note?" }, context)
+  ).wait(context);
+
+  // The second conversation's extension instance reads its own history, where nothing was saved.
+  expect(seen.map(toolResults)).toEqual([
+    [{ tool: "remember", text: "Saved milk (1)", isError: false }],
+    [{ tool: "recall", text: "[]", isError: false }],
+  ]);
 });

@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
+import { Schema } from "effect";
+
 /** The worker's module beside this one: `.ts` from source, `.mjs` built. */
 const workerModule = fileURLToPath(
   new URL(`./prepare-worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
@@ -16,27 +18,32 @@ export interface PrepareOptions {
    */
   readonly sources: readonly string[];
   /**
-   * A directory kept between starts, where Pi installs the packages and the bundle is written; both
-   * are reused while the sources and their installed versions stay the same.
+   * A directory kept between starts, for one process at a time: Pi installs the packages there and
+   * reuses them while the sources stay the same, and the bundle is built there again on every call.
    */
   readonly dir: string;
 }
 
 /** One extension's module in the bundle. */
-export interface PreparedExtension {
+export interface PreparedExtension extends Schema.Schema.Type<typeof PreparedExtension> {}
+const PreparedExtension = Schema.Struct({
   /** The source it came from, as given. */
-  readonly source: string;
-  readonly path: string;
-}
+  source: Schema.String,
+  path: Schema.String,
+});
 
 /** The bundle `startExtensionHost` runs. */
-export interface PreparedExtensions {
+export interface PreparedExtensions extends Schema.Schema.Type<typeof PreparedExtensions> {}
+const PreparedExtensions = Schema.Struct({
   /** This package's runtime in the bundle, which shares Pi's code with the extensions. */
-  readonly runtime: string;
-  readonly extensions: readonly PreparedExtension[];
+  runtime: Schema.String,
+  extensions: Schema.Array(PreparedExtension),
   /** Sources that could not be installed or bundled, with the reason; the rest are prepared without them. */
-  readonly failures: readonly { readonly source: string; readonly message: string }[];
-}
+  failures: Schema.Array(Schema.Struct({ source: Schema.String, message: Schema.String })),
+});
+
+/** What the worker replies. */
+const PrepareReply = Schema.Union([PreparedExtensions, Schema.Struct({ error: Schema.String })]);
 
 /**
  * Installs the extension packages `sources` with Pi's own package manager, as `pi install` does, and
@@ -50,51 +57,9 @@ export async function prepareExtensions(options: PrepareOptions): Promise<Prepar
   const worker = new Worker(workerModule, {
     workerData: { sources: [...options.sources], dir: options.dir },
   });
-  const [result] = await once(worker, "message");
+  const [message] = await once(worker, "message");
   await worker.terminate();
-  return parseResult(result);
-}
-
-function parseResult(value: unknown): PreparedExtensions {
-  if (typeof value !== "object" || value === null) throw new Error("Preparing extensions failed");
-  if ("error" in value) throw new Error(`Preparing extensions failed: ${String(value.error)}`);
-  if (!("extensions" in value) || !("failures" in value)) {
-    throw new Error("Preparing extensions gave no result");
-  }
-  const { extensions, failures } = value;
-  if (!Array.isArray(extensions) || !Array.isArray(failures)) {
-    throw new Error("Preparing extensions gave no result");
-  }
-  if (!("runtime" in value) || typeof value.runtime !== "string") {
-    throw new Error("Preparing extensions gave no runtime");
-  }
-  return {
-    runtime: value.runtime,
-    extensions: extensions.map((each: unknown) => {
-      if (
-        typeof each === "object" &&
-        each !== null &&
-        "source" in each &&
-        typeof each.source === "string" &&
-        "path" in each &&
-        typeof each.path === "string"
-      ) {
-        return { source: each.source, path: each.path };
-      }
-      throw new Error("Preparing extensions gave a malformed extension");
-    }),
-    failures: failures.map((each: unknown) => {
-      if (
-        typeof each === "object" &&
-        each !== null &&
-        "source" in each &&
-        typeof each.source === "string" &&
-        "message" in each &&
-        typeof each.message === "string"
-      ) {
-        return { source: each.source, message: each.message };
-      }
-      throw new Error("Preparing extensions gave a malformed failure");
-    }),
-  };
+  const reply = Schema.decodeUnknownSync(PrepareReply)(message);
+  if ("error" in reply) throw new Error(`Preparing extensions failed: ${reply.error}`);
+  return reply;
 }

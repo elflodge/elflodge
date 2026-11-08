@@ -1,11 +1,13 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parentPort, workerData } from "node:worker_threads";
 
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import ensureError from "ensure-error";
 import { build, type Plugin } from "rolldown";
+
+import type { PreparedExtension, PreparedExtensions } from "./prepare.ts";
 
 // Runs in the worker `prepareExtensions` starts. Installing goes through Pi's package manager, so
 // sources, pinning, peer handling and resource discovery behave as `pi install` does; bundling goes
@@ -63,11 +65,11 @@ interface Input {
   dir: string;
 }
 
-async function prepare({ sources, dir }: Input) {
+async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
   const settingsManager = SettingsManager.inMemory();
   const packages = new DefaultPackageManager({ cwd: dir, agentDir: dir, settingsManager });
   const resolved = await packages.resolveExtensionSources(sources);
-  const found = resolved.extensions
+  const found: PreparedExtension[] = resolved.extensions
     .filter((each) => each.enabled)
     .map((each) => ({ source: each.metadata.source, path: each.path }));
   const failures = (resolved.installFailures ?? []).map(({ source, message }) => ({
@@ -79,23 +81,16 @@ async function prepare({ sources, dir }: Input) {
 }
 
 /**
- * Bundles `found`, with this package's runtime, into one build under `<dir>/bundles/<key>`, with
- * code splitting, so what the extensions and the runtime share of Pi loads once per worker and an
- * extension's own dynamic imports stay lazy. The key covers each extension's file and its
- * package's manifest, so a new version builds again and an unchanged set reuses the last build.
- * When the combined build fails, each extension is tried with the runtime alone, and the build is
- * made of those that pass; the others are failures, as loading one unbundled would need Pi's
- * TypeScript loader and its whole coding agent in every worker.
+ * Bundles `found`, with this package's runtime, into one build in `<dir>/bundle`, with code
+ * splitting, so what the extensions and the runtime share of Pi loads once per worker and an
+ * extension's own dynamic imports stay lazy. It builds on every call, in about a second, so no
+ * change to an extension, to Pi or to this package can leave an old build in use. When the combined
+ * build fails, each extension is tried with the runtime alone, and the build is made of those that
+ * pass; the others are failures.
  */
-async function bundle(found: { source: string; path: string }[], dir: string): Promise<Bundle> {
-  const key = await bundleKey(found);
-  const outDir = path.join(dir, "bundles", key);
-  const manifestPath = path.join(outDir, "manifest.json");
-  const cached = await readFile(manifestPath, "utf8").then(
-    (text): unknown => JSON.parse(text),
-    () => undefined,
-  );
-  if (isBundle(cached)) return cached;
+async function bundle(found: PreparedExtension[], dir: string): Promise<PreparedExtensions> {
+  const outDir = path.join(dir, "bundle");
+  const trial = path.join(dir, "bundle-trial");
   await rm(outDir, { recursive: true, force: true });
   const failures: { source: string; message: string }[] = [];
   let included = found;
@@ -104,7 +99,6 @@ async function bundle(found: { source: string; path: string }[], dir: string): P
   } catch {
     included = [];
     for (const each of found) {
-      const trial = path.join(dir, "bundles", `${key}-trial`);
       try {
         await buildEntries(entries([each]), trial);
         included.push(each);
@@ -114,9 +108,12 @@ async function bundle(found: { source: string; path: string }[], dir: string): P
         await rm(trial, { recursive: true, force: true });
       }
     }
+    await rm(outDir, { recursive: true, force: true });
     await buildEntries(entries(included), outDir);
   }
-  const result: Bundle = {
+  // ES modules, so Node reads the chunks as such whatever the directory above says.
+  await writeFile(path.join(outDir, "package.json"), '{"type":"module"}\n');
+  return {
     runtime: path.join(outDir, "runtime.mjs"),
     extensions: included.map((each, index) => ({
       source: each.source,
@@ -124,21 +121,6 @@ async function bundle(found: { source: string; path: string }[], dir: string): P
     })),
     failures,
   };
-  await mkdir(outDir, { recursive: true });
-  // ES modules, so Node reads the chunks as such whatever the directory above says.
-  await writeFile(path.join(outDir, "package.json"), '{"type":"module"}\n');
-  await writeFile(manifestPath, `${JSON.stringify(result)}\n`);
-  return result;
-}
-
-interface Bundle {
-  runtime: string;
-  extensions: { source: string; path: string }[];
-  failures: { source: string; message: string }[];
-}
-
-function isBundle(value: unknown): value is Bundle {
-  return typeof value === "object" && value !== null && "runtime" in value && "extensions" in value;
 }
 
 /** The build's entries: the runtime, then each extension in load order. */
@@ -149,18 +131,11 @@ function entries(found: { path: string }[]) {
   };
 }
 
+/** Rolldown's build error lists each failure; other errors have their message. */
 function errorMessage(error: unknown) {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "errors" in error &&
-    Array.isArray(error.errors)
-  ) {
-    return error.errors
-      .map((each: unknown) => (each instanceof Error ? each.message : String(each)))
-      .join("\n");
-  }
-  return error instanceof Error ? error.message : String(error);
+  const ensured = ensureError(error);
+  if (!("errors" in ensured) || !Array.isArray(ensured.errors)) return ensured.message;
+  return ensured.errors.map((each: unknown) => ensureError(each).message).join("\n");
 }
 
 async function buildEntries(input: Record<string, string>, outDir: string) {
@@ -175,9 +150,6 @@ async function buildEntries(input: Record<string, string>, outDir: string) {
       format: "esm",
       entryFileNames: "[name].mjs",
       chunkFileNames: "chunks/[name]-[hash].mjs",
-      // Bundled CommonJS dependencies call `require`, which an ES module lacks.
-      banner:
-        "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
     },
   });
 }
@@ -205,31 +177,8 @@ function hostPackages(): Plugin {
   };
 }
 
-async function bundleKey(found: { source: string; path: string }[]) {
-  const hash = createHash("sha256");
-  for (const each of found) {
-    hash.update(each.path);
-    hash.update("\0");
-    hash.update(await packageManifest(each.path));
-    hash.update("\0");
-  }
-  hash.update(await readFile(path.join(path.dirname(codingAgentEntry), "..", "package.json")));
-  return hash.digest("hex").slice(0, 16);
-}
-
-/** The nearest `package.json` above `file`, or nothing for a file outside any package. */
-async function packageManifest(file: string): Promise<string> {
-  for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
-    const text = await readFile(path.join(dir, "package.json"), "utf8").catch(() => undefined);
-    if (text !== undefined) return text;
-    if (path.dirname(dir) === dir) return "";
-  }
-}
-
 const input: Input = workerData;
-prepare(input).then(reply, (error: unknown) =>
-  reply({ error: error instanceof Error ? error.message : String(error) }),
-);
+prepare(input).then(reply, (error: unknown) => reply({ error: ensureError(error).message }));
 
 function reply(value: unknown) {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window

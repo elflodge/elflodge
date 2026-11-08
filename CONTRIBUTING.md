@@ -18,4 +18,4 @@ Inside the clone, npm refuses `npx elflodge` because the workspace declares pnpm
 
 ## Releasing
 
-To release, merge the release PR that release-please keeps open. It publishes the hub's and the Runner's images and stages the `elflodge` CLI and its `agent-batch` alias on npm; approve both staged versions on npmjs.com, or with `npm stage approve`, `elflodge` first, since the alias depends on it. To release a version other than the one it proposes, merge a commit whose body has `Release-As: x.y.z`.
+To release, merge the release PR that release-please keeps open. It publishes the hub's and the Runner's images and stages the `elflodge` CLI, its `agent-batch` alias and `@elflodge/pi-durable-compat` on npm; approve the staged versions on npmjs.com, or with `npm stage approve`, `elflodge` before the alias, since the alias depends on it. npm sets up trusted publishing on a package that exists, so a new package's first version is published by hand, and the release workflow is added as its trusted publisher before the release that stages it. To release a version other than the one it proposes, merge a commit whose body has `Release-As: x.y.z`.

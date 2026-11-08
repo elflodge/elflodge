@@ -13,6 +13,7 @@ import {
   type ModelRegistry,
   type SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import ensureError from "ensure-error";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. It loads each extension's factory against an `ExtensionAPI` of our
@@ -29,7 +30,7 @@ export interface Bridge {
   readonly sessionManager: ReadonlySessionManager;
   /** `ctx.modelRegistry`: the methods extensions use, over the host's models. */
   readonly modelRegistry: ModelRegistryFacade;
-  /** `pi.exec`, run in the job's environment rather than on the host. */
+  /** `pi.exec`, run in the host's environment for the conversation rather than in the worker. */
   exec(command: string, args: string[], options: ExecOptions | undefined): Promise<ExecResult>;
   /** The extensions' tools or event subscriptions changed after loading. */
   changed(): void;
@@ -80,7 +81,7 @@ export interface LoadedExtension {
 export interface Instance {
   readonly runner: ExtensionRunner;
   /** Extensions whose factory threw or exported no function, with the reason; the rest run. */
-  readonly errors: readonly { readonly source: string; readonly error: string }[];
+  readonly errors: readonly { readonly source: string; readonly message: string }[];
   /** The events some extension subscribes to now. */
   events(): string[];
 }
@@ -93,10 +94,10 @@ export async function createInstance(
   const runtime = createExtensionRuntime();
   const bus = createEventBus();
   const records: Extension[] = [];
-  const errors: { source: string; error: string }[] = [];
+  const errors: { source: string; message: string }[] = [];
   for (const { source, factory } of extensions) {
     if (typeof factory !== "function") {
-      errors.push({ source, error: "The module does not export a factory function" });
+      errors.push({ source, message: "The module does not export a factory function" });
       continue;
     }
     const record = createRecord(source);
@@ -107,7 +108,7 @@ export async function createInstance(
       records.push(record);
     } catch (error) {
       load.discard();
-      errors.push({ source, error: error instanceof Error ? error.message : String(error) });
+      errors.push({ source, message: ensureError(error).message });
     }
   }
   const runner = new ExtensionRunner(
@@ -117,13 +118,19 @@ export async function createInstance(
     asSessionManager(bridge.sessionManager),
     asModelRegistry(bridge.modelRegistry),
   );
+  // Binding flushes the providers and virtual models extensions registered while loading, which
+  // fail here as unsupported; Pi reports each as an error of its extension and keeps the extension.
+  const stopListening = runner.onError((error) =>
+    errors.push({ source: error.extensionPath, message: error.error }),
+  );
   runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
     registerProvider: () => unsupported("registerProvider"),
-    registerNativeProvider: () => unsupported("registerProvider"),
+    registerNativeProvider: () => unsupported("registerNativeProvider"),
     unregisterProvider: () => unsupported("unregisterProvider"),
     registerVirtualModel: () => unsupported("registerVirtualModel"),
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });
+  stopListening();
   runner.setUIContext(undefined, "print");
   return {
     runner,
@@ -133,7 +140,7 @@ export async function createInstance(
 }
 
 function unsupported(name: string): never {
-  throw new Error(`${name} is not supported by pi-durable-compat yet`);
+  throw new Error(`${name} is not supported by pi-durable-compat`);
 }
 
 /**
@@ -163,6 +170,17 @@ type MessageRenderer = MapValue<Extension["messageRenderers"]>;
 type EntryRenderer = MapValue<NonNullable<Extension["entryRenderers"]>>;
 type ToolRenderer = NonNullable<Extension["toolRenderers"]>[number];
 type ShortcutKey = Extension["shortcuts"] extends Map<infer K, unknown> ? K : never;
+type ProviderConfig = Parameters<ExtensionRuntime["registerProvider"]>[1];
+type Provider = Parameters<ExtensionRuntime["registerNativeProvider"]>[0];
+type RegisteredMcpServer = ReturnType<ExtensionRuntime["mcpServers"]["list"]>[number];
+type VirtualModelDefinition = Parameters<ExtensionRuntime["registerVirtualModel"]>[0];
+/** What an extension registers: a definition whose router also receives the extension's context. */
+type VirtualModel = Omit<VirtualModelDefinition, "route"> & {
+  route(
+    request: Parameters<VirtualModelDefinition["route"]>[0],
+    context: ReturnType<ExtensionRuntime["createContext"]>,
+  ): ReturnType<VirtualModelDefinition["route"]>;
+};
 
 function createRecord(source: string): Extension {
   return {
@@ -183,7 +201,9 @@ function createRecord(source: string): Extension {
  * (`createExtensionAPI` in pi-coding-agent 1.5's `core/extensions/loader.js`, not exported):
  * registrations write to the record, actions go to the shared runtime the runner binds, and
  * flag values and runtime changes made while loading take effect only if the factory returns.
- * UI registrations are kept and never used, as Pi does in print mode; `exec` runs through the host.
+ * UI registrations are kept and never used, as Pi does in print mode. Two departures: `exec` runs
+ * through the host, and `on` tells the host of a subscription made after loading, so it hooks only
+ * the events some extension listens to.
  * Its parameters are typed by what the record stores: Pi's generic `ExtensionAPI` signatures are
  * for extension authors, and its own loader, in JavaScript, is not checked against them.
  */
@@ -194,6 +214,7 @@ function createExtensionApi(
   bridge: Bridge,
 ) {
   const pendingFlags = new Map<string, boolean | string>();
+  const pendingRuntimeChanges: (() => void)[] = [];
   const loadingUnsubscribers: (() => void)[] = [];
   let state: "loading" | "active" | "failed" = "loading";
   const assertActive = () => {
@@ -201,6 +222,15 @@ function createExtensionApi(
       throw new Error(`Extension "${record.path}" failed to load and its API is no longer active.`);
     }
     runtime.assertActive();
+  };
+  const clearPending = () => {
+    pendingFlags.clear();
+    pendingRuntimeChanges.length = 0;
+    loadingUnsubscribers.length = 0;
+  };
+  const applyRuntimeChange = (change: () => void) => {
+    if (state === "loading") pendingRuntimeChanges.push(change);
+    else change();
   };
   const api = {
     on(event: string, handler: Handler) {
@@ -235,6 +265,16 @@ function createExtensionApi(
     },
     registerCommand(name: string, options: Command) {
       assertActive();
+      if (typeof name !== "string" || name.length === 0) {
+        throw new Error(
+          `Command registered by extension "${record.path}" must have a non-empty string name.`,
+        );
+      }
+      if (typeof options?.handler !== "function") {
+        throw new Error(
+          `Command "/${name}" registered by extension "${record.path}" must define handler().`,
+        );
+      }
       record.commands.set(name, { name, sourceInfo: record.sourceInfo, ...options });
     },
     registerShortcut(shortcut: ShortcutKey, options: Shortcut) {
@@ -339,33 +379,49 @@ function createExtensionApi(
       assertActive();
       runtime.setThinkingLevel(...args);
     },
-    registerProvider() {
+    registerProvider(...args: [provider: Provider] | [name: string, config: ProviderConfig]) {
       assertActive();
-      unsupported("registerProvider");
+      if (args.length === 1) {
+        const [provider] = args;
+        applyRuntimeChange(() => runtime.registerNativeProvider(provider, record.path));
+        return;
+      }
+      const [name, config] = args;
+      applyRuntimeChange(() => runtime.registerProvider(name, config, record.path));
     },
-    unregisterProvider() {
+    unregisterProvider(name: string) {
       assertActive();
-      unsupported("unregisterProvider");
+      applyRuntimeChange(() => runtime.unregisterProvider(name, record.path));
     },
-    registerMcpServer() {
+    registerMcpServer(name: string, config: RegisteredMcpServer["config"]) {
       assertActive();
-      unsupported("registerMcpServer");
+      const owner = runtime.mcpServers.get(name)?.extensionPath;
+      if (owner !== undefined && owner !== record.path) {
+        throw new Error(`MCP server "${name}" is already registered by extension "${owner}"`);
+      }
+      const server = { name, config: structuredClone(config), extensionPath: record.path };
+      applyRuntimeChange(() => runtime.mcpServers.register(server));
     },
-    unregisterMcpServer() {
+    unregisterMcpServer(name: string) {
       assertActive();
-      unsupported("unregisterMcpServer");
+      applyRuntimeChange(() => runtime.mcpServers.unregister(name, record.path));
     },
-    getMcpServers(): [] {
+    getMcpServers() {
       assertActive();
-      return [];
+      return runtime.mcpServers.list();
     },
-    registerVirtualModel() {
+    registerVirtualModel(model: VirtualModel) {
       assertActive();
-      unsupported("registerVirtualModel");
+      const definition = {
+        ...model,
+        route: (request: Parameters<VirtualModel["route"]>[0]) =>
+          model.route(request, runtime.createContext()),
+      };
+      applyRuntimeChange(() => runtime.registerVirtualModel(definition, record.path));
     },
-    unregisterVirtualModel() {
+    unregisterVirtualModel(provider: string, id: string) {
       assertActive();
-      unsupported("unregisterVirtualModel");
+      applyRuntimeChange(() => runtime.unregisterVirtualModel(provider, id));
     },
     events: {
       emit(channel: string, data: unknown) {
@@ -384,19 +440,19 @@ function createExtensionApi(
     api,
     commit() {
       if (state !== "loading") return;
+      runtime.assertActive();
       for (const [name, value] of pendingFlags) {
         if (!runtime.flagValues.has(name)) runtime.flagValues.set(name, value);
       }
+      for (const apply of pendingRuntimeChanges) apply();
       state = "active";
-      pendingFlags.clear();
-      loadingUnsubscribers.length = 0;
+      clearPending();
     },
     discard() {
       if (state !== "loading") return;
       state = "failed";
       for (const unsubscribe of loadingUnsubscribers) unsubscribe();
-      pendingFlags.clear();
-      loadingUnsubscribers.length = 0;
+      clearPending();
     },
   };
 }

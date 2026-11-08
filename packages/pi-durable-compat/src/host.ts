@@ -1,11 +1,17 @@
+import { constants } from "node:buffer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MessageChannel, Worker } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import type { Api, ImageContent, Message, Model, Models } from "@earendil-works/pi-ai";
-import type { InputEventResult } from "@earendil-works/pi-coding-agent";
+import type {
+  ExecResult,
+  InputEventResult,
+  SessionEntry,
+  ToolInfo,
+} from "@earendil-works/pi-coding-agent";
 import {
   defineExtension,
   defineTool,
@@ -16,23 +22,29 @@ import {
   hook,
   type HookRegistration,
   type JsonObject,
+  LiveDoc,
   ProviderDoc,
   type Registry,
   ToolTask,
   type Conversation,
+  type ToolExecutionResult,
+  type ToolHookCall,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { createBirpc, type BirpcReturn } from "birpc";
+import { Equal } from "effect";
+import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
 import type { PreparedExtensions } from "./prepare.ts";
 import type {
   Action,
-  ConversationState,
-  HistoryRead,
-  HistoryReply,
+  ExtensionError,
   HostFunctions,
+  JournalMessage,
+  ReadReply,
+  Reads,
   Registrations,
   ToolDescriptor,
   ToolResult,
@@ -57,11 +69,11 @@ export interface AttachOptions {
   /** The registry the conversation's agent takes its extensions from; attaching installs one in it. */
   readonly registry: Registry;
   /**
-   * The models the Harness was opened with, for what extensions do outside a tool call or hook,
-   * which use the call's own. `Harness` does not expose its own.
+   * The models the Harness was opened with, which extensions read and switch between and get
+   * credentials from. `Harness` does not expose its own.
    */
   readonly models: Models;
-  /** The environment commands run in outside a tool call or hook, if any. */
+  /** The environment `pi.exec` runs commands in; without one, `pi.exec` throws. */
   readonly env?: ExecutionEnv;
   /** The directory extensions see as `ctx.cwd`. */
   readonly cwd: string;
@@ -70,7 +82,7 @@ export interface AttachOptions {
 /** One conversation's extensions. */
 export interface AttachedExtensions {
   /** Extensions that failed to load for this conversation, with the reason; the rest run. */
-  readonly errors: readonly { readonly source: string; readonly error: string }[];
+  readonly errors: readonly ExtensionError[];
   /**
    * Runs the extensions' `input` handlers on input before it is submitted, as Pi does for a
    * prompt: the result says to submit it as it is, transformed, or not at all.
@@ -89,8 +101,9 @@ export interface AttachedExtensions {
 
 export interface ExtensionHost {
   /**
-   * Starts the extensions for `conversation` on a worker and installs, in `registry`, a pi-durable
-   * extension with their tools and only the hooks some extension listens to.
+   * Starts the extensions for `conversation` on a worker. The first conversation attached through a
+   * registry installs a pi-durable extension in it, `pi-durable-compat`, with the extensions' tools
+   * and only the hooks some extension listens to, for every conversation attached through it.
    */
   attach(options: AttachOptions, context: Context): Promise<AttachedExtensions>;
   /** Closes every attached conversation's extensions and stops the workers. */
@@ -104,8 +117,20 @@ export interface ExtensionHost {
  */
 export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost {
   const workers = new Workers(options);
+  const installations = new Map<Registry, Installation>();
+  const installationFor = ({ harness, registry }: AttachOptions) => {
+    let found = installations.get(registry);
+    if (!found) {
+      found = new Installation(harness, registry, () => installations.delete(registry));
+      installations.set(registry, found);
+    }
+    // Hooks and tools know their conversation's ID only, which is unique within one Harness.
+    if (found.harness !== harness) throw new Error("A registry can serve one Harness only");
+    return found;
+  };
   return {
-    attach: (attach, context) => attachConversation(workers, attach, context),
+    attach: (attach, context) =>
+      attachConversation(workers, installationFor(attach), attach, context),
     close: () => workers.close(),
   };
 }
@@ -117,15 +142,17 @@ const workerModule = fileURLToPath(
 interface HostedWorker {
   readonly worker: Worker;
   readonly rpc: BirpcReturn<WorkerFunctions, HostFunctions>;
-  readonly sessions: Map<string, Session>;
+  readonly conversations: Map<string, AttachedConversation>;
   idle: ReturnType<typeof setTimeout> | undefined;
+  /** Keeps the process alive, or lets it exit, for the worker and its channels. */
+  hold(held: boolean): void;
 }
 
 /**
  * The workers, each with its conversations. A conversation goes to an idle worker, else to a new
  * one while fewer than `maxWorkers` run, else to the least busy, and stays there; a worker exits
  * once it has had no conversation for `idleTimeout`. Effect's `Pool` caps the borrowers of an item
- * and makes the rest wait, while a conversation holds its worker for as long as its job runs.
+ * and makes the rest wait, while a conversation holds its worker for as long as it is attached.
  */
 class Workers {
   readonly #options: ExtensionHostOptions;
@@ -135,22 +162,27 @@ class Workers {
     this.#options = options;
   }
 
-  acquire(key: string, session: Session): HostedWorker {
+  acquire(key: string, conversation: AttachedConversation): HostedWorker {
     const max = this.#options.maxWorkers ?? 2;
     let chosen: HostedWorker | undefined;
     for (const each of this.#workers) {
-      if (!chosen || each.sessions.size < chosen.sessions.size) chosen = each;
+      if (!chosen || each.conversations.size < chosen.conversations.size) chosen = each;
     }
-    if (!chosen || (chosen.sessions.size > 0 && this.#workers.size < max)) chosen = this.#start();
+    if (!chosen || (chosen.conversations.size > 0 && this.#workers.size < max)) {
+      chosen = this.#start();
+    }
     clearTimeout(chosen.idle);
     chosen.idle = undefined;
-    chosen.sessions.set(key, session);
+    chosen.hold(true);
+    chosen.conversations.set(key, conversation);
     return chosen;
   }
 
   release(hosted: HostedWorker, key: string) {
-    hosted.sessions.delete(key);
-    if (hosted.sessions.size > 0) return;
+    hosted.conversations.delete(key);
+    if (hosted.conversations.size > 0) return;
+    // An idle worker is no reason for the process to stay.
+    hosted.hold(false);
     hosted.idle = setTimeout(() => {
       this.#workers.delete(hosted);
       void hosted.worker.terminate();
@@ -163,71 +195,92 @@ class Workers {
     this.#workers.clear();
     for (const hosted of all) {
       clearTimeout(hosted.idle);
-      await Promise.allSettled([...hosted.sessions.values()].map((session) => session.close()));
+      await Promise.allSettled([...hosted.conversations.values()].map((each) => each.close()));
       await hosted.worker.terminate();
     }
   }
 
   #start(): HostedWorker {
-    const history = SyncMessagePort.createChannel();
+    const journal = SyncMessagePort.createChannel();
     const rpc = new MessageChannel();
     const workerData: WorkerData = {
       runtime: this.#options.prepared.runtime,
       extensions: this.#options.prepared.extensions,
-      history: history.port2,
+      journal: journal.port2,
       rpc: rpc.port2,
     };
     const worker = new Worker(workerModule, {
       workerData,
-      transferList: [history.port2, rpc.port2],
+      transferList: [journal.port2, rpc.port2],
     });
-    worker.unref();
-    const sessions = new Map<string, Session>();
-    const session = (key: string) => {
-      const found = sessions.get(key);
+    const conversations = new Map<string, AttachedConversation>();
+    const attached = (key: string) => {
+      const found = conversations.get(key);
       if (!found) throw new Error(`No conversation ${key} on this worker`);
       return found;
     };
     const functions: HostFunctions = {
-      act: (key, action) => sessions.get(key)?.act(action),
-      setModel: (key, model) => session(key).setModel(model),
-      exec: (key, command, args, options) => session(key).exec(command, args, options),
-      getApiKeyAndHeaders: (key, model) => session(key).getApiKeyAndHeaders(model),
-      getProviderAuth: (key, provider) => session(key).models.getAuth(provider),
+      setModel: (key, model) => attached(key).setModel(model),
+      exec: (key, id, command, args, options) => attached(key).exec(id, command, args, options),
+      cancelExec: (key, id) => conversations.get(key)?.cancelExec(id),
+      getApiKeyAndHeaders: (key, model) => attached(key).getApiKeyAndHeaders(model),
+      getProviderAuth: (key, provider) => attached(key).models.getAuth(provider),
       getApiKeyForProvider: async (key, provider) =>
-        (await session(key).models.getAuth(provider))?.auth.apiKey,
-      toolUpdate: () => {},
-      changed: (key) => sessions.get(key)?.changed(),
+        (await attached(key).models.getAuth(provider))?.auth.apiKey,
+      changed: (key) => conversations.get(key)?.changed(),
     };
     const port = rpc.port1;
-    port.unref();
     const client = createBirpc<WorkerFunctions, HostFunctions>(functions, {
       post: (message) => port.postMessage(message),
       on: (handler) => port.on("message", handler),
       timeout: -1,
     });
-    const reads = new SyncMessagePort(history.port1);
-    const reply = (value: HistoryReply) => {
+    const reads = new SyncMessagePort(journal.port1);
+    const reply = (value: ReadReply) => {
       // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
       reads.postMessage(value);
     };
-    reads.on("message", (request: HistoryRead) => {
-      const found = sessions.get(request.key);
-      if (!found) {
-        reply({ id: request.id, error: `No conversation ${request.key} on this worker` });
+    reads.on("message", (message: JournalMessage) => {
+      const found = conversations.get(message.key);
+      if (message.type === "act") {
+        found?.act(message.action);
         return;
       }
-      found.read(request).then(
-        (value) => reply({ id: request.id, value }),
-        (error: unknown) =>
-          reply({ id: request.id, error: error instanceof Error ? error.message : String(error) }),
+      if (!found) {
+        reply({ id: message.id, error: `No conversation ${message.key} on this worker` });
+        return;
+      }
+      found.read(message.method, message.args).then(
+        (value) => reply({ id: message.id, value }),
+        (error: unknown) => reply({ id: message.id, error: ensureError(error).message }),
       );
     });
-    const hosted: HostedWorker = { worker, rpc: client, sessions, idle: undefined };
+    const hosted: HostedWorker = {
+      worker,
+      rpc: client,
+      conversations,
+      idle: undefined,
+      // While a conversation is attached, its calls to the worker keep the process alive, as an open
+      // socket does, until the host closes it.
+      hold(held) {
+        for (const each of [worker, port, journal.port1]) {
+          if (held) each.ref();
+          else each.unref();
+        }
+      },
+    };
+    // An extension's uncaught error ends its worker, which then exits; without a listener it would
+    // end the host's process instead.
+    let failure: Error | undefined;
+    worker.on("error", (error) => {
+      failure = error;
+    });
     worker.on("exit", () => {
       this.#workers.delete(hosted);
-      client.$close(new Error("The extension worker exited"));
-      for (const each of sessions.values()) each.lost();
+      client.$close(
+        new Error(`The extension worker exited${failure ? `: ${failure.message}` : ""}`),
+      );
+      for (const each of conversations.values()) each.lost();
     });
     this.#workers.add(hosted);
     return hosted;
@@ -236,6 +289,7 @@ class Workers {
 
 async function attachConversation(
   workers: Workers,
+  installation: Installation,
   options: AttachOptions,
   context: Context,
 ): Promise<AttachedExtensions> {
@@ -244,40 +298,178 @@ async function attachConversation(
   // A conversation gets its provider session ID when it is created; one from before that gets
   // it at its first request, so it is keyed by its own ID until then.
   const key = provider?.sessionId ?? `${conversation.id}`;
-  const session = new Session(key, options);
-  const hosted = workers.acquire(key, session);
-  session.bind(hosted, () => workers.release(hosted, key));
-  const opened = await hosted.rpc.open(key, {
-    cwd: options.cwd,
-    state: await session.state(context),
-  });
-  session.install(opened);
-  // A conversation with entries is one a host opened again, as after a restart, which extensions
-  // learn as Pi tells them about a session it opens again.
-  const earlier = await conversation.entries({ order: "ascending" }, 1, undefined, context);
-  const reason = earlier.items.length > 0 ? "resume" : "startup";
-  await hosted.rpc.emit(key, { type: "session_start", reason });
-  return {
-    errors: opened.errors,
-    input: (text, images, inputContext) => session.input(text, images, inputContext),
-    close: () => session.close(),
-  };
+  const attached = new AttachedConversation(key, options, installation);
+  installation.add(attached);
+  const hosted = workers.acquire(key, attached);
+  attached.bind(hosted, () => workers.release(hosted, key));
+  try {
+    const opened = await hosted.rpc.open(key, options.cwd);
+    attached.update(opened);
+    // A conversation with entries is one a host opened again, as after a restart, which extensions
+    // learn as Pi tells them about a session it opens again.
+    const earlier = await conversation.entries({ order: "ascending" }, 1, undefined, context);
+    const reason = earlier.items.length > 0 ? "resume" : "startup";
+    await hosted.rpc.emit(key, { type: "session_start", reason });
+    // Extensions often register tools in `session_start`; they are installed before the first request.
+    attached.update(await hosted.rpc.registrations(key));
+    return {
+      errors: opened.errors,
+      input: (text, images, inputContext) => attached.input(text, images, inputContext),
+      close: () => attached.close(),
+    };
+  } catch (error) {
+    await attached.close();
+    throw error;
+  }
+}
+
+/**
+ * The pi-durable extension in one registry, `pi-durable-compat`, shared by the conversations
+ * attached through it: its tools and hooks act for the attached conversation they run in. One
+ * extension, rather than one per conversation, because pi-durable selects every installed extension
+ * for every conversation by default and the same tool names would replace each other; hosts limit
+ * it to some conversations with pi-durable's own selection.
+ */
+class Installation {
+  readonly harness: Harness;
+  readonly #registry: Registry;
+  readonly #emptied: () => void;
+  readonly #conversations = new Map<ConversationId, AttachedConversation>();
+  #installed: ReturnType<typeof defineExtension> | undefined;
+  #installedFor = "";
+
+  constructor(harness: Harness, registry: Registry, emptied: () => void) {
+    this.harness = harness;
+    this.#registry = registry;
+    this.#emptied = emptied;
+  }
+
+  add(conversation: AttachedConversation) {
+    if (this.#conversations.has(conversation.id)) {
+      throw new Error(`Conversation ${conversation.id} has extensions attached already`);
+    }
+    this.#conversations.set(conversation.id, conversation);
+  }
+
+  remove(conversation: AttachedConversation) {
+    if (this.#conversations.get(conversation.id) !== conversation) return;
+    this.#conversations.delete(conversation.id);
+    if (this.#conversations.size > 0) {
+      this.refresh();
+      return;
+    }
+    if (this.#installed) this.#registry.uninstall(this.#installed);
+    this.#installed = undefined;
+    this.#emptied();
+  }
+
+  /**
+   * Installs the extension again when the attached conversations' tools or events changed: every
+   * tool any of them registered, by name, the first registration winning, and every event any of
+   * them listens to. A conversation whose extensions did not register a tool fails its calls.
+   */
+  refresh() {
+    const tools = new Map<string, ToolDescriptor>();
+    const events = new Set<string>();
+    for (const conversation of this.#conversations.values()) {
+      for (const tool of conversation.registrations.tools) {
+        if (!tools.has(tool.name)) tools.set(tool.name, tool);
+      }
+      for (const event of conversation.registrations.events) events.add(event);
+    }
+    const wanted = JSON.stringify([[...tools.values()], [...events].toSorted()]);
+    if (wanted === this.#installedFor) return;
+    this.#installedFor = wanted;
+    this.#installed = defineExtension({
+      name: "pi-durable-compat",
+      tools: [...tools.values()].flatMap((tool) => this.#tool(tool)),
+      hooks: this.#hooks(events),
+    });
+    this.#registry.install(this.#installed);
+  }
+
+  #for(api: { conversationId: ConversationId }) {
+    return this.#conversations.get(api.conversationId);
+  }
+
+  #hooks(events: Set<string>): HookRegistration[] {
+    const hooks: HookRegistration[] = [];
+    if (events.has("tool_call") || events.has("tool_result")) {
+      hooks.push(
+        hook(ToolTask, {
+          ...(events.has("tool_call") && {
+            beforeTool: async (call, api) => this.#for(api)?.beforeTool(call),
+          }),
+          ...(events.has("tool_result") && {
+            afterTool: async (call, result, api) => this.#for(api)?.afterTool(call, result),
+          }),
+        }),
+      );
+    }
+    if (events.has("context") || events.has("before_provider_request")) {
+      hooks.push(
+        hook(GenerationTask, {
+          ...(events.has("context") && {
+            beforeRequest: async (request, api) => this.#for(api)?.beforeRequest(request),
+          }),
+          ...(events.has("before_provider_request") && {
+            beforeProviderRequest: async (request, api) =>
+              this.#for(api)?.beforeProviderRequest(request),
+          }),
+        }),
+      );
+    }
+    return hooks;
+  }
+
+  #tool(descriptor: ToolDescriptor): ToolRegistration[] {
+    if (descriptor.exposure === "hidden") return [];
+    return [
+      defineTool({
+        name: descriptor.name,
+        description: descriptor.description,
+        parameters: descriptor.parameters,
+        // A Pi tool may have run part of its work when a crash stops it.
+        replay: "unsafe",
+        ...(descriptor.executionMode && { executionMode: descriptor.executionMode }),
+        ...(descriptor.exposure === "model-only" && { callers: ["model"] as const }),
+        // Not offered to the model until something loads it, as Pi activates these tools only when
+        // asked; other tools can call them meanwhile.
+        ...(inactive(descriptor) && { deferred: true as const }),
+        ...(descriptor.prepareArguments && {
+          prepareArguments: (args: unknown) => repairArguments(args, descriptor.parameters),
+        }),
+        execute: async (args, api, context) => {
+          const conversation = this.#for(api);
+          if (!conversation) throw new Error("No Pi extensions are attached to this conversation");
+          return conversation.executeTool(descriptor.name, args, api.callId, context);
+        },
+      }),
+    ];
+  }
 }
 
 /** One attached conversation: its worker, its pi-durable extension, and the actions it carries out. */
-class Session {
+class AttachedConversation {
   readonly key: string;
   readonly models: Models;
   readonly #options: AttachOptions;
   #hosted: HostedWorker | undefined;
   #release: (() => void) | undefined;
   #closed = false;
-  #installed: ReturnType<typeof defineExtension> | undefined;
+  readonly #installation: Installation;
+  /** What the extensions registered, as last read. */
+  registrations: Registrations = { tools: [], events: [] };
+  /** The extensions' writes to the conversation, in order; a read waits for those before it. */
+  #writes: Promise<unknown> = Promise.resolve();
+  /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
+  readonly #execs = new Map<number, AbortController>();
 
-  constructor(key: string, options: AttachOptions) {
+  constructor(key: string, options: AttachOptions, installation: Installation) {
     this.key = key;
     this.models = options.models;
     this.#options = options;
+    this.#installation = installation;
   }
 
   get #rpc() {
@@ -290,274 +482,225 @@ class Session {
     this.#release = release;
   }
 
-  get name() {
-    return `pi-durable-compat:${this.key}`;
+  get id() {
+    return this.#options.conversation.id;
   }
 
-  /** Installs, or replaces, the conversation's pi-durable extension for `registrations`. */
-  install(registrations: Registrations) {
-    const events = new Set(registrations.events);
-    const conversationId = this.#options.conversation.id;
-    const mine = (api: { conversationId: ConversationId }) =>
-      api.conversationId === conversationId && !this.#closed;
-    const hooks: HookRegistration[] = [];
-    if (events.has("tool_call") || events.has("tool_result")) {
-      hooks.push(
-        hook(ToolTask, {
-          ...(events.has("tool_call") && {
-            beforeTool: async (call, api) => {
-              if (!mine(api)) return undefined;
-              const { result, input } = await this.#rpc.toolCall(this.key, {
-                type: "tool_call",
-                toolCallId: call.id,
-                toolName: call.name,
-                input: structuredClone(call.arguments),
-              });
-              if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
-              const changed = toJson(input);
-              if (JSON.stringify(changed) === JSON.stringify(call.arguments)) return undefined;
-              return isJsonObjectValue(changed) ? { arguments: changed } : undefined;
-            },
-          }),
-          ...(events.has("tool_result") && {
-            afterTool: async (call, result, api) => {
-              if (!mine(api)) return undefined;
-              const changed = await this.#rpc.toolResult(this.key, {
-                type: "tool_result",
-                toolCallId: call.id,
-                toolName: call.name,
-                input: call.arguments,
-                content: [...(result.output ?? [])],
-                details: result.details,
-                isError: result.isError ?? false,
-              });
-              if (!changed) return undefined;
-              return {
-                ...result,
-                ...(changed.content !== undefined && { output: changed.content }),
-                ...(changed.details !== undefined && { details: toJson(changed.details) }),
-                ...(changed.isError !== undefined && { isError: changed.isError }),
-              };
-            },
-          }),
-        }),
-      );
-    }
-    if (events.has("context") || events.has("before_provider_request")) {
-      hooks.push(
-        hook(GenerationTask, {
-          ...(events.has("context") && {
-            beforeRequest: async (request, api) => {
-              if (!mine(api)) return undefined;
-              const messages = await this.#rpc.context(this.key, [...request.messages]);
-              // Pi's own message kinds, such as a shell command's output, have no meaning here.
-              return { messages: messages.filter(isMessage) };
-            },
-          }),
-          ...(events.has("before_provider_request") && {
-            beforeProviderRequest: async (request, api) => {
-              if (!mine(api)) return undefined;
-              return { payload: await this.#rpc.providerRequest(this.key, request.payload) };
-            },
-          }),
-        }),
-      );
-    }
-    this.#installed = defineExtension({
-      name: this.name,
-      tools: registrations.tools.flatMap((tool) => this.#tool(tool)),
-      hooks,
+  /** Takes the extensions' current registrations, and installs them in the registry. */
+  update(registrations: Registrations) {
+    if (this.#closed) return;
+    this.registrations = registrations;
+    this.#installation.refresh();
+  }
+
+  async beforeTool(call: ToolHookCall) {
+    if (this.#closed) return undefined;
+    const { result, input } = await this.#rpc.toolCall(this.key, {
+      type: "tool_call",
+      toolCallId: call.id,
+      toolName: call.name,
+      input: structuredClone(call.arguments),
     });
-    this.#options.registry.install(this.#installed);
+    if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
+    const changed = toJson(input);
+    if (changed === undefined || Equal.equals(changed, call.arguments)) return undefined;
+    return isJsonObjectValue(changed) ? { arguments: changed } : undefined;
   }
 
-  #tool(descriptor: ToolDescriptor): ToolRegistration[] {
-    if (descriptor.exposure === "hidden") return [];
-    const conversationId = this.#options.conversation.id;
-    return [
-      defineTool({
-        name: descriptor.name,
-        description: descriptor.description,
-        parameters: descriptor.parameters,
-        // A Pi tool may have run part of its work when a crash stops it.
-        replay: "unsafe",
-        ...(descriptor.executionMode && { executionMode: descriptor.executionMode }),
-        ...(descriptor.exposure === "model-only" && { callers: ["model"] as const }),
-        ...(descriptor.prepareArguments && {
-          prepareArguments: (args: unknown) => repairArguments(args, descriptor.parameters),
-        }),
-        execute: async (args, api, context) => {
-          if (api.conversationId !== conversationId)
-            throw new Error("Not this conversation's tool");
-          const abort = () => void this.#hosted?.rpc.cancelTool(api.callId);
-          context.abortSignal?.addEventListener("abort", abort, { once: true });
-          try {
-            const result = await this.#rpc.executeTool(this.key, api.callId, descriptor.name, args);
-            return toolOutput(result);
-          } finally {
-            context.abortSignal?.removeEventListener("abort", abort);
-          }
-        },
-      }),
-    ];
+  async afterTool(call: ToolHookCall, result: ToolExecutionResult) {
+    if (this.#closed) return undefined;
+    const changed = await this.#rpc.toolResult(this.key, {
+      type: "tool_result",
+      toolCallId: call.id,
+      toolName: call.name,
+      input: call.arguments,
+      content: [...(result.output ?? [])],
+      details: result.details,
+      isError: result.isError ?? false,
+    });
+    if (!changed) return undefined;
+    return {
+      ...result,
+      ...(changed.content !== undefined && { output: changed.content }),
+      ...withDetails(changed.details),
+      ...(changed.isError !== undefined && { isError: changed.isError }),
+    };
   }
 
-  /** Re-reads the extensions' registrations after a change and reinstalls the conversation's extension. */
+  async beforeRequest(request: { readonly messages: readonly Message[] }) {
+    if (this.#closed) return undefined;
+    const messages = await this.#rpc.context(this.key, [...request.messages]);
+    // Pi's own message kinds, such as a shell command's output, have no meaning here.
+    return { messages: messages.filter(isMessage) };
+  }
+
+  async beforeProviderRequest(request: { readonly payload: unknown }) {
+    if (this.#closed) return undefined;
+    return { payload: await this.#rpc.providerRequest(this.key, request.payload) };
+  }
+
+  async executeTool(name: string, args: unknown, callId: string, context: Context) {
+    const abort = () => void this.#hosted?.rpc.cancelTool(callId);
+    context.abortSignal?.addEventListener("abort", abort, { once: true });
+    try {
+      return toolOutput(await this.#rpc.executeTool(this.key, callId, name, args));
+    } finally {
+      context.abortSignal?.removeEventListener("abort", abort);
+    }
+  }
+
+  /** Re-reads the extensions' registrations after they changed. */
   changed() {
     if (this.#closed || !this.#hosted) return;
     void this.#hosted.rpc.registrations(this.key).then(
-      (registrations) => this.install(registrations),
+      (registrations) => this.update(registrations),
       () => {},
     );
   }
 
-  async state(context: Context): Promise<ConversationState> {
-    const agent = await this.#options.conversation.agent(context);
-    const model = agent.model && this.models.getModel(agent.model.provider, agent.model.modelId);
-    const models = this.models.getModels();
-    const available = await this.models.getAvailable().then(
-      (list) => list.map((each) => `${each.provider}/${each.id}`),
-      () => [],
-    );
-    return {
-      model,
-      thinkingLevel: agent.thinkingLevel,
-      activeTools: agent.tools.map((tool) => tool.name),
-      allTools: agent.tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        exposure: "direct" as const,
-        sourceInfo: {
-          path: "<pi-durable>",
-          source: "pi-durable",
-          scope: "temporary",
-          origin: "top-level",
-        },
-      })),
-      sessionName: undefined,
-      idle: true,
-      contextUsage: undefined,
-      systemPrompt: "",
-      models: [...models],
-      available,
-    };
-  }
-
+  /** Carries out an extension's action, after the writes before it. */
   act(action: Action) {
     if (this.#closed) return;
+    const write = this.#act(action);
+    if (!write) return;
+    // A failure, such as a conversation that closed meanwhile, has no one to report to: Pi's
+    // actions return nothing.
+    this.#writes = Promise.all([this.#writes, write.catch(() => {})]);
+  }
+
+  #act(action: Action): Promise<unknown> | undefined {
     const { conversation } = this.#options;
     const context = BACKGROUND_CONTEXT;
     switch (action.type) {
       case "sendMessage": {
         const [message, options] = action.args;
-        const kind = `piext.${message.customType}`;
         const content =
           typeof message.content === "string" ? message.content : [...message.content];
+        const entry = {
+          kind: `piext.${message.customType}`,
+          ...withData({ display: message.display, details: message.details }),
+        };
         if (options?.triggerTurn) {
-          done(
-            conversation.submit(
-              {
-                type: "input",
-                content,
-                whenBusy: options.deliverAs === "steer" ? "steer" : "followUp",
-                entry: {
-                  kind,
-                  ...(message.details !== undefined && { data: toJson(message.details) }),
-                },
-              },
-              context,
-            ),
-          );
-        } else {
-          done(
-            conversation.submit(
-              {
-                type: "write",
-                entry: {
-                  kind,
-                  model: [{ role: "user", content, timestamp: Date.now() }],
-                  ...(message.details !== undefined && { data: toJson(message.details) }),
-                },
-              },
-              context,
-            ),
+          return conversation.submit(
+            {
+              type: "input",
+              content,
+              whenBusy: options.deliverAs === "steer" ? "steer" : "followUp",
+              entry,
+            },
+            context,
           );
         }
-        return;
+        return conversation.submit(
+          {
+            type: "write",
+            entry: { ...entry, model: [{ role: "user", content, timestamp: Date.now() }] },
+          },
+          context,
+        );
       }
       case "sendUserMessage": {
         const [content, options] = action.args;
-        done(
-          conversation.submit(
-            {
-              type: "input",
-              content: typeof content === "string" ? content : [...content],
-              whenBusy: options?.deliverAs === "steer" ? "steer" : "followUp",
-            },
-            context,
-          ),
+        return conversation.submit(
+          {
+            type: "input",
+            content: typeof content === "string" ? content : [...content],
+            whenBusy: options?.deliverAs === "steer" ? "steer" : "followUp",
+          },
+          context,
         );
-        return;
       }
       case "appendEntry":
-        done(
-          conversation.submit(
-            {
-              type: "write",
-              entry: { kind: `piext.${action.customType}`, data: toJson(action.data) },
-            },
-            context,
-          ),
+        return conversation.submit(
+          {
+            type: "write",
+            entry: { kind: `piext.${action.customType}`, ...withData(action.data) },
+          },
+          context,
         );
-        return;
+      case "setThinkingLevel":
+        return conversation.configure({ thinkingLevel: action.level }, context);
       case "compact":
-        done(conversation.compact(action.instructions, context));
-        return;
+        return conversation.compact(action.instructions, context);
       case "abort":
-        done(conversation.abort(context));
-        return;
+        return conversation.abort(context);
       default:
-        // Session names, labels, active tools, thinking levels and shutdown are not carried out yet.
-        return;
+        // Session names, labels, active tools and shutdown have no counterpart here.
+        return undefined;
     }
   }
 
-  async setModel(_model: Model<Api>): Promise<boolean> {
-    return false;
-  }
-
-  async exec(
-    command: string,
-    args: string[],
-    options: { cwd?: string; timeout?: number } | undefined,
-  ) {
-    const env = this.#options.env;
-    if (!env) throw new Error("No environment to run commands in");
-    let stdout = "";
-    let stderr = "";
-    const result = await env.exec(
-      [command, ...args],
-      {
-        ...(options?.cwd !== undefined && { cwd: options.cwd }),
-        ...(options?.timeout !== undefined && { timeout: options.timeout }),
-        onOutput: (text, _context, info) => {
-          if (info.stream === "stderr") stderr += text;
-          else stdout += text;
-        },
-      },
+  /** Switches the conversation's model, as Pi does: only to a model with credentials. */
+  async setModel(model: Model<Api>): Promise<boolean> {
+    if (this.#closed || !(await this.models.getAuth(model))) return false;
+    await this.#options.conversation.configure(
+      { model: { provider: model.provider, modelId: model.id } },
       BACKGROUND_CONTEXT,
     );
-    if (!result.ok) {
-      return {
-        stdout,
-        stderr: stderr || result.error.message,
-        code: 1,
-        killed: false,
-        truncated: false,
-      };
+    return true;
+  }
+
+  /**
+   * Runs `pi.exec`'s command in the conversation's environment, with Pi's options: `cwd` defaults
+   * to the extensions' directory, and output past `maxBuffer` bytes stops the command.
+   */
+  async exec(
+    id: number,
+    command: string,
+    args: string[],
+    options: Parameters<HostFunctions["exec"]>[4],
+  ): Promise<ExecResult> {
+    const env = this.#options.env;
+    if (!env) throw new Error("No environment to run commands in");
+    const controller = new AbortController();
+    this.#execs.set(id, controller);
+    const maxBuffer = options?.maxBuffer ?? DEFAULT_MAX_BUFFER;
+    let stdout = "";
+    let stderr = "";
+    let bytes = 0;
+    let truncated = false;
+    try {
+      const result = await env.exec(
+        [command, ...args],
+        {
+          cwd: options?.cwd ?? this.#options.cwd,
+          ...(options?.timeout !== undefined && { timeout: options.timeout }),
+          onOutput: (text, _context, info) => {
+            if (truncated) return;
+            const size = Buffer.byteLength(text);
+            const kept = bytes + size <= maxBuffer ? text : undefined;
+            bytes += size;
+            if (kept === undefined) {
+              truncated = true;
+              controller.abort();
+              return;
+            }
+            if (info.stream === "stderr") stderr += kept;
+            else stdout += kept;
+          },
+        },
+        withAbortSignal(controller.signal, BACKGROUND_CONTEXT),
+      );
+      if (result.ok) {
+        const code = result.value.exitCode;
+        // A truncated result never reads as success, as in Pi.
+        return {
+          stdout,
+          stderr,
+          code: truncated && code === 0 ? 1 : code,
+          killed: truncated,
+          truncated,
+        };
+      }
+      const killed = result.error.code === "aborted" || result.error.code === "timeout";
+      return { stdout, stderr: stderr || result.error.message, code: 1, killed, truncated };
+    } finally {
+      this.#execs.delete(id);
     }
-    return { stdout, stderr, code: result.value.exitCode, killed: false, truncated: false };
+  }
+
+  cancelExec(id: number) {
+    this.#execs.get(id)?.abort();
   }
 
   async getApiKeyAndHeaders(model: Model<Api>) {
@@ -577,16 +720,64 @@ class Session {
     }
   }
 
-  /** Answers a read of `ctx.sessionManager` from the conversation's journal. */
-  async read(request: HistoryRead): Promise<unknown> {
-    const entries = await this.#entries();
-    if (request.method === "getLeafId") return entries.at(-1)?.id ?? null;
-    if (request.method === "getEntry") return entries.find((entry) => entry.id === request.args[0]);
-    return entries;
+  /** Answers a worker's synchronous read, after the writes sent before it. */
+  async read(method: keyof Reads, args: readonly unknown[]): Promise<unknown> {
+    await this.#writes;
+    const { conversation, harness } = this.#options;
+    const context = BACKGROUND_CONTEXT;
+    switch (method) {
+      case "getBranch": {
+        const entries = await this.#entries();
+        const end = typeof args[0] === "string" ? entries.findIndex((e) => e.id === args[0]) : -1;
+        return end === -1 ? entries : entries.slice(0, end + 1);
+      }
+      case "getEntries":
+        return this.#entries();
+      case "getEntry":
+        return (await this.#entries()).find((entry) => entry.id === args[0]);
+      case "getLeafId":
+        return (await this.#entries()).at(-1)?.id ?? null;
+      case "getModel": {
+        const { model } = await conversation.agent(context);
+        return model && this.models.getModel(model.provider, model.modelId);
+      }
+      case "getThinkingLevel":
+        return (await conversation.agent(context)).thinkingLevel;
+      case "isIdle":
+        return (await harness.snapshot(LiveDoc, conversation.id, context))?.run === undefined;
+      case "getActiveTools":
+        return (await conversation.agent(context)).tools.map((tool) => tool.name);
+      case "getAllTools":
+        return (await conversation.agent(context)).tools.map((tool): ToolInfo => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          exposure: "direct",
+          sourceInfo: {
+            path: "<pi-durable>",
+            source: "pi-durable",
+            scope: "temporary",
+            origin: "top-level",
+          },
+        }));
+      case "getModels": {
+        const available = await this.models.getAvailable().then(
+          (list) => list.map((each) => `${each.provider}/${each.id}`),
+          () => [],
+        );
+        return { models: [...this.models.getModels()], available };
+      }
+    }
+    const unknown: never = method;
+    throw new Error(`Unknown read ${String(unknown)}`);
   }
 
-  /** The conversation's entries as Pi's session entries: messages, and extensions' own entries. */
-  async #entries() {
+  /**
+   * The conversation's entries as Pi's session entries: extensions' entries, the messages they
+   * sent, and the conversation's messages. pi-durable keeps no time on an entry, so an entry has
+   * its message's time, or else the time of the read.
+   */
+  async #entries(): Promise<SessionEntry[]> {
     const records: EntryRecord[] = [];
     let cursor: Parameters<Conversation["entries"]>[2];
     do {
@@ -599,33 +790,45 @@ class Session {
       records.push(...page.items);
       cursor = page.next;
     } while (cursor !== undefined);
-    const entries: {
-      type: string;
-      id: string;
-      parentId: string | null;
-      timestamp: string;
-      [field: string]: unknown;
-    }[] = [];
+    const entries: SessionEntry[] = [];
     let parentId: string | null = null;
+    const now = new Date().toISOString();
     for (const record of records) {
-      const timestamp = new Date().toISOString();
+      const id = `${record.id}`;
+      const messages = record.model ?? [];
+      const first = messages[0];
+      const timestamp = first ? new Date(first.timestamp).toISOString() : now;
       if (record.kind.startsWith("piext.")) {
-        const id = `${record.id}`;
-        entries.push({
-          type: "custom",
-          id,
-          parentId,
-          timestamp,
-          customType: record.kind.slice(6),
-          data: record.data,
-        });
+        const customType = record.kind.slice("piext.".length);
+        // A message an extension sent carries what the model sees; `appendEntry`'s carries only data.
+        if (first?.role === "user") {
+          const sent = isJsonObject(record.data) ? record.data : {};
+          entries.push({
+            type: "custom_message",
+            id,
+            parentId,
+            timestamp,
+            customType,
+            content: first.content,
+            display: sent.display !== false,
+            ...(sent.details !== undefined && { details: sent.details }),
+          });
+        } else {
+          entries.push({ type: "custom", id, parentId, timestamp, customType, data: record.data });
+        }
         parentId = id;
         continue;
       }
-      for (const [index, message] of (record.model ?? []).entries()) {
-        const id = index === 0 ? `${record.id}` : `${record.id}:${index}`;
-        entries.push({ type: "message", id, parentId, timestamp, message });
-        parentId = id;
+      for (const [index, message] of messages.entries()) {
+        const messageId = index === 0 ? id : `${id}:${index}`;
+        entries.push({
+          type: "message",
+          id: messageId,
+          parentId,
+          timestamp: new Date(message.timestamp).toISOString(),
+          message,
+        });
+        parentId = messageId;
       }
     }
     return entries;
@@ -645,19 +848,20 @@ class Session {
     if (this.#closed) return;
     const hosted = this.#hosted;
     this.#closed = true;
+    this.#installation.remove(this);
     if (hosted) await hosted.rpc.close(this.key).catch(() => {});
-    if (this.#installed) this.#options.registry.uninstall(this.#installed);
     this.#release?.();
   }
 }
 
-/**
- * Starts `promise`, an action an extension takes in the background: Pi's actions return nothing,
- * so a failure, such as a conversation that closed meanwhile, has no one to report to.
- */
-function done(promise: Promise<unknown>) {
-  void promise.catch(() => {});
+/** Whether Pi leaves a tool out of the active set when it is registered. */
+function inactive({ exposure, defaultActive }: ToolDescriptor) {
+  if (exposure === "codemode" || exposure === "deferred") return true;
+  return defaultActive === false;
 }
+
+/** Pi's default for `pi.exec`'s `maxBuffer` (`core/exec.js`): 256 MiB, within the longest string. */
+const DEFAULT_MAX_BUFFER = Math.min(256 * 1024 * 1024, constants.MAX_STRING_LENGTH);
 
 /**
  * Pi runs a tool's `prepareArguments` before validating its arguments; pi-durable does too, but
@@ -692,7 +896,7 @@ function isJsonObjectValue(value: JsonValue): value is JsonObject {
 }
 
 function isMessage(message: { role: string }): message is Message {
-  return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+  return ["system", "user", "assistant", "toolResult"].includes(message.role);
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -700,15 +904,27 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** A value as JSON, as pi-durable stores it: what does not survive JSON is dropped. */
-function toJson(value: unknown): JsonValue {
+function toJson(value: unknown): JsonValue | undefined {
   const text = JSON.stringify(value);
-  return text === undefined ? null : JSON.parse(text);
+  return text === undefined ? undefined : JSON.parse(text);
+}
+
+/** `details`, when there are any that survive JSON. */
+function withDetails(details: unknown): { details?: JsonValue } {
+  const json = toJson(details);
+  return json === undefined ? {} : { details: json };
+}
+
+/** `data`, when there is any that survives JSON. */
+function withData(data: unknown): { data?: JsonValue } {
+  const json = toJson(data);
+  return json === undefined ? {} : { data: json };
 }
 
 function toolOutput(result: ToolResult) {
   return {
     output: result.content.filter(isContentPart),
-    details: toJson(result.details),
+    ...withDetails(result.details),
     ...(result.isError !== undefined && { isError: result.isError }),
   };
 }

@@ -2,7 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@mariozechner/pi-ai";
 
 // An extension using what extensions commonly use: tools, saved entries read back from the
-// session, a `tool_call` gate and an `input` transform, with Pi's former package names.
+// session, a `tool_call` gate, an `input` transform and a `context` handler, with Pi's former
+// package names.
 export default function extension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "remember",
@@ -21,9 +22,13 @@ export default function extension(pi: ExtensionAPI) {
       }
       return { ...args, tags: JSON.parse(args.tags) };
     },
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, ctx) {
       pi.appendEntry("note", { text: params.text, tags: params.tags });
-      return { content: [{ type: "text", text: `Saved ${params.text}` }], details: {} };
+      // Read back at once, as an extension does that keeps its state in the session.
+      const count = ctx.sessionManager
+        .getBranch()
+        .filter((entry) => entry.type === "custom" && entry.customType === "note").length;
+      return { content: [{ type: "text", text: `Saved ${params.text} (${count})` }], details: {} };
     },
   });
   pi.registerTool({
@@ -65,4 +70,6 @@ export default function extension(pi: ExtensionAPI) {
     return saved ? { block: true, reason: "Already saved" } : undefined;
   });
   pi.on("input", (event) => ({ action: "transform", text: `${event.text}!` }));
+  // Leaves the request as it is, which keeps the system prompt.
+  pi.on("context", () => undefined);
 }

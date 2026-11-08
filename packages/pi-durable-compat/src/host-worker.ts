@@ -1,12 +1,17 @@
+import { pathToFileURL } from "node:url";
 import { workerData as startData } from "node:worker_threads";
 
+import type { ExecOptions } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
+import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
 import type {
-  ConversationState,
-  HistoryRead,
+  Action,
+  ExtensionError,
   HostFunctions,
+  JournalMessage,
+  Reads,
   Registrations,
   ToolResult,
   WorkerData,
@@ -23,62 +28,64 @@ import type {
 // conversation's provider session ID. Modules load once per worker; factories run per instance.
 
 const workerData: WorkerData = startData;
-const runtime: typeof import("./runtime.ts") = await import(workerData.runtime);
+const runtime: typeof import("./runtime.ts") = await import(pathToFileURL(workerData.runtime).href);
 const extensions: LoadedExtension[] = [];
-const loadErrors: { source: string; error: string }[] = [];
+const loadErrors: ExtensionError[] = [];
 for (const { source, path } of workerData.extensions) {
   try {
-    const module: { default?: unknown } = await import(path);
+    const module: { default?: unknown } = await import(pathToFileURL(path).href);
     extensions.push({ source, factory: module.default });
   } catch (error) {
-    loadErrors.push({ source, error: error instanceof Error ? error.message : String(error) });
+    loadErrors.push({ source, message: ensureError(error).message });
   }
 }
 
-interface Hosted {
-  readonly instance: Instance;
-  state: ConversationState;
-}
-
-const hosted = new Map<string, Hosted>();
+const instances = new Map<string, Instance>();
 const running = new Map<string, AbortController>();
 
-const history = new SyncMessagePort(workerData.history);
+const journal = new SyncMessagePort(workerData.journal);
 let nextRead = 0;
+let nextExec = 0;
+
+/** Sends `action` on the journal channel, ahead of any read that follows it. */
+function act(key: string, action: Action) {
+  const message: JournalMessage = { type: "act", key, action };
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
+  journal.postMessage(message);
+}
 
 /**
- * Reads the conversation's history from the host, blocking this worker until it answers. The
- * reply is the host's own, answering `method` with what Pi's `SessionManager` returns, so it is
- * typed as that, as birpc types its replies.
+ * Reads from the host, blocking this worker until it answers. The reply is the host's own answer to
+ * `method`, so it is typed as that, as birpc types its replies.
  */
-function read<M extends HistoryRead["method"]>(
+function read<M extends keyof Reads>(
   key: string,
   method: M,
-  args: Parameters<ReadonlySessionManager[M]>,
-): ReturnType<ReadonlySessionManager[M]> {
+  ...args: Parameters<Reads[M]>
+): ReturnType<Reads[M]> {
   const id = nextRead++;
-  const request: HistoryRead = { id, key, method, args };
+  const message: JournalMessage = { type: "read", id, key, method, args };
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-  history.postMessage(request);
+  journal.postMessage(message);
   for (;;) {
-    const reply = history.receiveMessage();
+    const reply = journal.receiveMessage();
     if (typeof reply !== "object" || reply === null || !("id" in reply) || reply.id !== id)
       continue;
     if ("error" in reply) throw new Error(String(reply.error));
     const value: unknown = "value" in reply ? reply.value : undefined;
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
-    return value as ReturnType<ReadonlySessionManager[M]>;
+    return value as ReturnType<Reads[M]>;
   }
 }
 
-function hostedFor(key: string): Hosted {
-  const found = hosted.get(key);
+function instanceFor(key: string): Instance {
+  const found = instances.get(key);
   if (!found) throw new Error(`No extensions are open for conversation ${key}`);
   return found;
 }
 
 function runnerFor(key: string) {
-  return hostedFor(key).instance.runner;
+  return instanceFor(key).runner;
 }
 
 function registrations(instance: Instance): Registrations {
@@ -91,69 +98,55 @@ function registrations(instance: Instance): Registrations {
       prepareArguments: definition.prepareArguments !== undefined,
       executionMode: definition.executionMode,
       exposure: definition.exposure,
-      promptSnippet: definition.promptSnippet,
-      promptGuidelines: definition.promptGuidelines,
+      defaultActive: definition.defaultActive,
     })),
     events: instance.events(),
   };
 }
 
 const functions: WorkerFunctions = {
-  async open(key, { cwd, state }) {
-    const entry: { state: ConversationState } = { state };
+  async open(key, cwd) {
     const instance = await runtime.createInstance(extensions, {
       cwd,
       actions: {
-        sendMessage: (...args) => host.act(key, { type: "sendMessage", args }),
-        sendUserMessage: (...args) => host.act(key, { type: "sendUserMessage", args }),
-        appendEntry: (customType, data) => host.act(key, { type: "appendEntry", customType, data }),
-        setSessionName: (name) => host.act(key, { type: "setSessionName", name }),
-        getSessionName: () => entry.state.sessionName,
-        setLabel: (entryId, label) => host.act(key, { type: "setLabel", entryId, label }),
-        getActiveTools: () => [...entry.state.activeTools],
-        getAllTools: () => [...entry.state.allTools],
+        sendMessage: (...args) => act(key, { type: "sendMessage", args }),
+        sendUserMessage: (...args) => act(key, { type: "sendUserMessage", args }),
+        appendEntry: (customType, data) => act(key, { type: "appendEntry", customType, data }),
+        setSessionName: (name) => act(key, { type: "setSessionName", name }),
+        getSessionName: () => undefined,
+        setLabel: (entryId, label) => act(key, { type: "setLabel", entryId, label }),
+        getActiveTools: () => read(key, "getActiveTools"),
+        getAllTools: () => read(key, "getAllTools"),
         getSettings: () => ({}),
-        setActiveTools: (names) => host.act(key, { type: "setActiveTools", names }),
+        setActiveTools: (names) => act(key, { type: "setActiveTools", names }),
         getCommands: () => [],
         setModel: (model) => host.setModel(key, model),
-        getThinkingLevel: () => entry.state.thinkingLevel,
-        setThinkingLevel: (level) => host.act(key, { type: "setThinkingLevel", level }),
+        getThinkingLevel: () => read(key, "getThinkingLevel"),
+        setThinkingLevel: (level) => act(key, { type: "setThinkingLevel", level }),
       },
       context: {
-        getModel: () => entry.state.model,
+        getModel: () => read(key, "getModel"),
         getScopedModels: () => [],
-        isIdle: () => entry.state.idle,
+        isIdle: () => read(key, "isIdle"),
         isProjectTrusted: () => true,
         getSignal: () => undefined,
-        abort: () => host.act(key, { type: "abort" }),
+        abort: () => act(key, { type: "abort" }),
         hasPendingMessages: () => false,
-        shutdown: () => host.act(key, { type: "shutdown" }),
-        getContextUsage: () => entry.state.contextUsage,
+        shutdown: () => act(key, { type: "shutdown" }),
+        getContextUsage: () => undefined,
         compact: (options) =>
-          host.act(key, { type: "compact", instructions: options?.customInstructions }),
-        getSystemPrompt: () => entry.state.systemPrompt,
+          act(key, { type: "compact", instructions: options?.customInstructions }),
+        getSystemPrompt: () => "",
       },
       sessionManager: sessionManager(key, cwd),
-      modelRegistry: modelRegistry(key, entry),
-      exec: (command, args, options) => host.exec(key, command, args, options),
+      modelRegistry: modelRegistry(key),
+      exec: (command, args, options) => exec(key, command, args, options),
       changed: () => host.changed(key),
     });
-    hosted.set(key, {
-      instance,
-      get state() {
-        return entry.state;
-      },
-      set state(value) {
-        entry.state = value;
-      },
-    });
+    instances.set(key, instance);
     return { ...registrations(instance), errors: [...loadErrors, ...instance.errors] };
   },
-  registrations: (key) => registrations(hostedFor(key).instance),
-  state(key, state) {
-    const found = hosted.get(key);
-    if (found) found.state = state;
-  },
+  registrations: (key) => registrations(instanceFor(key)),
   emit: (key, event) => runnerFor(key).emit(event),
   toolCall: async (key, event) => ({
     result: await runnerFor(key).emitToolCall(event),
@@ -162,11 +155,9 @@ const functions: WorkerFunctions = {
   toolResult: (key, event) => runnerFor(key).emitToolResult(event),
   context: (key, messages) => runnerFor(key).emitContext(messages),
   providerRequest: (key, payload) => runnerFor(key).emitBeforeProviderRequest(payload),
-  beforeAgentStart: (key, trigger, options) =>
-    runnerFor(key).emitBeforeAgentStart(trigger, options),
   input: (key, ...args) => runnerFor(key).emitInput(...args),
   async executeTool(key, callId, name, args) {
-    const { runner } = hostedFor(key).instance;
+    const { runner } = instanceFor(key);
     const definition = runner.getToolDefinition(name);
     if (!definition) throw new Error(`Tool ${name} is not registered`);
     const controller = new AbortController();
@@ -177,7 +168,8 @@ const functions: WorkerFunctions = {
         callId,
         params,
         controller.signal,
-        (partial) => host.toolUpdate(callId, toolResult(partial)),
+        // pi-durable records a call's output as text it streams, which Pi's partial results are not.
+        () => {},
         runner.createToolContext(callId, controller.signal),
       );
       return toolResult(result);
@@ -189,12 +181,32 @@ const functions: WorkerFunctions = {
     running.get(callId)?.abort();
   },
   async close(key) {
-    const found = hosted.get(key);
+    const found = instances.get(key);
     if (!found) return;
-    hosted.delete(key);
-    await found.instance.runner.emit({ type: "session_shutdown", reason: "quit" });
+    instances.delete(key);
+    await found.runner.emit({ type: "session_shutdown", reason: "quit" });
   },
 };
+
+/** `pi.exec` through the host, which cancels the command when `options.signal` aborts. */
+async function exec(
+  key: string,
+  command: string,
+  args: string[],
+  options: ExecOptions | undefined,
+) {
+  const { signal, ...rest } = options ?? {};
+  const id = nextExec++;
+  const cancel = () => void host.cancelExec(key, id);
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    const result = host.exec(key, id, command, args, rest);
+    if (signal?.aborted) cancel();
+    return await result;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+  }
+}
 
 function toolResult(result: {
   content: readonly unknown[];
@@ -210,7 +222,7 @@ function toolResult(result: {
 
 function unsupported(name: string) {
   return () => {
-    throw new Error(`ctx.sessionManager.${name} is not supported by pi-durable-compat yet`);
+    throw new Error(`ctx.sessionManager.${name} is not supported by pi-durable-compat`);
   };
 }
 
@@ -220,28 +232,32 @@ function sessionManager(key: string, cwd: string): ReadonlySessionManager {
     getSessionDir: unsupported("getSessionDir"),
     getSessionId: () => key,
     getSessionFile: () => undefined,
-    getLeafId: () => read(key, "getLeafId", []),
+    getLeafId: () => read(key, "getLeafId"),
     getLeafEntry: unsupported("getLeafEntry"),
-    getEntry: (id) => read(key, "getEntry", [id]),
+    getEntry: (id) => read(key, "getEntry", id),
     getLabel: () => undefined,
-    getBranch: (fromId) => read(key, "getBranch", [fromId]),
+    getBranch: (fromId) => read(key, "getBranch", fromId),
     buildContextEntries: unsupported("buildContextEntries"),
     buildSessionProjection: unsupported("buildSessionProjection"),
     getHeader: unsupported("getHeader"),
-    getEntries: () => read(key, "getEntries", []),
+    getEntries: () => read(key, "getEntries"),
     getTree: unsupported("getTree"),
-    getSessionName: () => hosted.get(key)?.state.sessionName,
+    getSessionName: () => undefined,
   };
 }
 
-function modelRegistry(key: string, entry: { state: ConversationState }): ModelRegistryFacade {
-  const models = () => entry.state.models;
+function modelRegistry(key: string): ModelRegistryFacade {
+  const models = () => read(key, "getModels");
   const available = (model: { provider: string; id: string }) =>
-    entry.state.available.includes(`${model.provider}/${model.id}`);
+    models().available.includes(`${model.provider}/${model.id}`);
   return {
-    find: (provider, modelId) => models().find((m) => m.provider === provider && m.id === modelId),
-    getAll: () => [...models()],
-    getAvailable: () => models().filter(available),
+    find: (provider, modelId) =>
+      models().models.find((m) => m.provider === provider && m.id === modelId),
+    getAll: () => models().models,
+    getAvailable: () => {
+      const all = models();
+      return all.models.filter((m) => all.available.includes(`${m.provider}/${m.id}`));
+    },
     // The catalog holds chat models only, so an extension looking for another type finds none.
     findOfType: () => undefined,
     hasConfiguredAuth: available,
