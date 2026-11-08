@@ -280,28 +280,24 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
       "--filter",
       "label=com.docker.compose.service=runner",
     );
+    // Keep the stored login but cut off the hub before stopping the Runner. On restart it
+    // retries connecting without becoming ready or exiting; --no-recreate keeps it disconnected.
+    await run("docker", ["network", "disconnect", `${PROJECT}_default`, forwardedRunner]);
     await elflodge("stack", "stop");
-    await elflodge("stack", "logout");
     // Cancelling a readiness wait must finish cleanup before another command takes the lock.
-    // A stopped container keeps the restart count from its last run until it is started again,
-    // so a restart counts only once this start has started the Runner.
-    const startedAt = async () =>
-      (
-        await run("docker", ["inspect", "--format", "{{.State.StartedAt}}", forwardedRunner])
-      ).stdout.trim();
-    const previousStart = await startedAt();
     const interruptedRestart = elflodge("stack", "start");
     await expect
       .poll(
         async () =>
-          (await startedAt()) !== previousStart &&
-          Number(
-            (await run("docker", ["inspect", "--format", "{{.RestartCount}}", forwardedRunner]))
-              .stdout,
-          ) > 0,
+          (
+            await run("docker", ["inspect", "--format", "{{.State.Status}}", forwardedRunner])
+          ).stdout.trim(),
         { timeout: 30_000 },
       )
-      .toBe(true);
+      .toBe("running");
+    await expect(elflodge("stack", "logout")).rejects.toMatchObject({
+      stderr: expect.stringContaining("Another elflodge stack command"),
+    });
     interruptedRestart.child.kill("SIGINT");
     await expect(interruptedRestart).rejects.toMatchObject({
       code: 130,
@@ -312,6 +308,16 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
         await run("docker", ["inspect", "--format", "{{.State.Status}}", forwardedRunner])
       ).stdout.trim(),
     ).toBe("exited");
+
+    await run("docker", [
+      "network",
+      "connect",
+      "--alias",
+      "runner",
+      `${PROJECT}_default`,
+      forwardedRunner,
+    ]);
+    await elflodge("stack", "logout");
 
     // Readiness must fail before the subprocess watchdog, without leaving a restart loop.
     const failedRestart = elflodge("stack", "start");
