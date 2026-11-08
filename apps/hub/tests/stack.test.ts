@@ -34,9 +34,6 @@ const env: NodeJS.ProcessEnv = {
   XDG_DATA_HOME: stateHome,
   ELFLODGE_STACK_PROJECT: PROJECT,
   ELFLODGE_VERSION: VERSION,
-  // The cancellation test reads Compose's progress, whatever the shell's settings.
-  COMPOSE_PROGRESS: "plain",
-  COMPOSE_ANSI: "never",
   // The Runner starts only with a key for its provider; the job's paused Batch keeps it from running.
   OPENROUTER_API_KEY: "not-a-key",
 };
@@ -283,22 +280,25 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
       "--filter",
       "label=com.docker.compose.service=runner",
     );
+    // Keep the stored login but cut off the hub before stopping the Runner. On restart it
+    // retries connecting without becoming ready or exiting; --no-recreate keeps it disconnected.
+    await run("docker", ["network", "disconnect", `${PROJECT}_default`, forwardedRunner]);
     await elflodge("stack", "stop");
-    await elflodge("stack", "logout");
-    // Cancelling a readiness wait must finish cleanup before another command takes the lock. The
-    // signal goes as Compose starts waiting: once the logged-out Runner has restarted, its failed
-    // health check can end the wait first, and a signal during that failure's cleanup rightly
-    // exits 1, not 130.
+    // Cancelling a readiness wait must finish cleanup before another command takes the lock.
     const interruptedRestart = elflodge("stack", "start");
-    let progress = "";
-    const interruptWhenWaiting = (chunk: string) => {
-      progress += chunk;
-      if (new RegExp(`${PROJECT}-runner-1\\s+Waiting\\b`).test(progress)) {
-        interruptedRestart.child.stderr?.off("data", interruptWhenWaiting);
-        interruptedRestart.child.kill("SIGINT");
-      }
-    };
-    interruptedRestart.child.stderr?.on("data", interruptWhenWaiting);
+    await expect
+      .poll(
+        async () =>
+          (
+            await run("docker", ["inspect", "--format", "{{.State.Status}}", forwardedRunner])
+          ).stdout.trim(),
+        { timeout: 30_000 },
+      )
+      .toBe("running");
+    await expect(elflodge("stack", "logout")).rejects.toMatchObject({
+      stderr: expect.stringContaining("Another elflodge stack command"),
+    });
+    interruptedRestart.child.kill("SIGINT");
     await expect(interruptedRestart).rejects.toMatchObject({
       code: 130,
       stderr: expect.stringContaining("The Runner was stopped"),
@@ -308,6 +308,16 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
         await run("docker", ["inspect", "--format", "{{.State.Status}}", forwardedRunner])
       ).stdout.trim(),
     ).toBe("exited");
+
+    await run("docker", [
+      "network",
+      "connect",
+      "--alias",
+      "runner",
+      `${PROJECT}_default`,
+      forwardedRunner,
+    ]);
+    await elflodge("stack", "logout");
 
     // Readiness must fail before the subprocess watchdog, without leaving a restart loop.
     const failedRestart = elflodge("stack", "start");
