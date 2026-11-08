@@ -96,9 +96,9 @@ export function createProblemDetailsLink<T extends ClientContext>(
     },
     // oRPC's client reads only `application/json` as JSON by itself, errors included.
     errorResponseContentType: PROBLEM_DETAILS_CONTENT_TYPE,
-    errorResponseBodyDecoder: (body) => {
+    errorResponseBodyDecoder: (body, _response, defaultError) => {
       const problem = problemDetailsSchema.safeParse(body);
-      if (!problem.success) return undefined;
+      if (!problem.success) return defaultError();
       const { status, title, detail } = problem.data;
       // The document itself is kept as the cause, for a client that shows it as the hub sent it.
       return new ORPCError(codeOf(status), { message: detail ?? title, cause: problem.data });
