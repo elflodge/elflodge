@@ -36,11 +36,10 @@
     "access": "public"
   },
   "scripts": {
-    "build": "vp pack",
     "dev": "vp pack --watch",
     "test": "vp test",
     "check": "vp check",
-    "prepublishOnly": "vp run build"
+    "prepack": "vp pack"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",

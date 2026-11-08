@@ -1,6 +1,6 @@
 # One public package; the hub and runner stay private
 
-Elflodge publishes one npm package, `elflodge`: the CLI, which calls the hub over HTTP. The package `agent-batch` only runs it under its earlier name (ADR 0037). The hub and runner are private workspace packages distributed as separate images. Callers submit prompts, input files and output schemas through the API. Configured Pi extensions and additional script-based customization remain planned. Publishing a library now would freeze internals that are still changing.
+Elflodge publishes one npm package for its users, `elflodge`: the CLI, which calls the hub over HTTP. The package `agent-batch` only runs it under its earlier name (ADR 0037). `@elflodge/pi-durable-compat`, which runs Pi coding-agent extensions on pi-durable, is published for any pi-durable host and imports nothing of Elflodge (ADR 0038). The hub and runner are private workspace packages distributed as separate images. Callers submit prompts, input files and output schemas through the API. Publishing a library now would freeze internals that are still changing.
 
 ## Consequences
 
