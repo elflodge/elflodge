@@ -1,7 +1,7 @@
 {
   "name": "elflodge",
   "version": "0.7.1",
-  "description": "Run one-off agent jobs unattended on your own machines, each with a validated output contract.",
+  "description": "Hundreds of agents working unattended. One job API. Run jobs in parallel on your own machine and get structured results.",
   "homepage": "https://elflodge.com",
   "bugs": {
     "url": "https://github.com/elflodge/elflodge/issues"

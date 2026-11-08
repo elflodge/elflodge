@@ -6,9 +6,11 @@
 
 Website: [elflodge.com](https://elflodge.com)
 
-> Map one agent over many inputs, on machines you own, and get back JSON that matches your schema
+> Hundreds of agents working unattended. One job API.
 
-Elflodge runs real agents on unattended jobs. Give it one agent definition and a few hundred inputs, and each job comes back as JSON checked against your schema, or as a failure with its reason. The agent is [Pi](https://github.com/earendil-works/pi), working with real files and real shell commands in a sandbox of its own. The first five jobs run before the rest, and a Batch pauses itself when too many fail, so you can go to bed.
+Run sandboxed agents in parallel on your own machine, without a costly fleet of hosted sandboxes. Send a task or a whole batch; get structured results your code can use.
+
+Define the agent's instructions and output schema once. Each job runs [Pi](https://github.com/earendil-works/pi) with real files and shell commands in its own sandbox, returning JSON checked against your schema or a failure with its reason. The first five jobs run before the rest, and a Batch pauses itself when too many fail.
 
 Given a folder of invoices and a JSON Schema for what you want from each, one line runs them all:
 
@@ -22,7 +24,7 @@ Here it is with 500 invoices, the Runner on one 4 GB server, the model's replies
 
 Each PDF is a job. Each line of `results/output.jsonl` is one invoice's JSON, and each line of `results/error.jsonl` one that failed, with why.
 
-It does this without giving every job its own sandbox, so you don't pay for agents to wait on the model. Five hundred agents in their own 1 GB sandboxes hold 500 GB of memory; on one Runner, for jobs that mostly wait on the model, they fit in a 4 GB server.
+It does this without giving every job its own container, so you don't pay for agents to wait on the model. Five hundred agents in their own 1 GB sandboxes hold 500 GB of memory; on one Runner, for jobs that mostly wait on the model, they fit in a 4 GB server.
 
 Try it on your machine with Docker and Node: `npx elflodge stack start`, then [the first job](#an-everyday-chore-done-by-an-agent).
 
