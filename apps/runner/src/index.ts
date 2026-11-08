@@ -44,6 +44,7 @@ import * as z from "zod/mini";
 
 import type { AgentModel, HubHttpClient } from "./agent.ts";
 import { JobRunner } from "./jobs.ts";
+import { makePromptCacheWarmup } from "./prompt-cache.ts";
 import {
   type JobEnvironments,
   prepareJobEnvironments,
@@ -204,6 +205,7 @@ function runRegistered(
         agent,
         yield* Effect.scope,
         () => syncNow.openUnsafe(),
+        yield* makePromptCacheWarmup,
       );
       return yield* keepConnected({
         url: socketUrl(hubUrl),

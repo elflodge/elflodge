@@ -266,6 +266,7 @@ export function openJob(
       runId: string;
       openedBefore: boolean;
       journalOpened: (journal: Harness) => void;
+      modelCallCompleted: (succeeded: boolean) => void;
     },
 ): Effect.Effect<Effect.Effect<void>, never, Scope.Scope> {
   const context = BACKGROUND_CONTEXT;
@@ -294,6 +295,10 @@ export function openJob(
           // ends once the round's other calls are done, without another model turn. The output is
           // read from the journal, so a round a restarted Runner finishes ends the run too.
           hook(GenerationTask, {
+            afterResponse: (message) =>
+              options.modelCallCompleted(
+                message.stopReason !== "error" && message.stopReason !== "aborted",
+              ),
             afterTools: async (_assistant, _results, api) => {
               const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
               if (!accepted || !("output" in accepted)) return;

@@ -25,6 +25,7 @@ import {
 } from "./agent.ts";
 import { downloadInputFiles } from "./input-files.ts";
 import { failureMessage, readActivity, readEvents } from "./journal.ts";
+import type { PromptCacheWarmup } from "./prompt-cache.ts";
 
 // The Runner's jobs: each run the hub gives it runs as one supervised fiber (ADR 0022), and
 // its journal's new events, its usage and what it is doing are reported to the hub. The hub's
@@ -102,14 +103,22 @@ export class JobRunner {
   /** The deletions the hub lists, by job ID, until it stops listing them. */
   readonly #deletions = new Map<string, Deletion>();
   readonly #scope: Scope.Scope;
+  readonly #promptCache: PromptCacheWarmup;
   /** How many jobs' reports have been read, which numbers each read. */
   #reads = 0;
 
-  constructor(maxJobs: number, agent: AgentSettings, scope: Scope.Scope, onChange: () => void) {
+  constructor(
+    maxJobs: number,
+    agent: AgentSettings,
+    scope: Scope.Scope,
+    onChange: () => void,
+    promptCache: PromptCacheWarmup,
+  ) {
     this.#maxJobs = maxJobs;
     this.#agent = agent;
     this.#scope = scope;
     this.#onChange = onChange;
+    this.#promptCache = promptCache;
   }
 
   /**
@@ -386,6 +395,7 @@ export class JobRunner {
     const settings = this.#agent;
     const fibers = this.#fibers;
     const previous = fibers.get(ref.jobId);
+    const promptCache = this.#promptCache;
 
     /** Fails the job for a fault in the Runner itself, with the fault's `message`. */
     const runFaulted = (message: string) =>
@@ -399,56 +409,64 @@ export class JobRunner {
 
     /** Runs the job, keeping its journal open after it ends, until interrupted. */
     const working = (content: JobContent) =>
-      Effect.gen(function* () {
-        // Looked up once the earlier run is done, since it may have opened the journal. A journal
-        // that cannot be looked up may be there.
-        const openedBefore = opened.has(ref.jobId);
-        held.journalKnownAbsent =
-          !openedBefore &&
-          !(yield* journalExists(settings, ref.jobId).pipe(
-            Effect.tapError((error) =>
-              Effect.logError("A job's journal could not be looked up", error),
-            ),
-            Effect.orElseSucceed(() => true),
-          ));
-        // A job's Input files are downloaded on its first run, before its journal exists: a journal
-        // that exists means they were, and the agent may have changed them since. The job holds its
-        // slot meanwhile. A download that fails fails the job, as a journal that does not open does.
-        if (held.journalKnownAbsent) {
-          yield* downloadInputFiles(settings, ref.jobId, content.files).pipe(
-            // The failure is reported until the hub drops the run.
-            Effect.catchTag("InputFileFailed", (error) =>
-              Effect.logError("A job's Input files could not be downloaded", error.message).pipe(
-                Effect.andThen(runFaulted(error.message)),
-                Effect.andThen(
-                  Effect.sync(() => {
-                    held.ended = true;
-                    changed();
-                  }),
-                ),
-                Effect.andThen(Effect.never),
-              ),
-            ),
-          );
-        }
-        const agent = {
-          ...settings,
-          runId: ref.runId,
-          runTimeoutSeconds: run.runTimeoutSeconds,
-          modelBudgetUsd: run.modelBudgetUsd,
-          openedBefore,
-          // Held as soon as it opens, so whatever fails after that is read from the journal.
-          journalOpened: (journal: Harness) => {
-            opened.add(ref.jobId);
-            held.journal = journal;
-          },
-        };
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const runAgent = yield* openJob(ref.jobId, content, agent);
-            changed();
-            yield* runAgent;
-          }).pipe(
+      Effect.scoped(
+        promptCache
+          .run(content, ({ ready, modelCallCompleted, agentStarted }) =>
+            Effect.gen(function* () {
+              // Looked up once the earlier run is done, since it may have opened the journal. A
+              // journal that cannot be looked up may be there.
+              const openedBefore = opened.has(ref.jobId);
+              held.journalKnownAbsent =
+                !openedBefore &&
+                !(yield* journalExists(settings, ref.jobId).pipe(
+                  Effect.tapError((error) =>
+                    Effect.logError("A job's journal could not be looked up", error),
+                  ),
+                  Effect.orElseSucceed(() => true),
+                ));
+              // A job's Input files are downloaded on its first run, before its journal exists: a
+              // journal that exists means they were, and the agent may have changed them since.
+              // The job holds its slot meanwhile. A download that fails fails the job, as a journal
+              // that does not open does, and ends it, so jobs waiting behind it are released.
+              if (held.journalKnownAbsent) {
+                const downloaded = yield* downloadInputFiles(
+                  settings,
+                  ref.jobId,
+                  content.files,
+                ).pipe(
+                  Effect.as(true),
+                  // The failure is reported until the hub drops the run.
+                  Effect.catchTag("InputFileFailed", (error) =>
+                    Effect.logError(
+                      "A job's Input files could not be downloaded",
+                      error.message,
+                    ).pipe(Effect.andThen(runFaulted(error.message)), Effect.as(false)),
+                  ),
+                );
+                if (!downloaded) return;
+              }
+              // Waiting before opening the journal records no start and consumes none of the
+              // run's timeout, and the same stop race interrupts a waiting job as a running one.
+              yield* ready;
+              const runAgent = yield* openJob(ref.jobId, content, {
+                ...settings,
+                runId: ref.runId,
+                runTimeoutSeconds: run.runTimeoutSeconds,
+                modelBudgetUsd: run.modelBudgetUsd,
+                openedBefore,
+                modelCallCompleted,
+                // Held as soon as it opens, so whatever fails after that is read from the journal.
+                journalOpened: (journal: Harness) => {
+                  opened.add(ref.jobId);
+                  held.journal = journal;
+                },
+              });
+              agentStarted();
+              changed();
+              yield* runAgent;
+            }),
+          )
+          .pipe(
             // A fault in the Runner itself, such as its storage failing, fails the job rather than
             // leaving it running for as long as the Runner stays connected, though its journal
             // records no end. A stopping Runner interrupts the job instead, which reports nothing.
@@ -468,8 +486,7 @@ export class JobRunner {
             // stored the job's end with every entry before it.
             Effect.andThen(Effect.never),
           ),
-        );
-      });
+      );
 
     /**
      * Records the job's pause or cancel, `stop`, once its agent has stopped, and keeps the journal
