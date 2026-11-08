@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { isJsonValue, type JsonValue } from "@earendil-works/chord";
 import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type ModelThinkingLevel, type Models, Type } from "@earendil-works/pi-ai";
+import { type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
   type ConversationHandle,
   createRegistry,
@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { obj, opt, str, unknown } from "@earendil-works/pi-schema";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   type Failure,
@@ -190,12 +191,13 @@ function submitOutputTool(schema: Record<string, unknown>) {
   return defineTool({
     name: "submit_output",
     description: `Submit the job's output, which ends the job. Give exactly one of \`value\`, the output itself, or \`path\`, a JSON file in the Workspace holding it. The output must match this JSON Schema:\n${JSON.stringify(schema)}`,
-    parameters: Type.Object({
-      value: Type.Optional(Type.Unknown({ description: "The output" })),
-      path: Type.Optional(
-        Type.String({ description: "A JSON file in the Workspace holding the output" }),
-      ),
-    }),
+    parameters: obj(
+      {
+        value: opt(unknown({ description: "The output" })),
+        path: opt(str({ description: "A JSON file in the Workspace holding the output" })),
+      },
+      { open: true },
+    ),
     execute: async (args, api, context) => {
       // Presence, not truthiness: `false`, `0` and `null` are outputs.
       const given = ["value" in args, "path" in args].filter(Boolean).length;
@@ -415,8 +417,8 @@ export function openJob(
      * a resume, a short note asking the agent to carry on, as a pi user types the next message
      * after Esc, since the job's pause or cancel or pi's failure settled its work. Each is
      * submitted once under its request ID. Work a Runner's restart left pending carries on from the
-     * input it was answering: the cut-off model call is made again, and a cut-off tool call gets an
-     * `interrupted` result.
+     * input it was answering: the cut-off model call counts as a failed attempt and is retried after
+     * pi's backoff, and a cut-off tool call gets an `interrupted` result.
      */
     const submitInput = async (): Promise<Submission> => {
       const jobInputRequest = `job:${jobId}`;
