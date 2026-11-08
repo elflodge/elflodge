@@ -8,6 +8,7 @@ updates:
       # Types must match the Node versions we support (engines), not the newest Node.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+    # A dependency joins the first group it matches, so the families come before the catch-all.
     groups:
       better-auth:
         patterns:
@@ -24,12 +25,43 @@ updates:
       orpc:
         patterns:
           - "@orpc/*"
+      # Pi's packages pin each other's exact versions, so one bumped alone installs a second copy.
+      pi:
+        patterns:
+          - "@earendil-works/*"
+      # Effect's packages are released together and ask for each other's exact versions.
+      effect:
+        patterns:
+          - "effect"
+          - "@effect/*"
+      # Vite+ bundles its own Vite core (the `vite` alias) and a Vitest version, which move with it.
+      vite-plus:
+        patterns:
+          - "vite-plus"
+          - "vite"
+          - "@voidzero-dev/*"
+          - "vitest"
+          - "@vitest/*"
+      # Every other minor or patch update in one pull request, as each rewrites the lockfile and
+      # leaves the others to rebase. Majors still come one per pull request.
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
   # Base images in the Dockerfile, pinned by tag and digest.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      docker:
+        patterns:
+          - "*"
