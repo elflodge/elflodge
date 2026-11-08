@@ -4,10 +4,13 @@
   "description": "The former name of Elflodge: installs elflodge and runs it as `agent-batch`.",
   "keywords": [
     "agent-batch",
+    "agents",
+    "ai",
     "ai-agents",
     "batch-processing",
     "document-extraction",
     "elflodge",
+    "llm",
     "parallel-agents",
     "pi",
     "self-hosted",
