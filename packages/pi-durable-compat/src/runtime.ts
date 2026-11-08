@@ -117,17 +117,13 @@ export async function createInstance(
     asSessionManager(bridge.sessionManager),
     asModelRegistry(bridge.modelRegistry),
   );
-  runner.bindCore(
-    { ...bridge.actions, refreshTools: () => bridge.changed() },
-    bridge.context,
-    {
-      registerProvider: () => unsupported("registerProvider"),
-      registerNativeProvider: () => unsupported("registerProvider"),
-      unregisterProvider: () => unsupported("unregisterProvider"),
-      registerVirtualModel: () => unsupported("registerVirtualModel"),
-      unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
-    },
-  );
+  runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
+    registerProvider: () => unsupported("registerProvider"),
+    registerNativeProvider: () => unsupported("registerProvider"),
+    unregisterProvider: () => unsupported("unregisterProvider"),
+    registerVirtualModel: () => unsupported("registerVirtualModel"),
+    unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
+  });
   runner.setUIContext(undefined, "print");
   return {
     runner,
@@ -147,11 +143,13 @@ function unsupported(name: string): never {
  * `SessionManager` keeps its own copy of the history; extensions get facades over the host instead.
  */
 function asSessionManager(facade: ReadonlySessionManager): SessionManager {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the runner only hands it out, as above
   return facade as SessionManager;
 }
 
 /** See `asSessionManager`. */
 function asModelRegistry(facade: ModelRegistryFacade): ModelRegistry {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the runner only hands it out, as above
   return facade as ModelRegistry;
 }
 
@@ -223,7 +221,11 @@ function createExtensionApi(
     },
     registerTool(tool: ToolDefinition) {
       assertActive();
-      if (typeof tool.parameters !== "object" || tool.parameters === null || Array.isArray(tool.parameters)) {
+      if (
+        typeof tool.parameters !== "object" ||
+        tool.parameters === null ||
+        Array.isArray(tool.parameters)
+      ) {
         throw new Error(
           `Tool "${tool.name}" registered by extension "${record.path}" must define an object parameter schema.`,
         );

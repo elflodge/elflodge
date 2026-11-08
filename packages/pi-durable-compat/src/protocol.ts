@@ -73,8 +73,14 @@ export interface DispatchFunctions {
     key: string,
     event: Parameters<Runner["emitToolCall"]>[0],
   ): Promise<{ result: Awaited<ReturnType<Runner["emitToolCall"]>>; input: unknown }>;
-  toolResult(key: string, event: Parameters<Runner["emitToolResult"]>[0]): ReturnType<Runner["emitToolResult"]>;
-  context(key: string, messages: Parameters<Runner["emitContext"]>[0]): ReturnType<Runner["emitContext"]>;
+  toolResult(
+    key: string,
+    event: Parameters<Runner["emitToolResult"]>[0],
+  ): ReturnType<Runner["emitToolResult"]>;
+  context(
+    key: string,
+    messages: Parameters<Runner["emitContext"]>[0],
+  ): ReturnType<Runner["emitContext"]>;
   providerRequest(key: string, payload: unknown): Promise<unknown>;
   beforeAgentStart(
     key: string,
@@ -85,7 +91,10 @@ export interface DispatchFunctions {
 
 /** What the worker serves to the host. */
 export interface WorkerFunctions extends DispatchFunctions {
-  open(key: string, options: { readonly cwd: string; readonly state: ConversationState }): Promise<Opened>;
+  open(
+    key: string,
+    options: { readonly cwd: string; readonly state: ConversationState },
+  ): Promise<Opened>;
   registrations(key: string): Registrations;
   state(key: string, state: ConversationState): void;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
@@ -96,7 +105,10 @@ export interface WorkerFunctions extends DispatchFunctions {
 /** The actions extensions take that the host carries out. */
 export type Action =
   | { readonly type: "sendMessage"; readonly args: Parameters<ExtensionActions["sendMessage"]> }
-  | { readonly type: "sendUserMessage"; readonly args: Parameters<ExtensionActions["sendUserMessage"]> }
+  | {
+      readonly type: "sendUserMessage";
+      readonly args: Parameters<ExtensionActions["sendUserMessage"]>;
+    }
   | { readonly type: "appendEntry"; readonly customType: string; readonly data: unknown }
   | { readonly type: "setSessionName"; readonly name: string }
   | { readonly type: "setLabel"; readonly entryId: string; readonly label: string | undefined }
@@ -110,10 +122,21 @@ export type Action =
 export interface HostFunctions {
   act(key: string, action: Action): void;
   setModel(key: string, model: Model<Api>): Promise<boolean>;
-  exec(key: string, command: string, args: string[], options: ExecOptions | undefined): Promise<ExecResult>;
-  getApiKeyAndHeaders(key: string, model: Model<Api>): ReturnType<ModelRegistry["getApiKeyAndHeaders"]>;
+  exec(
+    key: string,
+    command: string,
+    args: string[],
+    options: ExecOptions | undefined,
+  ): Promise<ExecResult>;
+  getApiKeyAndHeaders(
+    key: string,
+    model: Model<Api>,
+  ): ReturnType<ModelRegistry["getApiKeyAndHeaders"]>;
   getProviderAuth(key: string, provider: string): ReturnType<ModelRegistry["getProviderAuth"]>;
-  getApiKeyForProvider(key: string, provider: string): ReturnType<ModelRegistry["getApiKeyForProvider"]>;
+  getApiKeyForProvider(
+    key: string,
+    provider: string,
+  ): ReturnType<ModelRegistry["getApiKeyForProvider"]>;
   toolUpdate(callId: string, partial: ToolResult): void;
   changed(key: string): void;
 }

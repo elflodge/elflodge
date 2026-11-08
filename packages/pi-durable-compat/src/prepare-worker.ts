@@ -27,7 +27,8 @@ const HOST_PACKAGES =
  * extensions use about 15. Rolldown also drops unused statements inside a module, such as
  * `pi-ai/compat` registering every built-in provider, which esbuild keeps.
  */
-const PI_MODULES = /[\\/]node_modules[\\/](@earendil-works[\\/]pi-(ai|agent-core|coding-agent|tui)|typebox)[\\/]/;
+const PI_MODULES =
+  /[\\/]node_modules[\\/](@earendil-works[\\/]pi-(ai|agent-core|coding-agent|tui)|typebox)[\\/]/;
 
 /**
  * What Pi's loader gives an extension that imports pi-ai's root or `pi-ai/compat`: the compat entry
@@ -149,8 +150,15 @@ function entries(found: { path: string }[]) {
 }
 
 function errorMessage(error: unknown) {
-  if (typeof error === "object" && error !== null && "errors" in error && Array.isArray(error.errors)) {
-    return error.errors.map((each: unknown) => (each instanceof Error ? each.message : String(each))).join("\n");
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "errors" in error &&
+    Array.isArray(error.errors)
+  ) {
+    return error.errors
+      .map((each: unknown) => (each instanceof Error ? each.message : String(each)))
+      .join("\n");
   }
   return error instanceof Error ? error.message : String(error);
 }
@@ -168,7 +176,8 @@ async function buildEntries(input: Record<string, string>, outDir: string) {
       entryFileNames: "[name].mjs",
       chunkFileNames: "chunks/[name]-[hash].mjs",
       // Bundled CommonJS dependencies call `require`, which an ES module lacks.
-      banner: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
+      banner:
+        "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
     },
   });
 }
@@ -218,8 +227,11 @@ async function packageManifest(file: string): Promise<string> {
 }
 
 const input: Input = workerData;
-prepare(input).then(
-  (result) => parentPort?.postMessage(result),
-  (error: unknown) =>
-    parentPort?.postMessage({ error: error instanceof Error ? error.message : String(error) }),
+prepare(input).then(reply, (error: unknown) =>
+  reply({ error: error instanceof Error ? error.message : String(error) }),
 );
+
+function reply(value: unknown) {
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
+  parentPort?.postMessage(value);
+}

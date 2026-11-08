@@ -18,5 +18,8 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "skipLibCheck": true
-  }
+  },
+  // Fixtures are extensions as their authors write them, against Pi's packages under the names
+  // Pi's loader accepts, former ones included, which this package does not install.
+  "exclude": ["tests/fixtures", "dist"]
 }

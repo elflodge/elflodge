@@ -75,7 +75,11 @@ export interface AttachedExtensions {
    * Runs the extensions' `input` handlers on input before it is submitted, as Pi does for a
    * prompt: the result says to submit it as it is, transformed, or not at all.
    */
-  input(text: string, images: readonly ImageContent[] | undefined, context: Context): Promise<InputEventResult>;
+  input(
+    text: string,
+    images: readonly ImageContent[] | undefined,
+    context: Context,
+  ): Promise<InputEventResult>;
   /**
    * Ends the extensions' session: `session_shutdown` runs, and what they do later, such as a
    * background message, is dropped. Call it when the conversation's work is decided.
@@ -173,7 +177,10 @@ class Workers {
       history: history.port2,
       rpc: rpc.port2,
     };
-    const worker = new Worker(workerModule, { workerData, transferList: [history.port2, rpc.port2] });
+    const worker = new Worker(workerModule, {
+      workerData,
+      transferList: [history.port2, rpc.port2],
+    });
     worker.unref();
     const sessions = new Map<string, Session>();
     const session = (key: string) => {
@@ -200,16 +207,20 @@ class Workers {
       timeout: -1,
     });
     const reads = new SyncMessagePort(history.port1);
+    const reply = (value: HistoryReply) => {
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
+      reads.postMessage(value);
+    };
     reads.on("message", (request: HistoryRead) => {
       const found = sessions.get(request.key);
-      const reply = (value: HistoryReply) => reads.postMessage(value);
       if (!found) {
         reply({ id: request.id, error: `No conversation ${request.key} on this worker` });
         return;
       }
       found.read(request).then(
         (value) => reply({ id: request.id, value }),
-        (error: unknown) => reply({ id: request.id, error: error instanceof Error ? error.message : String(error) }),
+        (error: unknown) =>
+          reply({ id: request.id, error: error instanceof Error ? error.message : String(error) }),
       );
     });
     const hosted: HostedWorker = { worker, rpc: client, sessions, idle: undefined };
@@ -236,7 +247,10 @@ async function attachConversation(
   const session = new Session(key, options);
   const hosted = workers.acquire(key, session);
   session.bind(hosted, () => workers.release(hosted, key));
-  const opened = await hosted.rpc.open(key, { cwd: options.cwd, state: await session.state(context) });
+  const opened = await hosted.rpc.open(key, {
+    cwd: options.cwd,
+    state: await session.state(context),
+  });
   session.install(opened);
   await hosted.rpc.emit(key, { type: "session_start", reason: "startup" });
   return {
@@ -280,7 +294,8 @@ class Session {
   install(registrations: Registrations) {
     const events = new Set(registrations.events);
     const conversationId = this.#options.conversation.id;
-    const mine = (api: { conversationId: ConversationId }) => api.conversationId === conversationId && !this.#closed;
+    const mine = (api: { conversationId: ConversationId }) =>
+      api.conversationId === conversationId && !this.#closed;
     const hooks: HookRegistration[] = [];
     if (events.has("tool_call") || events.has("tool_result")) {
       hooks.push(
@@ -368,7 +383,8 @@ class Session {
           prepareArguments: (args: unknown) => repairArguments(args, descriptor.parameters),
         }),
         execute: async (args, api, context) => {
-          if (api.conversationId !== conversationId) throw new Error("Not this conversation's tool");
+          if (api.conversationId !== conversationId)
+            throw new Error("Not this conversation's tool");
           const abort = () => void this.#hosted?.rpc.cancelTool(api.callId);
           context.abortSignal?.addEventListener("abort", abort, { once: true });
           try {
@@ -408,7 +424,12 @@ class Session {
         description: tool.description,
         parameters: tool.parameters,
         exposure: "direct" as const,
-        sourceInfo: { path: "<pi-durable>", source: "pi-durable", scope: "temporary", origin: "top-level" },
+        sourceInfo: {
+          path: "<pi-durable>",
+          source: "pi-durable",
+          scope: "temporary",
+          origin: "top-level",
+        },
       })),
       sessionName: undefined,
       idle: true,
@@ -423,12 +444,12 @@ class Session {
     if (this.#closed) return;
     const { conversation } = this.#options;
     const context = BACKGROUND_CONTEXT;
-    const done = (promise: Promise<unknown>) => void promise.catch(() => {});
     switch (action.type) {
       case "sendMessage": {
         const [message, options] = action.args;
         const kind = `piext.${message.customType}`;
-        const content = typeof message.content === "string" ? message.content : [...message.content];
+        const content =
+          typeof message.content === "string" ? message.content : [...message.content];
         if (options?.triggerTurn) {
           done(
             conversation.submit(
@@ -436,7 +457,10 @@ class Session {
                 type: "input",
                 content,
                 whenBusy: options.deliverAs === "steer" ? "steer" : "followUp",
-                entry: { kind, ...(message.details !== undefined && { data: toJson(message.details) }) },
+                entry: {
+                  kind,
+                  ...(message.details !== undefined && { data: toJson(message.details) }),
+                },
               },
               context,
             ),
@@ -475,7 +499,10 @@ class Session {
       case "appendEntry":
         done(
           conversation.submit(
-            { type: "write", entry: { kind: `piext.${action.customType}`, data: toJson(action.data) } },
+            {
+              type: "write",
+              entry: { kind: `piext.${action.customType}`, data: toJson(action.data) },
+            },
             context,
           ),
         );
@@ -496,7 +523,11 @@ class Session {
     return false;
   }
 
-  async exec(command: string, args: string[], options: { cwd?: string; timeout?: number } | undefined) {
+  async exec(
+    command: string,
+    args: string[],
+    options: { cwd?: string; timeout?: number } | undefined,
+  ) {
     const env = this.#options.env;
     if (!env) throw new Error("No environment to run commands in");
     let stdout = "";
@@ -514,7 +545,13 @@ class Session {
       BACKGROUND_CONTEXT,
     );
     if (!result.ok) {
-      return { stdout, stderr: stderr || result.error.message, code: 1, killed: false, truncated: false };
+      return {
+        stdout,
+        stderr: stderr || result.error.message,
+        code: 1,
+        killed: false,
+        truncated: false,
+      };
     }
     return { stdout, stderr, code: result.value.exitCode, killed: false, truncated: false };
   }
@@ -522,7 +559,8 @@ class Session {
   async getApiKeyAndHeaders(model: Model<Api>) {
     try {
       const resolution = await this.models.getAuth(model);
-      if (!resolution) return { ok: false as const, error: `No API key found for "${model.provider}"` };
+      if (!resolution)
+        return { ok: false as const, error: `No API key found for "${model.provider}"` };
       return {
         ok: true as const,
         ...(resolution.auth.apiKey !== undefined && { apiKey: resolution.auth.apiKey }),
@@ -538,15 +576,9 @@ class Session {
   /** Answers a read of `ctx.sessionManager` from the conversation's journal. */
   async read(request: HistoryRead): Promise<unknown> {
     const entries = await this.#entries();
-    switch (request.method) {
-      case "getBranch":
-      case "getEntries":
-        return entries;
-      case "getLeafId":
-        return entries.at(-1)?.id ?? null;
-      case "getEntry":
-        return entries.find((entry) => entry.id === request.args[0]);
-    }
+    if (request.method === "getLeafId") return entries.at(-1)?.id ?? null;
+    if (request.method === "getEntry") return entries.find((entry) => entry.id === request.args[0]);
+    return entries;
   }
 
   /** The conversation's entries as Pi's session entries: messages, and extensions' own entries. */
@@ -554,17 +586,35 @@ class Session {
     const records: EntryRecord[] = [];
     let cursor: Parameters<Conversation["entries"]>[2];
     do {
-      const page = await this.#options.conversation.entries({ order: "ascending" }, 500, cursor, BACKGROUND_CONTEXT);
+      const page = await this.#options.conversation.entries(
+        { order: "ascending" },
+        500,
+        cursor,
+        BACKGROUND_CONTEXT,
+      );
       records.push(...page.items);
       cursor = page.next;
     } while (cursor !== undefined);
-    const entries: { type: string; id: string; parentId: string | null; timestamp: string; [field: string]: unknown }[] = [];
+    const entries: {
+      type: string;
+      id: string;
+      parentId: string | null;
+      timestamp: string;
+      [field: string]: unknown;
+    }[] = [];
     let parentId: string | null = null;
     for (const record of records) {
       const timestamp = new Date().toISOString();
       if (record.kind.startsWith("piext.")) {
         const id = `${record.id}`;
-        entries.push({ type: "custom", id, parentId, timestamp, customType: record.kind.slice(6), data: record.data });
+        entries.push({
+          type: "custom",
+          id,
+          parentId,
+          timestamp,
+          customType: record.kind.slice(6),
+          data: record.data,
+        });
         parentId = id;
         continue;
       }
@@ -598,13 +648,22 @@ class Session {
 }
 
 /**
+ * Starts `promise`, an action an extension takes in the background: Pi's actions return nothing,
+ * so a failure, such as a conversation that closed meanwhile, has no one to report to.
+ */
+function done(promise: Promise<unknown>) {
+  void promise.catch(() => {});
+}
+
+/**
  * Pi runs a tool's `prepareArguments` before validating its arguments; pi-durable does too, but
  * synchronously on the host thread, where waiting for the worker would stall every job. For a tool
  * that has one, the host repairs what models commonly get wrong, an array or object sent as JSON
  * text, and the worker runs the tool's own before it executes.
  */
 function repairArguments(args: unknown, schema: object): unknown {
-  if (!isJsonObject(args) || !("properties" in schema) || !isJsonObject(schema.properties)) return args;
+  if (!isJsonObject(args) || !("properties" in schema) || !isJsonObject(schema.properties))
+    return args;
   let repaired: Record<string, unknown> | undefined;
   for (const [name, property] of Object.entries(schema.properties)) {
     const value = args[name];

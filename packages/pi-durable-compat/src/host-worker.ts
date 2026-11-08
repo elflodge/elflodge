@@ -1,4 +1,4 @@
-import { workerData as data } from "node:worker_threads";
+import { workerData as startData } from "node:worker_threads";
 
 import { createBirpc } from "birpc";
 import { SyncMessagePort } from "sync-message-port";
@@ -12,12 +12,17 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
-import type { Instance, LoadedExtension, ModelRegistryFacade, ReadonlySessionManager } from "./runtime.ts";
+import type {
+  Instance,
+  LoadedExtension,
+  ModelRegistryFacade,
+  ReadonlySessionManager,
+} from "./runtime.ts";
 
 // An extension worker: one instance of every extension per conversation it hosts, keyed by the
 // conversation's provider session ID. Modules load once per worker; factories run per instance.
 
-const workerData: WorkerData = data;
+const workerData: WorkerData = startData;
 const runtime: typeof import("./runtime.ts") = await import(workerData.runtime);
 const extensions: LoadedExtension[] = [];
 const loadErrors: { source: string; error: string }[] = [];
@@ -53,12 +58,16 @@ function read<M extends HistoryRead["method"]>(
 ): ReturnType<ReadonlySessionManager[M]> {
   const id = nextRead++;
   const request: HistoryRead = { id, key, method, args };
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   history.postMessage(request);
   for (;;) {
     const reply = history.receiveMessage();
-    if (typeof reply !== "object" || reply === null || !("id" in reply) || reply.id !== id) continue;
+    if (typeof reply !== "object" || reply === null || !("id" in reply) || reply.id !== id)
+      continue;
     if ("error" in reply) throw new Error(String(reply.error));
-    return "value" in reply ? (reply.value as ReturnType<ReadonlySessionManager[M]>) : (undefined as ReturnType<ReadonlySessionManager[M]>);
+    const value: unknown = "value" in reply ? reply.value : undefined;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
+    return value as ReturnType<ReadonlySessionManager[M]>;
   }
 }
 
@@ -129,7 +138,15 @@ const functions: WorkerFunctions = {
       exec: (command, args, options) => host.exec(key, command, args, options),
       changed: () => host.changed(key),
     });
-    hosted.set(key, { instance, get state() { return entry.state; }, set state(value) { entry.state = value; } });
+    hosted.set(key, {
+      instance,
+      get state() {
+        return entry.state;
+      },
+      set state(value) {
+        entry.state = value;
+      },
+    });
     return { ...registrations(instance), errors: [...loadErrors, ...instance.errors] };
   },
   registrations: (key) => registrations(hostedFor(key).instance),
@@ -138,11 +155,15 @@ const functions: WorkerFunctions = {
     if (found) found.state = state;
   },
   emit: (key, event) => runnerFor(key).emit(event),
-  toolCall: async (key, event) => ({ result: await runnerFor(key).emitToolCall(event), input: event.input }),
+  toolCall: async (key, event) => ({
+    result: await runnerFor(key).emitToolCall(event),
+    input: event.input,
+  }),
   toolResult: (key, event) => runnerFor(key).emitToolResult(event),
   context: (key, messages) => runnerFor(key).emitContext(messages),
   providerRequest: (key, payload) => runnerFor(key).emitBeforeProviderRequest(payload),
-  beforeAgentStart: (key, trigger, options) => runnerFor(key).emitBeforeAgentStart(trigger, options),
+  beforeAgentStart: (key, trigger, options) =>
+    runnerFor(key).emitBeforeAgentStart(trigger, options),
   input: (key, ...args) => runnerFor(key).emitInput(...args),
   async executeTool(key, callId, name, args) {
     const { runner } = hostedFor(key).instance;
@@ -175,14 +196,25 @@ const functions: WorkerFunctions = {
   },
 };
 
-function toolResult(result: { content: readonly unknown[]; details?: unknown; isError?: boolean }): ToolResult {
-  return { content: result.content, details: result.details, ...(result.isError === undefined ? {} : { isError: result.isError }) };
+function toolResult(result: {
+  content: readonly unknown[];
+  details?: unknown;
+  isError?: boolean;
+}): ToolResult {
+  return {
+    content: result.content,
+    details: result.details,
+    ...(result.isError === undefined ? {} : { isError: result.isError }),
+  };
+}
+
+function unsupported(name: string) {
+  return () => {
+    throw new Error(`ctx.sessionManager.${name} is not supported by pi-durable-compat yet`);
+  };
 }
 
 function sessionManager(key: string, cwd: string): ReadonlySessionManager {
-  const unsupported = (name: string) => () => {
-    throw new Error(`ctx.sessionManager.${name} is not supported by pi-durable-compat yet`);
-  };
   return {
     getCwd: () => cwd,
     getSessionDir: unsupported("getSessionDir"),
@@ -221,6 +253,7 @@ function modelRegistry(key: string, entry: { state: ConversationState }): ModelR
 }
 
 const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   post: (message) => workerData.rpc.postMessage(message),
   on: (handler) => workerData.rpc.on("message", handler),
   timeout: -1,
