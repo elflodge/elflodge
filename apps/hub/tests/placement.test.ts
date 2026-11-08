@@ -26,6 +26,14 @@ const SUBMISSION = {
 /** The output the scripted agent submits, which matches the Output contract. */
 const OUTPUT = { greeting: "Hello." };
 
+/**
+ * `SUBMISSION` with instructions of its own, so the Runner's prompt-cache warm-up holds no job
+ * behind another's first model call.
+ */
+function own(name: string) {
+  return { ...SUBMISSION, instructions: `This is the ${name} job.` };
+}
+
 test("a job submitted while a runner is connected succeeds, and its output is read from the hub", async () => {
   const runnerId = await system.startRunner();
   await expect.poll(() => system.findRunner(runnerId)).toBeDefined();
@@ -80,10 +88,10 @@ test("a Runner started again with fewer slots than its jobs recovers only as man
   const before = calls();
   system.model.setResponses([untilAborted, untilAborted]);
   await system.startRunner({ maxJobs: 2 });
-  const first = await submitJob(client, SUBMISSION);
-  const second = await submitJob(client, SUBMISSION);
+  const first = await submitJob(client, own("first"));
+  const second = await submitJob(client, own("second"));
   await expect.poll(() => calls() - before, { timeout: 10_000 }).toBe(2);
-  const third = await submitJob(client, SUBMISSION);
+  const third = await submitJob(client, own("third"));
   await system.stopRunner();
 
   // The job recovered first submits its output only once the test, having checked the rest,
