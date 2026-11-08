@@ -145,7 +145,8 @@ function unsupported(name: string): never {
 
 /**
  * Pi's runner declares Pi's own classes for these, but only stores them and hands them to
- * extensions as `ctx.sessionManager` and `ctx.modelRegistry`. A real `ModelRegistry` needs a
+ * extensions as `ctx.sessionManager` and `ctx.modelRegistry`; it would call the model registry
+ * itself only for provider actions `bindCore` lacks, and `createInstance` passes all five. A real `ModelRegistry` needs a
  * `ModelRuntime`, which loads every built-in provider (about 29 MiB per worker), and a
  * `SessionManager` keeps its own copy of the history; extensions get facades over the host instead.
  */
@@ -182,11 +183,18 @@ type VirtualModel = Omit<VirtualModelDefinition, "route"> & {
   ): ReturnType<VirtualModelDefinition["route"]>;
 };
 
+/** The kind of source as Pi's settings name it: `npm:` and `git:` sources, else a local path. */
+function sourceKind(source: string) {
+  if (source.startsWith("npm:")) return "npm";
+  if (source.startsWith("git:") || /^(?:https?|ssh):\/\//.test(source)) return "git";
+  return "local";
+}
+
 function createRecord(source: string): Extension {
   return {
     path: source,
     resolvedPath: source,
-    sourceInfo: createSyntheticSourceInfo(source, { source: "npm" }),
+    sourceInfo: createSyntheticSourceInfo(source, { source: sourceKind(source) }),
     handlers: new Map(),
     tools: new Map(),
     messageRenderers: new Map(),
@@ -393,6 +401,8 @@ function createExtensionApi(
       assertActive();
       applyRuntimeChange(() => runtime.unregisterProvider(name, record.path));
     },
+    // Kept without Pi's validation of the config, which Pi does not export; nothing here connects
+    // MCP servers.
     registerMcpServer(name: string, config: RegisteredMcpServer["config"]) {
       assertActive();
       const owner = runtime.mcpServers.get(name)?.extensionPath;

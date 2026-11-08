@@ -57,6 +57,8 @@ export async function prepareExtensions(options: PrepareOptions): Promise<Prepar
   const worker = new Worker(workerModule, {
     workerData: { sources: [...options.sources], dir: options.dir },
   });
+  // An error after the reply, while the worker ends, has no one to report to.
+  worker.on("error", () => {});
   const [message] = await once(worker, "message");
   await worker.terminate();
   const reply = Schema.decodeUnknownSync(PrepareReply)(message);

@@ -78,7 +78,7 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
   );
   expect(extensions.errors).toEqual([]);
 
-  const input = await extensions.input("Note my shopping", undefined, context);
+  const input = await extensions.input("Note my shopping");
   expect(input).toEqual({ action: "transform", text: "Note my shopping!", images: undefined });
   const submission = await conversation.submit(
     { type: "input", content: "Note my shopping!" },

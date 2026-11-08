@@ -1,5 +1,6 @@
 import { constants } from "node:buffer";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import { MessageChannel, Worker } from "node:worker_threads";
 
@@ -56,7 +57,10 @@ import type {
 export interface ExtensionHostOptions {
   /** What `prepareExtensions` gave. */
   readonly prepared: PreparedExtensions;
-  /** The most worker threads extensions run in; each holds the extensions' modules once. Default 2. */
+  /**
+   * The most worker threads extensions run in; each holds the extensions' modules once. Default 2,
+   * so a worker busy with one conversation's handler does not hold up every other.
+   */
   readonly maxWorkers?: number;
   /** How long a worker with no conversation stays before it exits, in milliseconds. Default 30 s. */
   readonly idleTimeout?: number;
@@ -87,11 +91,7 @@ export interface AttachedExtensions {
    * Runs the extensions' `input` handlers on input before it is submitted, as Pi does for a
    * prompt: the result says to submit it as it is, transformed, or not at all.
    */
-  input(
-    text: string,
-    images: readonly ImageContent[] | undefined,
-    context: Context,
-  ): Promise<InputEventResult>;
+  input(text: string, images?: readonly ImageContent[]): Promise<InputEventResult>;
   /**
    * Ends the extensions' session: `session_shutdown` runs, and what they do later, such as a
    * background message, is dropped. Call it when the conversation's work is decided.
@@ -227,7 +227,7 @@ class Workers {
       getProviderAuth: (key, provider) => attached(key).models.getAuth(provider),
       getApiKeyForProvider: async (key, provider) =>
         (await attached(key).models.getAuth(provider))?.auth.apiKey,
-      changed: (key) => conversations.get(key)?.changed(),
+      changed: (key) => conversations.get(key)?.reloadRegistrations(),
     };
     const port = rpc.port1;
     const client = createBirpc<WorkerFunctions, HostFunctions>(functions, {
@@ -314,7 +314,7 @@ async function attachConversation(
     attached.update(await hosted.rpc.registrations(key));
     return {
       errors: opened.errors,
-      input: (text, images, inputContext) => attached.input(text, images, inputContext),
+      input: (text, images) => attached.input(text, images),
       close: () => attached.close(),
     };
   } catch (error) {
@@ -336,7 +336,7 @@ class Installation {
   readonly #emptied: () => void;
   readonly #conversations = new Map<ConversationId, AttachedConversation>();
   #installed: ReturnType<typeof defineExtension> | undefined;
-  #installedFor = "";
+  #installedFor: unknown;
 
   constructor(harness: Harness, registry: Registry, emptied: () => void) {
     this.harness = harness;
@@ -377,8 +377,8 @@ class Installation {
       }
       for (const event of conversation.registrations.events) events.add(event);
     }
-    const wanted = JSON.stringify([[...tools.values()], [...events].toSorted()]);
-    if (wanted === this.#installedFor) return;
+    const wanted = [[...tools.values()], [...events].toSorted()];
+    if (Equal.equals(wanted, this.#installedFor)) return;
     this.#installedFor = wanted;
     this.#installed = defineExtension({
       name: "pi-durable-compat",
@@ -449,7 +449,7 @@ class Installation {
   }
 }
 
-/** One attached conversation: its worker, its pi-durable extension, and the actions it carries out. */
+/** One attached conversation: its extensions' instance on a worker, and the actions it carries out. */
 class AttachedConversation {
   readonly key: string;
   readonly models: Models;
@@ -457,10 +457,11 @@ class AttachedConversation {
   #hosted: HostedWorker | undefined;
   #release: (() => void) | undefined;
   #closed = false;
+  #closing: Promise<void> | undefined;
   readonly #installation: Installation;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
-  /** The extensions' writes to the conversation, in order; a read waits for those before it. */
+  /** The extensions' writes to the conversation so far, which a read waits for. */
   #writes: Promise<unknown> = Promise.resolve();
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
   readonly #execs = new Map<number, AbortController>();
@@ -549,23 +550,31 @@ class AttachedConversation {
     }
   }
 
-  /** Re-reads the extensions' registrations after they changed. */
-  changed() {
+  /** Reads the extensions' registrations again after they changed, and installs them. */
+  reloadRegistrations() {
     if (this.#closed || !this.#hosted) return;
     void this.#hosted.rpc.registrations(this.key).then(
       (registrations) => this.update(registrations),
+      // The worker exited or the conversation closed meanwhile; its tools fail from then on.
       () => {},
     );
   }
 
-  /** Carries out an extension's action, after the writes before it. */
+  /**
+   * Starts an extension's action. A later read waits for the ones that write to the conversation;
+   * not for an abort or a compaction, which wait for the conversation's work, a tool call in this
+   * worker included, and would never end while the worker waits for the read.
+   */
   act(action: Action) {
     if (this.#closed) return;
-    const write = this.#act(action);
-    if (!write) return;
+    const started = this.#act(action);
+    if (!started) return;
     // A failure, such as a conversation that closed meanwhile, has no one to report to: Pi's
     // actions return nothing.
-    this.#writes = Promise.all([this.#writes, write.catch(() => {})]);
+    const settled = started.catch(() => {});
+    if (action.type !== "abort" && action.type !== "compact") {
+      this.#writes = Promise.all([this.#writes, settled]);
+    }
   }
 
   #act(action: Action): Promise<unknown> | undefined {
@@ -664,19 +673,22 @@ class AttachedConversation {
         [command, ...args],
         {
           cwd: options?.cwd ?? this.#options.cwd,
-          ...(options?.timeout !== undefined && { timeout: options.timeout }),
+          // Pi's timeout is in milliseconds, pi-durable's in seconds.
+          ...(options?.timeout && options.timeout > 0 && { timeout: options.timeout / 1000 }),
           onOutput: (text, _context, info) => {
             if (truncated) return;
-            const size = Buffer.byteLength(text);
-            const kept = bytes + size <= maxBuffer ? text : undefined;
-            bytes += size;
-            if (kept === undefined) {
-              truncated = true;
-              controller.abort();
-              return;
-            }
+            const chunk = Buffer.from(text);
+            const room = maxBuffer - bytes;
+            bytes += chunk.length;
+            // Past the limit, keep the output up to it, without a character cut in two, as Pi does.
+            const kept =
+              chunk.length <= room ? text : new StringDecoder().write(chunk.subarray(0, room));
             if (info.stream === "stderr") stderr += kept;
             else stdout += kept;
+            if (chunk.length > room) {
+              truncated = true;
+              controller.abort();
+            }
           },
         },
         withAbortSignal(controller.signal, BACKGROUND_CONTEXT),
@@ -716,7 +728,7 @@ class AttachedConversation {
         ...(resolution.env !== undefined && { env: resolution.env }),
       };
     } catch (error) {
-      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+      return { ok: false as const, error: ensureError(error).message };
     }
   }
 
@@ -834,8 +846,7 @@ class AttachedConversation {
     return entries;
   }
 
-  async input(text: string, images: readonly ImageContent[] | undefined, context: Context) {
-    void context;
+  async input(text: string, images: readonly ImageContent[] | undefined) {
     return this.#rpc.input(this.key, text, images && [...images], "rpc");
   }
 
@@ -844,12 +855,20 @@ class AttachedConversation {
     this.#hosted = undefined;
   }
 
-  async close() {
-    if (this.#closed) return;
-    const hosted = this.#hosted;
-    this.#closed = true;
+  close(): Promise<void> {
+    this.#closing ??= this.#close();
+    return this.#closing;
+  }
+
+  async #close() {
     this.#installation.remove(this);
-    if (hosted) await hosted.rpc.close(this.key).catch(() => {});
+    const hosted = this.#hosted;
+    if (hosted) {
+      // What `session_shutdown` handlers write is kept; what extensions do after it is dropped.
+      await hosted.rpc.close(this.key).catch(() => {});
+      await this.#writes;
+    }
+    this.#closed = true;
     this.#release?.();
   }
 }
@@ -865,7 +884,7 @@ const DEFAULT_MAX_BUFFER = Math.min(256 * 1024 * 1024, constants.MAX_STRING_LENG
 
 /**
  * Pi runs a tool's `prepareArguments` before validating its arguments; pi-durable does too, but
- * synchronously on the host thread, where waiting for the worker would stall every job. For a tool
+ * synchronously on the host thread, where waiting for the worker would stall every conversation. For a tool
  * that has one, the host repairs what models commonly get wrong, an array or object sent as JSON
  * text, and the worker runs the tool's own before it executes.
  */
@@ -892,7 +911,7 @@ function repairArguments(args: unknown, schema: object): unknown {
 }
 
 function isJsonObjectValue(value: JsonValue): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isJsonObject(value);
 }
 
 function isMessage(message: { role: string }): message is Message {

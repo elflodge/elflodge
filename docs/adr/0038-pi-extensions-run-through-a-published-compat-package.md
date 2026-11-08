@@ -19,6 +19,7 @@ Measured with `pi-web-search` and `pi-web-access`, PSS per worker on Node 26: ab
 - Dispatching events with code of our own: about 400 lines that repeat Pi's runner and drift from it with each release.
 - A real `ModelRegistry` in each worker: it needs Pi's `ModelRuntime`, which loads every built-in provider, 55 MiB per worker instead of 26.5.
 - A synchronous call from the host to the worker for `prepareArguments`: a host waiting on a busy worker would stall every conversation.
+- Effect's RPC and worker modules for the calls between host and workers: they would load Effect into every worker, which loads only the extensions and the parts of Pi they use, for what birpc does in 7 KB.
 - Effect's `Pool` for the workers: it caps how many borrowers an item takes and makes the rest wait, while a conversation keeps its worker for as long as it runs.
 
 ## Consequences

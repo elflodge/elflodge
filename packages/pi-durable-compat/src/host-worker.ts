@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { workerData as startData } from "node:worker_threads";
 
-import type { ExecOptions } from "@earendil-works/pi-coding-agent";
+import type { ExecOptions, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
@@ -116,13 +116,23 @@ const functions: WorkerFunctions = {
         getSessionName: () => undefined,
         setLabel: (entryId, label) => act(key, { type: "setLabel", entryId, label }),
         getActiveTools: () => read(key, "getActiveTools"),
-        getAllTools: () => read(key, "getAllTools"),
+        getAllTools: () => allTools(key),
         getSettings: () => ({}),
         setActiveTools: (names) => act(key, { type: "setActiveTools", names }),
         getCommands: () => [],
-        setModel: (model) => host.setModel(key, model),
+        setModel: async (model) => {
+          const previousModel = read(key, "getModel");
+          if (!(await host.setModel(key, model))) return false;
+          await runnerFor(key).emit({ type: "model_select", model, previousModel, source: "set" });
+          return true;
+        },
         getThinkingLevel: () => read(key, "getThinkingLevel"),
-        setThinkingLevel: (level) => act(key, { type: "setThinkingLevel", level }),
+        setThinkingLevel: (level) => {
+          const previousLevel = read(key, "getThinkingLevel");
+          act(key, { type: "setThinkingLevel", level });
+          if (level === previousLevel) return;
+          void runnerFor(key).emit({ type: "thinking_level_select", level, previousLevel });
+        },
       },
       context: {
         getModel: () => read(key, "getModel"),
@@ -159,7 +169,10 @@ const functions: WorkerFunctions = {
   async executeTool(key, callId, name, args) {
     const { runner } = instanceFor(key);
     const definition = runner.getToolDefinition(name);
-    if (!definition) throw new Error(`Tool ${name} is not registered`);
+    // The registry offers every attached conversation's tools; this conversation's own decide.
+    if (!definition || definition.exposure === "hidden") {
+      throw new Error(`Tool ${name} is not registered in this conversation`);
+    }
     const controller = new AbortController();
     running.set(callId, controller);
     try {
@@ -187,6 +200,21 @@ const functions: WorkerFunctions = {
     await found.runner.emit({ type: "session_shutdown", reason: "quit" });
   },
 };
+
+/** The host's tools, and this conversation's extensions' own with the exposure they registered. */
+function allTools(key: string): ToolInfo[] {
+  const own = runnerFor(key)
+    .getAllRegisteredTools()
+    .map(({ definition, sourceInfo }) => ({
+      name: definition.name,
+      description: definition.description,
+      parameters: definition.parameters,
+      exposure: definition.exposure ?? "direct",
+      sourceInfo,
+    }));
+  const names = new Set(own.map((tool) => tool.name));
+  return [...read(key, "getAllTools").filter((tool) => !names.has(tool.name)), ...own];
+}
 
 /** `pi.exec` through the host, which cancels the command when `options.signal` aborts. */
 async function exec(
