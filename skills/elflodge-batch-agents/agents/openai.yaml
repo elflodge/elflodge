@@ -1,0 +1,4 @@
+interface:
+  display_name: "Elflodge Batch Agents"
+  short_description: "Run unattended agent batches and collect structured results"
+  default_prompt: "Use $elflodge-batch-agents to prepare, test and run a batch of document extraction jobs."
