@@ -51,7 +51,7 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "birpc": "catalog:",
     "effect": "catalog:",
-    "everysync": "catalog:",
-    "rolldown": "catalog:"
+    "rolldown": "catalog:",
+    "sync-message-port": "catalog:"
   }
 }

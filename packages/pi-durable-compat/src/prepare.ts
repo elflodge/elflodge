@@ -15,29 +15,26 @@ export interface PrepareOptions {
   readonly dir: string;
 }
 
-/** One extension module, ready for `startExtensionHost`. */
+/** One extension's module in the bundle. */
 export interface PreparedExtension {
   /** The source it came from, as given. */
   readonly source: string;
-  /** The module to import: the bundle's entry, or the extension's own file when it did not bundle. */
   readonly path: string;
-  /**
-   * Whether `path` is a bundle, sharing only the parts of Pi's packages it uses; otherwise the
-   * extension loads as Pi loads it, with Pi's packages whole.
-   */
-  readonly bundled: boolean;
 }
 
+/** The bundle `startExtensionHost` runs. */
 export interface PreparedExtensions {
+  /** This package's runtime in the bundle, which shares Pi's code with the extensions. */
+  readonly runtime: string;
   readonly extensions: readonly PreparedExtension[];
-  /** Sources that could not be installed, with Pi's reason; the rest are prepared without them. */
+  /** Sources that could not be installed or bundled, with the reason; the rest are prepared without them. */
   readonly failures: readonly { readonly source: string; readonly message: string }[];
 }
 
 /**
  * Installs the extension packages `sources` with Pi's own package manager, as `pi install` does, and
- * bundles their extensions with Rolldown into one build that keeps only the parts of Pi's packages
- * they use. An extension that does not bundle is prepared as it was installed.
+ * bundles their extensions and this package's runtime with Rolldown into one build that keeps only
+ * the parts of Pi's packages they use.
  *
  * It runs in a worker thread of its own, which exits when it is done: installing loads the whole
  * coding agent and bundling loads Rolldown, and neither stays in the host's memory.
@@ -61,7 +58,11 @@ function parseResult(value: unknown): PreparedExtensions {
   if (!Array.isArray(extensions) || !Array.isArray(failures)) {
     throw new Error("Preparing extensions gave no result");
   }
+  if (!("runtime" in value) || typeof value.runtime !== "string") {
+    throw new Error("Preparing extensions gave no runtime");
+  }
   return {
+    runtime: value.runtime,
     extensions: extensions.map((each: unknown) => {
       if (
         typeof each === "object" &&
@@ -69,11 +70,9 @@ function parseResult(value: unknown): PreparedExtensions {
         "source" in each &&
         typeof each.source === "string" &&
         "path" in each &&
-        typeof each.path === "string" &&
-        "bundled" in each &&
-        typeof each.bundled === "boolean"
+        typeof each.path === "string"
       ) {
-        return { source: each.source, path: each.path, bundled: each.bundled };
+        return { source: each.source, path: each.path };
       }
       throw new Error("Preparing extensions gave a malformed extension");
     }),

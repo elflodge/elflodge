@@ -49,18 +49,17 @@ export function StringEnum(values, options) {
 }
 `;
 
+/** This package's runtime, built into the bundle with the extensions (`.ts` from source, `.mjs` built). */
+const runtimeModule = fileURLToPath(
+  new URL(`./runtime${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+);
+
 /** The coding agent's entry, from which the packages Pi supplies resolve to its own dependencies. */
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 
 interface Input {
   sources: string[];
   dir: string;
-}
-
-interface Extension {
-  source: string;
-  path: string;
-  bundled: boolean;
 }
 
 async function prepare({ sources, dir }: Input) {
@@ -74,18 +73,20 @@ async function prepare({ sources, dir }: Input) {
     source,
     message,
   }));
-  const extensions = found.length === 0 ? [] : await bundle(found, dir);
-  return { extensions, failures };
+  const bundled = await bundle(found, dir);
+  return { ...bundled, failures: [...failures, ...bundled.failures] };
 }
 
 /**
- * Bundles `found` into one build under `<dir>/bundles/<key>`, with code splitting, so what several
- * extensions share loads once per worker and an extension's own dynamic imports stay lazy. The key
- * covers each extension's file and its package's manifest, so a new version builds again and an
- * unchanged set reuses the last build. When the combined build fails, each extension is built
- * alone, and one that still fails is left as installed.
+ * Bundles `found`, with this package's runtime, into one build under `<dir>/bundles/<key>`, with
+ * code splitting, so what the extensions and the runtime share of Pi loads once per worker and an
+ * extension's own dynamic imports stay lazy. The key covers each extension's file and its
+ * package's manifest, so a new version builds again and an unchanged set reuses the last build.
+ * When the combined build fails, each extension is tried with the runtime alone, and the build is
+ * made of those that pass; the others are failures, as loading one unbundled would need Pi's
+ * TypeScript loader and its whole coding agent in every worker.
  */
-async function bundle(found: { source: string; path: string }[], dir: string) {
+async function bundle(found: { source: string; path: string }[], dir: string): Promise<Bundle> {
   const key = await bundleKey(found);
   const outDir = path.join(dir, "bundles", key);
   const manifestPath = path.join(outDir, "manifest.json");
@@ -93,37 +94,65 @@ async function bundle(found: { source: string; path: string }[], dir: string) {
     (text): unknown => JSON.parse(text),
     () => undefined,
   );
-  if (Array.isArray(cached)) return cached;
+  if (isBundle(cached)) return cached;
   await rm(outDir, { recursive: true, force: true });
-  const names = found.map((_, index) => `extension-${index}`);
-  let extensions: Extension[];
+  const failures: { source: string; message: string }[] = [];
+  let included = found;
   try {
-    await buildEntries(
-      Object.fromEntries(found.map((each, index) => [names[index], each.path])),
-      outDir,
-    );
-    extensions = found.map((each, index) => ({
-      source: each.source,
-      path: path.join(outDir, `${names[index]}.mjs`),
-      bundled: true,
-    }));
+    await buildEntries(entries(included), outDir);
   } catch {
-    extensions = [];
-    for (const [index, each] of found.entries()) {
-      const alone = path.join(outDir, names[index] ?? `extension-${index}`);
+    included = [];
+    for (const each of found) {
+      const trial = path.join(dir, "bundles", `${key}-trial`);
       try {
-        await buildEntries({ index: each.path }, alone);
-        extensions.push({ source: each.source, path: path.join(alone, "index.mjs"), bundled: true });
-      } catch {
-        extensions.push({ source: each.source, path: each.path, bundled: false });
+        await buildEntries(entries([each]), trial);
+        included.push(each);
+      } catch (error) {
+        failures.push({ source: each.source, message: `Bundling failed: ${errorMessage(error)}` });
+      } finally {
+        await rm(trial, { recursive: true, force: true });
       }
     }
+    await buildEntries(entries(included), outDir);
   }
+  const result: Bundle = {
+    runtime: path.join(outDir, "runtime.mjs"),
+    extensions: included.map((each, index) => ({
+      source: each.source,
+      path: path.join(outDir, `extension-${index}.mjs`),
+    })),
+    failures,
+  };
   await mkdir(outDir, { recursive: true });
   // ES modules, so Node reads the chunks as such whatever the directory above says.
   await writeFile(path.join(outDir, "package.json"), '{"type":"module"}\n');
-  await writeFile(manifestPath, `${JSON.stringify(extensions)}\n`);
-  return extensions;
+  await writeFile(manifestPath, `${JSON.stringify(result)}\n`);
+  return result;
+}
+
+interface Bundle {
+  runtime: string;
+  extensions: { source: string; path: string }[];
+  failures: { source: string; message: string }[];
+}
+
+function isBundle(value: unknown): value is Bundle {
+  return typeof value === "object" && value !== null && "runtime" in value && "extensions" in value;
+}
+
+/** The build's entries: the runtime, then each extension in load order. */
+function entries(found: { path: string }[]) {
+  return {
+    runtime: runtimeModule,
+    ...Object.fromEntries(found.map((each, index) => [`extension-${index}`, each.path])),
+  };
+}
+
+function errorMessage(error: unknown) {
+  if (typeof error === "object" && error !== null && "errors" in error && Array.isArray(error.errors)) {
+    return error.errors.map((each: unknown) => (each instanceof Error ? each.message : String(each))).join("\n");
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function buildEntries(input: Record<string, string>, outDir: string) {
