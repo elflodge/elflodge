@@ -107,7 +107,7 @@ export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost
 }
 
 const workerModule = fileURLToPath(
-  new URL(`./worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+  new URL(`./host-worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 );
 
 interface HostedWorker {

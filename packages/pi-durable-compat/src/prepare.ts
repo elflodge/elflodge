@@ -1,5 +1,12 @@
 import { once } from "node:events";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
+
+/** The worker's module beside this one: `.ts` from source, `.mjs` built. */
+const workerModule = fileURLToPath(
+  new URL(`./prepare-worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+);
 
 /** What `prepareExtensions` installs and bundles. */
 export interface PrepareOptions {
@@ -40,7 +47,7 @@ export interface PreparedExtensions {
  * coding agent and bundling loads Rolldown, and neither stays in the host's memory.
  */
 export async function prepareExtensions(options: PrepareOptions): Promise<PreparedExtensions> {
-  const worker = new Worker(new URL("./prepare-worker.ts", import.meta.url), {
+  const worker = new Worker(workerModule, {
     workerData: { sources: [...options.sources], dir: options.dir },
   });
   const [result] = await once(worker, "message");

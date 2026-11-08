@@ -2,9 +2,11 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    dts: {
-      tsgo: true,
-    },
-    exports: true,
+    // The worker modules start by path from the entry, and the runtime is bundled with the
+    // extensions when they are prepared, so each is a file of its own; only the entry is exported.
+    entry: ["src/index.ts", "src/host-worker.ts", "src/prepare-worker.ts", "src/runtime.ts"],
+    dts: true,
+    // In the workspace the export points to the source, as the other packages' do (ADR 0006).
+    exports: { devExports: true, exclude: ["host-worker", "prepare-worker", "runtime"] },
   },
 });
