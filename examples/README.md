@@ -40,4 +40,4 @@ We ran each folder once on 2026-11-07 with `deepseek/deepseek-v4.1-flash-1017` t
 | `support-tickets` | 6    | 0.2¢       | 28 s | The last email is both a billing complaint and a how-to question, so its reply must answer both.                           |
 | `product-catalog` | 6    | 0.5¢       | 30 s | Weights arrive in pounds, ounces and kilograms, and one supplier sells only dog gear, which this shop does not stock.      |
 
-In our run, the agent got all of these right. Model cost is what OpenRouter billed; the CLI prints a higher estimate, from the model's list price in Pi's catalogue. Time runs from the first job's start to the last one's end. The contract dates count from the day you run it, so yours will differ. The answers come from the model: read some before trusting a thousand.
+In our run, the agent got all of these right. Model cost is what OpenRouter billed, which is also what the CLI prints. Time runs from the first job's start to the last one's end. The contract dates count from the day you run it, so yours will differ. The answers come from the model: read some before trusting a thousand.
