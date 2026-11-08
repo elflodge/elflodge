@@ -9,12 +9,12 @@ import { makePromptCacheWarmup } from "../src/prompt-cache.ts";
 // The warm-up's timing, on Effect's test clock. Which jobs wait for which, and what releases
 // them, is tested through the hub in warm-up.test.ts.
 
-const PROMPT = {
+const AGENT = {
   instructions: "Extract a count.",
   outputContract: { schema: { type: "integer" } },
 };
 
-/** Jobs sharing a prompt, whose agents start and respond as the test says. */
+/** Jobs with the same instructions and Output contract, whose agents start and respond as the test says. */
 const fixture = Effect.gen(function* () {
   const warmup = yield* makePromptCacheWarmup;
   const started: string[] = [];
@@ -22,7 +22,7 @@ const fixture = Effect.gen(function* () {
   const launch = (name: string) =>
     Effect.gen(function* () {
       yield* Effect.forkScoped(
-        warmup.run(PROMPT, ({ ready, modelResponded }) =>
+        warmup.run(AGENT, ({ ready, modelResponded }) =>
           ready.pipe(
             Effect.andThen(
               Effect.sync(() => {
@@ -62,12 +62,12 @@ it.effect("a first call that has not returned holds the others for ten seconds",
 );
 
 it.effect(
-  "a prompt stays warm for five minutes from the start of its latest successful request",
+  "a prefix stays warm for five minutes from the start of its latest successful request",
   () =>
     Effect.gen(function* () {
       const jobs = yield* fixture;
       yield* jobs.launch("first");
-      // The first call took a minute, so its prompt is cached for four more.
+      // The first call took a minute, so its prefix is cached for four more.
       yield* jobs.respond("first", 60_000);
       yield* TestClock.adjust("239 seconds");
       yield* jobs.launch("warm");
@@ -78,8 +78,11 @@ it.effect(
       expect(jobs.started).toEqual(["first", "warm", "warms again"]);
       yield* jobs.respond("warms again");
       expect(jobs.started.at(-1)).toBe("waits");
+      // A request that started earlier and ends later does not shorten it.
+      yield* jobs.respond("warm", 200_000);
       yield* TestClock.adjust("299 seconds");
       yield* jobs.launch("still warm");
-      expect(jobs.started.at(-1)).toBe("still warm");
+      yield* jobs.launch("also warm");
+      expect(jobs.started.slice(-2)).toEqual(["still warm", "also warm"]);
     }),
 );

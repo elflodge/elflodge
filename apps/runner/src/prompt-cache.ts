@@ -1,9 +1,9 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { JobContent } from "contract";
-import { Cache, Clock, Duration, Effect, Exit, Latch } from "effect";
+import { Cache, Clock, Duration, Effect, Exit, Latch, Option } from "effect";
 
 /**
- * How long a prompt stays cached after a request that writes or reads it, counted from the start
+ * How long a prefix stays cached after a request that writes or reads it, counted from the start
  * of that request: pi-ai asks Anthropic for its default retention, which is this long.
  */
 const CACHE_LIFETIME_MS = 5 * 60 * 1000;
@@ -12,17 +12,18 @@ const CACHE_LIFETIME_MS = 5 * 60 * 1000;
 const ANSWERED = new Set<AssistantMessage["stopReason"]>(["stop", "length", "toolUse"]);
 
 /**
- * Staggers jobs that share a prompt on this Runner. The Runner's model and own instructions are
- * fixed; a job's instructions and Output contract (the submit tool's schema) complete the prompt
- * every one of its first requests begins with. Inputs and files follow it, so they do not matter.
+ * Staggers jobs whose requests begin with the same cacheable prefix on this Runner. The Runner's
+ * model and own instructions are fixed; a job's instructions and Output contract (the submit
+ * tool's schema) complete the prefix. Inputs and files follow it, so they do not matter.
  */
 export const makePromptCacheWarmup = Effect.gen(function* () {
   const context = yield* Effect.context();
   const runSync = Effect.runSyncWith(context);
   const clock = yield* Clock.Clock;
-  // When the latest successful request of each warm prompt started.
+  // When the latest successful request of each warm prefix started.
   const warm = yield* Cache.makeWith((_key: string) => Effect.succeed(0), {
-    // Bounds what a long-running Runner keeps; a warm prompt evicted costs one more stagger.
+    // Bounds what a long-running Runner keeps, far above the few prefixes its jobs use at once; a
+    // warm prefix evicted costs one more stagger.
     capacity: 256,
     timeToLive: (exit) =>
       Duration.millis(
@@ -36,7 +37,7 @@ export const makePromptCacheWarmup = Effect.gen(function* () {
   function run<A, E, R>(
     job: Pick<JobContent, "instructions" | "outputContract">,
     start: (callbacks: {
-      /** Waits for the prompt to be warmed, if another job is warming it; yielded just before the agent opens. */
+      /** Waits for the prefix to be warmed, if another job is warming it; yielded just before the agent opens. */
       ready: Effect.Effect<void>;
       /** Takes each response of the job's model, failed attempts included. */
       modelResponded: (message: AssistantMessage) => void;
@@ -54,16 +55,32 @@ export const makePromptCacheWarmup = Effect.gen(function* () {
       };
       const modelResponded = (message: AssistantMessage) => {
         // pi-durable has no hook for when a response starts, which is when Anthropic makes the
-        // cache entry available, so a finished response is the first sign the prompt is cached.
-        // Cache reads cannot tell either: the first response to a cold prompt reads none.
-        if (!ANSWERED.has(message.stopReason)) {
-          // A failed call releases the jobs waiting on this job, rather than serializing
-          // failures, but leaves the prompt cold, and never releases a later job's warm-up.
+        // cache entry available, so a finished response is the first sign the prefix is cached.
+        // Cache reads cannot tell either: the first response to a cold prefix reads none.
+        const warmed =
+          ANSWERED.has(message.stopReason) &&
+          runSync(
+            Effect.gen(function* () {
+              // Responses can end out of order: the latest request to start keeps it cached longest.
+              const known = yield* Cache.getSuccess(warm, key);
+              const startedAt = Option.match(known, {
+                onNone: () => message.timestamp,
+                onSome: (latest) => Math.max(latest, message.timestamp),
+              });
+              // Removed first, so the prefix refreshed last is the last the capacity evicts.
+              yield* Cache.invalidate(warm, key);
+              yield* Cache.set(warm, key, startedAt);
+              return yield* Cache.has(warm, key);
+            }),
+          );
+        if (!warmed) {
+          // A failed call, or one whose request started too long ago to keep the prefix cached,
+          // releases the jobs waiting on this job rather than serializing them, but never a
+          // later job's warm-up.
           release();
           return;
         }
-        runSync(Cache.set(warm, key, message.timestamp));
-        // Whichever job's call warmed the prompt, the jobs waiting for it can start.
+        // Whichever job's call warmed the prefix, the jobs waiting for it can start.
         const pending = warming.get(key);
         warming.delete(key);
         pending?.openUnsafe();

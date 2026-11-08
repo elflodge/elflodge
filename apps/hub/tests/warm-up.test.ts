@@ -6,7 +6,7 @@ import { type ApiClient, startSystem, untilStatus } from "./harness.ts";
 import { callTool, providerError, untilAborted } from "./scripted-model.ts";
 
 // A Runner starts one of several jobs that share their instructions and Output contract, and
-// holds the others until that job's first model call returns, so their calls read the prompt the
+// holds the others until that job's first model call returns, so their calls read the prefix the
 // first one cached. These tests hold the first call open; the cap and the warmth's expiry are
 // timed in the Runner's own tests.
 
@@ -65,7 +65,7 @@ test.for([
   ["completes", callTool("submit_output", { value: "not an integer" })],
   ["fails", providerError("429 rate limit exceeded")],
 ] as const)(
-  "the jobs sharing a first job's prompt start once its first model call %s, before it ends",
+  "the jobs sharing a first job's instructions and Output contract start once its first model call %s, before it ends",
   async ([, response]) => {
     const client = await system.clientWithNewJobsKey();
     const firstCall = heldCall(response);
@@ -115,7 +115,7 @@ test("a waiting job that is paused or cancelled does not start, and the others s
   await Promise.all([firstJob, paused, waiting].map((id) => client.jobs.cancel({ id })));
 });
 
-test("jobs with another prompt do not wait for a warm-up", async () => {
+test("jobs with other instructions do not wait for a warm-up", async () => {
   const client = await system.clientWithNewJobsKey();
   const firstCall = heldCall(callTool("submit_output", { value: "not an integer" }));
   system.model.setResponses([firstCall.respond, untilAborted, untilAborted]);

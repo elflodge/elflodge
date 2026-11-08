@@ -293,7 +293,7 @@ export function openJob(
         hooks: [
           hook(GenerationTask, {
             // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
-            // whether the prompt this job shares with others is cached.
+            // whether the prefix this job's requests share with other jobs' is cached.
             afterResponse: (message) => options.modelResponded(message),
             // An accepted output ends the run only when every call of its round asks to; the job
             // ends once the round's other calls are done, without another model turn. The output is
