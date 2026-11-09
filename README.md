@@ -41,6 +41,16 @@ Try it on your machine with Docker and Node: `npx elflodge stack start`, then [t
 
 Open source, MIT, TypeScript. Early: versions are 0.x.
 
+## Use with your coding agent
+
+Install the Elflodge skill to have your agent prepare a batch, test representative inputs, and collect structured results:
+
+```sh
+npx skills add elflodge/elflodge --skill elflodge-batch-automation
+```
+
+The [skill and worked extraction example](https://github.com/elflodge/elflodge/tree/main/skills/elflodge-batch-automation) cover setup, output schemas, failures and safe retries. Elflodge was formerly named `agent-batch`; both names refer to this project.
+
 ## An everyday chore, done by an agent
 
 The usual way to count the lines of a file:

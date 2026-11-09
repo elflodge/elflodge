@@ -2,6 +2,25 @@
   "name": "agent-batch",
   "version": "0.7.1",
   "description": "The former name of Elflodge: installs elflodge and runs it as `agent-batch`.",
+  "keywords": [
+    "agent-batch",
+    "agents",
+    "ai",
+    "ai-agents",
+    "automation",
+    "batch-processing",
+    "cli",
+    "data-extraction",
+    "document-extraction",
+    "elflodge",
+    "json-schema",
+    "llm",
+    "parallel-agents",
+    "pi",
+    "sandbox",
+    "self-hosted",
+    "structured-output"
+  ],
   "homepage": "https://elflodge.com",
   "bugs": {
     "url": "https://github.com/elflodge/elflodge/issues"

@@ -2,6 +2,25 @@
   "name": "elflodge",
   "version": "0.7.1",
   "description": "Hundreds of agents working unattended. One job API. Run jobs in parallel on your own machine and get structured results.",
+  "keywords": [
+    "agent-batch",
+    "agents",
+    "ai",
+    "ai-agents",
+    "automation",
+    "batch-processing",
+    "cli",
+    "data-extraction",
+    "document-extraction",
+    "elflodge",
+    "json-schema",
+    "llm",
+    "parallel-agents",
+    "pi",
+    "sandbox",
+    "self-hosted",
+    "structured-output"
+  ],
   "homepage": "https://elflodge.com",
   "bugs": {
     "url": "https://github.com/elflodge/elflodge/issues"
