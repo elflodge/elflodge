@@ -46,10 +46,17 @@ for (const { source, path } of workerData.extensions) {
 }
 
 const instances = new Map<string, Instance>();
+/** Tool calls running, by conversation and call ID: a call ID is the model's, unique only in its conversation. */
 const running = new Map<string, AbortController>();
+/** Tool calls whose `tool_execution_start` was emitted, by conversation and call ID. */
+const startedCalls = new Set<string>();
+const callKey = (key: string, callId: string) => `${key}\0${callId}`;
 type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
 
-/** How long each finished tool call's `execute` took, in milliseconds, until `tool_execution_end`. */
+/**
+ * How long each finished tool call's `execute` took, in milliseconds, until `tool_execution_end`,
+ * by conversation and call ID.
+ */
 const durations = new Map<string, number>();
 
 const journal = new SyncMessagePort(workerData.journal);
@@ -58,6 +65,9 @@ let nextExec = 0;
 
 /** Sends `action` on the journal channel, ahead of any read that follows it. */
 function act(key: string, action: Action) {
+  // What the host writes to the journal must be JSON; a value that is not, such as a BigInt,
+  // throws in the extension's own call, as Pi's session file makes it.
+  JSON.stringify(action);
   const message: JournalMessage = { type: "act", key, action };
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   journal.postMessage(message);
@@ -127,7 +137,12 @@ const functions: WorkerFunctions = {
         getActiveTools: () => read(key, "getActiveTools"),
         getAllTools: () => allTools(key),
         getSettings: () => ({}),
-        setActiveTools: (names) => act(key, { type: "setActiveTools", names }),
+        setActiveTools: (names) =>
+          act(key, {
+            type: "setActiveTools",
+            names,
+            registrations: registrations(instanceFor(key)),
+          }),
         getCommands: () => [],
         setModel: async (model) => {
           const previousModel = read(key, "getModel");
@@ -161,6 +176,7 @@ const functions: WorkerFunctions = {
       modelRegistry: modelRegistry(key),
       exec: (command, args, options) => exec(key, command, args, options),
       changed: () => host.changed(key),
+      error: (error) => host.error(key, error),
     });
     instances.set(key, instance);
     return { ...registrations(instance), errors: [...loadErrors, ...instance.errors] };
@@ -171,6 +187,7 @@ const functions: WorkerFunctions = {
   // `tool_call`, as a copy that `tool_call` handlers' edits leave alone; `tool_execution_end` with the result `tool_result` handlers made.
   async toolCall(key, event) {
     const runner = runnerFor(key);
+    startedCalls.add(callKey(key, event.toolCallId));
     await runner.emit({
       type: "tool_execution_start",
       toolCallId: event.toolCallId,
@@ -182,9 +199,20 @@ const functions: WorkerFunctions = {
   },
   async toolResult(key, event) {
     const runner = runnerFor(key);
+    const id = callKey(key, event.toolCallId);
+    // A call pi-durable rejected before its hooks, an unknown tool or invalid arguments, had no
+    // `tool_call`; Pi starts every call, those too.
+    if (!startedCalls.delete(id)) {
+      await runner.emit({
+        type: "tool_execution_start",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        args: event.input,
+      });
+    }
     const changed = await runner.emitToolResult(event);
-    const durationMs = durations.get(event.toolCallId);
-    durations.delete(event.toolCallId);
+    const durationMs = durations.get(id);
+    durations.delete(id);
     await runner.emit({
       type: "tool_execution_end",
       toolCallId: event.toolCallId,
@@ -198,19 +226,27 @@ const functions: WorkerFunctions = {
     });
     return changed;
   },
-  context: (key, messages) => runnerFor(key).emitContext(messages),
+  context: async (key, messages) =>
+    runtime.convertToLlm(await runnerFor(key).emitContext(messages)),
   providerRequest: (key, payload) => runnerFor(key).emitBeforeProviderRequest(payload),
   input: (key, ...args) => runnerFor(key).emitInput(...args),
   async agentStart(key, trigger, cwd, activeTools) {
     const runner = runnerFor(key);
     const selectedTools = [...activeTools];
     const started = await runner.emitBeforeAgentStart(trigger, { cwd, selectedTools });
-    await runner.emit({ type: "agent_start" });
     const options = started.systemPromptOptions;
+    const sections = promptSections(options, (name) =>
+      // Pi fails the run before `agent_start`; a request's hook cannot, so the section is left out.
+      host.error(key, {
+        source: "before_agent_start",
+        message: `Invalid system prompt section name: ${name}`,
+      }),
+    );
+    await runner.emit({ type: "agent_start" });
     const edited = !Equal.equals(options.selectedTools, selectedTools);
     return {
       messages: started.messages,
-      sections: promptSections(options),
+      sections,
       ...(edited && { selectedTools: options.selectedTools }),
     };
   },
@@ -258,8 +294,9 @@ const functions: WorkerFunctions = {
       throw new Error(`Tool ${name} is not registered in this conversation`);
     }
     const controller = new AbortController();
-    running.set(callId, controller);
-    const started = performance.now();
+    const id = callKey(key, callId);
+    running.set(id, controller);
+    const begun = performance.now();
     try {
       const params = definition.prepareArguments ? definition.prepareArguments(args) : args;
       const result = await definition.execute(
@@ -272,16 +309,16 @@ const functions: WorkerFunctions = {
       );
       return toolResult(result);
     } finally {
-      running.delete(callId);
+      running.delete(id);
       // For `tool_execution_end`, which the host asks for after the result, when someone listens;
       // whole milliseconds, as Pi gives them.
       if (instance.events().includes("tool_execution_end")) {
-        durations.set(callId, Math.round(performance.now() - started));
+        durations.set(id, Math.round(performance.now() - begun));
       }
     }
   },
-  cancelTool(callId) {
-    running.get(callId)?.abort();
+  cancelTool(key, callId) {
+    running.get(callKey(key, callId))?.abort();
   },
   async close(key) {
     const found = instances.get(key);
@@ -294,26 +331,33 @@ const functions: WorkerFunctions = {
       read(key, "flush");
     } finally {
       instances.delete(key);
+      // As Pi's session does when it is disposed: a call through the closed instance's API, such as
+      // a timer firing later, throws instead of acting for a conversation attached again.
+      found.runner.invalidate();
     }
   },
 };
+
+/** The section names Pi accepts, as `core/system-prompt.js` checks them. */
+const SECTION_NAME = /^[a-z][a-z0-9_-]*$/;
 
 /**
  * What `before_agent_start` handlers added to the system prompt, rendered as Pi renders those
  * parts in `buildSystemPromptSections` (pi-coding-agent's `core/system-prompt.js`): their
  * guidelines, trimmed and once each, as Pi adds them to its rules; the appended text as the
- * addendum; then their own sections, whose names Pi checks. That function builds Pi's whole prompt
- * and puts its own default rules among the guidelines, so it is not called: pi-durable builds the
- * prompt, and Pi's preamble, tools, default rules and skills have no counterpart here.
+ * addendum; then their own sections, whose names Pi checks, `invalid` getting each it rejects. That
+ * function builds Pi's whole prompt and puts its own default rules among the guidelines, so it is
+ * not called: pi-durable builds the prompt, and Pi's preamble, tools, default rules and skills have
+ * no counterpart here.
  */
-/** The section names Pi accepts, as `core/system-prompt.js` checks them. */
-const SECTION_NAME = /^[a-z][a-z0-9_-]*$/;
-
-function promptSections(options: {
-  promptGuidelines: string[];
-  appendSystemPrompt: string;
-  sections: Record<string, string>;
-}): Record<string, string> {
+function promptSections(
+  options: {
+    promptGuidelines: string[];
+    appendSystemPrompt: string;
+    sections: Record<string, string>;
+  },
+  invalid: (name: string) => void,
+): Record<string, string> {
   const sections: Record<string, string> = {};
   // Keyed apart from pi-durable's own sections, which the same request carries.
   const tagged = (name: string, content: string) => {
@@ -325,10 +369,8 @@ function promptSections(options: {
   if (guidelines.length > 0) tagged("rules", guidelines.map((each) => `- ${each}`).join("\n"));
   if (options.appendSystemPrompt) tagged("addendum", options.appendSystemPrompt);
   for (const [name, content] of Object.entries(options.sections)) {
-    if (!SECTION_NAME.test(name) || name === "preamble") {
-      throw new Error(`Invalid system prompt section name: ${name}`);
-    }
-    if (content) tagged(name, content);
+    if (!SECTION_NAME.test(name) || name === "preamble") invalid(name);
+    else if (content) tagged(name, content);
   }
   return sections;
 }
@@ -433,4 +475,6 @@ const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   post: (message) => workerData.rpc.postMessage(message),
   on: (handler) => workerData.rpc.on("message", handler),
   timeout: -1,
+  // Notices that need no answer, so none is left waiting when the worker or the host goes.
+  eventNames: ["changed", "cancelExec", "error"],
 });

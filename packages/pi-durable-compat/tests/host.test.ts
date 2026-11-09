@@ -246,8 +246,10 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
         "before_agent_start hi",
         "agent_start",
         "turn_start",
-        // The failed attempt's message too, as in Pi.
+        // The failed attempt's turn too, as in Pi.
         "message_end",
+        "turn_end",
+        "turn_start",
         "message_end",
         "turn_end",
         "agent_end",

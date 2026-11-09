@@ -30,13 +30,14 @@ import {
   type EntryId,
   type EntryQuery,
   type EntryRecord,
+  type Cursor,
+  type Page,
   type GenerationHooks,
   GenerationTask,
   type Harness,
   hook,
   type HookApi,
   type HookRegistration,
-  type JsonObject,
   LiveDoc,
   type LiveRun,
   ProviderDoc,
@@ -51,7 +52,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { createBirpc, type BirpcReturn } from "birpc";
-import { Equal, Schema } from "effect";
+import { Equal, Predicate, Schema } from "effect";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
@@ -82,9 +83,15 @@ export interface ExtensionHostOptions {
   readonly maxWorkers?: number;
   /**
    * How long a worker with no conversation stays before it exits, in milliseconds. Default 30 s, so
-   * conversations that follow each other reuse a worker rather than load the extensions again.
+   * conversations that follow each other reuse a worker rather than load the extensions again, as
+   * long as pi-durable's own image worker stays idle (`images/node.js`).
    */
   readonly idleTimeout?: number;
+  /**
+   * Called when an extension's handler fails after it loaded, which Pi catches so the conversation
+   * goes on. Default: written to standard error, as Pi's print mode writes it.
+   */
+  readonly onError?: (error: ExtensionError, conversation: ConversationId) => void;
 }
 
 /** What `attach` binds a conversation's extensions to. */
@@ -197,12 +204,16 @@ interface HostedWorker {
 class Workers {
   readonly #options: ExtensionHostOptions;
   readonly #workers = new Set<HostedWorker>();
+  /** Conversations whose worker exited, which `close` still closes: their tools stay installed. */
+  readonly #orphans = new Set<AttachedConversation>();
+  #closed = false;
 
   constructor(options: ExtensionHostOptions) {
     this.#options = options;
   }
 
   acquire(key: string, conversation: AttachedConversation): HostedWorker {
+    if (this.#closed) throw new Error("The extension host is closed");
     const max = this.#options.maxWorkers ?? 2;
     let chosen: HostedWorker | undefined;
     for (const each of this.#workers) {
@@ -220,7 +231,7 @@ class Workers {
 
   release(hosted: HostedWorker, key: string) {
     hosted.conversations.delete(key);
-    if (hosted.conversations.size > 0) return;
+    if (hosted.conversations.size > 0 || this.#closed) return;
     // An idle worker is no reason for the process to stay.
     hosted.hold(false);
     hosted.idle = setTimeout(() => {
@@ -231,8 +242,11 @@ class Workers {
   }
 
   async close() {
+    this.#closed = true;
     const all = [...this.#workers];
     this.#workers.clear();
+    await Promise.allSettled([...this.#orphans].map((each) => each.close()));
+    this.#orphans.clear();
     for (const hosted of all) {
       clearTimeout(hosted.idle);
       await Promise.allSettled([...hosted.conversations.values()].map((each) => each.close()));
@@ -268,22 +282,40 @@ class Workers {
       getApiKeyForProvider: async (key, provider) =>
         (await attached(key).models.getAuth(provider))?.auth.apiKey,
       changed: (key) => conversations.get(key)?.reloadRegistrations(),
+      error: (key, error) => {
+        const found = conversations.get(key);
+        if (!found) return;
+        if (this.#options.onError) this.#options.onError(error, found.conversationId);
+        else console.error(`Extension error (${error.source}): ${error.message}`);
+      },
     };
     const port = rpc.port1;
     const client = createBirpc<WorkerFunctions, HostFunctions>(functions, {
       post: (message) => port.postMessage(message),
       on: (handler) => port.on("message", handler),
       timeout: -1,
+      // A notice that needs no answer, so none is left waiting when the worker exits.
+      eventNames: ["cancelTool"],
     });
     const reads = new SyncMessagePort(journal.port1);
     const reply = (value: ReadReply) => {
-      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-      reads.postMessage(value);
+      try {
+        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
+        reads.postMessage(value);
+      } catch (error) {
+        // A value that cannot be cloned; the worker waits for an answer all the same.
+        if (!("error" in value)) reply({ id: value.id, error: ensureError(error).message });
+      }
     };
     reads.on("message", (message: JournalMessage) => {
       const found = conversations.get(message.key);
       if (message.type === "act") {
-        found?.act(message.action);
+        try {
+          found?.act(message.action);
+        } catch {
+          // An action the host cannot carry out has no one to report to, as with Pi's actions;
+          // it must not end the host's process, which runs every other conversation.
+        }
         return;
       }
       if (!found) {
@@ -313,7 +345,7 @@ class Workers {
     // end the host's process instead.
     let failure: Error | undefined;
     worker.on("error", (error) => {
-      failure = error;
+      failure = ensureError(error);
     });
     // A worker that exits while loading, by `process.exit()` or running out of memory, fails the
     // `attach` without naming the extension: that would need the worker to report each load, for a
@@ -323,7 +355,10 @@ class Workers {
       client.$close(
         new Error(`The extension worker exited${failure ? `: ${failure.message}` : ""}`),
       );
-      for (const each of conversations.values()) each.lost();
+      for (const each of conversations.values()) {
+        each.lost();
+        if (!this.#closed) this.#orphans.add(each);
+      }
     });
     this.#workers.add(hosted);
     return hosted;
@@ -460,16 +495,13 @@ class Installation {
         beforeProviderRequest: async (request, api) =>
           this.#for(api)?.beforeProviderRequest(request),
       }),
-      ...(has("message_end") && {
-        afterResponse: async (message, api) => this.#for(api)?.messageEnd(message),
+      ...(has("message_end", "turn_end") && {
+        afterResponse: async (message, api, context) =>
+          this.#for(api)?.afterResponse(message, api, context),
       }),
       ...(has("turn_end") && {
         afterTools: async (assistant, _results, api, context) =>
           this.#for(api)?.turnEnd(assistant, api, context),
-        onYield: async (answer, api, context) => {
-          await this.#for(api)?.finalTurnEnd(answer, api, context);
-          return undefined;
-        },
       }),
       ...(has("agent_end") && {
         afterRun: async (run, api, context) => {
@@ -530,8 +562,20 @@ class AttachedConversation {
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
   #writes: Promise<unknown> = Promise.resolve();
+  /**
+   * What the run's `before_agent_start` handlers added to the system prompt, for its later rounds,
+   * which are generation tasks of their own; a host that restarts during a run loses it.
+   */
+  #runSections: Readonly<Record<string, string>> = {};
+  /** The model tools being set, which the next selection waits for. */
+  #activation: Promise<void> = Promise.resolve();
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
   readonly #execs = new Map<number, AbortController>();
+
+  /** The conversation these extensions act for. */
+  get conversationId(): ConversationId {
+    return this.#options.conversation.id;
+  }
 
   constructor(key: string, options: AttachOptions, installation: Installation) {
     this.key = key;
@@ -572,7 +616,7 @@ class AttachedConversation {
     if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
     const changed = toJson(input);
     if (changed === undefined || Equal.equals(changed, call.arguments)) return undefined;
-    return isJsonObjectValue(changed) ? { arguments: changed } : undefined;
+    return Predicate.isObject(changed) ? { arguments: changed } : undefined;
   }
 
   async afterTool(call: ToolHookCall, result: ToolExecutionResult) {
@@ -601,8 +645,8 @@ class AttachedConversation {
   }
 
   /**
-   * Before each request: a run's first request starts it as Pi's agent does, the first attempt of
-   * each starts a turn, and `context` handlers change what the request sends. pi-durable has no
+   * Before each request: a run's first request starts it as Pi's agent does, each attempt starts
+   * a turn, and `context` handlers change what the request sends. pi-durable has no
    * hook where a run starts, so its first request stands for it: `LiveRun.turns` counts the run's
    * tool rounds, and a retry is a later attempt of the same request.
    */
@@ -623,7 +667,9 @@ class AttachedConversation {
           messages = [...messages, ...started.sent.map(sentMessage)];
         }
       }
-      if (run && live.generation?.attempt === 1 && this.#listens("turn_start")) {
+      // Each attempt, a retry too, as each response ends a turn; Pi's retry also ends the run and
+      // starts it again (`agent_end`, `agent_start`), which here it stays.
+      if (run && this.#listens("turn_start")) {
         await this.#rpc.emit(this.key, {
           type: "turn_start",
           turnIndex: run.turns,
@@ -633,17 +679,10 @@ class AttachedConversation {
       messages = withSections(messages, this.#runSections);
     }
     if (this.#listens("context", "context_with_system")) {
-      // Pi's own message kinds, such as a shell command's output, have no meaning here.
-      messages = (await this.#rpc.context(this.key, messages)).filter(isMessage);
+      messages = await this.#rpc.context(this.key, messages);
     }
     return { messages };
   }
-
-  /**
-   * What the run's `before_agent_start` handlers added to the system prompt, for its later rounds,
-   * which are generation tasks of their own; a host that restarts during a run loses it.
-   */
-  #runSections: Readonly<Record<string, string>> = {};
 
   /**
    * Runs `before_agent_start` and `agent_start` once for the run, recording what they return as a
@@ -678,7 +717,12 @@ class AttachedConversation {
     // The first value recorded wins, should two attempts ever run the handlers at once.
     const kept = await api.memo<JsonValue>(memo, toJson(recorded) ?? null, context);
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
-    if (started.selectedTools) this.act({ type: "setActiveTools", names: started.selectedTools });
+    if (started.selectedTools)
+      this.act({
+        type: "setActiveTools",
+        names: started.selectedTools,
+        registrations: this.registrations,
+      });
     return Schema.decodeUnknownSync(RunStart)(kept);
   }
 
@@ -713,7 +757,7 @@ class AttachedConversation {
     const message = record?.model?.find((each) => each.role === "user");
     if (!record || !message) return userTrigger(newestUserContent(messages));
     if (!record.kind.startsWith("piext.")) return userTrigger(message.content);
-    const data = isJsonObject(record.data) ? record.data : {};
+    const data = Predicate.isObject(record.data) ? record.data : {};
     return {
       messageType: "custom",
       message: {
@@ -727,9 +771,29 @@ class AttachedConversation {
     };
   }
 
-  async messageEnd(message: AssistantMessage) {
+  /**
+   * After each response, a failed attempt's too: `message_end`, and for one that calls no tool,
+   * `turn_end`, as Pi ends a turn at an answer or an error. It comes before the answer is
+   * committed, so it has no entry ID; and here rather than in `onYield`, which pi-durable stops
+   * calling once another extension's hook continues the run.
+   */
+  async afterResponse(message: AssistantMessage, api: HookApi, context: Context) {
     if (this.#closed) return;
-    await this.#rpc.messageEnd(this.key, message);
+    if (this.#listens("message_end")) await this.#rpc.messageEnd(this.key, message);
+    if (message.stopReason === "toolUse" || !this.#listens("turn_end")) return;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    await this.#rpc.turnEnd(this.key, {
+      type: "turn_end",
+      turnIndex: live?.run?.turns ?? 0,
+      message,
+      toolResults: [],
+      messageEntryId: "",
+      toolResultEntryIds: [],
+      outcome:
+        message.stopReason === "error" || message.stopReason === "aborted"
+          ? message.stopReason
+          : "completed",
+    });
   }
 
   /** `turn_end` for a tool round, from the committed entries: the hook's `results` can be empty. */
@@ -752,21 +816,6 @@ class AttachedConversation {
       toolResults: results.map((each) => each.message),
       messageEntryId: `${first.id}`,
       toolResultEntryIds: results.map((each) => each.id),
-      outcome: "completed",
-    });
-  }
-
-  /** `turn_end` for a final answer, before it is committed, so it has no entry ID yet. */
-  async finalTurnEnd(answer: AssistantMessage, api: HookApi, context: Context) {
-    if (this.#closed) return;
-    const live = await api.snapshot(LiveDoc, api.conversationId, context);
-    await this.#rpc.turnEnd(this.key, {
-      type: "turn_end",
-      turnIndex: live?.run?.turns ?? 0,
-      message: answer,
-      toolResults: [],
-      messageEntryId: "",
-      toolResultEntryIds: [],
       outcome: "completed",
     });
   }
@@ -804,7 +853,7 @@ class AttachedConversation {
   }
 
   async executeTool(name: string, args: unknown, callId: string, context: Context) {
-    const abort = () => void this.#hosted?.rpc.cancelTool(callId);
+    const abort = () => void this.#hosted?.rpc.cancelTool(this.key, callId);
     context.abortSignal?.addEventListener("abort", abort, { once: true });
     try {
       return toolOutput(await this.#rpc.executeTool(this.key, callId, name, args));
@@ -816,15 +865,12 @@ class AttachedConversation {
   /** Reads the extensions' registrations again after they changed, and installs them. */
   reloadRegistrations() {
     if (this.#closed || !this.#hosted) return;
-    this.#registered = this.#hosted.rpc.registrations(this.key).then(
+    void this.#hosted.rpc.registrations(this.key).then(
       (registrations) => this.update(registrations),
       // The worker exited or the conversation closed meanwhile; its tools fail from then on.
       () => {},
     );
   }
-
-  /** The last reload of the registrations, which `#setActiveTools` waits on. */
-  #registered: Promise<void> = Promise.resolve();
 
   /**
    * Starts an extension's action. A later read waits for the ones that write to the conversation;
@@ -900,6 +946,10 @@ class AttachedConversation {
       case "abort":
         return conversation.abort(context);
       case "setActiveTools":
+        // A tool registered just before is in the registrations the action carries: the worker's
+        // notice of it travels on another channel, and asking the worker would wait on it while
+        // it waits for this action to be done before its next read.
+        this.update(action.registrations);
         return this.#setActiveTools(action.names);
       default:
         // Session names, labels and shutdown have no counterpart here.
@@ -912,17 +962,18 @@ class AttachedConversation {
    * any tool of the conversation's extensions, the deferred ones too. Names of no such tool are
    * left out, as Pi leaves them out.
    */
-  async #setActiveTools(names: readonly string[]) {
+  #setActiveTools(names: readonly string[]) {
     const { conversation } = this.#options;
     const context = BACKGROUND_CONTEXT;
-    // Pi lets an extension register a tool and activate it at once; the worker's notice of the
-    // registration travels on another channel than this action, so read the registrations afresh.
-    this.reloadRegistrations();
-    await this.#registered;
-    const { extensions } = await conversation.agent(context);
-    const tools = new Map(extensions.flatMap((each) => each.tools ?? []).map((t) => [t.name, t]));
-    const modelTools = names.flatMap((name) => tools.get(name) ?? []);
-    await conversation.configure({ modelTools }, context);
+    // One after the other, so the last selection made is the one that holds.
+    const activated = this.#activation.then(async () => {
+      const { extensions } = await conversation.agent(context);
+      const tools = new Map(extensions.flatMap((each) => each.tools ?? []).map((t) => [t.name, t]));
+      const modelTools = names.flatMap((name) => tools.get(name) ?? []);
+      await conversation.configure({ modelTools }, context);
+    });
+    this.#activation = activated.catch(() => {});
+    return activated;
   }
 
   /** Switches the conversation's model, as Pi does: only to a model with credentials. */
@@ -1078,22 +1129,20 @@ class AttachedConversation {
    * its message's time, or else the time of the read.
    */
   async #entries(): Promise<SessionEntry[]> {
-    const records: EntryRecord[] = [];
-    let cursor: Parameters<Conversation["entries"]>[2];
-    do {
-      const page = await this.#options.conversation.entries(
-        { order: "ascending" },
-        500,
-        cursor,
-        BACKGROUND_CONTEXT,
-      );
-      records.push(...page.items);
-      cursor = page.next;
-    } while (cursor !== undefined);
+    const found = await collect(
+      paged((limit, cursor) =>
+        this.#options.conversation.entries(
+          { order: "ascending" },
+          limit,
+          cursor,
+          BACKGROUND_CONTEXT,
+        ),
+      ),
+    );
     const entries: SessionEntry[] = [];
     let parentId: string | null = null;
     const now = new Date().toISOString();
-    for (const record of records) {
+    for (const record of found) {
       const id = `${record.id}`;
       const messages = record.model ?? [];
       const first = messages[0];
@@ -1102,7 +1151,7 @@ class AttachedConversation {
         const customType = record.kind.slice("piext.".length);
         // A message an extension sent carries what the model sees; `appendEntry`'s carries only data.
         if (first?.role === "user") {
-          const sent = isJsonObject(record.data) ? record.data : {};
+          const sent = Predicate.isObject(record.data) ? record.data : {};
           entries.push({
             type: "custom_message",
             id,
@@ -1174,20 +1223,26 @@ const DEFAULT_MAX_BUFFER = Math.min(256 * 1024 * 1024, constants.MAX_STRING_LENG
  * Pi runs a tool's `prepareArguments` before validating its arguments; pi-durable does too, but
  * synchronously on the host thread, where waiting for the worker would stall every conversation. For a tool
  * that has one, the host repairs what models commonly get wrong, an array or object sent as JSON
- * text, and the worker runs the tool's own before it executes.
+ * text, as pi-durable's own `edit` tool does in its `prepareArguments` (`tools/edit.js`); pi-ai's
+ * coercion would wrap such text in an array instead. The worker runs the tool's own before it
+ * executes.
  */
 function repairArguments(args: unknown, schema: object): unknown {
-  if (!isJsonObject(args) || !("properties" in schema) || !isJsonObject(schema.properties))
+  if (
+    !Predicate.isObject(args) ||
+    !("properties" in schema) ||
+    !Predicate.isObject(schema.properties)
+  )
     return args;
   let repaired: Record<string, unknown> | undefined;
   for (const [name, property] of Object.entries(schema.properties)) {
     const value = args[name];
-    if (typeof value !== "string" || !isJsonObject(property)) continue;
+    if (typeof value !== "string" || !Predicate.isObject(property)) continue;
     const wanted = property.type;
     if (wanted !== "array" && wanted !== "object") continue;
     try {
       const parsed: unknown = JSON.parse(value);
-      if (wanted === "array" ? Array.isArray(parsed) : isJsonObject(parsed)) {
+      if (wanted === "array" ? Array.isArray(parsed) : Predicate.isObject(parsed)) {
         repaired ??= { ...args };
         repaired[name] = parsed;
       }
@@ -1196,18 +1251,6 @@ function repairArguments(args: unknown, schema: object): unknown {
     }
   }
   return repaired ?? args;
-}
-
-function isJsonObjectValue(value: JsonValue): value is JsonObject {
-  return isJsonObject(value);
-}
-
-function isMessage(message: { role: string }): message is Message {
-  return ["system", "user", "assistant", "toolResult"].includes(message.role);
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** A value as JSON, as pi-durable stores it: what does not survive JSON is dropped. */
@@ -1237,7 +1280,7 @@ function toolOutput(result: ToolResult) {
 }
 
 function isContentPart(part: unknown): part is { type: "text"; text: string } | ImageContent {
-  return isJsonObject(part) && (part.type === "text" || part.type === "image");
+  return Predicate.isObject(part) && (part.type === "text" || part.type === "image");
 }
 
 /** The events a request's hook dispatches. */
@@ -1283,31 +1326,44 @@ function sentMessage(content: RunStart["sent"][number]): Message {
 }
 
 /** Every entry in `range` of the hook's conversation, oldest first. */
+/** The items of `items`, as `Array.fromAsync` gives them, which the configured library lacks. */
+async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
+  const found: T[] = [];
+  for await (const each of items) found.push(each);
+  return found;
+}
+
+/** Entries read a page at a time, of the size pi-durable's README pages hook reads by. */
+async function* paged(
+  read: (limit: number, cursor: Cursor | undefined) => Promise<Page<EntryRecord, Cursor>>,
+): AsyncGenerator<EntryRecord> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await read(1000, cursor);
+    yield* page.items;
+    cursor = page.next;
+  } while (cursor !== undefined);
+}
+
 async function records(
   api: HookApi,
   range: Pick<EntryQuery, "minEntryId" | "maxEntryId">,
   context: Context,
 ): Promise<EntryRecord[]> {
-  const found: EntryRecord[] = [];
-  let cursor: Parameters<HookApi["entries"]>[2];
-  do {
-    const page = await api.entries({ ...range, order: "ascending" }, 500, cursor, context);
-    found.push(...page.items);
-    cursor = page.next;
-  } while (cursor !== undefined);
-  return found;
+  return collect(
+    paged((limit, cursor) => api.entries({ ...range, order: "ascending" }, limit, cursor, context)),
+  );
 }
 
 /** Whether a prompt was written after the newest of `inputs`: the run is being continued. */
 async function userEntryAfter(inputs: readonly EntryId[], api: HookApi, context: Context) {
   const newest = inputs.reduce((a, b) => (b > a ? b : a));
-  let cursor: Parameters<HookApi["entries"]>[2];
-  do {
-    // Newest first: a continuation's prompt is near the end, after the run's rounds.
-    const page = await api.entries({ minEntryId: newest }, 100, cursor, context);
-    if (page.items.some((each) => each.id !== newest && each.kind === UserEntry.kind)) return true;
-    cursor = page.next;
-  } while (cursor !== undefined);
+  // Newest first: a continuation's prompt is near the end, after the run's rounds.
+  for await (const entry of paged((limit, cursor) =>
+    api.entries({ minEntryId: newest }, limit, cursor, context),
+  )) {
+    if (entry.id !== newest && entry.kind === UserEntry.kind) return true;
+  }
   return false;
 }
 

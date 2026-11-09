@@ -21,7 +21,7 @@ import { loadExtensionFromFactory } from "pi-extension-loader";
 // after loading, so it hooks only the events some extension listens to.
 
 // The worker takes Pi's values from here, which shares the bundle's copy of Pi.
-export { DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
+export { convertToLlm, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
 
 /** What an instance needs from its host: the conversation's state and every action that leaves the worker. */
 export interface Bridge {
@@ -36,6 +36,8 @@ export interface Bridge {
   exec(command: string, args: string[], options: ExecOptions | undefined): Promise<ExecResult>;
   /** The extensions' tools or event subscriptions changed after loading. */
   changed(): void;
+  /** A handler failed after loading; Pi's runner catches it and goes on. */
+  error(error: { readonly source: string; readonly message: string }): void;
 }
 
 /** What extensions read through `ctx.sessionManager`: Pi's `ReadonlySessionManager`, which its root does not export. */
@@ -163,6 +165,7 @@ export async function createInstance(
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });
   stopListening();
+  runner.onError((error) => bridge.error({ source: error.extensionPath, message: error.error }));
   runner.setUIContext(undefined, "print");
   return {
     runner,

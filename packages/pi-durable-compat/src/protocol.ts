@@ -1,6 +1,6 @@
 import type { MessagePort } from "node:worker_threads";
 
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import type {
   ExecOptions,
   ExecResult,
@@ -69,10 +69,8 @@ export interface DispatchFunctions {
     key: string,
     event: Parameters<Runner["emitToolResult"]>[0],
   ): ReturnType<Runner["emitToolResult"]>;
-  context(
-    key: string,
-    messages: Parameters<Runner["emitContext"]>[0],
-  ): ReturnType<Runner["emitContext"]>;
+  /** `context` handlers' messages, Pi's own kinds turned into model messages as Pi turns them. */
+  context(key: string, messages: Parameters<Runner["emitContext"]>[0]): Promise<Message[]>;
   providerRequest(key: string, payload: unknown): Promise<unknown>;
   input(key: string, ...args: Parameters<Runner["emitInput"]>): ReturnType<Runner["emitInput"]>;
   /**
@@ -129,7 +127,7 @@ export interface WorkerFunctions extends DispatchFunctions {
   open(key: string, cwd: string): Promise<Opened>;
   registrations(key: string): Registrations;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
-  cancelTool(callId: string): void;
+  cancelTool(key: string, callId: string): void;
   close(key: string): Promise<void>;
 }
 
@@ -143,7 +141,12 @@ export type Action =
   | { readonly type: "appendEntry"; readonly customType: string; readonly data: unknown }
   | { readonly type: "setSessionName"; readonly name: string }
   | { readonly type: "setLabel"; readonly entryId: string; readonly label: string | undefined }
-  | { readonly type: "setActiveTools"; readonly names: readonly string[] }
+  | {
+      readonly type: "setActiveTools";
+      readonly names: readonly string[];
+      /** The registrations as the action finds them, which include a tool registered just before. */
+      readonly registrations: Registrations;
+    }
   | { readonly type: "setThinkingLevel"; readonly level: ThinkingLevel }
   | { readonly type: "compact"; readonly instructions: string | undefined }
   | { readonly type: "abort" }
@@ -171,6 +174,8 @@ export interface HostFunctions {
     provider: string,
   ): ReturnType<ModelRegistry["getApiKeyForProvider"]>;
   changed(key: string): void;
+  /** A handler of the conversation's extensions failed after loading. */
+  error(key: string, error: ExtensionError): void;
 }
 
 /**

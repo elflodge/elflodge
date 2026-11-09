@@ -43,26 +43,6 @@ const PI_MODULES =
 const PI_INITIALIZERS =
   /[\\/]node_modules[\\/]@earendil-works[\\/](pi-ai[\\/]dist[\\/]providers[\\/]images[\\/]register-builtins|pi-coding-agent[\\/]dist[\\/](index|core[\\/]sdk))\.js$/;
 
-/**
- * What Pi's loader gives an extension that imports pi-ai's root or `pi-ai/compat`: the compat entry
- * point plus TypeBox's `Type` and a `StringEnum`, which pi-ai's root no longer exports. Pi builds it
- * in a file of its own (`pi-ai-extension-view.js`) that its package does not export, so the bundle
- * builds the same module.
- */
-const PI_AI_VIEW = "\0pi-ai-extension-view";
-const PI_AI_VIEW_SOURCE = `import { Type } from "typebox";
-export * from "@earendil-works/pi-ai/compat";
-export { Type };
-export function StringEnum(values, options) {
-  return Type.Unsafe({
-    type: "string",
-    enum: values,
-    ...(options?.description && { description: options.description }),
-    ...(options?.default && { default: options.default }),
-  });
-}
-`;
-
 /** This package's runtime, built into the bundle with the extensions (`.ts` from source, `.mjs` built). */
 const runtimeModule = fileURLToPath(
   new URL(`./runtime${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
@@ -77,6 +57,18 @@ const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-c
  */
 const PI_LOADER = "pi-extension-loader";
 const piLoader = path.join(path.dirname(codingAgentEntry), "core", "extensions", "loader.js");
+
+/**
+ * What Pi's loader gives an extension that imports pi-ai's root or `pi-ai/compat`: the compat entry
+ * point plus TypeBox's `Type` and a `StringEnum`, which pi-ai's root no longer exports. Reached by
+ * its path beside the loader, which the coding agent does not export either.
+ */
+const piAiView = path.join(
+  path.dirname(codingAgentEntry),
+  "core",
+  "extensions",
+  "pi-ai-extension-view.js",
+);
 
 /** How an extension's entry is named beside its source. */
 const ENTRY_SUFFIX = ".pi-durable-compat.mjs";
@@ -273,12 +265,9 @@ function hostPackages(): Plugin {
       const name = source
         .replace(/^@mariozechner\//, "@earendil-works/")
         .replace(/^@sinclair\/typebox/, "typebox");
-      const fromExtension = importer !== PI_AI_VIEW && !(importer && PI_MODULES.test(importer));
-      if (fromExtension && /^@earendil-works\/pi-ai(?:\/compat)?$/.test(name)) return PI_AI_VIEW;
+      const fromExtension = !(importer && PI_MODULES.test(importer));
+      if (fromExtension && /^@earendil-works\/pi-ai(?:\/compat)?$/.test(name)) return piAiView;
       return this.resolve(name, codingAgentEntry, { ...extraOptions, skipSelf: true });
-    },
-    load(id) {
-      return id === PI_AI_VIEW ? PI_AI_VIEW_SOURCE : null;
     },
   };
 }
