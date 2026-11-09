@@ -38,6 +38,7 @@ import {
   type HookRegistration,
   type JsonObject,
   LiveDoc,
+  type LiveRun,
   ProviderDoc,
   type Registry,
   type RunSummary,
@@ -616,9 +617,11 @@ class AttachedConversation {
       const live = await api.snapshot(LiveDoc, api.conversationId, context);
       const run = live?.run;
       if (run?.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
-        const started = await this.#startRun(run.first, messages, api, context);
-        this.#runSections = started.sections;
-        messages = [...messages, ...started.sent.map(sentMessage)];
+        const started = await this.#startRun(run, messages, api, context);
+        if (started) {
+          this.#runSections = started.sections;
+          messages = [...messages, ...started.sent.map(sentMessage)];
+        }
       }
       if (run && live.generation?.attempt === 1 && this.#listens("turn_start")) {
         await this.#rpc.emit(this.key, {
@@ -647,20 +650,21 @@ class AttachedConversation {
    * memo of the run's first generation task, which every attempt of its request reads: a retry,
    * or the attempt after a crash, sends the same additions without running the handlers again.
    * The messages they return are also written to the conversation, where they land at its next
-   * boundary, after this request's answer.
+   * boundary, after this request's answer. A run with no new start, see `#runTrigger`, runs none.
    */
   async #startRun(
-    first: EntryId | undefined,
+    run: LiveRun,
     messages: readonly Message[],
     api: HookApi,
     context: Context,
-  ): Promise<RunStart> {
+  ): Promise<RunStart | undefined> {
     const memo = "pi-durable-compat.agentStart";
     const done = await api.memo<JsonValue>(memo, context);
     if (done !== undefined) return Schema.decodeUnknownSync(RunStart)(done);
+    const trigger = await this.#runTrigger(run, messages, api, context);
+    if (!trigger) return undefined;
     const { conversation, cwd } = this.#options;
     const { tools } = await conversation.agent(context);
-    const trigger = await agentStartTrigger(first, messages, api, context);
     const started = await this.#rpc.agentStart(
       this.key,
       trigger,
@@ -676,6 +680,51 @@ class AttachedConversation {
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
     if (started.selectedTools) this.act({ type: "setActiveTools", names: started.selectedTools });
     return Schema.decodeUnknownSync(RunStart)(kept);
+  }
+
+  /**
+   * What started the run, as Pi's `before_agent_start` describes it: the oldest of the inputs
+   * pi-durable placed for it, so not a message written meanwhile or a compaction's summary. One an
+   * extension sent with `triggerTurn` is a custom message, any other a prompt. Pi's trigger is a
+   * single message, so later inputs of the same run are not described. None, so no new start, for
+   * two kinds of first request: an `onYield` continuation of the run, which appends a prompt after
+   * its inputs, as Pi's `continue` starts nothing; and a `continue` after a failure, which has no
+   * input of its own to describe.
+   */
+  async #runTrigger(
+    run: LiveRun,
+    messages: readonly Message[],
+    api: HookApi,
+    context: Context,
+  ): Promise<AgentStartTrigger | undefined> {
+    const { harness } = this.#options;
+    const placed = await Promise.all(
+      run.inputs.map(async (id) => (await harness.submission(id, context))?.status(context)),
+    );
+    const entries = placed.flatMap((each) =>
+      each?.type === "input" && each.entry ? [each.entry] : [],
+    );
+    const [oldest] = entries;
+    if (oldest === undefined) {
+      return run.inputs.length > 0 ? undefined : userTrigger(newestUserContent(messages));
+    }
+    if (await userEntryAfter(entries, api, context)) return undefined;
+    const record = await api.entry(oldest, context);
+    const message = record?.model?.find((each) => each.role === "user");
+    if (!record || !message) return userTrigger(newestUserContent(messages));
+    if (!record.kind.startsWith("piext.")) return userTrigger(message.content);
+    const data = isJsonObject(record.data) ? record.data : {};
+    return {
+      messageType: "custom",
+      message: {
+        role: "custom",
+        customType: record.kind.slice("piext.".length),
+        content: message.content,
+        display: data.display !== false,
+        ...(data.details !== undefined && { details: data.details }),
+        timestamp: message.timestamp,
+      },
+    };
   }
 
   async messageEnd(message: AssistantMessage) {
@@ -1249,44 +1298,27 @@ async function records(
   return found;
 }
 
-/**
- * What starts the run, as Pi's `before_agent_start` describes it: among the entries the run
- * started with, the newest prompt, or else the newest message an extension sent, which a run its
- * `triggerTurn` starts has instead. Messages written meanwhile land with the run's input, so a
- * prompt is preferred to them. A run with no first entry recorded takes the newest user message.
- */
-async function agentStartTrigger(
-  first: EntryId | undefined,
-  messages: readonly Message[],
-  api: HookApi,
-  context: Context,
-): Promise<AgentStartTrigger> {
-  const started = first === undefined ? [] : await records(api, { minEntryId: first }, context);
-  const sent = started.flatMap((record) => {
-    const message = record.model?.find((each) => each.role === "user");
-    return message ? [{ record, message }] : [];
-  });
-  // pi-durable writes a compaction's summary as a user message too.
-  const prompt = sent.findLast(({ record }) => record.kind === UserEntry.kind);
-  const custom = sent.findLast(({ record }) => record.kind.startsWith("piext."));
-  if (!prompt && custom) {
-    const { record, message } = custom;
-    const data = isJsonObject(record.data) ? record.data : {};
-    return {
-      messageType: "custom",
-      message: {
-        role: "custom",
-        customType: record.kind.slice("piext.".length),
-        content: message.content,
-        display: data.display !== false,
-        ...(data.details !== undefined && { details: data.details }),
-        timestamp: message.timestamp,
-      },
-    };
-  }
-  const message = prompt?.message;
-  const content =
-    message?.content ?? messages.findLast((each) => each.role === "user")?.content ?? "";
+/** Whether a prompt was written after the newest of `inputs`: the run is being continued. */
+async function userEntryAfter(inputs: readonly EntryId[], api: HookApi, context: Context) {
+  const newest = inputs.reduce((a, b) => (b > a ? b : a));
+  let cursor: Parameters<HookApi["entries"]>[2];
+  do {
+    // Newest first: a continuation's prompt is near the end, after the run's rounds.
+    const page = await api.entries({ minEntryId: newest }, 100, cursor, context);
+    if (page.items.some((each) => each.id !== newest && each.kind === UserEntry.kind)) return true;
+    cursor = page.next;
+  } while (cursor !== undefined);
+  return false;
+}
+
+function newestUserContent(messages: readonly Message[]): UserContent {
+  return messages.findLast((each) => each.role === "user")?.content ?? "";
+}
+
+type UserContent = Extract<Message, { role: "user" }>["content"];
+
+/** A prompt's content as Pi's `before_agent_start` gets it: its text, and its images apart. */
+function userTrigger(content: UserContent): AgentStartTrigger {
   if (typeof content === "string") return { messageType: "user", prompt: content };
   return {
     messageType: "user",

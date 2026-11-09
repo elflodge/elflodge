@@ -10,7 +10,13 @@ import {
   fauxText,
   fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import {
+  createRegistry,
+  defineExtension,
+  GenerationTask,
+  Harness,
+  hook,
+} from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { expect, onTestFinished, test } from "vite-plus/test";
 
@@ -254,5 +260,67 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
       isError: false,
     },
   ]);
+  await extensions.close();
+});
+
+test("a run the application continues starts once for the extensions", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  let last: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxText("Done.")]),
+    fauxAssistantMessage([fauxToolCall("events", {})], { stopReason: "toolUse" }),
+    (request) => {
+      last = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  const registry = createRegistry();
+  // An application's own extension that continues the run once after its first answer.
+  let continued = false;
+  registry.install(
+    defineExtension({
+      name: "keep-going",
+      hooks: [
+        hook(GenerationTask, {
+          onYield: () => {
+            if (continued) return undefined;
+            continued = true;
+            return { continue: "Keep going." };
+          },
+        }),
+      ],
+    }),
+  );
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+
+  const events = toolResults(last)[0]?.text.split(", ") ?? [];
+  expect(events.filter((event) => event.startsWith("before_agent_start"))).toEqual([
+    "before_agent_start hi",
+  ]);
+  expect(events.filter((event) => event === "agent_start")).toHaveLength(1);
+  expect(events.filter((event) => event === "turn_start")).toHaveLength(2);
   await extensions.close();
 });
