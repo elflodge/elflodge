@@ -20,7 +20,10 @@ export default defineConfig({
       // Vite Task does not cache a task that reads a file it also writes, as the copy below does
       // with README.md, so README.md is left out of the inputs; it stays an output, which a cache
       // hit puts back.
-      build: { command: "vp pack", cache: { input: [{ auto: true }, "!README.md"] } },
+      build: {
+        command: "vp pack",
+        cache: { input: [{ auto: true }, "!README.md", "../../skills/**"] },
+      },
     },
   },
   pack: {
@@ -76,7 +79,11 @@ export default defineConfig({
     // npm shows the package's README as its page, so the package carries the repository's: a copy,
     // since npm and pnpm leave a symlink pointing outside the package out of the tarball. `to` puts
     // it at the package root, where npm looks; without it, it would go to `dist`.
-    copy: [{ from: "../../README.md", to: "." }],
+    copy: [
+      { from: "../../README.md", to: "." },
+      // Share the canonical skill with Pi without maintaining a second copy in the CLI package.
+      { from: "../../skills/elflodge-batch-automation", to: "dist/skills" },
+    ],
     // The licences of the packages the bundle carries, beside it.
     plugins: [
       license({
