@@ -140,6 +140,8 @@ export interface Reads {
   getAllTools(): ToolInfo[];
   /** The models of the host's catalog, and which of them have credentials, as `provider/id`. */
   getModels(): { models: Model<Api>[]; available: string[] };
+  /** Nothing, once the writes sent before it are done. */
+  flush(): null;
 }
 
 /**

@@ -738,6 +738,8 @@ class AttachedConversation {
     const { conversation, harness } = this.#options;
     const context = BACKGROUND_CONTEXT;
     switch (method) {
+      case "flush":
+        return null;
       case "getBranch": {
         const entries = await this.#entries();
         const end = typeof args[0] === "string" ? entries.findIndex((e) => e.id === args[0]) : -1;
@@ -864,9 +866,9 @@ class AttachedConversation {
     this.#installation.remove(this);
     const hosted = this.#hosted;
     if (hosted) {
-      // What `session_shutdown` handlers write is kept; what extensions do after it is dropped.
+      // What `session_shutdown` handlers write is kept, as the worker waits for it before it
+      // answers; what extensions do after it is dropped.
       await hosted.rpc.close(this.key).catch(() => {});
-      await this.#writes;
     }
     this.#closed = true;
     this.#release?.();

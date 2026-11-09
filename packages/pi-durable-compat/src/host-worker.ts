@@ -196,8 +196,15 @@ const functions: WorkerFunctions = {
   async close(key) {
     const found = instances.get(key);
     if (!found) return;
-    instances.delete(key);
-    await found.runner.emit({ type: "session_shutdown", reason: "quit" });
+    // The instance stays open while its shutdown handlers run, which may still read and act.
+    try {
+      await found.runner.emit({ type: "session_shutdown", reason: "quit" });
+      // What the handlers wrote travels on the journal channel, not with this reply. A read there
+      // returns once the host has done those writes, so the host's close finds them done.
+      read(key, "flush");
+    } finally {
+      instances.delete(key);
+    }
   },
 };
 
