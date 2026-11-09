@@ -17,6 +17,7 @@
     "llm",
     "parallel-agents",
     "pi",
+    "pi-package",
     "sandbox",
     "self-hosted",
     "structured-output"
@@ -140,5 +141,10 @@
     "when-exit": "2.1.5",
     "wrap-ansi": "10.0.2",
     "zod": "4.6.7"
+  },
+  "pi": {
+    "skills": [
+      "./dist/skills"
+    ]
   }
 }

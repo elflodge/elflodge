@@ -49,6 +49,12 @@ Install the Elflodge skill to have your agent prepare a batch, test representati
 npx skills add elflodge/elflodge --skill elflodge-batch-automation
 ```
 
+Pi users can install the same skill from the npm package:
+
+```sh
+pi install npm:elflodge
+```
+
 The [skill and worked extraction example](https://github.com/elflodge/elflodge/tree/main/skills/elflodge-batch-automation) cover setup, output schemas, failures and safe retries. Elflodge was formerly named `agent-batch`; both names refer to this project.
 
 ## An everyday chore, done by an agent
