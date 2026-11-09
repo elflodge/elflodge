@@ -1,13 +1,13 @@
+import { fork } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
 
 import { Schema } from "effect";
 
-/** The worker's module beside this one: `.ts` from source, `.mjs` built. */
-const workerModule = fileURLToPath(
-  new URL(`./prepare-worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+/** The child process's module beside this one: `.ts` from source, `.mjs` built. */
+const processModule = fileURLToPath(
+  new URL(`./prepare-process${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 );
 
 /** What `prepareExtensions` installs and bundles. */
@@ -44,7 +44,7 @@ const PreparedExtensions = Schema.Struct({
   failures: Schema.Array(Schema.Struct({ source: Schema.String, message: Schema.String })),
 });
 
-/** What the worker replies. */
+/** What the child process replies. */
 const PrepareReply = Schema.Union([PreparedExtensions, Schema.Struct({ error: Schema.String })]);
 
 /**
@@ -52,20 +52,20 @@ const PrepareReply = Schema.Union([PreparedExtensions, Schema.Struct({ error: Sc
  * bundles their extensions and this package's runtime with Rolldown into one build that keeps only
  * the parts of Pi's packages they use.
  *
- * It runs in a worker thread of its own, which exits when it is done: installing loads the whole
- * coding agent and bundling loads Rolldown, and neither stays in the host's memory.
+ * It runs in a child process of its own, which exits when it is done: installing loads the whole
+ * coding agent and bundling loads Rolldown, several hundred MiB for a few extensions. A worker
+ * thread would leave most of it in the host's memory after it exits, as the allocator keeps what
+ * the thread used; a process returns it.
  */
 export async function prepareExtensions(options: PrepareOptions): Promise<PreparedExtensions> {
-  const worker = new Worker(workerModule, {
-    workerData: { sources: [...options.sources], dir: options.dir },
+  const child = fork(processModule, { serialization: "advanced" });
+  // A failure to start rejects the wait for the reply; one after it has no one to report to.
+  child.on("error", () => {});
+  const exited = once(child, "exit").then(([code]: unknown[]) => {
+    throw new Error(`Preparing extensions failed: the process exited with code ${String(code)}`);
   });
-  // An error after the reply, while the worker ends, has no one to report to.
-  worker.on("error", () => {});
-  const exited = once(worker, "exit").then(([code]: unknown[]) => {
-    throw new Error(`Preparing extensions failed: the worker exited with code ${String(code)}`);
-  });
-  const [message] = await Promise.race([once(worker, "message"), exited]);
-  await worker.terminate();
+  child.send({ sources: [...options.sources], dir: options.dir });
+  const [message] = await Promise.race([once(child, "message"), exited]);
   const reply = Schema.decodeUnknownSync(PrepareReply)(message);
   if ("error" in reply) throw new Error(`Preparing extensions failed: ${reply.error}`);
   return reply;

@@ -185,6 +185,11 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
   const record = (request: { messages: readonly Message[] }) =>
     requests.push({ messages: request.messages, tools: offeredTools(request.messages) });
   faux.setResponses([
+    // A failure pi-durable retries, whose retry must carry what the run's start added.
+    (request) => {
+      record(request);
+      return fauxAssistantMessage([], { stopReason: "error", errorMessage: "503 Unavailable" });
+    },
     (request) => {
       record(request);
       return fauxAssistantMessage([fauxText("Done.")]);
@@ -213,12 +218,17 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
   await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
   await (await conversation.submit({ type: "input", content: "again" }, context)).wait(context);
 
-  const [first, second, third] = requests;
-  const system = first?.messages.find((message) => message.role === "system");
-  expect(Object.values(system?.role === "system" ? (system.sections ?? {}) : {})).toContain(
-    "<notes>\nAnswer in French.\n</notes>",
-  );
-  expect(first?.messages.at(-1)).toMatchObject({ role: "user", content: "Remember the notes." });
+  const [first, retried, second, third] = requests;
+  for (const request of [first, retried]) {
+    const system = request?.messages.find((message) => message.role === "system");
+    expect(Object.values(system?.role === "system" ? (system.sections ?? {}) : {})).toContain(
+      "<notes>\nAnswer in French.\n</notes>",
+    );
+    expect(request?.messages.at(-1)).toMatchObject({
+      role: "user",
+      content: "Remember the notes.",
+    });
+  }
   // The tool `before_agent_start` activates is offered from the next request, as pi-durable fixes
   // a request's tools before its hooks run.
   expect(first?.tools).not.toContain("events");
@@ -230,6 +240,8 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
         "before_agent_start hi",
         "agent_start",
         "turn_start",
+        // The failed attempt's message too, as in Pi.
+        "message_end",
         "message_end",
         "turn_end",
         "agent_end",

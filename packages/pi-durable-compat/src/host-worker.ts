@@ -7,6 +7,7 @@ import type {
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
+import { Equal } from "effect";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
@@ -166,30 +167,36 @@ const functions: WorkerFunctions = {
   },
   registrations: (key) => registrations(instanceFor(key)),
   emit: (key, event) => runnerFor(key).emit(event),
+  // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
+  // `tool_call`; `tool_execution_end` with the result `tool_result` handlers made.
   async toolCall(key, event) {
     const runner = runnerFor(key);
-    const result = await runner.emitToolCall(event);
     await runner.emit({
       type: "tool_execution_start",
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      args: event.input,
+      args: structuredClone(event.input),
     });
+    const result = await runner.emitToolCall(event);
     return { result, input: event.input };
   },
   async toolResult(key, event) {
     const runner = runnerFor(key);
+    const changed = await runner.emitToolResult(event);
     const durationMs = durations.get(event.toolCallId);
     durations.delete(event.toolCallId);
     await runner.emit({
       type: "tool_execution_end",
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      result: { content: event.content, details: event.details },
-      isError: event.isError,
+      result: {
+        content: changed?.content ?? event.content,
+        details: changed?.details ?? event.details,
+      },
+      isError: changed?.isError ?? event.isError,
       ...(durationMs !== undefined && { durationMs }),
     });
-    return runner.emitToolResult(event);
+    return changed;
   },
   context: (key, messages) => runnerFor(key).emitContext(messages),
   providerRequest: (key, payload) => runnerFor(key).emitBeforeProviderRequest(payload),
@@ -200,9 +207,7 @@ const functions: WorkerFunctions = {
     const started = await runner.emitBeforeAgentStart(trigger, { cwd, selectedTools });
     await runner.emit({ type: "agent_start" });
     const options = started.systemPromptOptions;
-    const edited =
-      options.selectedTools.length !== selectedTools.length ||
-      options.selectedTools.some((name, index) => name !== selectedTools[index]);
+    const edited = !Equal.equals(options.selectedTools, selectedTools);
     return {
       messages: started.messages,
       sections: promptSections(options),
@@ -245,7 +250,8 @@ const functions: WorkerFunctions = {
     return summary === undefined ? undefined : { summary };
   },
   async executeTool(key, callId, name, args) {
-    const { runner } = instanceFor(key);
+    const instance = instanceFor(key);
+    const { runner } = instance;
     const definition = runner.getToolDefinition(name);
     // The registry offers every attached conversation's tools; this conversation's own decide.
     if (!definition || definition.exposure === "hidden") {
@@ -267,9 +273,10 @@ const functions: WorkerFunctions = {
       return toolResult(result);
     } finally {
       running.delete(callId);
-      // For `tool_execution_end`, which the host asks for after the result, when someone listens.
-      if (instanceFor(key).events().includes("tool_execution_end")) {
-        durations.set(callId, performance.now() - started);
+      // For `tool_execution_end`, which the host asks for after the result, when someone listens;
+      // whole milliseconds, as Pi gives them.
+      if (instance.events().includes("tool_execution_end")) {
+        durations.set(callId, Math.round(performance.now() - started));
       }
     }
   },
@@ -292,10 +299,11 @@ const functions: WorkerFunctions = {
 };
 
 /**
- * What `before_agent_start` handlers added to the system prompt, as Pi renders it
- * (`buildSystemPromptSections` in pi-coding-agent's `core/system-prompt.js`): their guidelines with
- * Pi's rules, the appended text as the addendum, then their own sections. Pi's other parts, its
- * preamble, tools and skills, have no counterpart here: pi-durable builds the prompt.
+ * What `before_agent_start` handlers added to the system prompt, rendered as Pi renders those
+ * parts (`buildSystemPromptSections` in pi-coding-agent's `core/system-prompt.js`, which its package
+ * does not export): their guidelines, trimmed and once each, as Pi adds them to its rules; the
+ * appended text as the addendum; then their own sections. Pi's preamble, tools, rules and skills
+ * have no counterpart here: pi-durable builds the prompt.
  */
 function promptSections(options: {
   promptGuidelines: string[];
@@ -307,9 +315,10 @@ function promptSections(options: {
   const tagged = (name: string, content: string) => {
     sections[`pi-extensions.${name}`] = `<${name}>\n${content}\n</${name}>`;
   };
-  if (options.promptGuidelines.length > 0) {
-    tagged("rules", options.promptGuidelines.map((each) => `- ${each}`).join("\n"));
-  }
+  const guidelines = [
+    ...new Set(options.promptGuidelines.map((each) => each.trim()).filter(Boolean)),
+  ];
+  if (guidelines.length > 0) tagged("rules", guidelines.map((each) => `- ${each}`).join("\n"));
   if (options.appendSystemPrompt) tagged("addendum", options.appendSystemPrompt);
   for (const [name, content] of Object.entries(options.sections)) {
     if (content) tagged(name, content);

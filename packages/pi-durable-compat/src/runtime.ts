@@ -15,7 +15,7 @@ import { loadExtensionFromFactory } from "pi-extension-loader";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
-// not export (the bundle reaches it by path, see `prepare-worker.ts`), and Pi's `ExtensionRunner`
+// not export (the bundle reaches it by path, see `prepare-process.ts`), and Pi's `ExtensionRunner`
 // dispatches events, so registration, handler order, chaining and error isolation are Pi's. Two
 // departures: `pi.exec` runs through the host, and `pi.on` tells the host of a subscription made
 // after loading, so it hooks only the events some extension listens to.

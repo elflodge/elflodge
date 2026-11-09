@@ -28,6 +28,7 @@ import {
   defineTool,
   type ConversationId,
   type EntryId,
+  type EntryQuery,
   type EntryRecord,
   type GenerationHooks,
   GenerationTask,
@@ -55,6 +56,8 @@ import { SyncMessagePort } from "sync-message-port";
 import type { PreparedExtensions } from "./prepare.ts";
 import type {
   Action,
+  AgentStarted,
+  AgentStartTrigger,
   ExtensionError,
   HostFunctions,
   JournalMessage,
@@ -171,6 +174,11 @@ function loadAddons(addons: readonly string[]) {
   }
 }
 
+/** The directory of the coding agent the bundle was built from: this package's own copy. */
+const codingAgentDir = path.dirname(
+  path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))),
+);
+
 const workerModule = fileURLToPath(
   new URL(`./host-worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 );
@@ -248,6 +256,9 @@ class Workers {
     const worker = new Worker(workerModule, {
       workerData,
       transferList: [journal.port2, rpc.port2],
+      // Pi finds its own files, its `package.json` with its version among them, above its code,
+      // which the bundle moves; this is its documented way to say where they are.
+      env: { ...process.env, PI_PACKAGE_DIR: codingAgentDir },
     });
     const conversations = new Map<string, AttachedConversation>();
     const attached = (key: string) => {
@@ -608,17 +619,18 @@ class AttachedConversation {
     let messages = [...request.messages];
     if (this.#listens("before_agent_start", "agent_start", "turn_start")) {
       const live = await api.snapshot(LiveDoc, api.conversationId, context);
-      if (live?.run && live.generation?.attempt === 1) {
-        if (live.run.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
-          messages = await this.#startRun(messages, api, context);
-        }
-        if (this.#listens("turn_start")) {
-          await this.#rpc.emit(this.key, {
-            type: "turn_start",
-            turnIndex: live.run.turns,
-            timestamp: Date.now(),
-          });
-        }
+      const run = live?.run;
+      if (run?.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
+        const started = await this.#startRun(run.first, messages, api, context);
+        this.#runSections = started.sections;
+        messages = [...messages, ...started.messages.map(sentMessage)];
+      }
+      if (run && live.generation?.attempt === 1 && this.#listens("turn_start")) {
+        await this.#rpc.emit(this.key, {
+          type: "turn_start",
+          turnIndex: run.turns,
+          timestamp: Date.now(),
+        });
       }
       messages = withSections(messages, this.#runSections);
     }
@@ -629,40 +641,42 @@ class AttachedConversation {
     return { messages };
   }
 
-  /** What the run's `before_agent_start` handlers added to the system prompt, for each request. */
+  /**
+   * What the run's `before_agent_start` handlers added to the system prompt, for its later rounds,
+   * which are generation tasks of their own; a host that restarts during a run loses it.
+   */
   #runSections: Readonly<Record<string, string>> = {};
 
   /**
-   * Runs `before_agent_start` and `agent_start` once for the run, as a memo of the generation task
-   * records, so a crash after it does not run them again; their prompt additions are kept with it.
-   * The messages they return go with this request and are written to the conversation, where they
-   * land at its next boundary, after this request's answer.
+   * Runs `before_agent_start` and `agent_start` once for the run, recording what they return as a
+   * memo of the run's first generation task, which every attempt of its request reads: a retry,
+   * or the attempt after a crash, sends the same additions without running the handlers again.
+   * The messages they return are also written to the conversation, where they land at its next
+   * boundary, after this request's answer.
    */
-  async #startRun(messages: Message[], api: HookApi, context: Context): Promise<Message[]> {
+  async #startRun(
+    first: EntryId | undefined,
+    messages: readonly Message[],
+    api: HookApi,
+    context: Context,
+  ): Promise<RunStart> {
     const memo = "pi-durable-compat.agentStart";
     const done = await api.memo<JsonValue>(memo, context);
-    if (done !== undefined) {
-      this.#runSections = isJsonObject(done) ? stringValues(done) : {};
-      return messages;
-    }
+    if (done !== undefined) return decodeRunStart(done);
     const { conversation, cwd } = this.#options;
     const { tools } = await conversation.agent(context);
+    const trigger = await agentStartTrigger(first, messages, api, context);
     const started = await this.#rpc.agentStart(
       this.key,
-      agentStartTrigger(messages),
+      trigger,
       cwd,
       tools.map((tool) => tool.name),
     );
-    await api.memo<JsonValue>(memo, { ...started.sections }, context);
-    this.#runSections = started.sections;
+    const recorded = { sections: started.sections, messages: started.messages };
+    await api.memo<JsonValue>(memo, toJson(recorded) ?? {}, context);
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
     if (started.selectedTools) this.act({ type: "setActiveTools", names: started.selectedTools });
-    const sent = started.messages.map((message): Message => ({
-      role: "user",
-      content: typeof message.content === "string" ? message.content : [...message.content],
-      timestamp: Date.now(),
-    }));
-    return [...messages, ...sent];
+    return recorded;
   }
 
   async messageEnd(message: AssistantMessage) {
@@ -674,13 +688,7 @@ class AttachedConversation {
   async turnEnd(assistant: EntryId, api: HookApi, context: Context) {
     if (this.#closed) return;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
-    const page = await api.entries(
-      { minEntryId: assistant, order: "ascending" },
-      500,
-      undefined,
-      context,
-    );
-    const [first, ...rest] = page.items;
+    const [first, ...rest] = await records(api, { minEntryId: assistant }, context);
     const message = first?.model?.find((each) => each.role === "assistant");
     if (!first || !message) return;
     const results = rest.flatMap((record) =>
@@ -718,18 +726,8 @@ class AttachedConversation {
   /** `agent_end` with the run's messages; pi-durable has no hook for a run that fails or aborts. */
   async agentEnd(run: RunSummary, api: HookApi, context: Context) {
     if (this.#closed) return;
-    const messages: Message[] = [];
-    let cursor: Parameters<HookApi["entries"]>[2];
-    do {
-      const page = await api.entries(
-        { minEntryId: run.first, maxEntryId: run.last, order: "ascending" },
-        500,
-        cursor,
-        context,
-      );
-      for (const record of page.items) messages.push(...(record.model ?? []));
-      cursor = page.next;
-    } while (cursor !== undefined);
+    const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
+    const messages = range.flatMap((record) => record.model ?? []);
     await this.#rpc.emit(this.key, { type: "agent_end", messages });
   }
 
@@ -1196,15 +1194,76 @@ const REQUEST_EVENTS = [
   "context_with_system",
 ];
 
+/** What a run's `before_agent_start` returned that each attempt of its first request applies. */
+type RunStart = Pick<AgentStarted, "sections" | "messages">;
+
+function decodeRunStart(value: JsonValue): RunStart {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- our own memo, written by `#startRun` above
+  return value as unknown as RunStart;
+}
+
+/** A message `before_agent_start` returned, as the request carries it. */
+function sentMessage(message: RunStart["messages"][number]): Message {
+  const content = typeof message.content === "string" ? message.content : [...message.content];
+  return { role: "user", content, timestamp: Date.now() };
+}
+
+/** Every entry in `range` of the hook's conversation, oldest first. */
+async function records(
+  api: HookApi,
+  range: Pick<EntryQuery, "minEntryId" | "maxEntryId">,
+  context: Context,
+): Promise<EntryRecord[]> {
+  const found: EntryRecord[] = [];
+  let cursor: Parameters<HookApi["entries"]>[2];
+  do {
+    const page = await api.entries({ ...range, order: "ascending" }, 500, cursor, context);
+    found.push(...page.items);
+    cursor = page.next;
+  } while (cursor !== undefined);
+  return found;
+}
+
 /**
- * What starts the run, as Pi's `before_agent_start` describes it: the newest user message, which
- * is the prompt for a run an input starts. pi-durable keeps no other kind of starting message.
+ * What starts the run, as Pi's `before_agent_start` describes it: among the entries the run
+ * started with, the newest prompt, or else the newest message an extension sent, which a run its
+ * `triggerTurn` starts has instead. Messages written meanwhile land with the run's input, so a
+ * prompt is preferred to them. A run with no first entry recorded takes the newest user message.
  */
-function agentStartTrigger(messages: readonly Message[]) {
-  const content = messages.findLast((message) => message.role === "user")?.content ?? "";
-  if (typeof content === "string") return { messageType: "user" as const, prompt: content };
+async function agentStartTrigger(
+  first: EntryId | undefined,
+  messages: readonly Message[],
+  api: HookApi,
+  context: Context,
+): Promise<AgentStartTrigger> {
+  const started = first === undefined ? [] : await records(api, { minEntryId: first }, context);
+  const sent = started.flatMap((record) => {
+    const message = record.model?.find((each) => each.role === "user");
+    return message ? [{ record, message }] : [];
+  });
+  const prompt = sent.findLast(({ record }) => !record.kind.startsWith("piext."));
+  const custom = sent.at(-1);
+  if (!prompt && custom) {
+    const { record, message } = custom;
+    const data = isJsonObject(record.data) ? record.data : {};
+    return {
+      messageType: "custom",
+      message: {
+        role: "custom",
+        customType: record.kind.slice("piext.".length),
+        content: message.content,
+        display: data.display !== false,
+        ...(data.details !== undefined && { details: data.details }),
+        timestamp: message.timestamp,
+      },
+    };
+  }
+  const message = prompt?.message;
+  const content =
+    message?.content ?? messages.findLast((each) => each.role === "user")?.content ?? "";
+  if (typeof content === "string") return { messageType: "user", prompt: content };
   return {
-    messageType: "user" as const,
+    messageType: "user",
     prompt: content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
     images: content.filter((part): part is ImageContent => part.type === "image"),
   };
@@ -1219,10 +1278,4 @@ function withSections(messages: Message[], sections: Readonly<Record<string, str
   }
   const system: Message = { role: "system", content: "", sections: { ...sections }, timestamp: 0 };
   return [system, ...messages];
-}
-
-function stringValues(value: Record<string, unknown>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([key, each]) => (typeof each === "string" ? [[key, each]] : [])),
-  );
 }

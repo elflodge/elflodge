@@ -1,17 +1,15 @@
 import { existsSync } from "node:fs";
-import { glob, readFile, rm, writeFile } from "node:fs/promises";
+import { glob, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parentPort, workerData } from "node:worker_threads";
 
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { Schema } from "effect";
 import ensureError from "ensure-error";
 import { build, type OutputChunk, type Plugin } from "rolldown";
 
 import type { PreparedExtension, PreparedExtensions } from "./prepare.ts";
 
-// Runs in the worker `prepareExtensions` starts. Installing goes through Pi's package manager, so
+// Runs in the child process `prepareExtensions` starts. Installing goes through Pi's package manager, so
 // sources, pinning, peer handling and resource discovery behave as `pi install` does; bundling goes
 // through Rolldown, the bundler Pi's plugin runtime and our own toolchain build on.
 
@@ -80,17 +78,18 @@ const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-c
 const PI_LOADER = "pi-extension-loader";
 const piLoader = path.join(path.dirname(codingAgentEntry), "core", "extensions", "loader.js");
 
-/** The coding agent's manifest, which its package does not export. */
-const codingAgentManifest = path.join(path.dirname(codingAgentEntry), "..", "package.json");
-const PiManifest = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Struct({ name: Schema.String, version: Schema.String })),
-);
-
 /** How an extension's entry is named beside its source. */
 const ENTRY_SUFFIX = ".pi-durable-compat.mjs";
 
 /** A native add-on. */
 const ADDON = /\.node$/;
+
+/**
+ * Packages that load a file of their own from beside their code, which stay where they are
+ * installed rather than move into the bundle: Photon, Pi's image library, reads its WebAssembly
+ * next to its module.
+ */
+const LEFT_INSTALLED = /[\\/]node_modules[\\/]@silvia-odwyer[\\/]photon-node[\\/]/;
 
 interface Input {
   sources: string[];
@@ -115,9 +114,10 @@ async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
 /**
  * Bundles `found`, with this package's runtime, into one build, with code splitting, so what the
  * extensions and the runtime share of Pi loads once per worker and an extension's own dynamic
- * imports stay lazy. Each extension's entry is written beside its source, as
- * `<name>.pi-durable-compat.mjs`, so the files a package reads relative to its code (`package.json`,
- * templates, WebAssembly) are where it looks; the runtime and the shared chunks go in `<dir>/bundle`.
+ * imports stay lazy. The entry of each extension installed in `dir` is written beside its source, as
+ * `<name>.pi-durable-compat.mjs`, so the files a package reads relative to it (`package.json`,
+ * templates, WebAssembly) are where it looks; the runtime, extensions from local paths outside `dir`
+ * and the shared chunks go in `<dir>/bundle`.
  * It builds on every call, in about a second, so no change to an extension, to Pi or to this package
  * can leave an old build in use. When the combined build fails, each extension is tried with the
  * runtime alone, without writing, and the build is made of those that pass; the others are failures.
@@ -145,13 +145,6 @@ async function bundle(found: PreparedExtension[], dir: string): Promise<Prepared
     }
     built = await buildEntries(entries(included), dir);
   }
-  // ES modules, so Node reads the chunks as such whatever the directory above says. Pi reads its
-  // name and version from the `package.json` above its code, which in the bundle is this one.
-  const pi = PiManifest(await readFile(codingAgentManifest, "utf8"));
-  await writeFile(
-    path.join(outDir, "package.json"),
-    `${JSON.stringify({ name: pi.name, version: pi.version, type: "module" })}\n`,
-  );
   const file = (name: string) => {
     const chunk = built.chunks.find((each) => each.isEntry && each.name === name);
     if (!chunk) throw new Error(`The build has no entry ${name}`);
@@ -201,9 +194,9 @@ async function buildEntries(
     logLevel: "silent",
     write,
     plugins: [hostPackages(), externalAddons(addons)],
-    // Native add-ons load from where they are installed (see `externalAddons`); the host loads
-    // each in its main thread too (see `startExtensionHost`).
-    external: (id, _importer, resolved) => resolved && ADDON.test(id),
+    // Native add-ons load from where they are installed (see `externalAddons`), and the host
+    // loads each in its main thread too (see `startExtensionHost`); so do `LEFT_INSTALLED`.
+    external: (id, _importer, resolved) => resolved && (ADDON.test(id) || LEFT_INSTALLED.test(id)),
     makeAbsoluteExternalsRelative: false,
     // CommonJS code bundled into ES modules has no `__dirname`; with each entry beside its source,
     // the module's own directory stands in for it.
@@ -282,10 +275,11 @@ function hostPackages(): Plugin {
   };
 }
 
-const input: Input = workerData;
-prepare(input).then(reply, (error: unknown) => reply({ error: ensureError(error).message }));
+process.once("message", (input: Input) => {
+  prepare(input).then(reply, (error: unknown) => reply({ error: ensureError(error).message }));
+});
 
 function reply(value: unknown) {
-  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-  parentPort?.postMessage(value);
+  // The process exits once the reply is sent and the channel closes.
+  process.send?.(value, () => process.disconnect());
 }

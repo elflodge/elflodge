@@ -81,7 +81,7 @@ export interface DispatchFunctions {
    */
   agentStart(
     key: string,
-    trigger: Parameters<Runner["emitBeforeAgentStart"]>[0],
+    trigger: AgentStartTrigger,
     cwd: string,
     activeTools: readonly string[],
   ): Promise<AgentStarted>;
@@ -94,6 +94,9 @@ export interface DispatchFunctions {
   /** `session_before_compact`: whether a handler cancels it, or the summary one wrote. */
   beforeCompact(key: string, compaction: Compaction): Promise<CompactDecision | undefined>;
 }
+
+/** What starts a run, as Pi's `before_agent_start` gets it. */
+export type AgentStartTrigger = Parameters<Runner["emitBeforeAgentStart"]>[0];
 
 /** What `before_agent_start` handlers return that the host applies. */
 export interface AgentStarted {
