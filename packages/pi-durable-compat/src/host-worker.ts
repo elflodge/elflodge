@@ -45,19 +45,22 @@ for (const { source, path } of workerData.extensions) {
   }
 }
 
-const instances = new Map<string, Instance>();
-/** Tool calls running, by conversation and call ID: a call ID is the model's, unique only in its conversation. */
-const running = new Map<string, AbortController>();
-/** Tool calls whose `tool_execution_start` was emitted, by conversation and call ID. */
-const startedCalls = new Set<string>();
-const callKey = (key: string, callId: string) => `${key}\0${callId}`;
-type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
-
 /**
- * How long each finished tool call's `execute` took, in milliseconds, until `tool_execution_end`,
- * by conversation and call ID.
+ * A conversation's extensions, with its tool calls by the model's call ID, which is unique only
+ * within a conversation; they go when the conversation closes.
  */
-const durations = new Map<string, number>();
+interface Opened extends Instance {
+  /** Aborted at close, after which the instance's writes are dropped. */
+  readonly life: AbortController;
+  readonly running: Map<string, AbortController>;
+  /** Calls whose `tool_execution_start` was emitted. */
+  readonly started: Set<string>;
+  /** How long each finished call's `execute` took, in milliseconds, until `tool_execution_end`. */
+  readonly durations: Map<string, number>;
+}
+
+const instances = new Map<string, Opened>();
+type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
 
 const journal = new SyncMessagePort(workerData.journal);
 let nextRead = 0;
@@ -97,7 +100,7 @@ function read<M extends keyof Reads>(
   }
 }
 
-function instanceFor(key: string): Instance {
+function instanceFor(key: string): Opened {
   const found = instances.get(key);
   if (!found) throw new Error(`No extensions are open for conversation ${key}`);
   return found;
@@ -125,24 +128,33 @@ function registrations(instance: Instance): Registrations {
 
 const functions: WorkerFunctions = {
   async open(key, cwd) {
+    const life = new AbortController();
+    // A write after close, such as a timer's message, is dropped rather than thrown, which would
+    // end the worker with every other conversation on it; and never reaches a conversation
+    // attached again under the same key.
+    const send = (action: Action) => {
+      if (!life.signal.aborted) act(key, action);
+    };
     const instance = await runtime.createInstance(extensions, {
       cwd,
       actions: {
-        sendMessage: (...args) => act(key, { type: "sendMessage", args }),
-        sendUserMessage: (...args) => act(key, { type: "sendUserMessage", args }),
-        appendEntry: (customType, data) => act(key, { type: "appendEntry", customType, data }),
-        setSessionName: (name) => act(key, { type: "setSessionName", name }),
+        sendMessage: (...args) => send({ type: "sendMessage", args }),
+        sendUserMessage: (...args) => send({ type: "sendUserMessage", args }),
+        appendEntry: (customType, data) => send({ type: "appendEntry", customType, data }),
+        setSessionName: (name) => send({ type: "setSessionName", name }),
         getSessionName: () => undefined,
-        setLabel: (entryId, label) => act(key, { type: "setLabel", entryId, label }),
+        setLabel: (entryId, label) => send({ type: "setLabel", entryId, label }),
         getActiveTools: () => read(key, "getActiveTools"),
         getAllTools: () => allTools(key),
         getSettings: () => ({}),
-        setActiveTools: (names) =>
+        setActiveTools: (names) => {
+          if (life.signal.aborted) return;
           act(key, {
             type: "setActiveTools",
             names,
             registrations: registrations(instanceFor(key)),
-          }),
+          });
+        },
         getCommands: () => [],
         setModel: async (model) => {
           const previousModel = read(key, "getModel");
@@ -153,7 +165,7 @@ const functions: WorkerFunctions = {
         getThinkingLevel: () => read(key, "getThinkingLevel"),
         setThinkingLevel: (level) => {
           const previousLevel = read(key, "getThinkingLevel");
-          act(key, { type: "setThinkingLevel", level });
+          send({ type: "setThinkingLevel", level });
           if (level === previousLevel) return;
           void runnerFor(key).emit({ type: "thinking_level_select", level, previousLevel });
         },
@@ -164,12 +176,11 @@ const functions: WorkerFunctions = {
         isIdle: () => read(key, "isIdle"),
         isProjectTrusted: () => true,
         getSignal: () => undefined,
-        abort: () => act(key, { type: "abort" }),
+        abort: () => send({ type: "abort" }),
         hasPendingMessages: () => false,
-        shutdown: () => act(key, { type: "shutdown" }),
+        shutdown: () => send({ type: "shutdown" }),
         getContextUsage: () => undefined,
-        compact: (options) =>
-          act(key, { type: "compact", instructions: options?.customInstructions }),
+        compact: (options) => send({ type: "compact", instructions: options?.customInstructions }),
         getSystemPrompt: () => "",
       },
       sessionManager: sessionManager(key, cwd),
@@ -178,7 +189,13 @@ const functions: WorkerFunctions = {
       changed: () => host.changed(key),
       error: (error) => host.error(key, error),
     });
-    instances.set(key, instance);
+    instances.set(key, {
+      ...instance,
+      life,
+      running: new Map(),
+      started: new Set(),
+      durations: new Map(),
+    });
     return { ...registrations(instance), errors: [...loadErrors, ...instance.errors] };
   },
   registrations: (key) => registrations(instanceFor(key)),
@@ -186,8 +203,8 @@ const functions: WorkerFunctions = {
   // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
   // `tool_call`, as a copy that `tool_call` handlers' edits leave alone; `tool_execution_end` with the result `tool_result` handlers made.
   async toolCall(key, event) {
-    const runner = runnerFor(key);
-    startedCalls.add(callKey(key, event.toolCallId));
+    const { runner, started } = instanceFor(key);
+    started.add(event.toolCallId);
     await runner.emit({
       type: "tool_execution_start",
       toolCallId: event.toolCallId,
@@ -198,11 +215,11 @@ const functions: WorkerFunctions = {
     return { result, input: event.input };
   },
   async toolResult(key, event) {
-    const runner = runnerFor(key);
-    const id = callKey(key, event.toolCallId);
+    const { runner, started, durations } = instanceFor(key);
+    const id = event.toolCallId;
     // A call pi-durable rejected before its hooks, an unknown tool or invalid arguments, had no
     // `tool_call`; Pi starts every call, those too.
-    if (!startedCalls.delete(id)) {
+    if (!started.delete(id)) {
       await runner.emit({
         type: "tool_execution_start",
         toolCallId: event.toolCallId,
@@ -247,7 +264,10 @@ const functions: WorkerFunctions = {
     return {
       messages: started.messages,
       sections,
-      ...(edited && { selectedTools: options.selectedTools }),
+      // With the tools as they are now, which a handler may have just registered.
+      ...(edited && {
+        selection: { names: options.selectedTools, registrations: registrations(instanceFor(key)) },
+      }),
     };
   },
   async messageEnd(key, message) {
@@ -294,8 +314,8 @@ const functions: WorkerFunctions = {
       throw new Error(`Tool ${name} is not registered in this conversation`);
     }
     const controller = new AbortController();
-    const id = callKey(key, callId);
-    running.set(id, controller);
+    const { running, durations } = instance;
+    running.set(callId, controller);
     const begun = performance.now();
     try {
       const params = definition.prepareArguments ? definition.prepareArguments(args) : args;
@@ -309,16 +329,16 @@ const functions: WorkerFunctions = {
       );
       return toolResult(result);
     } finally {
-      running.delete(id);
+      running.delete(callId);
       // For `tool_execution_end`, which the host asks for after the result, when someone listens;
       // whole milliseconds, as Pi gives them.
       if (instance.events().includes("tool_execution_end")) {
-        durations.set(id, Math.round(performance.now() - begun));
+        durations.set(callId, Math.round(performance.now() - begun));
       }
     }
   },
   cancelTool(key, callId) {
-    running.get(callKey(key, callId))?.abort();
+    instances.get(key)?.running.get(callId)?.abort();
   },
   async close(key) {
     const found = instances.get(key);
@@ -331,9 +351,7 @@ const functions: WorkerFunctions = {
       read(key, "flush");
     } finally {
       instances.delete(key);
-      // As Pi's session does when it is disposed: a call through the closed instance's API, such as
-      // a timer firing later, throws instead of acting for a conversation attached again.
-      found.runner.invalidate();
+      found.life.abort();
     }
   },
 };

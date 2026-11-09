@@ -204,7 +204,10 @@ interface HostedWorker {
 class Workers {
   readonly #options: ExtensionHostOptions;
   readonly #workers = new Set<HostedWorker>();
-  /** Conversations whose worker exited, which `close` still closes: their tools stay installed. */
+  /**
+   * Conversations whose worker exited and that are still attached, which `close` still closes:
+   * their tools stay installed.
+   */
   readonly #orphans = new Set<AttachedConversation>();
   #closed = false;
 
@@ -229,8 +232,9 @@ class Workers {
     return chosen;
   }
 
-  release(hosted: HostedWorker, key: string) {
+  release(hosted: HostedWorker, key: string, conversation: AttachedConversation) {
     hosted.conversations.delete(key);
+    this.#orphans.delete(conversation);
     if (hosted.conversations.size > 0 || this.#closed) return;
     // An idle worker is no reason for the process to stay.
     hosted.hold(false);
@@ -379,7 +383,7 @@ async function attachConversation(
   const attached = new AttachedConversation(key, options, installation);
   installation.add(attached);
   const hosted = workers.acquire(key, attached);
-  attached.bind(hosted, () => workers.release(hosted, key));
+  attached.bind(hosted, () => workers.release(hosted, key, attached));
   try {
     const opened = await hosted.rpc.open(key, options.cwd);
     attached.update(opened);
@@ -480,9 +484,9 @@ class Installation {
           ...(has("tool_call", "tool_execution_start") && {
             beforeTool: async (call, api) => this.#for(api)?.beforeTool(call),
           }),
-          ...(has("tool_result", "tool_execution_end") && {
-            afterTool: async (call, result, api) => this.#for(api)?.afterTool(call, result),
-          }),
+          // Whenever `beforeTool` is installed too, as the worker ends there the calls it started,
+          // and starts the calls pi-durable rejected before its hooks.
+          afterTool: async (call, result, api) => this.#for(api)?.afterTool(call, result),
         }),
       );
     }
@@ -717,12 +721,7 @@ class AttachedConversation {
     // The first value recorded wins, should two attempts ever run the handlers at once.
     const kept = await api.memo<JsonValue>(memo, toJson(recorded) ?? null, context);
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
-    if (started.selectedTools)
-      this.act({
-        type: "setActiveTools",
-        names: started.selectedTools,
-        registrations: this.registrations,
-      });
+    if (started.selection) this.act({ type: "setActiveTools", ...started.selection });
     return Schema.decodeUnknownSync(RunStart)(kept);
   }
 
@@ -780,7 +779,11 @@ class AttachedConversation {
   async afterResponse(message: AssistantMessage, api: HookApi, context: Context) {
     if (this.#closed) return;
     if (this.#listens("message_end")) await this.#rpc.messageEnd(this.key, message);
-    if (message.stopReason === "toolUse" || !this.#listens("turn_end")) return;
+    // A tool round's `turn_end` comes from `afterTools`; pi-durable starts one only for a response
+    // with calls, and takes one without as an answer.
+    const round =
+      message.stopReason === "toolUse" && message.content.some((part) => part.type === "toolCall");
+    if (round || !this.#listens("turn_end")) return;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     await this.#rpc.turnEnd(this.key, {
       type: "turn_end",
@@ -1129,7 +1132,7 @@ class AttachedConversation {
    * its message's time, or else the time of the read.
    */
   async #entries(): Promise<SessionEntry[]> {
-    const found = await collect(
+    const found = await Array.fromAsync(
       paged((limit, cursor) =>
         this.#options.conversation.entries(
           { order: "ascending" },
@@ -1325,14 +1328,6 @@ function sentMessage(content: RunStart["sent"][number]): Message {
   };
 }
 
-/** Every entry in `range` of the hook's conversation, oldest first. */
-/** The items of `items`, as `Array.fromAsync` gives them, which the configured library lacks. */
-async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
-  const found: T[] = [];
-  for await (const each of items) found.push(each);
-  return found;
-}
-
 /** Entries read a page at a time, of the size pi-durable's README pages hook reads by. */
 async function* paged(
   read: (limit: number, cursor: Cursor | undefined) => Promise<Page<EntryRecord, Cursor>>,
@@ -1345,12 +1340,13 @@ async function* paged(
   } while (cursor !== undefined);
 }
 
+/** Every entry in `range` of the hook's conversation, oldest first. */
 async function records(
   api: HookApi,
   range: Pick<EntryQuery, "minEntryId" | "maxEntryId">,
   context: Context,
 ): Promise<EntryRecord[]> {
-  return collect(
+  return Array.fromAsync(
     paged((limit, cursor) => api.entries({ ...range, order: "ascending" }, limit, cursor, context)),
   );
 }

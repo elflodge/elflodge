@@ -105,8 +105,8 @@ export interface AgentStarted {
    * rendered as Pi renders those parts and keyed by section name.
    */
   readonly sections: Readonly<Record<string, string>>;
-  /** The tools they selected, when they changed the selection. */
-  readonly selectedTools?: readonly string[];
+  /** The tools they selected, when they changed the selection, and the tools registered now. */
+  readonly selection?: { readonly names: readonly string[]; readonly registrations: Registrations };
 }
 
 /** A compaction pi-durable is about to summarize. */
