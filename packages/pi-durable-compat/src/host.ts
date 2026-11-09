@@ -314,6 +314,9 @@ class Workers {
     worker.on("error", (error) => {
       failure = error;
     });
+    // A worker that exits while loading, by `process.exit()` or running out of memory, fails the
+    // `attach` without naming the extension: that would need the worker to report each load, for a
+    // rare case once add-ons are loaded in the host.
     worker.on("exit", () => {
       this.#workers.delete(hosted);
       client.$close(
