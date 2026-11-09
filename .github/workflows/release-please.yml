@@ -39,7 +39,7 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-  publish-cli:
+  publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
