@@ -100,6 +100,12 @@ catalog:
   wrangler: ^4.157.0
   ws: ^8.22.1
   zod: ^4.6.7
+catalogs:
+  # pi-durable-compat relies on the coding agent's internal files (its loader, the modules whose
+  # import registers providers), which a minor release may move, so it takes patch releases only.
+  pi-durable-compat:
+    "@earendil-works/pi-coding-agent": ~1.5.0
+
 patchedDependencies:
   "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
   generate-license-file: patches/generate-license-file.patch

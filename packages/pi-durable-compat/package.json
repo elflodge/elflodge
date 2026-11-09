@@ -42,7 +42,7 @@
     "prepack": "vp pack"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:pi-durable-compat",
     "birpc": "catalog:",
     "effect": "catalog:",
     "ensure-error": "catalog:",
