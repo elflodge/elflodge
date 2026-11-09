@@ -38,6 +38,8 @@ const PreparedExtensions = Schema.Struct({
   /** This package's runtime in the bundle, which shares Pi's code with the extensions. */
   runtime: Schema.String,
   extensions: Schema.Array(PreparedExtension),
+  /** The native add-ons the extensions load, which the host loads in its main thread first. */
+  addons: Schema.Array(Schema.String),
   /** Sources that could not be installed or bundled, with the reason; the rest are prepared without them. */
   failures: Schema.Array(Schema.Struct({ source: Schema.String, message: Schema.String })),
 });
@@ -59,7 +61,10 @@ export async function prepareExtensions(options: PrepareOptions): Promise<Prepar
   });
   // An error after the reply, while the worker ends, has no one to report to.
   worker.on("error", () => {});
-  const [message] = await once(worker, "message");
+  const exited = once(worker, "exit").then(([code]: unknown[]) => {
+    throw new Error(`Preparing extensions failed: the worker exited with code ${String(code)}`);
+  });
+  const [message] = await Promise.race([once(worker, "message"), exited]);
   await worker.terminate();
   const reply = Schema.decodeUnknownSync(PrepareReply)(message);
   if ("error" in reply) throw new Error(`Preparing extensions failed: ${reply.error}`);

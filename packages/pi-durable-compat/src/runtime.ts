@@ -1,25 +1,24 @@
 import {
   createEventBus,
   createExtensionRuntime,
-  createSyntheticSourceInfo,
   ExtensionRunner,
-  type EventBus,
   type ExecOptions,
   type ExecResult,
   type Extension,
   type ExtensionActions,
   type ExtensionContextActions,
-  type ExtensionRuntime,
   type ModelRegistry,
   type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import ensureError from "ensure-error";
+import { loadExtensionFromFactory } from "pi-extension-loader";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
-// share one copy of Pi's code. It loads each extension's factory against an `ExtensionAPI` of our
-// own, which fills Pi's `Extension` record as Pi's loader does (the loader is not exported), and
-// dispatches events through Pi's own `ExtensionRunner`, so handler order, chaining and error
-// isolation are Pi's.
+// share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
+// not export (the bundle reaches it by path, see `prepare-worker.ts`), and Pi's `ExtensionRunner`
+// dispatches events, so registration, handler order, chaining and error isolation are Pi's. Two
+// departures: `pi.exec` runs through the host, and `pi.on` tells the host of a subscription made
+// after loading, so it hooks only the events some extension listens to.
 
 /** What an instance needs from its host: the conversation's state and every action that leaves the worker. */
 export interface Bridge {
@@ -100,14 +99,44 @@ export async function createInstance(
       errors.push({ source, message: "The module does not export a factory function" });
       continue;
     }
-    const record = createRecord(source);
-    const load = createExtensionApi(record, runtime, bus, bridge);
+    let active = false;
+    let failed = false;
     try {
-      await factory(load.api);
-      load.commit();
+      const record = await loadExtensionFromFactory(
+        async (pi) => {
+          pi.exec = (command, args, options) => {
+            if (failed)
+              throw new Error(
+                `Extension "${source}" failed to load and its API is no longer active.`,
+              );
+            runtime.assertActive();
+            return bridge.exec(command, args, options);
+          };
+          // A proxy keeps the overloaded signature of Pi's `on` and passes its arguments as given.
+          pi.on = new Proxy(pi.on.bind(pi), {
+            apply(on, receiver, args) {
+              const unsubscribe: () => void = Reflect.apply(on, receiver, args);
+              if (active) bridge.changed();
+              let subscribed = true;
+              return () => {
+                if (!subscribed) return;
+                subscribed = false;
+                unsubscribe();
+                bridge.changed();
+              };
+            },
+          });
+          await factory(pi);
+        },
+        bridge.cwd,
+        bus,
+        runtime,
+        source,
+      );
+      active = true;
       records.push(record);
     } catch (error) {
-      load.discard();
+      failed = true;
       errors.push({ source, message: ensureError(error).message });
     }
   }
@@ -159,310 +188,4 @@ function asSessionManager(facade: ReadonlySessionManager): SessionManager {
 function asModelRegistry(facade: ModelRegistryFacade): ModelRegistry {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the runner only hands it out, as above
   return facade as ModelRegistry;
-}
-
-type MapValue<M> = M extends Map<unknown, infer V> ? V : never;
-type Handler = MapValue<Extension["handlers"]>[number];
-type ToolDefinition = MapValue<Extension["tools"]>["definition"];
-type Command = Omit<MapValue<Extension["commands"]>, "name" | "sourceInfo">;
-type Shortcut = Omit<MapValue<Extension["shortcuts"]>, "shortcut" | "extensionPath">;
-type Flag = Omit<MapValue<Extension["flags"]>, "name" | "extensionPath">;
-type MessageRenderer = MapValue<Extension["messageRenderers"]>;
-type EntryRenderer = MapValue<NonNullable<Extension["entryRenderers"]>>;
-type ToolRenderer = NonNullable<Extension["toolRenderers"]>[number];
-type ShortcutKey = Extension["shortcuts"] extends Map<infer K, unknown> ? K : never;
-type ProviderConfig = Parameters<ExtensionRuntime["registerProvider"]>[1];
-type Provider = Parameters<ExtensionRuntime["registerNativeProvider"]>[0];
-type RegisteredMcpServer = ReturnType<ExtensionRuntime["mcpServers"]["list"]>[number];
-type VirtualModelDefinition = Parameters<ExtensionRuntime["registerVirtualModel"]>[0];
-/** What an extension registers: a definition whose router also receives the extension's context. */
-type VirtualModel = Omit<VirtualModelDefinition, "route"> & {
-  route(
-    request: Parameters<VirtualModelDefinition["route"]>[0],
-    context: ReturnType<ExtensionRuntime["createContext"]>,
-  ): ReturnType<VirtualModelDefinition["route"]>;
-};
-
-/** The kind of source as Pi's settings name it: `npm:` and `git:` sources, else a local path. */
-function sourceKind(source: string) {
-  if (source.startsWith("npm:")) return "npm";
-  if (source.startsWith("git:") || /^(?:https?|ssh):\/\//.test(source)) return "git";
-  return "local";
-}
-
-function createRecord(source: string): Extension {
-  return {
-    path: source,
-    resolvedPath: source,
-    sourceInfo: createSyntheticSourceInfo(source, { source: sourceKind(source) }),
-    handlers: new Map(),
-    tools: new Map(),
-    messageRenderers: new Map(),
-    commands: new Map(),
-    flags: new Map(),
-    shortcuts: new Map(),
-  };
-}
-
-/**
- * The `pi` an extension's factory receives, filling `record` as Pi's loader does
- * (`createExtensionAPI` in pi-coding-agent 1.5's `core/extensions/loader.js`, not exported):
- * registrations write to the record, actions go to the shared runtime the runner binds, and
- * flag values and runtime changes made while loading take effect only if the factory returns.
- * UI registrations are kept and never used, as Pi does in print mode. Two departures: `exec` runs
- * through the host, and `on` tells the host of a subscription made after loading, so it hooks only
- * the events some extension listens to.
- * Its parameters are typed by what the record stores: Pi's generic `ExtensionAPI` signatures are
- * for extension authors, and its own loader, in JavaScript, is not checked against them.
- */
-function createExtensionApi(
-  record: Extension,
-  runtime: ExtensionRuntime,
-  bus: EventBus,
-  bridge: Bridge,
-) {
-  const pendingFlags = new Map<string, boolean | string>();
-  const pendingRuntimeChanges: (() => void)[] = [];
-  const loadingUnsubscribers: (() => void)[] = [];
-  let state: "loading" | "active" | "failed" = "loading";
-  const assertActive = () => {
-    if (state === "failed") {
-      throw new Error(`Extension "${record.path}" failed to load and its API is no longer active.`);
-    }
-    runtime.assertActive();
-  };
-  const clearPending = () => {
-    pendingFlags.clear();
-    pendingRuntimeChanges.length = 0;
-    loadingUnsubscribers.length = 0;
-  };
-  const applyRuntimeChange = (change: () => void) => {
-    if (state === "loading") pendingRuntimeChanges.push(change);
-    else change();
-  };
-  const api = {
-    on(event: string, handler: Handler) {
-      assertActive();
-      const registered: Handler = (...args) => handler(...args);
-      const list = record.handlers.get(event) ?? [];
-      list.push(registered);
-      record.handlers.set(event, list);
-      if (state === "active") bridge.changed();
-      return () => {
-        const handlers = record.handlers.get(event);
-        const index = handlers?.indexOf(registered) ?? -1;
-        if (!handlers || index === -1) return;
-        handlers.splice(index, 1);
-        if (handlers.length === 0) record.handlers.delete(event);
-        bridge.changed();
-      };
-    },
-    registerTool(tool: ToolDefinition) {
-      assertActive();
-      if (
-        typeof tool.parameters !== "object" ||
-        tool.parameters === null ||
-        Array.isArray(tool.parameters)
-      ) {
-        throw new Error(
-          `Tool "${tool.name}" registered by extension "${record.path}" must define an object parameter schema.`,
-        );
-      }
-      record.tools.set(tool.name, { definition: tool, sourceInfo: record.sourceInfo });
-      runtime.refreshTools();
-    },
-    registerCommand(name: string, options: Command) {
-      assertActive();
-      if (typeof name !== "string" || name.length === 0) {
-        throw new Error(
-          `Command registered by extension "${record.path}" must have a non-empty string name.`,
-        );
-      }
-      if (typeof options?.handler !== "function") {
-        throw new Error(
-          `Command "/${name}" registered by extension "${record.path}" must define handler().`,
-        );
-      }
-      record.commands.set(name, { name, sourceInfo: record.sourceInfo, ...options });
-    },
-    registerShortcut(shortcut: ShortcutKey, options: Shortcut) {
-      assertActive();
-      record.shortcuts.set(shortcut, { shortcut, extensionPath: record.path, ...options });
-    },
-    registerFlag(name: string, options: Flag) {
-      assertActive();
-      if (options.default !== undefined && typeof options.default !== options.type) {
-        throw new Error(
-          `Invalid default for flag "${name}": expected ${options.type}, got ${typeof options.default}`,
-        );
-      }
-      record.flags.set(name, { name, extensionPath: record.path, ...options });
-      if (options.default === undefined || runtime.flagValues.has(name)) return;
-      if (state === "loading") {
-        if (!pendingFlags.has(name)) pendingFlags.set(name, options.default);
-      } else {
-        runtime.flagValues.set(name, options.default);
-      }
-    },
-    registerMessageRenderer(customType: string, renderer: MessageRenderer) {
-      assertActive();
-      record.messageRenderers.set(customType, renderer);
-    },
-    registerMarkdownTransformer(transformer: Extension["markdownTransformer"]) {
-      assertActive();
-      record.markdownTransformer = transformer;
-    },
-    registerEntryRenderer(customType: string, renderer: EntryRenderer) {
-      assertActive();
-      record.entryRenderers ??= new Map();
-      record.entryRenderers.set(customType, renderer);
-    },
-    registerToolRenderer(resolver: ToolRenderer) {
-      assertActive();
-      record.toolRenderers ??= [];
-      record.toolRenderers.push(resolver);
-    },
-    getFlag(name: string) {
-      assertActive();
-      if (!record.flags.has(name)) return undefined;
-      return runtime.flagValues.has(name) ? runtime.flagValues.get(name) : pendingFlags.get(name);
-    },
-    sendMessage(...args: Parameters<ExtensionRuntime["sendMessage"]>) {
-      assertActive();
-      runtime.sendMessage(...args);
-    },
-    sendUserMessage(...args: Parameters<ExtensionRuntime["sendUserMessage"]>) {
-      assertActive();
-      runtime.sendUserMessage(...args);
-    },
-    appendEntry(...args: Parameters<ExtensionRuntime["appendEntry"]>) {
-      assertActive();
-      runtime.appendEntry(...args);
-    },
-    setSessionName(name: string) {
-      assertActive();
-      runtime.setSessionName(name);
-    },
-    getSessionName() {
-      assertActive();
-      return runtime.getSessionName();
-    },
-    setLabel(...args: Parameters<ExtensionRuntime["setLabel"]>) {
-      assertActive();
-      runtime.setLabel(...args);
-    },
-    exec(command: string, args: string[], options?: ExecOptions) {
-      assertActive();
-      return bridge.exec(command, args, options);
-    },
-    getActiveTools() {
-      assertActive();
-      return runtime.getActiveTools();
-    },
-    getAllTools() {
-      assertActive();
-      return runtime.getAllTools();
-    },
-    getSettings() {
-      assertActive();
-      return runtime.getSettings();
-    },
-    setActiveTools(toolNames: string[]) {
-      assertActive();
-      runtime.setActiveTools(toolNames);
-    },
-    getCommands() {
-      assertActive();
-      return runtime.getCommands();
-    },
-    setModel(...args: Parameters<ExtensionRuntime["setModel"]>) {
-      assertActive();
-      return runtime.setModel(...args);
-    },
-    getThinkingLevel() {
-      assertActive();
-      return runtime.getThinkingLevel();
-    },
-    setThinkingLevel(...args: Parameters<ExtensionRuntime["setThinkingLevel"]>) {
-      assertActive();
-      runtime.setThinkingLevel(...args);
-    },
-    registerProvider(...args: [provider: Provider] | [name: string, config: ProviderConfig]) {
-      assertActive();
-      if (args.length === 1) {
-        const [provider] = args;
-        applyRuntimeChange(() => runtime.registerNativeProvider(provider, record.path));
-        return;
-      }
-      const [name, config] = args;
-      applyRuntimeChange(() => runtime.registerProvider(name, config, record.path));
-    },
-    unregisterProvider(name: string) {
-      assertActive();
-      applyRuntimeChange(() => runtime.unregisterProvider(name, record.path));
-    },
-    // Kept without Pi's validation of the config, which Pi does not export; nothing here connects
-    // MCP servers.
-    registerMcpServer(name: string, config: RegisteredMcpServer["config"]) {
-      assertActive();
-      const owner = runtime.mcpServers.get(name)?.extensionPath;
-      if (owner !== undefined && owner !== record.path) {
-        throw new Error(`MCP server "${name}" is already registered by extension "${owner}"`);
-      }
-      const server = { name, config: structuredClone(config), extensionPath: record.path };
-      applyRuntimeChange(() => runtime.mcpServers.register(server));
-    },
-    unregisterMcpServer(name: string) {
-      assertActive();
-      applyRuntimeChange(() => runtime.mcpServers.unregister(name, record.path));
-    },
-    getMcpServers() {
-      assertActive();
-      return runtime.mcpServers.list();
-    },
-    registerVirtualModel(model: VirtualModel) {
-      assertActive();
-      const definition = {
-        ...model,
-        route: (request: Parameters<VirtualModel["route"]>[0]) =>
-          model.route(request, runtime.createContext()),
-      };
-      applyRuntimeChange(() => runtime.registerVirtualModel(definition, record.path));
-    },
-    unregisterVirtualModel(provider: string, id: string) {
-      assertActive();
-      applyRuntimeChange(() => runtime.unregisterVirtualModel(provider, id));
-    },
-    events: {
-      emit(channel: string, data: unknown) {
-        assertActive();
-        bus.emit(channel, data);
-      },
-      on(channel: string, handler: (data: unknown) => void) {
-        assertActive();
-        const unsubscribe = runtime.trackEventBusSubscription(bus.on(channel, handler));
-        if (state === "loading") loadingUnsubscribers.push(unsubscribe);
-        return unsubscribe;
-      },
-    },
-  };
-  return {
-    api,
-    commit() {
-      if (state !== "loading") return;
-      runtime.assertActive();
-      for (const [name, value] of pendingFlags) {
-        if (!runtime.flagValues.has(name)) runtime.flagValues.set(name, value);
-      }
-      for (const apply of pendingRuntimeChanges) apply();
-      state = "active";
-      clearPending();
-    },
-    discard() {
-      if (state !== "loading") return;
-      state = "failed";
-      for (const unsubscribe of loadingUnsubscribers) unsubscribe();
-      clearPending();
-    },
-  };
 }

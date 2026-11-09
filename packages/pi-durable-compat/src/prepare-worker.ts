@@ -1,11 +1,13 @@
-import { rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { glob, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parentPort, workerData } from "node:worker_threads";
 
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { Schema } from "effect";
 import ensureError from "ensure-error";
-import { build, type Plugin } from "rolldown";
+import { build, type OutputChunk, type Plugin } from "rolldown";
 
 import type { PreparedExtension, PreparedExtensions } from "./prepare.ts";
 
@@ -27,10 +29,21 @@ const HOST_PACKAGES =
  * their entry points re-export. Treating them as side-effect free lets Rolldown keep only what an
  * extension uses: the coding agent's root alone costs about 80 MiB per worker, the parts the search
  * extensions use about 15. Rolldown also drops unused statements inside a module, such as
- * `pi-ai/compat` registering every built-in provider, which esbuild keeps.
+ * `pi-ai/compat` registering every built-in provider, which esbuild keeps; an extension that calls
+ * a model through pi-ai keeps it.
  */
 const PI_MODULES =
   /[\\/]node_modules[\\/](@earendil-works[\\/]pi-(ai|agent-core|coding-agent|tui)|typebox)[\\/]/;
+
+/**
+ * The modules of Pi's packages whose import does work other modules depend on, which the build
+ * keeps whenever it keeps anything that imports them: pi-ai's image providers register themselves,
+ * and the coding agent's entry with `core/sdk.js` sets the stream function an `Agent` created
+ * without one uses. Found by listing every import-time statement in Pi 1.5's modules; the others
+ * fill registries or caches no extension reads unless it imports them itself.
+ */
+const PI_INITIALIZERS =
+  /[\\/]node_modules[\\/]@earendil-works[\\/](pi-ai[\\/]dist[\\/]providers[\\/]images[\\/]register-builtins|pi-coding-agent[\\/]dist[\\/](index|core[\\/]sdk))\.js$/;
 
 /**
  * What Pi's loader gives an extension that imports pi-ai's root or `pi-ai/compat`: the compat entry
@@ -60,6 +73,25 @@ const runtimeModule = fileURLToPath(
 /** The coding agent's entry, from which the packages Pi supplies resolve to its own dependencies. */
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 
+/**
+ * Pi's extension loader, which the runtime imports as `pi-extension-loader` to build each
+ * extension's `pi` as Pi does; the coding agent does not export it.
+ */
+const PI_LOADER = "pi-extension-loader";
+const piLoader = path.join(path.dirname(codingAgentEntry), "core", "extensions", "loader.js");
+
+/** The coding agent's manifest, which its package does not export. */
+const codingAgentManifest = path.join(path.dirname(codingAgentEntry), "..", "package.json");
+const PiManifest = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ name: Schema.String, version: Schema.String })),
+);
+
+/** How an extension's entry is named beside its source. */
+const ENTRY_SUFFIX = ".pi-durable-compat.mjs";
+
+/** A native add-on. */
+const ADDON = /\.node$/;
+
 interface Input {
   sources: string[];
   dir: string;
@@ -81,44 +113,57 @@ async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
 }
 
 /**
- * Bundles `found`, with this package's runtime, into one build in `<dir>/bundle`, with code
- * splitting, so what the extensions and the runtime share of Pi loads once per worker and an
- * extension's own dynamic imports stay lazy. It builds on every call, in about a second, so no
- * change to an extension, to Pi or to this package can leave an old build in use. When the combined
- * build fails, each extension is tried with the runtime alone, and the build is made of those that
- * pass; the others are failures.
+ * Bundles `found`, with this package's runtime, into one build, with code splitting, so what the
+ * extensions and the runtime share of Pi loads once per worker and an extension's own dynamic
+ * imports stay lazy. Each extension's entry is written beside its source, as
+ * `<name>.pi-durable-compat.mjs`, so the files a package reads relative to its code (`package.json`,
+ * templates, WebAssembly) are where it looks; the runtime and the shared chunks go in `<dir>/bundle`.
+ * It builds on every call, in about a second, so no change to an extension, to Pi or to this package
+ * can leave an old build in use. When the combined build fails, each extension is tried with the
+ * runtime alone, without writing, and the build is made of those that pass; the others are failures.
  */
 async function bundle(found: PreparedExtension[], dir: string): Promise<PreparedExtensions> {
   const outDir = path.join(dir, "bundle");
-  const trial = path.join(dir, "bundle-trial");
   await rm(outDir, { recursive: true, force: true });
+  for await (const stale of glob(`**/*${ENTRY_SUFFIX}`, { cwd: dir })) {
+    await rm(path.join(dir, stale), { force: true });
+  }
   const failures: { source: string; message: string }[] = [];
   let included = found;
+  let built: Built;
   try {
-    await buildEntries(entries(included), outDir);
+    built = await buildEntries(entries(included), dir);
   } catch {
     included = [];
     for (const each of found) {
       try {
-        await buildEntries(entries([each]), trial);
+        await buildEntries(entries([each]), dir, false);
         included.push(each);
       } catch (error) {
         failures.push({ source: each.source, message: `Bundling failed: ${errorMessage(error)}` });
-      } finally {
-        await rm(trial, { recursive: true, force: true });
       }
     }
-    await rm(outDir, { recursive: true, force: true });
-    await buildEntries(entries(included), outDir);
+    built = await buildEntries(entries(included), dir);
   }
-  // ES modules, so Node reads the chunks as such whatever the directory above says.
-  await writeFile(path.join(outDir, "package.json"), '{"type":"module"}\n');
+  // ES modules, so Node reads the chunks as such whatever the directory above says. Pi reads its
+  // name and version from the `package.json` above its code, which in the bundle is this one.
+  const pi = PiManifest(await readFile(codingAgentManifest, "utf8"));
+  await writeFile(
+    path.join(outDir, "package.json"),
+    `${JSON.stringify({ name: pi.name, version: pi.version, type: "module" })}\n`,
+  );
+  const file = (name: string) => {
+    const chunk = built.chunks.find((each) => each.isEntry && each.name === name);
+    if (!chunk) throw new Error(`The build has no entry ${name}`);
+    return path.join(dir, chunk.fileName);
+  };
   return {
-    runtime: path.join(outDir, "runtime.mjs"),
+    runtime: file("runtime"),
     extensions: included.map((each, index) => ({
       source: each.source,
-      path: path.join(outDir, `extension-${index}.mjs`),
+      path: file(`extension-${index}`),
     })),
+    addons: built.addons,
     failures,
   };
 }
@@ -138,20 +183,79 @@ function errorMessage(error: unknown) {
   return ensured.errors.map((each: unknown) => ensureError(each).message).join("\n");
 }
 
-async function buildEntries(input: Record<string, string>, outDir: string) {
-  await build({
+interface Built {
+  chunks: OutputChunk[];
+  /** The native add-ons the build leaves to load from where they are installed. */
+  addons: string[];
+}
+
+async function buildEntries(
+  input: Record<string, string>,
+  dir: string,
+  write = true,
+): Promise<Built> {
+  const addons: string[] = [];
+  const { output } = await build({
     input,
     platform: "node",
     logLevel: "silent",
-    plugins: [hostPackages()],
-    treeshake: { moduleSideEffects: (id) => !PI_MODULES.test(id) },
+    write,
+    plugins: [hostPackages(), externalAddons(addons)],
+    // Native add-ons load from where they are installed (see `externalAddons`); the host loads
+    // each in its main thread too (see `startExtensionHost`).
+    external: (id, _importer, resolved) => resolved && ADDON.test(id),
+    makeAbsoluteExternalsRelative: false,
+    // CommonJS code bundled into ES modules has no `__dirname`; with each entry beside its source,
+    // the module's own directory stands in for it.
+    transform: {
+      define: { __dirname: "import.meta.dirname", __filename: "import.meta.filename" },
+    },
+    treeshake: { moduleSideEffects: (id) => !PI_MODULES.test(id) || PI_INITIALIZERS.test(id) },
     output: {
-      dir: outDir,
+      dir,
       format: "esm",
-      entryFileNames: "[name].mjs",
-      chunkFileNames: "chunks/[name]-[hash].mjs",
+      entryFileNames: (chunk) => {
+        const source = chunk.facadeModuleId;
+        if (!source || !isInside(dir, source)) return "bundle/[name].mjs";
+        const relative = path.relative(dir, source);
+        return relative.slice(0, relative.length - path.extname(relative).length) + ENTRY_SUFFIX;
+      },
+      chunkFileNames: "bundle/chunks/[name]-[hash].mjs",
+      codeSplitting: {
+        // TypeBox in a chunk of its own: left where Rolldown puts it, it can share a chunk with an
+        // extension module that awaits at top level a module importing TypeBox back, and the
+        // two wait on each other (pi-mcp-adapter).
+        groups: [{ name: "typebox", test: /[\\/]node_modules[\\/]typebox[\\/]/ }],
+      },
     },
   });
+  return { chunks: output.filter((each): each is OutputChunk => each.type === "chunk"), addons };
+}
+
+/**
+ * Leaves native add-ons external by absolute path, since the code that loads them moves, and
+ * collects into `addons` those that exist: a package names an add-on for every platform it
+ * supports, and only this platform's is installed. One a package reaches by name resolves to its
+ * path before the `external` option sees it; one named by a relative path is resolved here.
+ */
+function externalAddons(addons: string[]): Plugin {
+  return {
+    name: "pi-external-addons",
+    resolveId(source, importer) {
+      if (!ADDON.test(source) || !importer || !source.startsWith(".")) return null;
+      return { id: path.resolve(path.dirname(importer), source), external: true };
+    },
+    buildEnd() {
+      for (const id of this.getModuleIds()) {
+        if (ADDON.test(id) && path.isAbsolute(id) && existsSync(id)) addons.push(id);
+      }
+    },
+  };
+}
+
+function isInside(dir: string, file: string) {
+  const relative = path.relative(dir, file);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 /**
@@ -163,6 +267,7 @@ function hostPackages(): Plugin {
   return {
     name: "pi-host-packages",
     async resolveId(source, importer, extraOptions) {
+      if (source === PI_LOADER) return piLoader;
       if (!HOST_PACKAGES.test(source) || importer === codingAgentEntry) return null;
       const name = source
         .replace(/^@mariozechner\//, "@earendil-works/")

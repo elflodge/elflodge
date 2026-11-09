@@ -1,4 +1,5 @@
 import { constants } from "node:buffer";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -62,7 +63,10 @@ export interface ExtensionHostOptions {
    * so a worker busy with one conversation's handler does not hold up every other.
    */
   readonly maxWorkers?: number;
-  /** How long a worker with no conversation stays before it exits, in milliseconds. Default 30 s. */
+  /**
+   * How long a worker with no conversation stays before it exits, in milliseconds. Default 30 s, so
+   * conversations that follow each other reuse a worker rather than load the extensions again.
+   */
   readonly idleTimeout?: number;
 }
 
@@ -116,6 +120,7 @@ export interface ExtensionHost {
  * instance of every extension per conversation.
  */
 export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost {
+  loadAddons(options.prepared.addons);
   const workers = new Workers(options);
   const installations = new Map<Registry, Installation>();
   const installationFor = ({ harness, registry }: AttachOptions) => {
@@ -133,6 +138,24 @@ export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost
       attachConversation(workers, installationFor(attach), attach, context),
     close: () => workers.close(),
   };
+}
+
+/**
+ * Loads each native add-on the extensions use once in this thread, where it stays loaded. Node
+ * unloads a worker's add-ons when the worker exits, and an add-on that left a thread-local
+ * destructor behind (napi-rs before 3.12.1, as in `ffi-rs`) then crashes the process; one the
+ * process already holds is never unloaded (zhangyuang/node-ffi-rs#145). An add-on that fails here
+ * is left to fail in the worker, where its extension reports it.
+ */
+function loadAddons(addons: readonly string[]) {
+  const require = createRequire(import.meta.url);
+  for (const addon of addons) {
+    try {
+      require(addon);
+    } catch {
+      // Reported by the extension that loads it.
+    }
+  }
 }
 
 const workerModule = fileURLToPath(
