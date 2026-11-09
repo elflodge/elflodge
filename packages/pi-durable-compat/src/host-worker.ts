@@ -1,7 +1,11 @@
 import { pathToFileURL } from "node:url";
 import { workerData as startData } from "node:worker_threads";
 
-import type { ExecOptions, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type {
+  ExecOptions,
+  SessionBeforeCompactEvent,
+  ToolInfo,
+} from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
@@ -42,6 +46,10 @@ for (const { source, path } of workerData.extensions) {
 
 const instances = new Map<string, Instance>();
 const running = new Map<string, AbortController>();
+type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
+
+/** How long each finished tool call's `execute` took, in milliseconds, until `tool_execution_end`. */
+const durations = new Map<string, number>();
 
 const journal = new SyncMessagePort(workerData.journal);
 let nextRead = 0;
@@ -158,14 +166,84 @@ const functions: WorkerFunctions = {
   },
   registrations: (key) => registrations(instanceFor(key)),
   emit: (key, event) => runnerFor(key).emit(event),
-  toolCall: async (key, event) => ({
-    result: await runnerFor(key).emitToolCall(event),
-    input: event.input,
-  }),
-  toolResult: (key, event) => runnerFor(key).emitToolResult(event),
+  async toolCall(key, event) {
+    const runner = runnerFor(key);
+    const result = await runner.emitToolCall(event);
+    await runner.emit({
+      type: "tool_execution_start",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      args: event.input,
+    });
+    return { result, input: event.input };
+  },
+  async toolResult(key, event) {
+    const runner = runnerFor(key);
+    const durationMs = durations.get(event.toolCallId);
+    durations.delete(event.toolCallId);
+    await runner.emit({
+      type: "tool_execution_end",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      result: { content: event.content, details: event.details },
+      isError: event.isError,
+      ...(durationMs !== undefined && { durationMs }),
+    });
+    return runner.emitToolResult(event);
+  },
   context: (key, messages) => runnerFor(key).emitContext(messages),
   providerRequest: (key, payload) => runnerFor(key).emitBeforeProviderRequest(payload),
   input: (key, ...args) => runnerFor(key).emitInput(...args),
+  async agentStart(key, trigger, cwd, activeTools) {
+    const runner = runnerFor(key);
+    const selectedTools = [...activeTools];
+    const started = await runner.emitBeforeAgentStart(trigger, { cwd, selectedTools });
+    await runner.emit({ type: "agent_start" });
+    const options = started.systemPromptOptions;
+    const edited =
+      options.selectedTools.length !== selectedTools.length ||
+      options.selectedTools.some((name, index) => name !== selectedTools[index]);
+    return {
+      messages: started.messages,
+      sections: promptSections(options),
+      ...(edited && { selectedTools: options.selectedTools }),
+    };
+  },
+  async messageEnd(key, message) {
+    await runnerFor(key).emitMessageEnd({ type: "message_end", message });
+  },
+  async turnEnd(key, event) {
+    await runnerFor(key).emitBoundary(event, () => ({
+      contextEntries: [],
+      contextMessages: [],
+      llmMessages: [],
+      pendingMessages: [],
+      canContinue: false,
+    }));
+  },
+  async beforeCompact(key, { reason, instructions, firstKept, messages, entries }) {
+    const result = await runnerFor(key).emit({
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: firstKept,
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- pi-durable's messages, which Pi's agent messages include
+        messagesToSummarize: messages as AgentMessages,
+        turnPrefixMessages: [],
+        isSplitTurn: false,
+        tokensBefore: 0,
+        fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+        settings: runtime.DEFAULT_COMPACTION_SETTINGS,
+      },
+      branchEntries: [...entries],
+      customInstructions: instructions,
+      reason,
+      willRetry: false,
+      signal: new AbortController().signal,
+    });
+    if (result?.cancel) return { cancel: true };
+    const summary = result?.compaction?.summary;
+    return summary === undefined ? undefined : { summary };
+  },
   async executeTool(key, callId, name, args) {
     const { runner } = instanceFor(key);
     const definition = runner.getToolDefinition(name);
@@ -175,6 +253,7 @@ const functions: WorkerFunctions = {
     }
     const controller = new AbortController();
     running.set(callId, controller);
+    const started = performance.now();
     try {
       const params = definition.prepareArguments ? definition.prepareArguments(args) : args;
       const result = await definition.execute(
@@ -188,6 +267,10 @@ const functions: WorkerFunctions = {
       return toolResult(result);
     } finally {
       running.delete(callId);
+      // For `tool_execution_end`, which the host asks for after the result, when someone listens.
+      if (instanceFor(key).events().includes("tool_execution_end")) {
+        durations.set(callId, performance.now() - started);
+      }
     }
   },
   cancelTool(callId) {
@@ -207,6 +290,32 @@ const functions: WorkerFunctions = {
     }
   },
 };
+
+/**
+ * What `before_agent_start` handlers added to the system prompt, as Pi renders it
+ * (`buildSystemPromptSections` in pi-coding-agent's `core/system-prompt.js`): their guidelines with
+ * Pi's rules, the appended text as the addendum, then their own sections. Pi's other parts, its
+ * preamble, tools and skills, have no counterpart here: pi-durable builds the prompt.
+ */
+function promptSections(options: {
+  promptGuidelines: string[];
+  appendSystemPrompt: string;
+  sections: Record<string, string>;
+}): Record<string, string> {
+  const sections: Record<string, string> = {};
+  // Keyed apart from pi-durable's own sections, which the same request carries.
+  const tagged = (name: string, content: string) => {
+    sections[`pi-extensions.${name}`] = `<${name}>\n${content}\n</${name}>`;
+  };
+  if (options.promptGuidelines.length > 0) {
+    tagged("rules", options.promptGuidelines.map((each) => `- ${each}`).join("\n"));
+  }
+  if (options.appendSystemPrompt) tagged("addendum", options.appendSystemPrompt);
+  for (const [name, content] of Object.entries(options.sections)) {
+    if (content) tagged(name, content);
+  }
+  return sections;
+}
 
 /** The host's tools, and this conversation's extensions' own with the exposure they registered. */
 function allTools(key: string): ToolInfo[] {

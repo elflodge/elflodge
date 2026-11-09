@@ -7,7 +7,14 @@ import { MessageChannel, Worker } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
-import type { Api, ImageContent, Message, Model, Models } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  ImageContent,
+  Message,
+  Model,
+  Models,
+} from "@earendil-works/pi-ai";
 import type {
   ExecResult,
   InputEventResult,
@@ -15,18 +22,24 @@ import type {
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import {
+  CompactionTask,
+  type CompactionReason,
   defineExtension,
   defineTool,
   type ConversationId,
+  type EntryId,
   type EntryRecord,
+  type GenerationHooks,
   GenerationTask,
   type Harness,
   hook,
+  type HookApi,
   type HookRegistration,
   type JsonObject,
   LiveDoc,
   ProviderDoc,
   type Registry,
+  type RunSummary,
   ToolTask,
   type Conversation,
   type ToolExecutionResult,
@@ -415,30 +428,54 @@ class Installation {
     return this.#conversations.get(api.conversationId);
   }
 
+  /** Hooks for the Pi events some attached conversation listens to, and only those. */
   #hooks(events: Set<string>): HookRegistration[] {
+    const has = (...names: string[]) => names.some((name) => events.has(name));
     const hooks: HookRegistration[] = [];
-    if (events.has("tool_call") || events.has("tool_result")) {
+    if (has("tool_call", "tool_result", "tool_execution_start", "tool_execution_end")) {
       hooks.push(
         hook(ToolTask, {
-          ...(events.has("tool_call") && {
+          ...(has("tool_call", "tool_execution_start") && {
             beforeTool: async (call, api) => this.#for(api)?.beforeTool(call),
           }),
-          ...(events.has("tool_result") && {
+          ...(has("tool_result", "tool_execution_end") && {
             afterTool: async (call, result, api) => this.#for(api)?.afterTool(call, result),
           }),
         }),
       );
     }
-    if (events.has("context") || events.has("before_provider_request")) {
+    const generation: Partial<GenerationHooks> = {
+      ...(has(...REQUEST_EVENTS) && {
+        beforeRequest: async (request, api, context) =>
+          this.#for(api)?.beforeRequest(request, api, context),
+      }),
+      ...(has("before_provider_request") && {
+        beforeProviderRequest: async (request, api) =>
+          this.#for(api)?.beforeProviderRequest(request),
+      }),
+      ...(has("message_end") && {
+        afterResponse: async (message, api) => this.#for(api)?.messageEnd(message),
+      }),
+      ...(has("turn_end") && {
+        afterTools: async (assistant, _results, api, context) =>
+          this.#for(api)?.turnEnd(assistant, api, context),
+        onYield: async (answer, api, context) => {
+          await this.#for(api)?.finalTurnEnd(answer, api, context);
+          return undefined;
+        },
+      }),
+      ...(has("agent_end") && {
+        afterRun: async (run, api, context) => {
+          await this.#for(api)?.agentEnd(run, api, context);
+          return undefined;
+        },
+      }),
+    };
+    if (Object.keys(generation).length > 0) hooks.push(hook(GenerationTask, generation));
+    if (has("session_before_compact")) {
       hooks.push(
-        hook(GenerationTask, {
-          ...(events.has("context") && {
-            beforeRequest: async (request, api) => this.#for(api)?.beforeRequest(request),
-          }),
-          ...(events.has("before_provider_request") && {
-            beforeProviderRequest: async (request, api) =>
-              this.#for(api)?.beforeProviderRequest(request),
-          }),
+        hook(CompactionTask, {
+          beforeCompact: async (compaction, api) => this.#for(api)?.beforeCompact(compaction),
         }),
       );
     }
@@ -551,11 +588,168 @@ class AttachedConversation {
     };
   }
 
-  async beforeRequest(request: { readonly messages: readonly Message[] }) {
+  /** Whether this conversation's extensions listen to any of `events`. */
+  #listens(...events: string[]) {
+    return events.some((event) => this.registrations.events.includes(event));
+  }
+
+  /**
+   * Before each request: a run's first request starts it as Pi's agent does, the first attempt of
+   * each starts a turn, and `context` handlers change what the request sends. pi-durable has no
+   * hook where a run starts, so its first request stands for it: `LiveRun.turns` counts the run's
+   * tool rounds, and a retry is a later attempt of the same request.
+   */
+  async beforeRequest(
+    request: { readonly messages: readonly Message[] },
+    api: HookApi,
+    context: Context,
+  ) {
     if (this.#closed) return undefined;
-    const messages = await this.#rpc.context(this.key, [...request.messages]);
-    // Pi's own message kinds, such as a shell command's output, have no meaning here.
-    return { messages: messages.filter(isMessage) };
+    let messages = [...request.messages];
+    if (this.#listens("before_agent_start", "agent_start", "turn_start")) {
+      const live = await api.snapshot(LiveDoc, api.conversationId, context);
+      if (live?.run && live.generation?.attempt === 1) {
+        if (live.run.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
+          messages = await this.#startRun(messages, api, context);
+        }
+        if (this.#listens("turn_start")) {
+          await this.#rpc.emit(this.key, {
+            type: "turn_start",
+            turnIndex: live.run.turns,
+            timestamp: Date.now(),
+          });
+        }
+      }
+      messages = withSections(messages, this.#runSections);
+    }
+    if (this.#listens("context", "context_with_system")) {
+      // Pi's own message kinds, such as a shell command's output, have no meaning here.
+      messages = (await this.#rpc.context(this.key, messages)).filter(isMessage);
+    }
+    return { messages };
+  }
+
+  /** What the run's `before_agent_start` handlers added to the system prompt, for each request. */
+  #runSections: Readonly<Record<string, string>> = {};
+
+  /**
+   * Runs `before_agent_start` and `agent_start` once for the run, as a memo of the generation task
+   * records, so a crash after it does not run them again; their prompt additions are kept with it.
+   * The messages they return go with this request and are written to the conversation, where they
+   * land at its next boundary, after this request's answer.
+   */
+  async #startRun(messages: Message[], api: HookApi, context: Context): Promise<Message[]> {
+    const memo = "pi-durable-compat.agentStart";
+    const done = await api.memo<JsonValue>(memo, context);
+    if (done !== undefined) {
+      this.#runSections = isJsonObject(done) ? stringValues(done) : {};
+      return messages;
+    }
+    const { conversation, cwd } = this.#options;
+    const { tools } = await conversation.agent(context);
+    const started = await this.#rpc.agentStart(
+      this.key,
+      agentStartTrigger(messages),
+      cwd,
+      tools.map((tool) => tool.name),
+    );
+    await api.memo<JsonValue>(memo, { ...started.sections }, context);
+    this.#runSections = started.sections;
+    for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
+    if (started.selectedTools) this.act({ type: "setActiveTools", names: started.selectedTools });
+    const sent = started.messages.map((message): Message => ({
+      role: "user",
+      content: typeof message.content === "string" ? message.content : [...message.content],
+      timestamp: Date.now(),
+    }));
+    return [...messages, ...sent];
+  }
+
+  async messageEnd(message: AssistantMessage) {
+    if (this.#closed) return;
+    await this.#rpc.messageEnd(this.key, message);
+  }
+
+  /** `turn_end` for a tool round, from the committed entries: the hook's `results` can be empty. */
+  async turnEnd(assistant: EntryId, api: HookApi, context: Context) {
+    if (this.#closed) return;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const page = await api.entries(
+      { minEntryId: assistant, order: "ascending" },
+      500,
+      undefined,
+      context,
+    );
+    const [first, ...rest] = page.items;
+    const message = first?.model?.find((each) => each.role === "assistant");
+    if (!first || !message) return;
+    const results = rest.flatMap((record) =>
+      (record.model ?? []).flatMap((each) =>
+        each.role === "toolResult" ? [{ id: `${record.id}`, message: each }] : [],
+      ),
+    );
+    await this.#rpc.turnEnd(this.key, {
+      type: "turn_end",
+      // The round is counted before its `afterTools` hooks run.
+      turnIndex: Math.max(0, (live?.run?.turns ?? 1) - 1),
+      message,
+      toolResults: results.map((each) => each.message),
+      messageEntryId: `${first.id}`,
+      toolResultEntryIds: results.map((each) => each.id),
+      outcome: "completed",
+    });
+  }
+
+  /** `turn_end` for a final answer, before it is committed, so it has no entry ID yet. */
+  async finalTurnEnd(answer: AssistantMessage, api: HookApi, context: Context) {
+    if (this.#closed) return;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    await this.#rpc.turnEnd(this.key, {
+      type: "turn_end",
+      turnIndex: live?.run?.turns ?? 0,
+      message: answer,
+      toolResults: [],
+      messageEntryId: "",
+      toolResultEntryIds: [],
+      outcome: "completed",
+    });
+  }
+
+  /** `agent_end` with the run's messages; pi-durable has no hook for a run that fails or aborts. */
+  async agentEnd(run: RunSummary, api: HookApi, context: Context) {
+    if (this.#closed) return;
+    const messages: Message[] = [];
+    let cursor: Parameters<HookApi["entries"]>[2];
+    do {
+      const page = await api.entries(
+        { minEntryId: run.first, maxEntryId: run.last, order: "ascending" },
+        500,
+        cursor,
+        context,
+      );
+      for (const record of page.items) messages.push(...(record.model ?? []));
+      cursor = page.next;
+    } while (cursor !== undefined);
+    await this.#rpc.emit(this.key, { type: "agent_end", messages });
+  }
+
+  /** `session_before_compact`: a cancel declines the compaction, a summary replaces pi-durable's. */
+  async beforeCompact(compaction: {
+    readonly reason: CompactionReason;
+    readonly messages: readonly Message[];
+    readonly firstKept: EntryId;
+    readonly instructions?: string;
+  }) {
+    if (this.#closed) return undefined;
+    const decision = await this.#rpc.beforeCompact(this.key, {
+      reason: compaction.reason,
+      instructions: compaction.instructions,
+      firstKept: `${compaction.firstKept}`,
+      messages: compaction.messages.filter((message) => message.role !== "system"),
+      entries: await this.#entries(),
+    });
+    if (!decision) return undefined;
+    return "cancel" in decision ? { decline: true as const } : { summary: decision.summary };
   }
 
   async beforeProviderRequest(request: { readonly payload: unknown }) {
@@ -656,10 +850,26 @@ class AttachedConversation {
         return conversation.compact(action.instructions, context);
       case "abort":
         return conversation.abort(context);
+      case "setActiveTools":
+        return this.#setActiveTools(action.names);
       default:
-        // Session names, labels, active tools and shutdown have no counterpart here.
+        // Session names, labels and shutdown have no counterpart here.
         return undefined;
     }
+  }
+
+  /**
+   * Offers the model exactly the tools `names` names, as Pi's active tools, from the next request:
+   * any tool of the conversation's extensions, the deferred ones too. Names of no such tool are
+   * left out, as Pi leaves them out.
+   */
+  async #setActiveTools(names: readonly string[]) {
+    const { conversation } = this.#options;
+    const context = BACKGROUND_CONTEXT;
+    const { extensions } = await conversation.agent(context);
+    const tools = new Map(extensions.flatMap((each) => each.tools ?? []).map((t) => [t.name, t]));
+    const modelTools = names.flatMap((name) => tools.get(name) ?? []);
+    await conversation.configure({ modelTools }, context);
   }
 
   /** Switches the conversation's model, as Pi does: only to a model with credentials. */
@@ -975,4 +1185,44 @@ function toolOutput(result: ToolResult) {
 
 function isContentPart(part: unknown): part is { type: "text"; text: string } | ImageContent {
   return isJsonObject(part) && (part.type === "text" || part.type === "image");
+}
+
+/** The events a request's hook dispatches. */
+const REQUEST_EVENTS = [
+  "before_agent_start",
+  "agent_start",
+  "turn_start",
+  "context",
+  "context_with_system",
+];
+
+/**
+ * What starts the run, as Pi's `before_agent_start` describes it: the newest user message, which
+ * is the prompt for a run an input starts. pi-durable keeps no other kind of starting message.
+ */
+function agentStartTrigger(messages: readonly Message[]) {
+  const content = messages.findLast((message) => message.role === "user")?.content ?? "";
+  if (typeof content === "string") return { messageType: "user" as const, prompt: content };
+  return {
+    messageType: "user" as const,
+    prompt: content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
+    images: content.filter((part): part is ImageContent => part.type === "image"),
+  };
+}
+
+/** `messages` with `sections` added to the leading system message's, for this request only. */
+function withSections(messages: Message[], sections: Readonly<Record<string, string>>): Message[] {
+  if (Object.keys(sections).length === 0) return messages;
+  const [first, ...rest] = messages;
+  if (first?.role === "system") {
+    return [{ ...first, sections: { ...first.sections, ...sections } }, ...rest];
+  }
+  const system: Message = { role: "system", content: "", sections: { ...sections }, timestamp: 0 };
+  return [system, ...messages];
+}
+
+function stringValues(value: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, each]) => (typeof each === "string" ? [[key, each]] : [])),
+  );
 }

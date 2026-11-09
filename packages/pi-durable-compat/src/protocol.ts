@@ -6,9 +6,11 @@ import type {
   ExecResult,
   ExtensionActions,
   ExtensionRunner,
+  MessageEndEvent,
   ModelRegistry,
   SessionEntry,
   ToolInfo,
+  TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
@@ -73,7 +75,51 @@ export interface DispatchFunctions {
   ): ReturnType<Runner["emitContext"]>;
   providerRequest(key: string, payload: unknown): Promise<unknown>;
   input(key: string, ...args: Parameters<Runner["emitInput"]>): ReturnType<Runner["emitInput"]>;
+  /**
+   * Starts a run as Pi's agent does: `before_agent_start`, from a prompt options of `cwd` and the
+   * offered tools, then `agent_start`.
+   */
+  agentStart(
+    key: string,
+    trigger: Parameters<Runner["emitBeforeAgentStart"]>[0],
+    cwd: string,
+    activeTools: readonly string[],
+  ): Promise<AgentStarted>;
+  messageEnd(key: string, message: MessageEndEvent["message"]): Promise<void>;
+  /** `turn_end`, whose entries and continuation are not honoured. */
+  turnEnd(
+    key: string,
+    event: Omit<TurnEndEvent, "entries" | "continue" | "context">,
+  ): Promise<void>;
+  /** `session_before_compact`: whether a handler cancels it, or the summary one wrote. */
+  beforeCompact(key: string, compaction: Compaction): Promise<CompactDecision | undefined>;
 }
+
+/** What `before_agent_start` handlers return that the host applies. */
+export interface AgentStarted {
+  /** The messages they return, sent after the prompt. */
+  readonly messages: Awaited<ReturnType<Runner["emitBeforeAgentStart"]>>["messages"];
+  /**
+   * What they add to the system prompt (`sections`, `appendSystemPrompt`, `promptGuidelines`),
+   * rendered as Pi renders those parts and keyed by section name.
+   */
+  readonly sections: Readonly<Record<string, string>>;
+  /** The tools they selected, when they changed the selection. */
+  readonly selectedTools?: readonly string[];
+}
+
+/** A compaction pi-durable is about to summarize. */
+export interface Compaction {
+  readonly reason: "manual" | "threshold" | "overflow";
+  readonly instructions: string | undefined;
+  /** The ID of the first entry kept. */
+  readonly firstKept: string;
+  /** The messages the summary replaces. */
+  readonly messages: readonly unknown[];
+  readonly entries: readonly SessionEntry[];
+}
+
+export type CompactDecision = { readonly cancel: true } | { readonly summary: string };
 
 /** What the worker serves to the host. */
 export interface WorkerFunctions extends DispatchFunctions {

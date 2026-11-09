@@ -33,6 +33,17 @@ function toolResults(messages: readonly Message[]) {
   );
 }
 
+/** The tools a request offers: those its system messages add and do not remove again. */
+function offeredTools(messages: readonly Message[]) {
+  const tools = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "system") continue;
+    for (const tool of message.toolsAdded ?? []) tools.add(tool.name);
+    for (const tool of message.toolsRemoved ?? []) tools.delete(tool.name);
+  }
+  return [...tools];
+}
+
 test("a conversation runs an extension's tools, saved entries, gate and input transform", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
@@ -153,4 +164,83 @@ test("conversations attached through one registry each have their own extensions
     [{ tool: "remember", text: "Saved milk (1)", isError: false }],
     [{ tool: "recall", text: "[]", isError: false }],
   ]);
+});
+
+test("a run's lifecycle reaches the extensions, which add to its prompt and activate tools", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  const requests: { messages: readonly Message[]; tools: string[] }[] = [];
+  const record = (request: { messages: readonly Message[] }) =>
+    requests.push({ messages: request.messages, tools: offeredTools(request.messages) });
+  faux.setResponses([
+    (request) => {
+      record(request);
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+    (request) => {
+      record(request);
+      return fauxAssistantMessage([fauxToolCall("events", {})], { stopReason: "toolUse" });
+    },
+    (request) => {
+      record(request);
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+  expect(extensions.errors).toEqual([]);
+
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+  await (await conversation.submit({ type: "input", content: "again" }, context)).wait(context);
+
+  const [first, second, third] = requests;
+  const system = first?.messages.find((message) => message.role === "system");
+  expect(Object.values(system?.role === "system" ? (system.sections ?? {}) : {})).toContain(
+    "<notes>\nAnswer in French.\n</notes>",
+  );
+  expect(first?.messages.at(-1)).toMatchObject({ role: "user", content: "Remember the notes." });
+  // The tool `before_agent_start` activates is offered from the next request, as pi-durable fixes
+  // a request's tools before its hooks run.
+  expect(first?.tools).not.toContain("events");
+  expect(second?.tools).toContain("events");
+  expect(toolResults(third?.messages ?? [])).toEqual([
+    {
+      tool: "events",
+      text: [
+        "before_agent_start hi",
+        "agent_start",
+        "turn_start",
+        "message_end",
+        "turn_end",
+        "agent_end",
+        "before_agent_start again",
+        "agent_start",
+        "turn_start",
+        "message_end",
+        "tool_execution_start",
+      ].join(", "),
+      isError: false,
+    },
+  ]);
+  await extensions.close();
 });
