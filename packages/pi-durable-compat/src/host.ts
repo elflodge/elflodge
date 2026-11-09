@@ -42,6 +42,7 @@ import {
   type Registry,
   type RunSummary,
   ToolTask,
+  UserEntry,
   type Conversation,
   type ToolExecutionResult,
   type ToolHookCall,
@@ -49,14 +50,13 @@ import {
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { createBirpc, type BirpcReturn } from "birpc";
-import { Equal } from "effect";
+import { Equal, Schema } from "effect";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
 import type { PreparedExtensions } from "./prepare.ts";
 import type {
   Action,
-  AgentStarted,
   AgentStartTrigger,
   ExtensionError,
   HostFunctions,
@@ -174,11 +174,6 @@ function loadAddons(addons: readonly string[]) {
   }
 }
 
-/** The directory of the coding agent the bundle was built from: this package's own copy. */
-const codingAgentDir = path.dirname(
-  path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))),
-);
-
 const workerModule = fileURLToPath(
   new URL(`./host-worker${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 );
@@ -256,9 +251,6 @@ class Workers {
     const worker = new Worker(workerModule, {
       workerData,
       transferList: [journal.port2, rpc.port2],
-      // Pi finds its own files, its `package.json` with its version among them, above its code,
-      // which the bundle moves; this is its documented way to say where they are.
-      env: { ...process.env, PI_PACKAGE_DIR: codingAgentDir },
     });
     const conversations = new Map<string, AttachedConversation>();
     const attached = (key: string) => {
@@ -623,7 +615,7 @@ class AttachedConversation {
       if (run?.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
         const started = await this.#startRun(run.first, messages, api, context);
         this.#runSections = started.sections;
-        messages = [...messages, ...started.messages.map(sentMessage)];
+        messages = [...messages, ...started.sent.map(sentMessage)];
       }
       if (run && live.generation?.attempt === 1 && this.#listens("turn_start")) {
         await this.#rpc.emit(this.key, {
@@ -662,7 +654,7 @@ class AttachedConversation {
   ): Promise<RunStart> {
     const memo = "pi-durable-compat.agentStart";
     const done = await api.memo<JsonValue>(memo, context);
-    if (done !== undefined) return decodeRunStart(done);
+    if (done !== undefined) return Schema.decodeUnknownSync(RunStart)(done);
     const { conversation, cwd } = this.#options;
     const { tools } = await conversation.agent(context);
     const trigger = await agentStartTrigger(first, messages, api, context);
@@ -672,11 +664,15 @@ class AttachedConversation {
       cwd,
       tools.map((tool) => tool.name),
     );
-    const recorded = { sections: started.sections, messages: started.messages };
-    await api.memo<JsonValue>(memo, toJson(recorded) ?? {}, context);
+    const recorded: RunStart = {
+      sections: started.sections,
+      sent: started.messages.map((message) => message.content),
+    };
+    // The first value recorded wins, should two attempts ever run the handlers at once.
+    const kept = await api.memo<JsonValue>(memo, toJson(recorded) ?? null, context);
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
     if (started.selectedTools) this.act({ type: "setActiveTools", names: started.selectedTools });
-    return recorded;
+    return Schema.decodeUnknownSync(RunStart)(kept);
   }
 
   async messageEnd(message: AssistantMessage) {
@@ -768,12 +764,15 @@ class AttachedConversation {
   /** Reads the extensions' registrations again after they changed, and installs them. */
   reloadRegistrations() {
     if (this.#closed || !this.#hosted) return;
-    void this.#hosted.rpc.registrations(this.key).then(
+    this.#registered = this.#hosted.rpc.registrations(this.key).then(
       (registrations) => this.update(registrations),
       // The worker exited or the conversation closed meanwhile; its tools fail from then on.
       () => {},
     );
   }
+
+  /** The last reload of the registrations, which `#setActiveTools` waits on. */
+  #registered: Promise<void> = Promise.resolve();
 
   /**
    * Starts an extension's action. A later read waits for the ones that write to the conversation;
@@ -864,6 +863,10 @@ class AttachedConversation {
   async #setActiveTools(names: readonly string[]) {
     const { conversation } = this.#options;
     const context = BACKGROUND_CONTEXT;
+    // Pi lets an extension register a tool and activate it at once; the worker's notice of the
+    // registration travels on another channel than this action, so read the registrations afresh.
+    this.reloadRegistrations();
+    await this.#registered;
     const { extensions } = await conversation.agent(context);
     const tools = new Map(extensions.flatMap((each) => each.tools ?? []).map((t) => [t.name, t]));
     const modelTools = names.flatMap((name) => tools.get(name) ?? []);
@@ -1194,18 +1197,37 @@ const REQUEST_EVENTS = [
   "context_with_system",
 ];
 
-/** What a run's `before_agent_start` returned that each attempt of its first request applies. */
-type RunStart = Pick<AgentStarted, "sections" | "messages">;
-
-function decodeRunStart(value: JsonValue): RunStart {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- our own memo, written by `#startRun` above
-  return value as unknown as RunStart;
-}
+/**
+ * What a run's `before_agent_start` returned that each attempt of its first request applies: the
+ * system prompt sections, and the content of the messages, which the request carries.
+ */
+type RunStart = typeof RunStart.Type;
+const RunStart = Schema.Struct({
+  sections: Schema.Record(Schema.String, Schema.String),
+  sent: Schema.Array(
+    Schema.Union([
+      Schema.String,
+      Schema.Array(
+        Schema.Union([
+          Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
+          Schema.Struct({
+            type: Schema.Literal("image"),
+            data: Schema.String,
+            mimeType: Schema.String,
+          }),
+        ]),
+      ),
+    ]),
+  ),
+});
 
 /** A message `before_agent_start` returned, as the request carries it. */
-function sentMessage(message: RunStart["messages"][number]): Message {
-  const content = typeof message.content === "string" ? message.content : [...message.content];
-  return { role: "user", content, timestamp: Date.now() };
+function sentMessage(content: RunStart["sent"][number]): Message {
+  return {
+    role: "user",
+    content: typeof content === "string" ? content : [...content],
+    timestamp: Date.now(),
+  };
 }
 
 /** Every entry in `range` of the hook's conversation, oldest first. */
@@ -1241,8 +1263,9 @@ async function agentStartTrigger(
     const message = record.model?.find((each) => each.role === "user");
     return message ? [{ record, message }] : [];
   });
-  const prompt = sent.findLast(({ record }) => !record.kind.startsWith("piext."));
-  const custom = sent.at(-1);
+  // pi-durable writes a compaction's summary as a user message too.
+  const prompt = sent.findLast(({ record }) => record.kind === UserEntry.kind);
+  const custom = sent.findLast(({ record }) => record.kind.startsWith("piext."));
   if (!prompt && custom) {
     const { record, message } = custom;
     const data = isJsonObject(record.data) ? record.data : {};

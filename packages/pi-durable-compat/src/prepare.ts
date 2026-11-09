@@ -54,15 +54,19 @@ const PrepareReply = Schema.Union([PreparedExtensions, Schema.Struct({ error: Sc
  *
  * It runs in a child process of its own, which exits when it is done: installing loads the whole
  * coding agent and bundling loads Rolldown, several hundred MiB for a few extensions. A worker
- * thread would leave most of it in the host's memory after it exits, as the allocator keeps what
- * the thread used; a process returns it.
+ * thread would leave most of it in the host's memory after it exits, as Rolldown's native runtime,
+ * its threads and their memory stay in the process; a process returns it.
  */
 export async function prepareExtensions(options: PrepareOptions): Promise<PreparedExtensions> {
-  const child = fork(processModule, { serialization: "advanced" });
+  const child = fork(processModule);
   // A failure to start rejects the wait for the reply; one after it has no one to report to.
   child.on("error", () => {});
-  const exited = once(child, "exit").then(([code]: unknown[]) => {
-    throw new Error(`Preparing extensions failed: the process exited with code ${String(code)}`);
+  // `close` comes after the channel has delivered every message, unlike `exit`.
+  const exited = new Promise<never>((_resolve, reject) => {
+    child.once("close", (code, signal) => {
+      const how = code === null ? `signal ${String(signal)}` : `code ${code}`;
+      reject(new Error(`Preparing extensions failed: the process exited with ${how}`));
+    });
   });
   child.send({ sources: [...options.sources], dir: options.dir });
   const [message] = await Promise.race([once(child, "message"), exited]);

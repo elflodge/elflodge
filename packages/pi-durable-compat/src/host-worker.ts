@@ -7,7 +7,7 @@ import type {
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
-import { Equal } from "effect";
+import * as Equal from "effect/Equal";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
@@ -168,7 +168,7 @@ const functions: WorkerFunctions = {
   registrations: (key) => registrations(instanceFor(key)),
   emit: (key, event) => runnerFor(key).emit(event),
   // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
-  // `tool_call`; `tool_execution_end` with the result `tool_result` handlers made.
+  // `tool_call`, as a copy that `tool_call` handlers' edits leave alone; `tool_execution_end` with the result `tool_result` handlers made.
   async toolCall(key, event) {
     const runner = runnerFor(key);
     await runner.emit({
@@ -189,10 +189,10 @@ const functions: WorkerFunctions = {
       type: "tool_execution_end",
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      result: {
-        content: changed?.content ?? event.content,
-        details: changed?.details ?? event.details,
-      },
+      // Pi's runner returns every field when a handler changes any, `details: null` included.
+      result: changed
+        ? { content: changed.content ?? event.content, details: changed.details }
+        : { content: event.content, details: event.details },
       isError: changed?.isError ?? event.isError,
       ...(durationMs !== undefined && { durationMs }),
     });
@@ -300,11 +300,15 @@ const functions: WorkerFunctions = {
 
 /**
  * What `before_agent_start` handlers added to the system prompt, rendered as Pi renders those
- * parts (`buildSystemPromptSections` in pi-coding-agent's `core/system-prompt.js`, which its package
- * does not export): their guidelines, trimmed and once each, as Pi adds them to its rules; the
- * appended text as the addendum; then their own sections. Pi's preamble, tools, rules and skills
- * have no counterpart here: pi-durable builds the prompt.
+ * parts in `buildSystemPromptSections` (pi-coding-agent's `core/system-prompt.js`): their
+ * guidelines, trimmed and once each, as Pi adds them to its rules; the appended text as the
+ * addendum; then their own sections, whose names Pi checks. That function builds Pi's whole prompt
+ * and puts its own default rules among the guidelines, so it is not called: pi-durable builds the
+ * prompt, and Pi's preamble, tools, default rules and skills have no counterpart here.
  */
+/** The section names Pi accepts, as `core/system-prompt.js` checks them. */
+const SECTION_NAME = /^[a-z][a-z0-9_-]*$/;
+
 function promptSections(options: {
   promptGuidelines: string[];
   appendSystemPrompt: string;
@@ -321,6 +325,9 @@ function promptSections(options: {
   if (guidelines.length > 0) tagged("rules", guidelines.map((each) => `- ${each}`).join("\n"));
   if (options.appendSystemPrompt) tagged("addendum", options.appendSystemPrompt);
   for (const [name, content] of Object.entries(options.sections)) {
+    if (!SECTION_NAME.test(name) || name === "preamble") {
+      throw new Error(`Invalid system prompt section name: ${name}`);
+    }
     if (content) tagged(name, content);
   }
   return sections;

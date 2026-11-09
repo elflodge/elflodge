@@ -195,13 +195,21 @@ async function buildEntries(
     write,
     plugins: [hostPackages(), externalAddons(addons)],
     // Native add-ons load from where they are installed (see `externalAddons`), and the host
-    // loads each in its main thread too (see `startExtensionHost`); so do `LEFT_INSTALLED`.
+    // loads each in its main thread too (see `startExtensionHost`). `LEFT_INSTALLED` packages
+    // also load from where they are installed.
     external: (id, _importer, resolved) => resolved && (ADDON.test(id) || LEFT_INSTALLED.test(id)),
     makeAbsoluteExternalsRelative: false,
-    // CommonJS code bundled into ES modules has no `__dirname`; with each entry beside its source,
-    // the module's own directory stands in for it.
     transform: {
-      define: { __dirname: "import.meta.dirname", __filename: "import.meta.filename" },
+      define: {
+        // CommonJS code bundled into ES modules has no `__dirname`; with each entry beside its
+        // source, the module's own directory stands in for it.
+        __dirname: "import.meta.dirname",
+        __filename: "import.meta.filename",
+        // Pi looks for its own files, its `package.json` with its version among them, above its
+        // code, which the bundle moves; `PI_PACKAGE_DIR` is its documented way to say where they
+        // are, set here rather than in the workers' environment, which commands inherit.
+        "process.env.PI_PACKAGE_DIR": JSON.stringify(path.dirname(path.dirname(codingAgentEntry))),
+      },
     },
     treeshake: { moduleSideEffects: (id) => !PI_MODULES.test(id) || PI_INITIALIZERS.test(id) },
     output: {
