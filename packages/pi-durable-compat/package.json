@@ -46,6 +46,7 @@
     "birpc": "catalog:",
     "effect": "catalog:",
     "ensure-error": "catalog:",
+    "is-path-inside": "catalog:",
     "rolldown": "catalog:",
     "sync-message-port": "catalog:"
   },

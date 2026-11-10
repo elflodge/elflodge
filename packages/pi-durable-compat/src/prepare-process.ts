@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import ensureError from "ensure-error";
+import isPathInside from "is-path-inside";
 import { build, type OutputChunk, type Plugin } from "rolldown";
 
 import type { PreparedExtension, PreparedExtensions } from "./prepare.ts";
@@ -220,7 +221,7 @@ async function buildEntries(
       format: "esm",
       entryFileNames: (chunk) => {
         const source = chunk.facadeModuleId;
-        if (!source || !isInside(dir, source)) return "bundle/[name].mjs";
+        if (!source || !isPathInside(source, dir)) return "bundle/[name].mjs";
         const relative = path.relative(dir, source);
         return relative.slice(0, relative.length - path.extname(relative).length) + ENTRY_SUFFIX;
       },
@@ -245,9 +246,12 @@ async function buildEntries(
 function externalAddons(addons: string[]): Plugin {
   return {
     name: "pi-external-addons",
-    resolveId(source, importer) {
-      if (!ADDON.test(source) || !importer || !source.startsWith(".")) return null;
-      return { id: path.resolve(path.dirname(importer), source), external: true };
+    resolveId: {
+      filter: { id: ADDON },
+      handler(source, importer) {
+        if (!importer || !source.startsWith(".")) return null;
+        return { id: path.resolve(path.dirname(importer), source), external: true };
+      },
     },
     buildEnd() {
       for (const id of this.getModuleIds()) {
@@ -255,11 +259,6 @@ function externalAddons(addons: string[]): Plugin {
       }
     },
   };
-}
-
-function isInside(dir: string, file: string) {
-  const relative = path.relative(dir, file);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 /**
@@ -270,15 +269,18 @@ function isInside(dir: string, file: string) {
 function hostPackages(): Plugin {
   return {
     name: "pi-host-packages",
-    async resolveId(source, importer, extraOptions) {
-      if (source === PI_LOADER) return piLoader;
-      if (!HOST_PACKAGES.test(source) || importer === codingAgentEntry) return null;
-      const name = source
-        .replace(/^@mariozechner\//, "@earendil-works/")
-        .replace(/^@sinclair\/typebox/, "typebox");
-      const fromExtension = !(importer && PI_MODULES.test(importer));
-      if (fromExtension && /^@earendil-works\/pi-ai(?:\/compat)?$/.test(name)) return piAiView;
-      return this.resolve(name, codingAgentEntry, { ...extraOptions, skipSelf: true });
+    resolveId: {
+      filter: { id: [new RegExp(`^${PI_LOADER}$`), HOST_PACKAGES] },
+      async handler(source, importer, extraOptions) {
+        if (source === PI_LOADER) return piLoader;
+        if (importer === codingAgentEntry) return null;
+        const name = source
+          .replace(/^@mariozechner\//, "@earendil-works/")
+          .replace(/^@sinclair\/typebox/, "typebox");
+        const fromExtension = !(importer && PI_MODULES.test(importer));
+        if (fromExtension && /^@earendil-works\/pi-ai(?:\/compat)?$/.test(name)) return piAiView;
+        return this.resolve(name, codingAgentEntry, { ...extraOptions, skipSelf: true });
+      },
     },
   };
 }

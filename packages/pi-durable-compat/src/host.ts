@@ -15,6 +15,7 @@ import type {
   Model,
   Models,
 } from "@earendil-works/pi-ai";
+import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type {
   ExecResult,
   InputEventResult,
@@ -1284,9 +1285,12 @@ function toolOutput(result: ToolResult) {
   };
 }
 
-function isContentPart(part: unknown): part is { type: "text"; text: string } | ImageContent {
-  return Predicate.isObject(part) && (part.type === "text" || part.type === "image");
-}
+/** A text or image part of a message's content, as pi-ai has them. */
+const ContentPart = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("image"), data: Schema.String, mimeType: Schema.String }),
+]);
+const isContentPart = Schema.is(ContentPart);
 
 /** The events a request's hook dispatches. */
 const REQUEST_EVENTS = [
@@ -1304,21 +1308,7 @@ const REQUEST_EVENTS = [
 type RunStart = typeof RunStart.Type;
 const RunStart = Schema.Struct({
   sections: Schema.Record(Schema.String, Schema.String),
-  sent: Schema.Array(
-    Schema.Union([
-      Schema.String,
-      Schema.Array(
-        Schema.Union([
-          Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
-          Schema.Struct({
-            type: Schema.Literal("image"),
-            data: Schema.String,
-            mimeType: Schema.String,
-          }),
-        ]),
-      ),
-    ]),
-  ),
+  sent: Schema.Array(Schema.Union([Schema.String, Schema.Array(ContentPart)])),
 });
 
 /** A message `before_agent_start` returned, as the request carries it. */
@@ -1376,7 +1366,7 @@ function userTrigger(content: UserContent): AgentStartTrigger {
   if (typeof content === "string") return { messageType: "user", prompt: content };
   return {
     messageType: "user",
-    prompt: content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
+    prompt: contentText(content),
     images: content.filter((part): part is ImageContent => part.type === "image"),
   };
 }
