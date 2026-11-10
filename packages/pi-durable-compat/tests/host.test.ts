@@ -97,10 +97,15 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
   );
   expect(extensions.errors).toEqual([]);
 
-  const input = await extensions.input("Note my shopping");
-  expect(input).toEqual({ action: "transform", text: "Note my shopping!", images: undefined });
+  // Idle, so the handlers are not told how it would be queued.
+  const input = await extensions.input("Note my shopping", { streamingBehavior: "steer" });
+  expect(input).toEqual({
+    action: "transform",
+    text: "Note my shopping (rpc)",
+    images: undefined,
+  });
   const submission = await conversation.submit(
-    { type: "input", content: "Note my shopping!" },
+    { type: "input", content: "Note my shopping (rpc)" },
     context,
   );
   await submission.wait(context);
@@ -127,6 +132,48 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
     "pi-extensions-tool-rules": "<rules>\n- Save each note once\n</rules>",
   });
   await extensions.close();
+});
+
+test("an extension's own prompt goes through the input handlers", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({ sources: [fixture], dir }),
+  });
+  onTestFinished(() => host.close());
+
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  const followUp = Promise.withResolvers<readonly Message[]>();
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("nudge", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxText("Done.")]),
+    (request) => {
+      followUp.resolve(request.messages);
+      return fauxAssistantMessage([fauxText("Checked.")]);
+    },
+  ]);
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+  onTestFinished(() => extensions.close());
+
+  await conversation.submit({ type: "input", content: "Nudge me" }, context);
+
+  // Sent during the run, so the handlers are told how it is queued, as Pi tells them.
+  expect((await followUp.promise).at(-1)).toMatchObject({
+    role: "user",
+    content: "Check the notes (extension, followUp)",
+  });
 });
 
 test("conversations attached through one registry each have their own extensions", async () => {

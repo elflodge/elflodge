@@ -20,6 +20,7 @@ import type {
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type {
   ExecResult,
+  InputEvent,
   InputEventResult,
   SessionEntry,
   ToolInfo,
@@ -160,6 +161,18 @@ export interface AttachOptions {
   readonly flags?: Flags;
 }
 
+/** What `input` handlers are told of the input besides its text, as Pi's `prompt` options say. */
+export interface InputOptions {
+  readonly images?: readonly ImageContent[];
+  /** Where the input came from. Default `"rpc"`, as Pi's RPC mode says of a client's prompt. */
+  readonly source?: InputEvent["source"];
+  /**
+   * How it is to be submitted if the conversation is busy, which handlers are told only while a
+   * run is under way, as Pi tells them only while its agent runs.
+   */
+  readonly streamingBehavior?: InputEvent["streamingBehavior"];
+}
+
 /** One conversation's extensions. */
 export interface AttachedExtensions {
   /** Extensions that failed to load for this conversation, with the reason; the rest run. */
@@ -168,7 +181,7 @@ export interface AttachedExtensions {
    * Runs the extensions' `input` handlers on input before it is submitted, as Pi does for a
    * prompt: the result says to submit it as it is, transformed, or not at all.
    */
-  input(text: string, images?: readonly ImageContent[]): Promise<InputEventResult>;
+  input(text: string, options?: InputOptions): Promise<InputEventResult>;
   /**
    * Ends the extensions' session: `session_shutdown` runs, and what they do later, such as a
    * background message, is dropped. Call it when the conversation's work is decided.
@@ -496,7 +509,7 @@ async function attachConversation(
     const opened = await attached.open(context);
     return {
       errors: opened.errors,
-      input: (text, images) => attached.input(text, images),
+      input: (text, given) => attached.input(text, given),
       close: () => attached.close(),
     };
   } catch (error) {
@@ -1148,9 +1161,48 @@ class AttachedConversation {
     // A failure, such as a conversation that closed meanwhile, has no one to report to: Pi's
     // actions return nothing.
     const settled = started.catch(() => {});
-    if (action.type !== "abort" && action.type !== "compact") {
+    // A prompt waits for the worker's `input` handlers, which a worker blocked on a read could not
+    // run; Pi's lands later too, after its own handlers.
+    if (action.type !== "abort" && action.type !== "compact" && action.type !== "sendUserMessage") {
       this.#writes = Promise.all([this.#writes, settled]);
     }
+  }
+
+  /**
+   * An extension's prompt goes through the `input` handlers first, as Pi's `sendUserMessage`
+   * sends it through `prompt` with source `"extension"`, its text parts joined by line breaks.
+   */
+  async #sendUserMessage(...[content, options]: SendUserMessageArgs) {
+    const text =
+      typeof content === "string"
+        ? content
+        : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+    const images =
+      typeof content === "string"
+        ? []
+        : content.filter((part): part is ImageContent => part.type === "image");
+    const input = await this.input(text, {
+      ...(images.length > 0 && { images }),
+      source: "extension",
+      ...(options?.deliverAs && { streamingBehavior: options.deliverAs }),
+    });
+    if (input.action === "handled") return undefined;
+    const submitted =
+      input.action === "transform"
+        ? input.images?.length
+          ? [{ type: "text" as const, text: input.text }, ...input.images]
+          : input.text
+        : typeof content === "string"
+          ? content
+          : [...content];
+    return this.#options.conversation.submit(
+      {
+        type: "input",
+        content: submitted,
+        whenBusy: options?.deliverAs === "steer" ? "steer" : "followUp",
+      },
+      BACKGROUND_CONTEXT,
+    );
   }
 
   #act(action: Action): Promise<unknown> | undefined {
@@ -1184,17 +1236,8 @@ class AttachedConversation {
           context,
         );
       }
-      case "sendUserMessage": {
-        const [content, options] = action.args;
-        return conversation.submit(
-          {
-            type: "input",
-            content: typeof content === "string" ? content : [...content],
-            whenBusy: options?.deliverAs === "steer" ? "steer" : "followUp",
-          },
-          context,
-        );
-      }
+      case "sendUserMessage":
+        return this.#sendUserMessage(...action.args);
       case "appendEntry":
         return conversation.submit(
           {
@@ -1447,9 +1490,17 @@ class AttachedConversation {
     return entries;
   }
 
-  async input(text: string, images: readonly ImageContent[] | undefined) {
+  async input(text: string, options: InputOptions = {}) {
     await this.#ready;
-    return this.#rpc.input(this.key, text, images && [...images], "rpc");
+    const { harness, conversation } = this.#options;
+    const live = await harness.snapshot(LiveDoc, conversation.id, BACKGROUND_CONTEXT);
+    return this.#rpc.input(
+      this.key,
+      text,
+      options.images && [...options.images],
+      options.source ?? "rpc",
+      live?.run === undefined ? undefined : options.streamingBehavior,
+    );
   }
 
   /**
@@ -1603,6 +1654,8 @@ const RunSections = defineDoc<{ run?: EntryId; sections: Record<string, string> 
   // Small, and changed once a run at most.
   checkpointWhen: () => true,
 });
+
+type SendUserMessageArgs = Extract<Action, { type: "sendUserMessage" }>["args"];
 
 /** A message `before_agent_start` returned, as the request carries it. */
 function sentMessage(content: RunStart["sent"][number]): Message {

@@ -3,6 +3,7 @@ export {
   type AttachOptions,
   type ExtensionHost,
   type ExtensionHostOptions,
+  type InputOptions,
   startExtensionHost,
   type WorkerExit,
 } from "./host.ts";

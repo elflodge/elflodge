@@ -2,8 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@mariozechner/pi-ai";
 
 // An extension using what extensions commonly use: tools, saved entries read back from the
-// session, a `tool_call` gate, an `input` transform and a `context` handler, with Pi's former
-// package names. A tool brings a prompt snippet and guidelines.
+// session, a `tool_call` gate, an `input` transform, a prompt of its own and a `context` handler,
+// with Pi's former package names. A tool brings a prompt snippet and guidelines.
 export default function extension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "remember",
@@ -57,6 +57,16 @@ export default function extension(pi: ExtensionAPI) {
       return { content: [{ type: "text", text: "ran" }], details: {} };
     },
   });
+  pi.registerTool({
+    name: "nudge",
+    label: "Nudge",
+    description: "Ask again after this run",
+    parameters: Type.Object({}),
+    async execute() {
+      pi.sendUserMessage("Check the notes", { deliverAs: "followUp" });
+      return { content: [{ type: "text", text: "nudged" }], details: {} };
+    },
+  });
   // Blocks `danger`, and a second save of a note already saved, which it reads from the session.
   pi.on("tool_call", (event, ctx) => {
     if (event.toolName === "danger") return { block: true, reason: "Not allowed" };
@@ -71,7 +81,11 @@ export default function extension(pi: ExtensionAPI) {
       );
     return saved ? { block: true, reason: "Already saved" } : undefined;
   });
-  pi.on("input", (event) => ({ action: "transform", text: `${event.text}!` }));
+  // Marks each input with where it came from, and how it is to be queued while a run is under way.
+  pi.on("input", (event) => ({
+    action: "transform",
+    text: `${event.text} (${[event.source, event.streamingBehavior].filter(Boolean).join(", ")})`,
+  }));
   // Leaves the request as it is, which keeps the system prompt.
   pi.on("context", () => undefined);
 }
