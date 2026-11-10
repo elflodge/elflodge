@@ -46,7 +46,12 @@ const host = startExtensionHost({ prepared });
 
 // Your pi-durable setup, with the registry kept in a variable.
 const registry = createRegistry();
-const harness = await Harness.open(storage, { models, registry }, context);
+const harness = await Harness.open(
+  storage,
+  // The extensions every conversation selects, yours if any; `attach` adds each conversation's own.
+  { models, registry, settings: { extensions: [] } },
+  context,
+);
 const conversation = await harness.root(context, { agent: { model } });
 
 // For each conversation, before you submit to it.
@@ -105,19 +110,16 @@ To act on an exit yourself, for instance to fail the job, pass `onWorkerExit`: i
 
 ### Registries and subagents
 
-The first `attach` through a registry installs one pi-durable extension in it, named `pi-durable-extension-adapter`, which carries the tools and hooks of every conversation attached through that registry.
+`attach` installs a pi-durable extension for the conversation, `pi-durable-extension-adapter:<conversation ID>`, with its extensions' tools and only the hooks they listen to, and adds it to the conversation's `extensions` selection; `close` uninstalls it. So each conversation is offered only its own extensions' tools, as a Pi session is, even when they differ, such as an MCP server's.
+
+Set the Harness's `settings.extensions` to the extensions conversations select by default, as the example above does. Without it, pi-durable selects every installed extension, so every conversation would get every attached conversation's, and `attach` fails when it finds the default selection selecting one.
 
 A registry serves one Harness and one host, and a conversation can be attached once at a time. `attach` throws otherwise.
 
-The conversations of a registry are offered each tool as the first of them to register it described it. A call fails in a conversation whose own extensions did not register the tool, or registered it as hidden. Flags that change which tools an extension registers therefore need a registry for each group of conversations that share them.
-
-pi-durable selects every installed extension for every conversation unless told otherwise. A conversation you did not attach, such as a subagent's, is offered the tools too, and its calls to them fail. Either attach it, or leave the extension out of its selection with pi-durable's `extensions` setting, here for a conversation `child` that is not attached:
+A conversation created from an attached one, such as a subagent's or a fork, starts with its selection, so it is offered those tools and its calls to them fail. Either attach it, which replaces the inherited extension with its own, or give it a selection without the creator's extension, here the default selection back for a conversation `child` that is not attached:
 
 ```ts
-await child.configure(
-  { extensions: { remove: [{ name: "pi-durable-extension-adapter" }] } },
-  context,
-);
+await child.configure({ extensions: null }, context);
 ```
 
 ## Options

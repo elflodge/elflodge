@@ -88,4 +88,19 @@ export default function extension(pi: ExtensionAPI) {
   }));
   // Leaves the request as it is, which keeps the system prompt.
   pi.on("context", () => undefined);
+  // A tool named by the conversation's configuration, as an MCP server's tools are.
+  pi.registerFlag("tool", { type: "string", default: "", description: "Name of an extra tool" });
+  pi.on("session_start", () => {
+    const name = pi.getFlag("tool");
+    if (typeof name !== "string" || name === "") return;
+    pi.registerTool({
+      name,
+      label: name,
+      description: `The ${name} tool`,
+      parameters: Type.Object({}),
+      async execute() {
+        return { content: [{ type: "text", text: name }], details: {} };
+      },
+    });
+  });
 }

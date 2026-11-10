@@ -45,6 +45,9 @@ function toolResults(messages: readonly Message[]) {
   );
 }
 
+// The default selection leaves out the extensions attaching installs, as `attach` requires.
+const settings = { extensions: [] };
+
 /** The tools a request offers: those its system messages add and do not remove again. */
 function offeredTools(messages: readonly Message[]) {
   const tools = new Set<string>();
@@ -90,7 +93,7 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
     },
   ]);
   const registry = createRegistry();
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id }, instructions: "Be brief." },
@@ -160,7 +163,7 @@ test("an extension's own prompt goes through the input handlers", async () => {
     },
   ]);
   const registry = createRegistry();
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id } },
@@ -180,7 +183,7 @@ test("an extension's own prompt goes through the input handlers", async () => {
   });
 });
 
-test("conversations attached through one registry each have their own extensions", async () => {
+test("conversations attached through one registry each have their own extensions and tools", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -206,7 +209,7 @@ test("conversations attached through one registry each have their own extensions
     done,
   ]);
   const registry = createRegistry();
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
   onTestFinished(() => harness.close(context));
   const agent = { model: { provider: model.provider, modelId: model.id } };
   const first = await harness.root(context, { agent });
@@ -214,8 +217,12 @@ test("conversations attached through one registry each have their own extensions
     { ownership: { kind: "ownerless" }, agent },
     context,
   );
-  for (const conversation of [first, second]) {
-    await host.attach({ harness, conversation, registry, models, cwd: dir }, context);
+  for (const [conversation, tool] of [
+    [first, "github"],
+    [second, "postgres"],
+  ] as const) {
+    const flags = { tool };
+    await host.attach({ harness, conversation, registry, models, cwd: dir, flags }, context);
   }
 
   await (await first.submit({ type: "input", content: "Note milk" }, context)).wait(context);
@@ -228,6 +235,12 @@ test("conversations attached through one registry each have their own extensions
     [{ tool: "remember", text: "Saved milk (1)", isError: false }],
     [{ tool: "recall", text: "[]", isError: false }],
   ]);
+  // Each is offered the tools its own extensions registered, and not the other's.
+  const [firstTools, secondTools] = seen.map(offeredTools);
+  expect(firstTools).toContain("github");
+  expect(firstTools).not.toContain("postgres");
+  expect(secondTools).toContain("postgres");
+  expect(secondTools).not.toContain("github");
 });
 
 test("a run's lifecycle reaches the extensions, which add to its prompt and select tools", async () => {
@@ -268,7 +281,7 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and sele
     },
   ]);
   const registry = createRegistry();
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id } },
@@ -363,10 +376,15 @@ test("a run's prompt additions reach its later rounds after the host restarts", 
   });
   const start = async () => {
     const registry = createRegistry();
-    registry.install(defineExtension({ name: "app", tools: [pause] }));
+    const app = defineExtension({ name: "app", tools: [pause] });
+    registry.install(app);
     const host = startExtensionHost({ prepared });
     const storage = await openNodeSqliteStorage(path.join(dir, "session.db"));
-    const harness = await Harness.open(storage, { models, registry }, context);
+    const harness = await Harness.open(
+      storage,
+      { models, registry, settings: { extensions: [app] } },
+      context,
+    );
     const conversation = await harness.root(context, {
       agent: { model: { provider: model.provider, modelId: model.id } },
     });
@@ -418,21 +436,24 @@ test("a run the application continues starts once for the extensions", async () 
   const registry = createRegistry();
   // An application's own extension that continues the run once after its first answer.
   let continued = false;
-  registry.install(
-    defineExtension({
-      name: "keep-going",
-      hooks: [
-        hook(GenerationTask, {
-          onYield: () => {
-            if (continued) return undefined;
-            continued = true;
-            return { continue: "Keep going." };
-          },
-        }),
-      ],
-    }),
+  const keepGoing = defineExtension({
+    name: "keep-going",
+    hooks: [
+      hook(GenerationTask, {
+        onYield: () => {
+          if (continued) return undefined;
+          continued = true;
+          return { continue: "Keep going." };
+        },
+      }),
+    ],
+  });
+  registry.install(keepGoing);
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    { models, registry, settings: { extensions: [keepGoing] } },
+    context,
   );
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id } },
@@ -477,7 +498,7 @@ test("extensions read the flag values given to attach, and an unknown one is rep
     },
   ]);
   const registry = createRegistry();
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id } },
@@ -513,7 +534,7 @@ test("attach stops waiting for extensions that never open once its context is ca
 
   const models = createModels();
   const registry = createRegistry();
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {});
   const started = performance.now();
@@ -551,20 +572,23 @@ async function workerConversation({
   models.setProvider(faux.provider);
   const model = faux.getModel();
   const registry = createRegistry();
-  registry.install(
-    defineExtension({
-      name: "app",
-      tools: [
-        defineTool({
-          name: "echo",
-          description: "Echo",
-          parameters: { type: "object", properties: {} },
-          execute: async () => ({ output: [{ type: "text", text: "echoed" }] }),
-        }),
-      ],
-    }),
+  const app = defineExtension({
+    name: "app",
+    tools: [
+      defineTool({
+        name: "echo",
+        description: "Echo",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({ output: [{ type: "text", text: "echoed" }] }),
+      }),
+    ],
+  });
+  registry.install(app);
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    { models, registry, settings: { extensions: [app] } },
+    context,
   );
-  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
   onTestFinished(() => harness.close(context));
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id } },
