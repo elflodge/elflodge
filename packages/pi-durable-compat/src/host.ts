@@ -898,7 +898,7 @@ class AttachedConversation {
       if (run?.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
         const started = await this.#startRun(run, messages, api, context);
         if (started) {
-          await this.#keepSections(started.sections, api, context);
+          await this.#keepSections(run, started.sections, api, context);
           messages = [...messages, ...started.sent.map(sentMessage)];
         }
       }
@@ -912,7 +912,9 @@ class AttachedConversation {
         });
       }
       const kept = await api.snapshot(RunSections, api.conversationId, context);
-      messages = withSections(messages, kept?.sections ?? {});
+      if (run?.first !== undefined && kept?.run === run.first) {
+        messages = withSections(messages, kept.sections);
+      }
     }
     if (this.#listens("context", "context_with_system")) {
       messages = await this.#rpc.context(this.key, messages);
@@ -962,11 +964,18 @@ class AttachedConversation {
    * their own that a host restarted meanwhile runs too. Before the request, so that a crash after
    * it cannot lose them: an attempt after the crash reads the memo and stores them then.
    */
-  async #keepSections(sections: Readonly<Record<string, string>>, api: HookApi, context: Context) {
+  async #keepSections(
+    run: LiveRun,
+    sections: Readonly<Record<string, string>>,
+    api: HookApi,
+    context: Context,
+  ) {
+    if (run.first === undefined) return;
+    const value = { run: run.first, sections: { ...sections } };
     const kept = await api.snapshot(RunSections, api.conversationId, context);
-    if (isDeepStrictEqual(kept?.sections ?? {}, sections)) return;
+    if (isDeepStrictEqual(kept, value)) return;
     await this.#options.conversation.commit(async (tx) => {
-      (await tx.doc(RunSections, api.conversationId)).sections = { ...sections };
+      Object.assign(await tx.doc(RunSections, api.conversationId), value);
     }, context);
   }
 
@@ -1577,18 +1586,20 @@ const RunStart = Schema.Struct({
 });
 
 /**
- * The system prompt sections the conversation's latest run start added, which each request of the
- * run sends. A run with no new start, see `#runTrigger`, sends those of the one before, as Pi's
- * `continue` keeps the system prompt its last prompt set.
+ * The system prompt sections the conversation's latest run start added, which each request of
+ * that run sends, by the run's first entry. An `onYield` continuation is the same run, and a
+ * `continue` after a failure has the failed run's first entry, so both keep them, as neither
+ * starts the run again, see `#runTrigger`. A run that lacks a first entry, started before
+ * pi-durable recorded it, keeps none.
  */
-const RunSections = defineDoc<{ sections?: Record<string, string> }>({
+const RunSections = defineDoc<{ run?: EntryId; sections: Record<string, string> }>({
   kind: "pi-durable-compat.runSections",
   version: 1,
   scope: "conversation",
   history: "latest",
   // A fork has no run under way.
   fork: "initial",
-  initial: () => ({}),
+  initial: () => ({ sections: {} }),
   // Small, and changed once a run at most.
   checkpointWhen: () => true,
 });
