@@ -310,23 +310,23 @@ class Workers {
   }
 
   /**
-   * Opens the extensions of an exited worker's conversations again on another, as after a restart;
-   * not those it was loading, as a crash while loading would happen again. Conversations still
-   * being attached are left to `attach`, which fails, and those being closed to `close`.
+   * Opens the extensions of an exited worker's conversations again on another, as after a restart,
+   * once: a reopen that fails, as when the new worker also exits while loading them, leaves them
+   * lost rather than try again. Those the worker was loading are left to what was opening them,
+   * `attach`, which fails, or a reopen, which reports them; those being closed are left to `close`.
    */
   async #recover(
     error: Error,
     hosting: readonly AttachedConversation[],
     loading: ReadonlySet<AttachedConversation>,
   ) {
-    const affected = hosting.filter((each) => each.attached && !each.closing);
+    const affected = hosting.filter((each) => !loading.has(each) && !each.closing);
     if (affected.length === 0) return;
     const restart = this.#options.restart ?? true;
     const results = await Promise.all(
       affected.map(async (each) => {
         const reopened =
           restart &&
-          !loading.has(each) &&
           (await each.reopen().then(
             () => true,
             () => false,
@@ -463,7 +463,12 @@ class Workers {
       );
       client.$close(error);
       for (const each of hosting) each.lost();
-      if (!this.#closed) void this.#recover(error, hosting, loading);
+      if (this.#closed) return;
+      // A report the host cannot deliver, such as an `onWorkerExit` that throws, must not end the
+      // process, which runs every other conversation.
+      this.#recover(error, hosting, loading).catch((failed: unknown) => {
+        console.error(ensureError(failed));
+      });
     });
     this.#workers.add(hosted);
     return hosted;
@@ -762,6 +767,8 @@ class AttachedConversation {
     this.#opening = true;
     const opened = this.#open(hosted, context).finally(() => {
       this.#opening = false;
+      // Closed while loading, past its time limit: the instance goes when it is done.
+      if (this.#closed) void hosted.rpc.close(this.key).catch(() => {});
     });
     this.#ready = opened.catch(() => {});
     return opened;
@@ -784,7 +791,16 @@ class AttachedConversation {
 
   /** Opens the extensions again on another worker after theirs exited. */
   async reopen() {
-    await this.open(BACKGROUND_CONTEXT);
+    try {
+      await this.open(BACKGROUND_CONTEXT);
+    } catch (error) {
+      // On a worker that is still running, its instance and its place go, and the conversation is
+      // lost as on an exit.
+      void this.#hosted?.rpc.close(this.key).catch(() => {});
+      this.#release?.();
+      this.lost();
+      throw error;
+    }
   }
 
   get id() {
@@ -1252,7 +1268,7 @@ class AttachedConversation {
       const killed = result.error.code === "aborted" || result.error.code === "timeout";
       return { stdout, stderr: stderr || result.error.message, code: 1, killed, truncated };
     } finally {
-      this.#execs.delete(id);
+      if (this.#execs.get(id) === controller) this.#execs.delete(id);
     }
   }
 
@@ -1402,6 +1418,9 @@ class AttachedConversation {
    */
   lost() {
     this.#hosted = undefined;
+    // Their worker can no longer read the result, and a new one numbers its commands afresh.
+    for (const each of this.#execs.values()) each.abort();
+    this.#execs.clear();
   }
 
   close(): Promise<void> {
@@ -1410,16 +1429,15 @@ class AttachedConversation {
   }
 
   async #close() {
-    await this.#ready;
+    // One time limit for the loading under way and the shutdown handlers.
+    const limit = once(AbortSignal.timeout(this.#workers.closeTimeout), "abort");
+    await Promise.race([this.#ready, limit]);
     this.#installation.remove(this);
     const hosted = this.#hosted;
     if (hosted) {
       // What `session_shutdown` handlers write is kept, as the worker waits for it before it
       // answers; what extensions do after it, or after the time limit, is dropped.
-      await Promise.race([
-        hosted.rpc.close(this.key).catch(() => {}),
-        once(AbortSignal.timeout(this.#workers.closeTimeout), "abort"),
-      ]);
+      await Promise.race([hosted.rpc.close(this.key).catch(() => {}), limit]);
     }
     this.#closed = true;
     this.#release?.();
