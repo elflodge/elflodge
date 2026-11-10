@@ -4,6 +4,7 @@ export {
   type ExtensionHost,
   type ExtensionHostOptions,
   startExtensionHost,
+  type WorkerExit,
 } from "./host.ts";
 export {
   type PreparedExtension,

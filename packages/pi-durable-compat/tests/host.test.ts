@@ -21,7 +21,7 @@ import {
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { expect, onTestFinished, test } from "vite-plus/test";
 
-import { startExtensionHost } from "../src/host.ts";
+import { startExtensionHost, type WorkerExit } from "../src/host.ts";
 import { prepareExtensions } from "../src/prepare.ts";
 
 const fixture = path.join(import.meta.dirname, "fixtures", "notes");
@@ -372,14 +372,19 @@ test("extensions read the flag values given to attach", async () => {
   await extensions.close();
 });
 
-test("a conversation whose extension worker exited goes on with its other tools", async () => {
+/** A conversation with the worker fixture and a tool of the application's own, `echo`. */
+async function workerConversation(options: { restart?: boolean } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const exits: ({ message: string } & WorkerExit)[] = [];
   const host = startExtensionHost({
     prepared: await prepareExtensions({
       sources: [path.join(import.meta.dirname, "fixtures", "worker")],
       dir,
     }),
+    ...options,
+    onWorkerExit: (error, { reopened, lost }) =>
+      exits.push({ message: error.message, reopened, lost }),
   });
   onTestFinished(() => host.close());
 
@@ -387,16 +392,6 @@ test("a conversation whose extension worker exited goes on with its other tools"
   const models = createModels();
   models.setProvider(faux.provider);
   const model = faux.getModel();
-  let seen: readonly Message[] = [];
-  faux.setResponses([
-    fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
-    fauxAssistantMessage([fauxToolCall("greet", {})], { stopReason: "toolUse" }),
-    fauxAssistantMessage([fauxToolCall("echo", {})], { stopReason: "toolUse" }),
-    (request) => {
-      seen = request.messages;
-      return fauxAssistantMessage([fauxText("Done.")]);
-    },
-  ]);
   const registry = createRegistry();
   registry.install(
     defineExtension({
@@ -420,6 +415,44 @@ test("a conversation whose extension worker exited goes on with its other tools"
     { harness, conversation, registry, models, cwd: dir },
     context,
   );
+  onTestFinished(() => extensions.close());
+  return { faux, conversation, exits };
+}
+
+test("a conversation whose extension worker exited gets its extensions back on another", async () => {
+  const { faux, conversation, exits } = await workerConversation();
+  let seen: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("greet", {})], { stopReason: "toolUse" }),
+    (request) => {
+      seen = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+
+  expect(toolResults(seen)).toEqual([
+    { tool: "crash", text: expect.stringContaining("exited"), isError: true },
+    { tool: "greet", text: "hello", isError: false },
+  ]);
+  expect(exits).toEqual([
+    { message: expect.stringContaining("exited"), reopened: [conversation.id], lost: [] },
+  ]);
+});
+
+test("without restart, a conversation whose extension worker exited goes on with its other tools", async () => {
+  const { faux, conversation, exits } = await workerConversation({ restart: false });
+  let seen: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("greet", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("echo", {})], { stopReason: "toolUse" }),
+    (request) => {
+      seen = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
   await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
 
   expect(toolResults(seen)).toEqual([
@@ -427,5 +460,7 @@ test("a conversation whose extension worker exited goes on with its other tools"
     { tool: "greet", text: expect.stringContaining("exited"), isError: true },
     { tool: "echo", text: "echoed", isError: false },
   ]);
-  await extensions.close();
+  expect(exits).toEqual([
+    { message: expect.stringContaining("exited"), reopened: [], lost: [conversation.id] },
+  ]);
 });
