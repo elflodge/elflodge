@@ -41,6 +41,12 @@ export interface Registrations {
 
 export interface Opened extends Registrations {
   readonly errors: readonly ExtensionError[];
+  /**
+   * The extensions that loaded, by their module in the bundle, which is unique where a package's
+   * source can hold several. Errors cannot tell this: an extension that loaded can report one too,
+   * as for an unsupported `registerProvider`.
+   */
+  readonly loaded: readonly { readonly source: string; readonly path: string }[];
 }
 
 /** An extension that failed to load, with the reason. */

@@ -444,7 +444,7 @@ test("a run the application continues starts once for the extensions", async () 
   await extensions.close();
 });
 
-test("extensions read the flag values given to attach, and a mistyped one is reported", async () => {
+test("extensions read the flag values given to attach, and an unknown one is reported", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({

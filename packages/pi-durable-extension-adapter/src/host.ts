@@ -1,5 +1,4 @@
 import { constants } from "node:buffer";
-import { once } from "node:events";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -132,8 +131,9 @@ export interface WorkerExit {
   /** Their extensions run on another worker, started again with `session_start` reason `resume`. */
   readonly reopened: readonly ConversationId[];
   /**
-   * Their extensions are gone: the worker exited while loading them, which would happen again, or
-   * `restart` is false. Their tools fail, their hooks do nothing, and a `tool_call` gate blocks.
+   * Their extensions are gone: opening them again failed, as when the new worker also exits while
+   * loading them, an extension that loaded before fails to load, or loading takes longer than 10 s;
+   * or `restart` is false. Their tools fail, their hooks do nothing, and a `tool_call` gate blocks.
    */
   readonly lost: readonly ConversationId[];
 }
@@ -181,7 +181,8 @@ export interface AttachedExtensions {
   readonly errors: readonly ExtensionError[];
   /**
    * Runs the extensions' `input` handlers on input before it is submitted, as Pi does for a
-   * prompt: the result says to submit it as it is, transformed, or not at all.
+   * prompt: the result says to submit it as it is, transformed, or not at all. It throws after
+   * `close`.
    */
   input(text: string, options?: InputOptions): Promise<InputEventResult>;
   /**
@@ -194,8 +195,9 @@ export interface AttachedExtensions {
 export interface ExtensionHost {
   /**
    * Starts the extensions for `conversation` on a worker. The first conversation attached through a
-   * registry installs a pi-durable extension in it, `pi-durable-extension-adapter`, with the extensions' tools
-   * and only the hooks some extension listens to, for every conversation attached through it.
+   * registry installs a pi-durable extension in it, `pi-durable-extension-adapter`, with the
+   * extensions' tools and only the hooks some extension listens to, for every conversation attached
+   * through it.
    */
   attach(options: AttachOptions, context: Context): Promise<AttachedExtensions>;
   /** Closes every attached conversation's extensions and stops the workers. */
@@ -301,12 +303,12 @@ class Workers {
   }
 
   release(hosted: HostedWorker, key: string, conversation: AttachedConversation) {
-    hosted.conversations.delete(key);
     this.#orphans.delete(conversation);
+    // Once per opening, as its key is its own.
+    if (!hosted.conversations.delete(key)) return;
     if (hosted.conversations.size > 0 || this.#closed) return;
     // An idle worker is no reason for the process to stay.
     hosted.hold(false);
-    clearTimeout(hosted.idle);
     hosted.idle = setTimeout(() => {
       this.#workers.delete(hosted);
       void hosted.worker.terminate();
@@ -502,7 +504,7 @@ async function attachConversation(
   const { harness, conversation } = options;
   const provider = await harness.snapshot(ProviderDoc, conversation.id, context);
   // A conversation gets its provider session ID when it is created; one from before that gets
-  // it at its first request, so it is keyed by its own ID until then.
+  // it at its first request, so it uses its own ID until then.
   const sessionId = provider?.sessionId ?? `${conversation.id}`;
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
@@ -514,17 +516,20 @@ async function attachConversation(
       close: () => attached.close(),
     };
   } catch (error) {
-    await attached.close();
+    // The caller hears at once, at the time limit or when its context is cancelled; closing goes
+    // on behind it and frees the worker's place when it ends.
+    installation.remove(attached);
+    void attached.close();
     throw error;
   }
 }
 
 /**
- * The pi-durable extension in one registry, `pi-durable-extension-adapter`, shared by the conversations
- * attached through it: its tools and hooks act for the attached conversation they run in. One
- * extension, rather than one per conversation, because pi-durable selects every installed extension
- * for every conversation by default and the same tool names would replace each other; hosts limit
- * it to some conversations with pi-durable's own selection.
+ * The pi-durable extension in one registry, `pi-durable-extension-adapter`, shared by the
+ * conversations attached through it: its tools and hooks act for the attached conversation they
+ * run in. One extension, rather than one per conversation, because pi-durable selects every
+ * installed extension for every conversation by default and the same tool names would replace each
+ * other; hosts limit it to some conversations with pi-durable's own selection.
  */
 class Installation {
   /** The host that installed it. */
@@ -727,8 +732,8 @@ class AttachedConversation {
   readonly #installation: Installation;
   readonly #workers: Workers;
   #opening = false;
-  /** Sources whose extensions failed to load when first opened: not a failure to open them again. */
-  #failed: ReadonlySet<string> | undefined;
+  /** The extensions that loaded at the last opening, by module, each with its source. */
+  #loaded: ReadonlyMap<string, string> | undefined;
   /** The extensions being opened, which hooks and calls wait for. */
   #ready: Promise<unknown> = Promise.resolve();
   /** What the extensions registered, as last read. */
@@ -790,35 +795,34 @@ class AttachedConversation {
     const hosted = this.#workers.acquire(route, this);
     this.#route = route;
     this.#hosted = hosted;
-    let released = false;
-    this.#release = () => {
-      if (released) return;
-      released = true;
-      this.#workers.release(hosted, route, this);
-    };
+    this.#release = () => this.#workers.release(hosted, route, this);
     this.#opening = true;
-    const loading = this.#open(hosted, route, context).finally(() => {
+    // Its own awaits stop at the limit too.
+    const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), context);
+    const loading = this.#open(hosted, route, limited).finally(() => {
       this.#opening = false;
       // Closed, or given up on, while loading: the instance goes when it is done.
       if (this.#closed || this.#hosted !== hosted) void hosted.rpc.close(route).catch(() => {});
     });
-    const opened = awaitWithContext(withinLimit(loading, "Opening the extensions"), context);
+    const opened = awaitWithContext(loading, limited);
     this.#ready = opened.catch(() => {});
     return opened;
   }
 
   async #open(hosted: HostedWorker, route: string, context: Context): Promise<Opened> {
     const { conversation, cwd, flags } = this.#options;
-    const reopening = this.#failed !== undefined;
+    const reopening = this.#loaded !== undefined;
     const opened = await hosted.rpc.open(route, this.sessionId, cwd, flags ?? {});
     this.#stillOn(hosted);
     // Opened again, the extensions keep what they registered before, a `tool_call` gate included,
     // until they are all back: one that loaded before and fails now fails the reopen.
-    const failing = opened.errors.find((each) => this.#failed?.has(each.source) === false);
-    if (failing) {
-      throw new Error(`Extension "${failing.source}" failed to load again: ${failing.message}`);
+    const loaded = new Map(opened.loaded.map((each) => [each.path, each.source]));
+    for (const [module, source] of this.#loaded ?? []) {
+      if (loaded.has(module)) continue;
+      const reason = opened.errors.find((each) => each.source === source)?.message;
+      throw new Error(`Extension "${source}" failed to load again: ${reason ?? "not loaded"}`);
     }
-    this.#failed ??= new Set(opened.errors.map((each) => each.source));
+    this.#loaded = loaded;
     if (!reopening) this.update(opened);
     // Opened again after its worker's exit, or a conversation with entries after a restart, as
     // Pi tells extensions about a session it opens again.
@@ -880,7 +884,7 @@ class AttachedConversation {
     if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
     const changed = toJson(input);
     if (changed === undefined || isDeepStrictEqual(changed, call.arguments)) return undefined;
-    return Guard.IsObject(changed) ? { arguments: changed } : undefined;
+    return Guard.IsObjectNotArray(changed) ? { arguments: changed } : undefined;
   }
 
   async afterTool(call: ToolHookCall, result: ToolExecutionResult, context: Context) {
@@ -1047,7 +1051,7 @@ class AttachedConversation {
     const message = record?.model?.find((each) => each.role === "user");
     if (!record || !message) return userTrigger(newestUserContent(messages));
     if (!record.kind.startsWith("piext.")) return userTrigger(message.content);
-    const data = Guard.IsObject(record.data) ? record.data : {};
+    const data = Guard.IsObjectNotArray(record.data) ? record.data : {};
     return {
       messageType: "custom",
       message: {
@@ -1186,8 +1190,8 @@ class AttachedConversation {
     if (this.#closed) return;
     const started = this.#act(action);
     if (!started) return;
-    // A failure, such as a conversation that closed meanwhile, has no one to report to: Pi's
-    // actions return nothing.
+    // A failure, such as a conversation that closed meanwhile, is dropped: the extension that
+    // acted has gone on, and nothing it could do would change it.
     const settled = started.catch(() => {});
     if (action.type !== "abort" && action.type !== "compact") {
       this.#writes = Promise.all([this.#writes, settled]);
@@ -1457,7 +1461,7 @@ class AttachedConversation {
         const customType = record.kind.slice("piext.".length);
         // A message an extension sent carries what the model sees; `appendEntry`'s carries only data.
         if (first?.role === "user") {
-          const sent = Guard.IsObject(record.data) ? record.data : {};
+          const sent = Guard.IsObjectNotArray(record.data) ? record.data : {};
           entries.push({
             type: "custom_message",
             id,
@@ -1524,14 +1528,14 @@ class AttachedConversation {
 
   async #close() {
     // One time limit for the loading under way and the shutdown handlers.
-    const limit = once(AbortSignal.timeout(STUCK_AFTER_MS), "abort");
-    await Promise.race([this.#ready, limit]);
+    const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
+    await awaitWithContext(this.#ready, limited).catch(() => {});
     this.#installation.remove(this);
     const hosted = this.#hosted;
     if (hosted) {
       // What `session_shutdown` handlers write is kept, as the worker waits for it before it
       // answers; what extensions do after it, or after the time limit, is dropped.
-      await Promise.race([hosted.rpc.close(this.#route).catch(() => {}), limit]);
+      await awaitWithContext(hosted.rpc.close(this.#route), limited).catch(() => {});
     }
     this.#closed = true;
     this.#release?.();
@@ -1540,23 +1544,13 @@ class AttachedConversation {
 
 /**
  * How long opening a conversation's extensions, or closing them, may take before it is given up
- * on. Loading and the session handlers take well under a second (about 180 ms on a new worker with `pi-web-access` and `pi-web-search`), so
- * only a handler that never finishes reaches it. Without a limit, such a handler would hold up
+ * on. Loading and the session handlers take well under a second (about 180 ms on a new worker with
+ * `pi-web-access` and `pi-web-search`), so only a handler that never finishes reaches it. Without a limit, such a handler would hold up
  * `attach`, the conversation's hooks after a reopen, or the end of its work and its place on the
  * worker, until the caller's own deadline, which is sized for a whole job. Pi has no limit, as a
  * person at the terminal ends what hangs; nobody does for an unattended host.
  */
 const STUCK_AFTER_MS = 10_000;
-
-/** `promise`, or a failure naming `what` once it has taken longer than `STUCK_AFTER_MS`. */
-function withinLimit<T>(promise: Promise<T>, what: string): Promise<T> {
-  return Promise.race([
-    promise,
-    once(AbortSignal.timeout(STUCK_AFTER_MS), "abort").then(() => {
-      throw new Error(`${what} took longer than ${STUCK_AFTER_MS} ms`);
-    }),
-  ]);
-}
 
 /** `lines` as a list in a section tagged `name`, as Pi renders its tools and rules; none if empty. */
 function listSection(name: string, lines: readonly string[]) {
@@ -1582,17 +1576,21 @@ const DEFAULT_MAX_BUFFER = Math.min(256 * 1024 * 1024, constants.MAX_STRING_LENG
  * executes.
  */
 function repairArguments(args: unknown, schema: object): unknown {
-  if (!Guard.IsObject(args) || !("properties" in schema) || !Guard.IsObject(schema.properties))
+  if (
+    !Guard.IsObjectNotArray(args) ||
+    !("properties" in schema) ||
+    !Guard.IsObjectNotArray(schema.properties)
+  )
     return args;
   let repaired: Record<string, unknown> | undefined;
   for (const [name, property] of Object.entries(schema.properties)) {
     const value = args[name];
-    if (typeof value !== "string" || !Guard.IsObject(property)) continue;
+    if (typeof value !== "string" || !Guard.IsObjectNotArray(property)) continue;
     const wanted = property.type;
     if (wanted !== "array" && wanted !== "object") continue;
     try {
       const parsed: unknown = JSON.parse(value);
-      if (wanted === "array" ? Array.isArray(parsed) : Guard.IsObject(parsed)) {
+      if (wanted === "array" ? Array.isArray(parsed) : Guard.IsObjectNotArray(parsed)) {
         repaired ??= { ...args };
         repaired[name] = parsed;
       }

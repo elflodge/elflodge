@@ -1,5 +1,4 @@
 import { pathToFileURL } from "node:url";
-// Node's own comparison, not Effect's `Equal`, which would load part of Effect into every worker.
 import { isDeepStrictEqual } from "node:util";
 import { workerData as startData } from "node:worker_threads";
 
@@ -31,7 +30,7 @@ import type {
 } from "./runtime.ts";
 
 // An extension worker: one instance of every extension per conversation it hosts, keyed by the
-// conversation's provider session ID. Modules load once per worker; factories run per instance.
+// host's route for that opening. Modules load once per worker; factories run per instance.
 
 const workerData: WorkerData = startData;
 const runtime: typeof import("./runtime.ts") = await import(pathToFileURL(workerData.runtime).href);
@@ -40,7 +39,7 @@ const loadErrors: ExtensionError[] = [];
 for (const { source, path } of workerData.extensions) {
   try {
     const module: { default?: unknown } = await import(pathToFileURL(path).href);
-    extensions.push({ source, factory: module.default });
+    extensions.push({ source, path, factory: module.default });
   } catch (error) {
     loadErrors.push({ source, message: ensureError(error).message });
   }
@@ -147,7 +146,18 @@ const functions: WorkerFunctions = {
         sendMessage: (...args) => send({ type: "sendMessage", args }),
         sendUserMessage: (content, options) => {
           if (life.signal.aborted) return;
-          const sent = prompt(key, content, options, send);
+          // A failure is reported, as Pi reports a failed `sendUserMessage` (`agent-session.js`),
+          // rather than left unhandled, which would end the worker with every conversation on it.
+          // One after the host let go of the instance has no one to report to and is dropped.
+          const sent = prompt(key, content, options, send).catch((error: unknown) => {
+            const failure = ensureError(error);
+            void host.error(key, {
+              source: "<runtime>",
+              event: "send_user_message",
+              message: failure.message,
+              ...(failure.stack !== undefined && { stack: failure.stack }),
+            });
+          });
           prompts.add(sent);
           void sent.finally(() => prompts.delete(sent));
         },
@@ -208,7 +218,11 @@ const functions: WorkerFunctions = {
       durations: new Map(),
       prompts,
     });
-    return { ...registrations(instance), errors: [...loadErrors, ...instance.errors] };
+    return {
+      ...registrations(instance),
+      errors: [...loadErrors, ...instance.errors],
+      loaded: instance.loaded,
+    };
   },
   registrations: (key) => registrations(instanceFor(key)),
   emit: (key, event) => runnerFor(key).emit(event),
@@ -365,8 +379,7 @@ const functions: WorkerFunctions = {
       // returns once the host has done those writes, so the host's close finds them done.
       read(key, "flush");
     } finally {
-      // The host stops waiting after its time limit and may open the conversation here again.
-      if (instances.get(key) === found) instances.delete(key);
+      instances.delete(key);
       found.life.abort();
     }
   },
@@ -402,12 +415,11 @@ async function prompt(
     return;
   }
   if (result.action === "handled") return;
-  const sent =
-    result.action === "continue"
-      ? content
-      : result.images?.length
-        ? [{ type: "text" as const, text: result.text }, ...result.images]
-        : result.text;
+  // The joined text and the images, as Pi submits them after its `input` handlers.
+  const submitted = result.action === "continue" ? { text, images } : result;
+  const sent = submitted.images?.length
+    ? [{ type: "text" as const, text: submitted.text }, ...submitted.images]
+    : submitted.text;
   send({ type: "sendUserMessage", args: [sent, options] });
 }
 

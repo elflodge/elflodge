@@ -88,8 +88,8 @@ catalog:
   testcontainers: ^12.2.1
   trpc-cli: ^0.17.1
   type-fest: ^5.10.0
-  # The version Pi depends on, so the two share one copy.
-  typebox: 1.3.27
+  # Pi depends on it too; a range lets the package manager share one copy with Pi.
+  typebox: ^1.3.27
   # TypeScript 7.0 only: the declaration build that vite-plus bundles (rolldown-plugin-dts 0.28)
   # recognises 7.0 and fails on 7.1; its 0.29 needs 7.1 (voidzero-dev/vite-plus#3237). Move to 7.1
   # when vite-plus bundles it.
@@ -103,9 +103,9 @@ catalog:
   ws: ^8.22.1
   zod: ^4.6.7
 catalogs:
-  # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its extension view of
-  # pi-ai, the modules whose import registers providers), which a minor release may move, so it
-  # takes patch releases only.
+  # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its
+  # extension view of pi-ai, the modules whose import registers providers), which a minor release
+  # may move, so it takes patch releases only.
   pi-durable-extension-adapter:
     "@earendil-works/pi-coding-agent": ~1.5.0
 

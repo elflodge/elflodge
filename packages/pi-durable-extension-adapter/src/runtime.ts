@@ -81,6 +81,8 @@ export type ModelRegistryFacade = Pick<
 export interface LoadedExtension {
   /** The source it came from, for reports. */
   readonly source: string;
+  /** Its module in the bundle. */
+  readonly path: string;
   /** The module's default export. */
   readonly factory: unknown;
 }
@@ -90,6 +92,8 @@ export interface Instance {
   readonly runner: ExtensionRunner;
   /** Extensions whose factory threw or exported no function, with the reason; the rest run. */
   readonly errors: readonly { readonly source: string; readonly message: string }[];
+  /** The extensions that loaded. */
+  readonly loaded: readonly { readonly source: string; readonly path: string }[];
   /** The events some extension subscribes to now. */
   events(): string[];
 }
@@ -103,7 +107,8 @@ export async function createInstance(
   const bus = createEventBus();
   const records: Extension[] = [];
   const errors: { source: string; message: string }[] = [];
-  for (const { source, factory } of extensions) {
+  const loaded: { source: string; path: string }[] = [];
+  for (const { source, path, factory } of extensions) {
     if (typeof factory !== "function") {
       errors.push({ source, message: "The module does not export a factory function" });
       continue;
@@ -144,14 +149,17 @@ export async function createInstance(
       );
       active = true;
       records.push(record);
+      loaded.push({ source, path });
     } catch (error) {
       failed = true;
       errors.push({ source, message: ensureError(error).message });
     }
   }
   // After the factories, as Pi's SDK sets them (`applyExtensionFlagValues`): a factory reads a
-  // flag's default, its handlers the value given. As there, a name no extension registered, or a
-  // value of the wrong type, is reported and not set; unlike a command line, `false` can be given.
+  // flag's default, its handlers the value given. As there, a name no extension registered is
+  // reported and not set. Unlike there, values are typed rather than command-line text, so `false`
+  // can be given, and a value of the wrong type is reported and not set, where Pi sets any value
+  // of a boolean flag to true.
   const registered = new Map(
     records.flatMap((record) => [...record.flags].map(([name, flag]) => [name, { record, flag }])),
   );
@@ -197,6 +205,7 @@ export async function createInstance(
   return {
     runner,
     errors,
+    loaded,
     events: () => [...new Set(records.flatMap((record) => [...record.handlers.keys()]))],
   };
 }
