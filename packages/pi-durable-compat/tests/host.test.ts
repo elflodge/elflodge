@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import { awaitWithContext, BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, type Message } from "@earendil-works/pi-ai";
 import {
   fauxAssistantMessage,
@@ -19,6 +19,7 @@ import {
   hook,
 } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { expect, onTestFinished, test } from "vite-plus/test";
 
 import { startExtensionHost, type WorkerExit } from "../src/host.ts";
@@ -269,6 +270,69 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
     },
   ]);
   await extensions.close();
+});
+
+test("a run's prompt additions reach its later rounds after the host restarts", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const prepared = await prepareExtensions({
+    sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
+    dir,
+  });
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  let last: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("pause", {})], { stopReason: "toolUse" }),
+    (request) => {
+      last = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  // A tool that waits until the process stops the first time, then returns.
+  const paused = Promise.withResolvers<void>();
+  let restarted = false;
+  const pause = defineTool({
+    name: "pause",
+    description: "Wait",
+    parameters: { type: "object", properties: {} },
+    replay: "safe",
+    async execute(_args, _api, call) {
+      if (restarted) return { output: [{ type: "text", text: "ok" }] };
+      paused.resolve();
+      return awaitWithContext(new Promise<never>(() => {}), call);
+    },
+  });
+  const start = async () => {
+    const registry = createRegistry();
+    registry.install(defineExtension({ name: "app", tools: [pause] }));
+    const host = startExtensionHost({ prepared });
+    const storage = await openNodeSqliteStorage(path.join(dir, "session.db"));
+    const harness = await Harness.open(storage, { models, registry }, context);
+    const conversation = await harness.root(context, {
+      agent: { model: { provider: model.provider, modelId: model.id } },
+    });
+    await host.attach({ harness, conversation, registry, models, cwd: dir }, context);
+    return { host, harness, conversation };
+  };
+
+  const before = await start();
+  const submission = await before.conversation.submit({ type: "input", content: "hi" }, context);
+  await paused.promise;
+  await before.harness.close(context);
+  await before.host.close();
+  restarted = true;
+  const after = await start();
+  onTestFinished(() => after.harness.close(context));
+  onTestFinished(() => after.host.close());
+  await (await after.harness.submission(submission.id, context))?.wait(context);
+
+  const system = last.find((message) => message.role === "system");
+  expect(Object.values(system?.role === "system" ? (system.sections ?? {}) : {})).toContain(
+    "<notes>\nAnswer in French.\n</notes>",
+  );
 });
 
 test("a run the application continues starts once for the extensions", async () => {

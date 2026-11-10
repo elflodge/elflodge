@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { MessageChannel, Worker, type WorkerOptions } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
@@ -33,6 +34,7 @@ import {
   type EntryQuery,
   type EntryRecord,
   type Cursor,
+  defineDoc,
   type Page,
   type PromptInput,
   type PromptSection,
@@ -707,11 +709,6 @@ class AttachedConversation {
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
   #writes: Promise<unknown> = Promise.resolve();
-  /**
-   * What the run's `before_agent_start` handlers added to the system prompt, for its later rounds,
-   * which are generation tasks of their own; a host that restarts during a run loses it.
-   */
-  #runSections: Readonly<Record<string, string>> = {};
   /** The model tools being set, which the next selection waits for. */
   #activation: Promise<void> = Promise.resolve();
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
@@ -901,7 +898,7 @@ class AttachedConversation {
       if (run?.turns === 0 && this.#listens("before_agent_start", "agent_start")) {
         const started = await this.#startRun(run, messages, api, context);
         if (started) {
-          this.#runSections = started.sections;
+          await this.#keepSections(started.sections, api, context);
           messages = [...messages, ...started.sent.map(sentMessage)];
         }
       }
@@ -914,7 +911,8 @@ class AttachedConversation {
           timestamp: Date.now(),
         });
       }
-      messages = withSections(messages, this.#runSections);
+      const kept = await api.snapshot(RunSections, api.conversationId, context);
+      messages = withSections(messages, kept?.sections ?? {});
     }
     if (this.#listens("context", "context_with_system")) {
       messages = await this.#rpc.context(this.key, messages);
@@ -957,6 +955,19 @@ class AttachedConversation {
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
     if (started.selection) this.act({ type: "setActiveTools", ...started.selection });
     return Schema.decodeUnknownSync(RunStart)(kept);
+  }
+
+  /**
+   * Stores the sections a run's start added, for its later rounds, which are generation tasks of
+   * their own that a host restarted meanwhile runs too. Before the request, so that a crash after
+   * it cannot lose them: an attempt after the crash reads the memo and stores them then.
+   */
+  async #keepSections(sections: Readonly<Record<string, string>>, api: HookApi, context: Context) {
+    const kept = await api.snapshot(RunSections, api.conversationId, context);
+    if (isDeepStrictEqual(kept?.sections ?? {}, sections)) return;
+    await this.#options.conversation.commit(async (tx) => {
+      (await tx.doc(RunSections, api.conversationId)).sections = { ...sections };
+    }, context);
   }
 
   /**
@@ -1563,6 +1574,23 @@ type RunStart = typeof RunStart.Type;
 const RunStart = Schema.Struct({
   sections: Schema.Record(Schema.String, Schema.String),
   sent: Schema.Array(Schema.Union([Schema.String, Schema.Array(ContentPart)])),
+});
+
+/**
+ * The system prompt sections the conversation's latest run start added, which each request of the
+ * run sends. A run with no new start, see `#runTrigger`, sends those of the one before, as Pi's
+ * `continue` keeps the system prompt its last prompt set.
+ */
+const RunSections = defineDoc<{ sections?: Record<string, string> }>({
+  kind: "pi-durable-compat.runSections",
+  version: 1,
+  scope: "conversation",
+  history: "latest",
+  // A fork has no run under way.
+  fork: "initial",
+  initial: () => ({}),
+  // Small, and changed once a run at most.
+  checkpointWhen: () => true,
 });
 
 /** A message `before_agent_start` returned, as the request carries it. */
