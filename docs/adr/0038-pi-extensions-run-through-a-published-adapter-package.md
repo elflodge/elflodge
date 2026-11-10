@@ -14,6 +14,7 @@ Measured with `pi-web-search` and `pi-web-access`, PSS per worker on Node 26: ab
 
 ## Considered options
 
+- Extensions in the host's own thread: their synchronous work would stall pi-durable and every conversation (`pi-web-access` parsing a 1.05 MB page blocked its thread for about half a second), and an uncaught error, a `process.exit()` or a full heap would end the host; `resourceLimits` exists only for workers.
 - A process per conversation, or extensions loaded as shipped: about 99 MiB per instance or worker, for a Runner that hosts hundreds of conversations.
 - Building the `pi` object with code of our own, filling Pi's exported `Extension` record as its loader does: about 300 lines that repeat Pi's loader and drift from it with each release. Reaching the loader by path instead pins it to the package's own copy of Pi, so a release that moves the file fails the type check and the build rather than drifting.
 - Pi's loader through `DefaultResourceLoader`'s `extensionFactories`: the disk scans and the memory above.
