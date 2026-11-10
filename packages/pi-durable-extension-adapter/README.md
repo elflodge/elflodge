@@ -18,7 +18,7 @@ It was built for [Elflodge](https://elflodge.com), which runs hundreds of Pi age
 - Your app survives an extension that crashes. An uncaught error, `process.exit()` or a full heap ends only the worker it happened in, and the conversations on that worker get their extensions back on another one.
 - An extension that hangs while it opens or closes cannot stall a conversation's start or end: each has a time limit of 10 s.
 
-Two extensions are tested today, listed under [Tested extensions](#tested-extensions). Where Pi's extension API has no counterpart in pi-durable, or a kind of extension is not supported, the [table of Pi APIs](#what-extensions-get) and the [limits](#limits) say so.
+The extensions tested so far are listed under [Tested extensions](#tested-extensions). Where Pi's extension API has no counterpart in pi-durable, or a kind of extension is not supported, the [table of Pi APIs](#what-extensions-get) and the [limits](#limits) say so.
 
 ## Quick start
 
@@ -218,7 +218,7 @@ Only the extensions in this table are tested. An extension outside it has what t
 - Extensions can do anything your process can, as in Pi: they run in its worker threads with its permissions. Only `pi.exec` goes through the `env` you give `attach`, so a sandboxed `env` does not contain an extension that reads files or starts programs itself. Install only extensions you trust.
 - An extension's module-level state is shared by the conversations on its worker, where in Pi one session has the process to itself. State kept in its factory is per conversation.
 - A crash inside a native add-on ends your whole process; worker threads share it.
-- Extensions that change model requests by intercepting `fetch`, as `billion-context` does, see no requests: they run in worker threads, and pi-durable makes model calls outside them, in your app.
+- `billion-context` does not work, nor do other extensions that route model requests through a proxy of their own. They intercept `fetch`, which sees no requests in a worker thread, as pi-durable makes model calls outside it, in your app; or they change a provider's base URL with `registerProvider`, which is not supported.
 - Extensions that run work in Pi processes of their own, as `pi-subagents` does for its subagents, are not supported.
 - After a crash of your process, pi-durable does not run an interrupted extension tool again.
 
