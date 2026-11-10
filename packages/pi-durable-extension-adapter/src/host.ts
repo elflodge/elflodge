@@ -797,8 +797,8 @@ class AttachedConversation {
   /** The extensions being opened, which hooks and calls wait for. */
   #ready: Promise<unknown> = Promise.resolve();
   /**
-   * Whether the extensions have had the end of the latest run that answered, by the run's
-   * generation: `close` waits for it.
+   * The latest run that answered, by its generation, and when its end has reached the extensions,
+   * which `close` waits for.
    */
   #runEnd: { taskId: TaskId; delivered: PromiseWithResolvers<void> } | undefined;
   /** What the extensions registered, as last read. */
@@ -1659,7 +1659,8 @@ class AttachedConversation {
    * On its own time limit, so that it leaves the shutdown handlers theirs.
    */
   async #awaitRunEnd() {
-    if (!this.#listens(...RUN_END_EVENTS)) return;
+    // Without a worker, its end cannot reach them.
+    if (!this.#hosted || !this.#listens(...RUN_END_EVENTS)) return;
     const { harness, conversation } = this.#options;
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     try {
@@ -1692,9 +1693,10 @@ class AttachedConversation {
 
 /**
  * How long opening a conversation's extensions, closing them, or delivering a run's end before
- * closing may take before it is given up on. Loading and the session handlers take well under a second (about 180 ms on a new worker with
- * `pi-web-access` and `pi-web-search`), so only a handler that never finishes reaches it. Without a
- * limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
+ * closing may take before it is given up on. Loading and the session handlers take well under a
+ * second (about 180 ms on a new worker with `pi-web-access` and `pi-web-search`), and a run's end as
+ * long as its handlers, such as one flushing a trace, so only a handler that hangs or runs unusually
+ * long reaches it. Without a limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
  * of its work and its place on the worker, until the caller's own deadline, which is sized for a
  * whole job. Pi has no limit, as a person at the terminal ends what hangs; nobody does for an
  * unattended host. It is wall time: a worker that another conversation's synchronous work keeps

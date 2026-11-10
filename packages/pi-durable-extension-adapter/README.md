@@ -98,7 +98,7 @@ The packages Pi supplies to extensions (`pi-ai`, `pi-agent-core`, `pi-coding-age
 
 A handler that throws does not end the conversation, as in Pi. The error is passed to `onError` with the extension, the event and the error's message and stack.
 
-Opening and closing have a time limit of 10 s each. `attach` waits for the extensions to load and for their `session_start` handlers; past the limit it fails. `close` first waits for the end of a run that answered to reach the extensions, then for their `session_shutdown` handlers, with a limit of 10 s for each; past a limit it goes on, and what the handlers do later is dropped. Tool calls and other handlers have no time limit.
+Opening and closing have time limits of 10 s. `attach` waits for the extensions to load and for their `session_start` handlers; past the limit it fails. `close` first waits for the end of a run that answered to reach the extensions, then for their `session_shutdown` handlers, with a limit of 10 s for each; past a limit it goes on, and what the handlers do later is dropped. Tool calls and other handlers have no time limit.
 
 `close` waits for a run's end because `submission.wait()` resolves at the answer, before the run's `agent_end` and `agent_settled` reach the extensions; closing right after it would otherwise end the session before the run. It does not wait for a run still under way, which goes on without the extensions after their `session_shutdown`, where Pi aborts it first; nor for input you queued, or for child conversations. To let those finish, await `conversation.waitForIdle(context)` before `close`; to end a run first, as Pi does, abort it with `conversation.abort(context)` and then wait.
 
