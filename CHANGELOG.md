@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.0](https://github.com/elflodge/elflodge/compare/v0.7.1...v0.8.0) (2026-11-10)
+
+
+### Features
+
+* **cli:** package batch automation skill for Pi ([#116](https://github.com/elflodge/elflodge/issues/116)) ([0cdc2b9](https://github.com/elflodge/elflodge/commit/0cdc2b9f77a901463e52d4ac98ca1d573abcec0a))
+* **pi-durable-extension-adapter:** report tool progress and context usage to extensions ([#130](https://github.com/elflodge/elflodge/issues/130)) ([541d947](https://github.com/elflodge/elflodge/commit/541d947a34ee5e05bb7c58d0253aba704377542b))
+* **pi-durable-extension-adapter:** run Pi extensions on pi-durable ([#115](https://github.com/elflodge/elflodge/issues/115)) ([3dc50e6](https://github.com/elflodge/elflodge/commit/3dc50e6eff30c166c32df187c58fbfefd5c75d56))
+* **runner:** warm prompt caches before starting peer jobs ([#111](https://github.com/elflodge/elflodge/issues/111)) ([65d162e](https://github.com/elflodge/elflodge/commit/65d162e6634126a78cdbc38ba68a820ef0f71dac))
+
+
+### Bug Fixes
+
+* **pi-durable-extension-adapter:** end an answered run before closing its extensions ([#129](https://github.com/elflodge/elflodge/issues/129)) ([19c022f](https://github.com/elflodge/elflodge/commit/19c022f7f18ca32544b97e635765214aef7c43e5))
+* **pi-durable-extension-adapter:** give each conversation its own extension ([#126](https://github.com/elflodge/elflodge/issues/126)) ([ce8f38b](https://github.com/elflodge/elflodge/commit/ce8f38bddd865cf00c3f87abc48233ae38dc9e05))
+* **pi-durable-extension-adapter:** offer tools registered after setActiveTools ([#124](https://github.com/elflodge/elflodge/issues/124)) ([0df42b3](https://github.com/elflodge/elflodge/commit/0df42b3ccf6f8a0c9ffb0c0ffe8a19a604f9b75e))
+
 ## [0.7.1](https://github.com/elflodge/elflodge/compare/v0.7.0...v0.7.1) (2026-11-08)
 
 
