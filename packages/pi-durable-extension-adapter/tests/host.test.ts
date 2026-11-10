@@ -14,6 +14,7 @@ import {
   fauxText,
   fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
+import { calculateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
   type Conversation,
   createRegistry,
@@ -408,6 +409,18 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and sele
         "agent_end",
         "agent_settled",
       ],
+    },
+  });
+  // How full the context was then: the answer's usage, as it is the newest message, of the
+  // model's window.
+  const answer = (await conversation.context(context)).messages.at(-1);
+  const tokens = answer?.role === "assistant" ? calculateContextTokens(answer.usage) : undefined;
+  expect(tokens).toBeGreaterThan(0);
+  expect(saved?.data).toMatchObject({
+    usage: {
+      tokens,
+      contextWindow: model.contextWindow,
+      percent: ((tokens ?? 0) / model.contextWindow) * 100,
     },
   });
 });

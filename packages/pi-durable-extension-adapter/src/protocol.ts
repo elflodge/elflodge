@@ -2,6 +2,7 @@ import type { MessagePort } from "node:worker_threads";
 
 import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import type {
+  ContextUsage,
   ExecOptions,
   ExecResult,
   ExtensionActions,
@@ -218,6 +219,7 @@ export interface Reads {
   getEntry(id: string): SessionEntry | undefined;
   getLeafId(): string | null;
   getModel(): Model<Api> | undefined;
+  getContextUsage(): ContextUsage | undefined;
   getThinkingLevel(): ThinkingLevel;
   isIdle(): boolean;
   getActiveTools(): string[];

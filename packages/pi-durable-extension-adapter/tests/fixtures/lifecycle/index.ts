@@ -20,8 +20,10 @@ export default function extension(pi: ExtensionAPI) {
     "agent_settled",
   ] as const;
   for (const event of events) pi.on(event, () => void seen.push(event));
-  // What it saw by the end of the session, kept with the conversation.
-  pi.on("session_shutdown", () => pi.appendEntry("seen", { events: seen }));
+  // What it saw by the end of the session, and how full the context was, kept with the conversation.
+  pi.on("session_shutdown", (_event, ctx) =>
+    pi.appendEntry("seen", { events: seen, usage: ctx.getContextUsage() }),
+  );
   pi.on("before_agent_start", (event) => {
     seen.push(`before_agent_start ${event.prompt}`);
     event.systemPromptOptions.sections.notes = "Answer in French.";

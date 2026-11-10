@@ -203,7 +203,7 @@ const functions: WorkerFunctions = {
         abort: () => send({ type: "abort" }),
         hasPendingMessages: () => false,
         shutdown: () => send({ type: "shutdown" }),
-        getContextUsage: () => undefined,
+        getContextUsage: () => read(key, "getContextUsage"),
         compact: (options) => send({ type: "compact", instructions: options?.customInstructions }),
         getSystemPrompt: () => "",
       },

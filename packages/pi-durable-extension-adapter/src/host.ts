@@ -21,8 +21,10 @@ import type {
   Model,
   Models,
 } from "@earendil-works/pi-ai";
+import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type {
+  ContextUsage,
   ExecResult,
   InputEvent,
   InputEventResult,
@@ -1525,6 +1527,8 @@ class AttachedConversation {
         const { model } = await conversation.agent(context);
         return model && this.models.getModel(model.provider, model.modelId);
       }
+      case "getContextUsage":
+        return this.#contextUsage();
       case "getThinkingLevel":
         return (await conversation.agent(context)).thinkingLevel;
       case "isIdle":
@@ -1554,6 +1558,29 @@ class AttachedConversation {
     }
     const unknown: never = method;
     throw new Error(`Unknown read ${String(unknown)}`);
+  }
+
+  /**
+   * How full the next request's context is, as pi-durable sizes it to decide on compaction: the
+   * newest answer's usage plus estimates of the messages after it. Right after a compaction it is
+   * estimated, where Pi's is unknown until the next answer.
+   *
+   * pi-durable does not export its own estimate, so pi-ai's stands in. pi-ai drops an answer's usage
+   * when a message ahead of it is newer, as a compaction's summary is; pi-durable when the answer was
+   * placed before the summary. They agree unless an answer's request started after the summary was
+   * written and before it was placed, as a retry during a compaction can, or the clocks of the hosts
+   * of one conversation disagree: then the answer's usage, from before the compaction, overstates
+   * the context until the next answer. An extension that compacts above a threshold may then compact
+   * again; pi-durable's own compaction is unaffected.
+   */
+  async #contextUsage(): Promise<ContextUsage | undefined> {
+    const { conversation } = this.#options;
+    const { model: ref } = await conversation.agent(BACKGROUND_CONTEXT);
+    const contextWindow = ref && this.models.getModel(ref.provider, ref.modelId)?.contextWindow;
+    if (!contextWindow || contextWindow <= 0) return undefined;
+    const { messages } = await conversation.context(BACKGROUND_CONTEXT);
+    const { tokens } = estimateContextTokens(messages);
+    return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
   }
 
   /**
