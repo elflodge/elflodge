@@ -77,9 +77,18 @@ const ENTRY_SUFFIX = ".pi-durable-compat.mjs";
 const ADDON = /\.node$/;
 
 /**
- * Packages that load a file of their own from beside their code, which stay where they are
- * installed rather than move into the bundle: Photon, Pi's image library, reads its WebAssembly
- * next to its module.
+ * Dependencies of the coding agent itself, not of extensions, that stay where they are installed
+ * rather than move into the bundle, because they load a file of their own from beside their code.
+ * Photon, Pi's image library, reads its WebAssembly next to its module; Pi's own build copies that
+ * file beside its code for the same reason. Moved, Pi's image resizing returns nothing.
+ *
+ * The list follows the coding agent this package pins, not the extensions a host installs: an
+ * extension finds its own files because its entry is written beside its source, and native add-ons
+ * stay installed by `ADDON`. Leaving every dependency installed instead would make the list
+ * unnecessary, but then dependencies import Pi's packages without the bundle's aliases, and ship
+ * code Node will not run from `node_modules`, for no saving in memory. Recheck the list with each
+ * Pi minor release, which needs a tested release of this package anyway: a new dependency of Pi
+ * that reads its own files belongs here.
  */
 const LEFT_INSTALLED = /[\\/]node_modules[\\/]@silvia-odwyer[\\/]photon-node[\\/]/;
 
