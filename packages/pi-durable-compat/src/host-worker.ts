@@ -378,7 +378,8 @@ function promptSections(
   invalid: (name: string) => void,
 ): Record<string, string> {
   const sections: Record<string, string> = {};
-  // Keyed apart from pi-durable's own sections, which the same request carries.
+  // Rendered as Pi renders a section, and keyed apart from pi-durable's own sections, which the
+  // same request carries: unprefixed, an extension's `rules` would replace pi-durable's.
   const tagged = (name: string, content: string) => {
     sections[`pi-extensions.${name}`] = `<${name}>\n${content}\n</${name}>`;
   };
@@ -493,6 +494,8 @@ const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   post: (message) => workerData.rpc.postMessage(message),
   on: (handler) => workerData.rpc.on("message", handler),
+  // No time limit: `exec` and model calls run as long as they need, and the host either answers or
+  // ends this worker, and its calls with it.
   timeout: -1,
   // Notices that need no answer, so none is left waiting when the worker or the host goes.
   eventNames: ["changed", "cancelExec", "error"],

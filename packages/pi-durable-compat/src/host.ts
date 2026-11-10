@@ -297,6 +297,8 @@ class Workers {
     const client = createBirpc<WorkerFunctions, HostFunctions>(functions, {
       post: (message) => port.postMessage(message),
       on: (handler) => port.on("message", handler),
+      // No time limit: tools and hooks run as long as they need; the worker's exit rejects what is
+      // pending.
       timeout: -1,
       // A notice that needs no answer, so none is left waiting when the worker exits.
       eventNames: ["cancelTool"],

@@ -79,16 +79,17 @@ const ADDON = /\.node$/;
 /**
  * Dependencies of the coding agent itself, not of extensions, that stay where they are installed
  * rather than move into the bundle, because they load a file of their own from beside their code.
- * Photon, Pi's image library, reads its WebAssembly next to its module; Pi's own build copies that
- * file beside its code for the same reason. Moved, Pi's image resizing returns nothing.
+ * Photon, Pi's image library, reads its WebAssembly next to its module; Pi's own npm bundle leaves
+ * it external for the same reason. Moved, Pi's image resizing returns nothing.
  *
  * The list follows the coding agent this package pins, not the extensions a host installs: an
- * extension finds its own files because its entry is written beside its source, and native add-ons
+ * extension's entry is written beside its source, so files read relative to the entry are found
+ * (code shared between entries moves to `bundle/chunks`, where they are not), and native add-ons
  * stay installed by `ADDON`. Leaving every dependency installed instead would make the list
  * unnecessary, but then dependencies import Pi's packages without the bundle's aliases, and ship
  * code Node will not run from `node_modules`, for no saving in memory. Recheck the list with each
- * Pi minor release, which needs a tested release of this package anyway: a new dependency of Pi
- * that reads its own files belongs here.
+ * Pi minor release, which needs a tested release of this package anyway: a dependency Pi's npm
+ * bundle leaves external that reads its own files belongs here.
  */
 const LEFT_INSTALLED = /[\\/]node_modules[\\/]@silvia-odwyer[\\/]photon-node[\\/]/;
 
@@ -121,8 +122,8 @@ async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
  * and the shared chunks go in `<dir>/bundle`.
  * It builds on every call, in about a second, so no change to an extension, to Pi or to this package
  * can leave an old build in use. Add a cache only if prepare comes to run per job or the build grows
- * slow. When the combined build fails, each extension is tried with the
- * runtime alone, without writing, and the build is made of those that pass; the others are failures.
+ * slow. When the combined build fails, each extension is tried with the runtime alone, without
+ * writing, and the build is made of those that pass; the others are failures.
  */
 async function bundle(found: PreparedExtension[], dir: string): Promise<PreparedExtensions> {
   const outDir = path.join(dir, "bundle");
