@@ -120,7 +120,8 @@ async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
  * templates, WebAssembly) are where it looks; the runtime, extensions from local paths outside `dir`
  * and the shared chunks go in `<dir>/bundle`.
  * It builds on every call, in about a second, so no change to an extension, to Pi or to this package
- * can leave an old build in use. When the combined build fails, each extension is tried with the
+ * can leave an old build in use. Add a cache only if prepare comes to run per job or the build grows
+ * slow. When the combined build fails, each extension is tried with the
  * runtime alone, without writing, and the build is made of those that pass; the others are failures.
  */
 async function bundle(found: PreparedExtension[], dir: string): Promise<PreparedExtensions> {
