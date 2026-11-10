@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { awaitWithContext, BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import {
+  awaitWithContext,
+  BACKGROUND_CONTEXT as context,
+  withAbortSignal,
+} from "@earendil-works/chord/context";
 import { createModels, type Message } from "@earendil-works/pi-ai";
 import {
   fauxAssistantMessage,
@@ -489,6 +493,33 @@ test("extensions read the flag values given to attach, and an unknown one is rep
 
   expect(toolResults(seen)).toEqual([{ tool: "greet", text: "bonjour", isError: false }]);
   await extensions.close();
+});
+
+test("attach stops waiting for extensions that never open once its context is cancelled", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "stuck")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+
+  const models = createModels();
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {});
+  const started = performance.now();
+  const attaching = host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    withAbortSignal(AbortSignal.timeout(100), context),
+  );
+
+  // The caller's own deadline, well before the package's limit for stuck extensions.
+  await expect(attaching).rejects.toMatchObject({ name: "TimeoutError" });
+  expect(performance.now() - started).toBeLessThan(2_000);
 });
 
 /** A conversation with a fixture extension, by default `worker`, and a tool of the application's own, `echo`. */
