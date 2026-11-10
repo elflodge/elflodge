@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 import { MessageChannel, Worker, type WorkerOptions } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
+import {
+  awaitWithContext,
+  BACKGROUND_CONTEXT,
+  withAbortSignal,
+} from "@earendil-works/chord/context";
 import type {
   Api,
   AssistantMessage,
@@ -102,14 +106,6 @@ export interface ExtensionHostOptions {
    * goes on. Default: written to standard error, as Pi's print mode writes it.
    */
   readonly onError?: (error: HandlerError, conversation: ConversationId) => void;
-  /**
-   * How long closing a conversation's extensions waits for their `session_shutdown` handlers, in
-   * milliseconds, before it goes on and drops what they do later, and how long opening them again
-   * after their worker exited may take before they count as lost. Default 10 s. Pi waits without a
-   * limit, but here one stuck handler would hold up `close`, the host's too, or a conversation's
-   * hooks.
-   */
-  readonly closeTimeout?: number;
   /**
    * Node's options for the worker threads: `resourceLimits` caps their JavaScript heap, so a worker
    * that fills it exits alone and the process goes on (memory outside the heap, such as buffers,
@@ -279,11 +275,9 @@ class Workers {
    */
   readonly #orphans = new Set<AttachedConversation>();
   #closed = false;
-  readonly closeTimeout: number;
 
   constructor(options: ExtensionHostOptions) {
     this.#options = options;
-    this.closeTimeout = options.closeTimeout ?? 10_000;
   }
 
   acquire(key: string, conversation: AttachedConversation): HostedWorker {
@@ -603,11 +597,12 @@ class Installation {
       hooks.push(
         hook(ToolTask, {
           ...(has("tool_call", "tool_execution_start") && {
-            beforeTool: async (call, api) => this.#for(api)?.beforeTool(call),
+            beforeTool: async (call, api, context) => this.#for(api)?.beforeTool(call, context),
           }),
           // Whenever `beforeTool` is installed too, as the worker ends there the calls it started,
           // and starts the calls pi-durable rejected before its hooks.
-          afterTool: async (call, result, api) => this.#for(api)?.afterTool(call, result),
+          afterTool: async (call, result, api, context) =>
+            this.#for(api)?.afterTool(call, result, context),
         }),
       );
     }
@@ -617,8 +612,8 @@ class Installation {
           this.#for(api)?.beforeRequest(request, api, context),
       }),
       ...(has("before_provider_request") && {
-        beforeProviderRequest: async (request, api) =>
-          this.#for(api)?.beforeProviderRequest(request),
+        beforeProviderRequest: async (request, api, context) =>
+          this.#for(api)?.beforeProviderRequest(request, context),
       }),
       ...(has("message_end", "turn_end") && {
         afterResponse: async (message, api, context) =>
@@ -639,7 +634,8 @@ class Installation {
     if (has("session_before_compact")) {
       hooks.push(
         hook(CompactionTask, {
-          beforeCompact: async (compaction, api) => this.#for(api)?.beforeCompact(compaction),
+          beforeCompact: async (compaction, api, context) =>
+            this.#for(api)?.beforeCompact(compaction, context),
         }),
       );
     }
@@ -798,11 +794,12 @@ class AttachedConversation {
       this.#workers.release(hosted, route, this);
     };
     this.#opening = true;
-    const opened = this.#open(hosted, route, context).finally(() => {
+    const loading = this.#open(hosted, route, context).finally(() => {
       this.#opening = false;
-      // Closed, or given up on, while loading past a time limit: the instance goes when it is done.
+      // Closed, or given up on, while loading: the instance goes when it is done.
       if (this.#closed || this.#hosted !== hosted) void hosted.rpc.close(route).catch(() => {});
     });
+    const opened = awaitWithContext(withinLimit(loading, "Opening the extensions"), context);
     this.#ready = opened.catch(() => {});
     return opened;
   }
@@ -837,20 +834,10 @@ class AttachedConversation {
     if (this.#hosted !== hosted) throw new Error("The extensions stopped loading on this worker");
   }
 
-  /** Opens the extensions again on another worker after theirs exited, within `closeTimeout`. */
+  /** Opens the extensions again on another worker after theirs exited. */
   async reopen() {
-    // A start that never ends would keep the conversation's hooks waiting, so past the time limit
-    // the reopen fails.
-    const limit = this.#workers.closeTimeout;
-    const reopened = Promise.race([
-      this.open(BACKGROUND_CONTEXT),
-      once(AbortSignal.timeout(limit), "abort").then(() => {
-        throw new Error(`Opening the extensions again took longer than ${limit} ms`);
-      }),
-    ]);
-    this.#ready = reopened.catch(() => {});
     try {
-      await reopened;
+      await this.open(BACKGROUND_CONTEXT);
     } catch (error) {
       // On a worker that is still running, its instance and its place go, and the conversation is
       // lost as on an exit.
@@ -872,8 +859,8 @@ class AttachedConversation {
     this.#installation.refresh();
   }
 
-  async beforeTool(call: ToolHookCall) {
-    await this.#ready;
+  async beforeTool(call: ToolHookCall, context: Context) {
+    await awaitWithContext(this.#ready, context);
     if (this.#closed) return undefined;
     // Extensions that gate tool calls block them once their worker exited, as Pi blocks a call
     // when a `tool_call` handler fails (`agent-session.js`); without a gate, calls go on.
@@ -893,8 +880,8 @@ class AttachedConversation {
     return Predicate.isObject(changed) ? { arguments: changed } : undefined;
   }
 
-  async afterTool(call: ToolHookCall, result: ToolExecutionResult) {
-    await this.#ready;
+  async afterTool(call: ToolHookCall, result: ToolExecutionResult, context: Context) {
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return undefined;
     const changed = await this.#rpc.toolResult(this.#route, {
       type: "tool_result",
@@ -930,7 +917,7 @@ class AttachedConversation {
     api: HookApi,
     context: Context,
   ) {
-    await this.#ready;
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return undefined;
     let messages = [...request.messages];
     if (this.#listens("before_agent_start", "agent_start", "turn_start")) {
@@ -1074,7 +1061,7 @@ class AttachedConversation {
    * calling once another extension's hook continues the run.
    */
   async afterResponse(message: AssistantMessage, api: HookApi, context: Context) {
-    await this.#ready;
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return;
     if (this.#listens("message_end")) await this.#rpc.messageEnd(this.#route, message);
     // A tool round's `turn_end` comes from `afterTools`; pi-durable starts one only for a response
@@ -1099,7 +1086,7 @@ class AttachedConversation {
 
   /** `turn_end` for a tool round, from the committed entries: the hook's `results` can be empty. */
   async turnEnd(assistant: EntryId, api: HookApi, context: Context) {
-    await this.#ready;
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     const [first, ...rest] = await records(api, { minEntryId: assistant }, context);
@@ -1124,7 +1111,7 @@ class AttachedConversation {
 
   /** `agent_end` with the run's messages; pi-durable has no hook for a run that fails or aborts. */
   async agentEnd(run: RunSummary, api: HookApi, context: Context) {
-    await this.#ready;
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return;
     const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
     const messages = range.flatMap((record) => record.model ?? []);
@@ -1132,13 +1119,16 @@ class AttachedConversation {
   }
 
   /** `session_before_compact`: a cancel declines the compaction, a summary replaces pi-durable's. */
-  async beforeCompact(compaction: {
-    readonly reason: CompactionReason;
-    readonly messages: readonly Message[];
-    readonly firstKept: EntryId;
-    readonly instructions?: string;
-  }) {
-    await this.#ready;
+  async beforeCompact(
+    compaction: {
+      readonly reason: CompactionReason;
+      readonly messages: readonly Message[];
+      readonly firstKept: EntryId;
+      readonly instructions?: string;
+    },
+    context: Context,
+  ) {
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return undefined;
     const decision = await this.#rpc.beforeCompact(this.#route, {
       reason: compaction.reason,
@@ -1151,14 +1141,14 @@ class AttachedConversation {
     return "cancel" in decision ? { decline: true as const } : { summary: decision.summary };
   }
 
-  async beforeProviderRequest(request: { readonly payload: unknown }) {
-    await this.#ready;
+  async beforeProviderRequest(request: { readonly payload: unknown }, context: Context) {
+    await awaitWithContext(this.#ready, context);
     if (!this.#running) return undefined;
     return { payload: await this.#rpc.providerRequest(this.#route, request.payload) };
   }
 
   async executeTool(name: string, args: unknown, callId: string, context: Context) {
-    await this.#ready;
+    await awaitWithContext(this.#ready, context);
     context.abortSignal?.throwIfAborted();
     const abort = () => void this.#hosted?.rpc.cancelTool(this.#route, callId);
     context.abortSignal?.addEventListener("abort", abort, { once: true });
@@ -1527,7 +1517,7 @@ class AttachedConversation {
 
   async #close() {
     // One time limit for the loading under way and the shutdown handlers.
-    const limit = once(AbortSignal.timeout(this.#workers.closeTimeout), "abort");
+    const limit = once(AbortSignal.timeout(STUCK_AFTER_MS), "abort");
     await Promise.race([this.#ready, limit]);
     this.#installation.remove(this);
     const hosted = this.#hosted;
@@ -1539,6 +1529,26 @@ class AttachedConversation {
     this.#closed = true;
     this.#release?.();
   }
+}
+
+/**
+ * How long opening a conversation's extensions, or closing them, may take before it is given up
+ * on. Loading and the session handlers take well under a second (about 180 ms on a new worker with `pi-web-access` and `pi-web-search`), so
+ * only a handler that never finishes reaches it. Without a limit, such a handler would hold up
+ * `attach`, the conversation's hooks after a reopen, or the end of its work and its place on the
+ * worker, until the caller's own deadline, which is sized for a whole job. Pi has no limit, as a
+ * person at the terminal ends what hangs; nobody does for an unattended host.
+ */
+const STUCK_AFTER_MS = 10_000;
+
+/** `promise`, or a failure naming `what` once it has taken longer than `STUCK_AFTER_MS`. */
+function withinLimit<T>(promise: Promise<T>, what: string): Promise<T> {
+  return Promise.race([
+    promise,
+    once(AbortSignal.timeout(STUCK_AFTER_MS), "abort").then(() => {
+      throw new Error(`${what} took longer than ${STUCK_AFTER_MS} ms`);
+    }),
+  ]);
 }
 
 /** `lines` as a list in a section tagged `name`, as Pi renders its tools and rules; none if empty. */
