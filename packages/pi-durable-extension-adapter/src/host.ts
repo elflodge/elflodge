@@ -62,6 +62,7 @@ import {
   type Conversation,
   type ToolExecutionResult,
   type ToolHookCall,
+  type TaskId,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
@@ -689,7 +690,7 @@ class Installation {
         afterTools: async (assistant, _results, api, context) =>
           this.#for(owner, api)?.turnEnd(assistant, api, context),
       }),
-      ...(has("agent_end") && {
+      ...(has(...RUN_END_EVENTS) && {
         afterRun: async (run, api, context) => {
           await this.#for(owner, api)?.agentEnd(run, api, context);
           return undefined;
@@ -795,6 +796,11 @@ class AttachedConversation {
   #loaded: ReadonlyMap<string, string> | undefined;
   /** The extensions being opened, which hooks and calls wait for. */
   #ready: Promise<unknown> = Promise.resolve();
+  /**
+   * The latest run that answered, by its generation, and when its end has reached the extensions,
+   * which `close` waits for.
+   */
+  #runEnd: { taskId: TaskId; delivered: PromiseWithResolvers<void> } | undefined;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
@@ -1194,13 +1200,34 @@ class AttachedConversation {
     });
   }
 
-  /** `agent_end` with the run's messages; pi-durable has no hook for a run that fails or aborts. */
+  /**
+   * `agent_end` with the run's messages, then `agent_settled`, as Pi ends a run; pi-durable has no
+   * hook for a run that fails or aborts.
+   */
   async agentEnd(run: RunSummary, api: HookApi, context: Context) {
-    await awaitWithContext(this.#ready, context);
-    if (!this.#running) return;
-    const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
-    const messages = range.flatMap((record) => record.model ?? []);
-    await this.#rpc.emit(this.#route, { type: "agent_end", messages });
+    try {
+      await awaitWithContext(this.#ready, context);
+      if (!this.#running) return;
+      if (this.#listens("agent_end")) {
+        const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
+        const messages = range.flatMap((record) => record.model ?? []);
+        await this.#rpc.emit(this.#route, { type: "agent_end", messages });
+      }
+      // A run that answered was not aborted.
+      if (this.#listens("agent_settled")) {
+        await this.#rpc.emit(this.#route, { type: "agent_settled", aborted: false });
+      }
+    } finally {
+      this.#runEndOf(api.taskId).delivered.resolve();
+    }
+  }
+
+  /** The end of the run whose generation is `taskId`, started on first use; only the latest is kept. */
+  #runEndOf(taskId: TaskId) {
+    if (this.#runEnd?.taskId !== taskId) {
+      this.#runEnd = { taskId, delivered: Promise.withResolvers() };
+    }
+    return this.#runEnd;
   }
 
   /** `session_before_compact`: a cancel declines the compaction, a summary replaces pi-durable's. */
@@ -1612,6 +1639,8 @@ class AttachedConversation {
    */
   lost() {
     this.#hosted = undefined;
+    // Its end can no longer reach them, so `close` waits no longer.
+    this.#runEnd?.delivered.resolve();
     // Their worker can no longer read the result, and a new one numbers its commands afresh.
     for (const each of this.#execs.values()) each.abort();
     this.#execs.clear();
@@ -1622,7 +1651,31 @@ class AttachedConversation {
     return this.#closing;
   }
 
+  /**
+   * Waits for the end of a run that answered to reach the extensions and their handlers to return,
+   * when it has not yet. `submission.wait()` resolves at the answer, before pi-durable asks the
+   * `afterRun` hooks, so closing right after it would end the session before the run. Not a run
+   * under way, whose end may be far off, nor queued input or child work, which `waitForIdle` covers.
+   * On its own time limit, so that it leaves the shutdown handlers theirs.
+   */
+  async #awaitRunEnd() {
+    // Without a worker, its end cannot reach them.
+    if (!this.#hosted || !this.#listens(...RUN_END_EVENTS)) return;
+    const { harness, conversation } = this.#options;
+    const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
+    try {
+      const run = (await harness.snapshot(LiveDoc, conversation.id, limited))?.run;
+      // `afterRun` is set at the answer, and its `tasks` once every hook has returned.
+      if (run?.afterRun === undefined || run.afterRun.tasks !== undefined) return;
+      await awaitWithContext(this.#runEndOf(run.taskId).delivered.promise, limited);
+    } catch {
+      // Past the limit, such as behind another extension's `afterRun` hook that waits for this
+      // `close`, or with the Harness closed, the extensions close without the run's end.
+    }
+  }
+
   async #close() {
+    await this.#awaitRunEnd();
     // One time limit for the loading under way and the shutdown handlers.
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(this.#ready, limited).catch(() => {});
@@ -1639,10 +1692,11 @@ class AttachedConversation {
 }
 
 /**
- * How long opening a conversation's extensions, or closing them, may take before it is given up
- * on. Loading and the session handlers take well under a second (about 180 ms on a new worker with
- * `pi-web-access` and `pi-web-search`), so only a handler that never finishes reaches it. Without a
- * limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
+ * How long opening a conversation's extensions, closing them, or delivering a run's end before
+ * closing may take before it is given up on. Loading and the session handlers take well under a
+ * second (about 180 ms on a new worker with `pi-web-access` and `pi-web-search`), and a run's end as
+ * long as its handlers, such as one flushing a trace, so only a handler that hangs or runs unusually
+ * long reaches it. Without a limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
  * of its work and its place on the worker, until the caller's own deadline, which is sized for a
  * whole job. Pi has no limit, as a person at the terminal ends what hangs; nobody does for an
  * unattended host. It is wall time: a worker that another conversation's synchronous work keeps
@@ -1739,6 +1793,9 @@ const ContentPart = Type.Union([
 ]);
 const isContentPart = (value: unknown): value is Static<typeof ContentPart> =>
   Value.Check(ContentPart, value);
+
+/** The events that end a run that answered, which its `afterRun` hook dispatches. */
+const RUN_END_EVENTS = ["agent_end", "agent_settled"];
 
 /** The events a request's hook dispatches. */
 const REQUEST_EVENTS = [
