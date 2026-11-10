@@ -87,7 +87,7 @@ Give `dir` a directory that is kept between starts and used by one process at a 
 
 Call `prepareExtensions` once per process. It builds the bundle again on every call, which takes about a second, so a second call would rebuild the bundle that a running host's workers load. It runs in a child process, which takes several hundred MiB for a few extensions and gives them back when it exits.
 
-The packages Pi supplies to extensions (`pi-ai`, `pi-agent-core`, `pi-coding-agent`, `pi-tui` and TypeBox, under their current and former names) come from this package's own copy of the coding agent, so every extension runs on the Pi version this package was tested with. That copy is pinned to one minor line of Pi. If a Pi patch release has moved a file the build relies on, preparing fails and names the file.
+The packages Pi supplies to extensions (`pi-ai`, `pi-agent-core`, `pi-coding-agent`, `pi-tui` and TypeBox) come from this package's own copy of the coding agent, so every extension runs on the Pi version this package was tested with. That copy is pinned to one minor line of Pi. If a Pi patch release has moved a file the build relies on, preparing fails and names the file.
 
 ### Errors and time limits
 
@@ -105,7 +105,7 @@ To act on an exit yourself, for instance to fail the job, pass `onWorkerExit`: i
 
 ### Registries and subagents
 
-The first `attach` through a registry installs one pi-durable extension in it, named `pi-durable-extension-adapter`, which carries the tools and hooks of every conversation attached through that registry. Sharing one extension among conversations has consequences for how you set them up.
+The first `attach` through a registry installs one pi-durable extension in it, named `pi-durable-extension-adapter`, which carries the tools and hooks of every conversation attached through that registry.
 
 A registry serves one Harness and one host, and a conversation can be attached once at a time. `attach` throws otherwise.
 
