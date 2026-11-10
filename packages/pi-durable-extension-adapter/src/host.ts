@@ -540,28 +540,23 @@ async function selectExtension(
   context: Context,
 ) {
   const own = extensionName(conversation.id);
-  const selection = async (each: Conversation) =>
-    (await harness.snapshot(AgentDoc, each.id, context))?.extensions;
   // A conversation's extension one selects without naming it comes from the default selection: the
   // conversation's own, which `Installation.add` installed for this, or another attached
-  // conversation's, as when an app reopens its Harness without the setting. One that selects
-  // exactly the names it stores shows nothing of the default, which another attached conversation
-  // that edits it shows, as they share it.
-  let shows = conversation;
-  let stored = await selection(conversation);
-  for (const each of attached) {
-    if (!Array.isArray(stored)) break;
-    if (each === conversation) continue;
-    shows = each;
-    stored = await selection(each);
-  }
-  const named = new Set(Array.isArray(stored) ? stored : stored?.add);
-  const { extensions } = await shows.agent(context);
-  if (extensions.some(({ name }) => name.startsWith(EXTENSION_PREFIX) && !named.has(name))) {
-    throw new Error(
-      "Set the Harness's settings.extensions to the extensions conversations select by default: " +
-        "without it, every conversation selects every attached conversation's extensions",
-    );
+  // conversation's, as when an app reopens its Harness without the setting. A conversation that
+  // selects exactly the names it stores shows nothing of the default, so the first attached one
+  // that edits it shows it for all, as they share it.
+  for (const each of [conversation, ...attached]) {
+    const stored = (await harness.snapshot(AgentDoc, each.id, context))?.extensions;
+    if (Array.isArray(stored)) continue;
+    const named = new Set(stored?.add);
+    const { extensions } = await each.agent(context);
+    if (extensions.some(({ name }) => name.startsWith(EXTENSION_PREFIX) && !named.has(name))) {
+      throw new Error(
+        "Set the Harness's settings.extensions to the extensions conversations select by default: " +
+          "without it, every conversation selects every attached conversation's extensions",
+      );
+    }
+    break;
   }
   // The stored document, rather than `configure`, which replaces the selection as a whole. An equal
   // value writes nothing.
@@ -809,6 +804,7 @@ class AttachedConversation {
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
   readonly #execs = new Map<number, AbortController>();
 
+  /** The conversation these extensions are attached to. */
   get conversation(): Conversation {
     return this.#options.conversation;
   }
