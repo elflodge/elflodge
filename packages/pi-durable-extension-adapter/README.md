@@ -98,9 +98,9 @@ The packages Pi supplies to extensions (`pi-ai`, `pi-agent-core`, `pi-coding-age
 
 A handler that throws does not end the conversation, as in Pi. The error is passed to `onError` with the extension, the event and the error's message and stack.
 
-Opening and closing have a time limit of 10 s each. `attach` waits for the extensions to load and for their `session_start` handlers; past the limit it fails. `close` waits for their `session_shutdown` handlers; past the limit it returns, and what the handlers do later is dropped. Tool calls and other handlers have no time limit.
+Opening and closing have a time limit of 10 s each. `attach` waits for the extensions to load and for their `session_start` handlers; past the limit it fails. `close` first waits for the end of a run that answered to reach the extensions, then for their `session_shutdown` handlers, with a limit of 10 s for each; past a limit it goes on, and what the handlers do later is dropped. Tool calls and other handlers have no time limit.
 
-As in Pi, a run ends before the session. `submission.wait()` resolves at the answer, before the run's `agent_end` and `agent_settled` reach the extensions, so `close` first waits up to 2 s for them. It does not wait for a run still under way, for input you queued, or for child conversations; await `conversation.waitForIdle(context)` before `close` to let those finish.
+`close` waits for a run's end because `submission.wait()` resolves at the answer, before the run's `agent_end` and `agent_settled` reach the extensions; closing right after it would otherwise end the session before the run. It does not wait for a run still under way, which goes on without the extensions after their `session_shutdown`, where Pi aborts it first; nor for input you queued, or for child conversations. To let those finish, await `conversation.waitForIdle(context)` before `close`; to end a run first, as Pi does, abort it with `conversation.abort(context)` and then wait.
 
 ### When a worker exits
 
@@ -191,7 +191,7 @@ pi-durable has no hook where a run starts, so `before_agent_start` and `agent_st
 
 What `before_agent_start` handlers add to `systemPromptOptions` (`sections`, `appendSystemPrompt`, `promptGuidelines`) is added to each of the run's requests, also after a restart in the middle of the run. A message they return goes with the first request and is saved to the conversation after its answer. A changed `selectedTools` applies from the next request. A returned `systemPrompt` is ignored, because pi-durable builds the prompt; `event.systemPrompt` and `ctx.getSystemPrompt()` show the prompt Pi would build from the options. A section whose name Pi rejects is reported to `onError` and left out, where Pi fails the run.
 
-`message_end` is for the model's messages only. Each response has a turn, a failed attempt's included, and one that calls no tool ends its turn before it is saved, so its `turn_end` has no entry ID. A retry stays in the run, where Pi ends the run and starts it again (`agent_end`, `agent_start`). `agent_end` follows only runs that answered, and `agent_settled`, with `aborted: false`, right after it.
+`message_end` is for the model's messages only. Each response has a turn, a failed attempt's included, and one that calls no tool ends its turn before it is saved, so its `turn_end` has no entry ID. A retry stays in the run, where Pi ends the run and starts it again (`agent_end`, `agent_start`). `agent_end` follows only runs that answered, and `agent_settled`, with `aborted: false`, right after it, while the conversation is still busy: there `ctx.isIdle()` is false, and input queued during the run starts the next run after it, where Pi sends `agent_settled` once nothing more will run.
 
 ## Tested extensions
 

@@ -690,7 +690,7 @@ class Installation {
         afterTools: async (assistant, _results, api, context) =>
           this.#for(owner, api)?.turnEnd(assistant, api, context),
       }),
-      ...(has("agent_end", "agent_settled") && {
+      ...(has(...RUN_END_EVENTS) && {
         afterRun: async (run, api, context) => {
           await this.#for(owner, api)?.agentEnd(run, api, context);
           return undefined;
@@ -796,7 +796,10 @@ class AttachedConversation {
   #loaded: ReadonlyMap<string, string> | undefined;
   /** The extensions being opened, which hooks and calls wait for. */
   #ready: Promise<unknown> = Promise.resolve();
-  /** The latest run's end delivered to the extensions, or to be, by its generation, which `close` waits for. */
+  /**
+   * Whether the extensions have had the end of the latest run that answered, by the run's
+   * generation: `close` waits for it.
+   */
   #runEnd: { taskId: TaskId; delivered: PromiseWithResolvers<void> } | undefined;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
@@ -1215,12 +1218,12 @@ class AttachedConversation {
         await this.#rpc.emit(this.#route, { type: "agent_settled", aborted: false });
       }
     } finally {
-      this.#ranEnd(api.taskId).delivered.resolve();
+      this.#runEndOf(api.taskId).delivered.resolve();
     }
   }
 
-  /** The end of the run whose generation is `taskId`, kept for the latest run only. */
-  #ranEnd(taskId: TaskId) {
+  /** The end of the run whose generation is `taskId`, started on first use; only the latest is kept. */
+  #runEndOf(taskId: TaskId) {
     if (this.#runEnd?.taskId !== taskId) {
       this.#runEnd = { taskId, delivered: Promise.withResolvers() };
     }
@@ -1636,6 +1639,8 @@ class AttachedConversation {
    */
   lost() {
     this.#hosted = undefined;
+    // Its end can no longer reach them, so `close` waits no longer.
+    this.#runEnd?.delivered.resolve();
     // Their worker can no longer read the result, and a new one numbers its commands afresh.
     for (const each of this.#execs.values()) each.abort();
     this.#execs.clear();
@@ -1647,27 +1652,29 @@ class AttachedConversation {
   }
 
   /**
-   * Waits for the end of a run that answered to reach the extensions, when it has not yet. Pi ends a
-   * run before its session; here `submission.wait()` resolves at the answer, before pi-durable asks
-   * the `afterRun` hooks, so closing right after it would end the session first. Not a run under
-   * way, whose end may be far off, nor queued input or child work, which `waitForIdle` covers.
+   * Waits for the end of a run that answered to reach the extensions and their handlers to return,
+   * when it has not yet. `submission.wait()` resolves at the answer, before pi-durable asks the
+   * `afterRun` hooks, so closing right after it would end the session before the run. Not a run
+   * under way, whose end may be far off, nor queued input or child work, which `waitForIdle` covers.
+   * On its own time limit, so that it leaves the shutdown handlers theirs.
    */
-  async #runEnded() {
-    if (!this.#listens("agent_end", "agent_settled")) return;
+  async #awaitRunEnd() {
+    if (!this.#listens(...RUN_END_EVENTS)) return;
     const { harness, conversation } = this.#options;
-    const limited = withAbortSignal(AbortSignal.timeout(RUN_END_MS), BACKGROUND_CONTEXT);
+    const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     try {
       const run = (await harness.snapshot(LiveDoc, conversation.id, limited))?.run;
       // `afterRun` is set at the answer, and its `tasks` once every hook has returned.
       if (run?.afterRun === undefined || run.afterRun.tasks !== undefined) return;
-      await awaitWithContext(this.#ranEnd(run.taskId).delivered.promise, limited);
+      await awaitWithContext(this.#runEndOf(run.taskId).delivered.promise, limited);
     } catch {
-      // Past the limit, or with the Harness closed, the extensions close without the run's end.
+      // Past the limit, such as behind another extension's `afterRun` hook that waits for this
+      // `close`, or with the Harness closed, the extensions close without the run's end.
     }
   }
 
   async #close() {
-    await this.#runEnded();
+    await this.#awaitRunEnd();
     // One time limit for the loading under way and the shutdown handlers.
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(this.#ready, limited).catch(() => {});
@@ -1684,8 +1691,8 @@ class AttachedConversation {
 }
 
 /**
- * How long opening a conversation's extensions, or closing them, may take before it is given up
- * on. Loading and the session handlers take well under a second (about 180 ms on a new worker with
+ * How long opening a conversation's extensions, closing them, or delivering a run's end before
+ * closing may take before it is given up on. Loading and the session handlers take well under a second (about 180 ms on a new worker with
  * `pi-web-access` and `pi-web-search`), so only a handler that never finishes reaches it. Without a
  * limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
  * of its work and its place on the worker, until the caller's own deadline, which is sized for a
@@ -1694,13 +1701,6 @@ class AttachedConversation {
  * busy that long counts too, as it holds up every conversation on it already.
  */
 const STUCK_AFTER_MS = 10_000;
-
-/**
- * How long `close` waits for an answered run's end to reach the extensions, apart from the time
- * limit for their shutdown handlers. Delivering it takes milliseconds; it waits longer only behind
- * a slow `afterRun` hook of another extension, or one that is itself waiting for this `close`.
- */
-const RUN_END_MS = 2_000;
 
 /** The pi-durable extension that carries a conversation's extensions. */
 function extensionName(conversation: ConversationId) {
@@ -1791,6 +1791,9 @@ const ContentPart = Type.Union([
 ]);
 const isContentPart = (value: unknown): value is Static<typeof ContentPart> =>
   Value.Check(ContentPart, value);
+
+/** The events that end a run that answered, which its `afterRun` hook dispatches. */
+const RUN_END_EVENTS = ["agent_end", "agent_settled"];
 
 /** The events a request's hook dispatches. */
 const REQUEST_EVENTS = [
