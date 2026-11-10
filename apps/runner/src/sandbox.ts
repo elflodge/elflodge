@@ -4,8 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { type SandboxRuntimeConfig, SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import type { Context } from "@earendil-works/chord";
-import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { awaitWithContext, BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import {
   type BinaryReader,
   type DirReader,

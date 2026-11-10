@@ -1,8 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import { isJsonValue, type JsonValue } from "@earendil-works/chord";
 import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { isJsonValue, type JsonValue } from "@earendil-works/chord/json";
 import { type AssistantMessage, type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
   type ConversationHandle,

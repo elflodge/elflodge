@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { MessageChannel, Worker, type WorkerOptions } from "node:worker_threads";
 
-import type { Context, JsonValue } from "@earendil-works/chord";
 import {
   awaitWithContext,
   BACKGROUND_CONTEXT,
+  type Context,
   withAbortSignal,
 } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type {
   Api,
   AssistantMessage,
@@ -894,7 +895,9 @@ class AttachedConversation {
     if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
     const changed = toJson(input);
     if (changed === undefined || isDeepStrictEqual(changed, call.arguments)) return undefined;
-    return Guard.IsObjectNotArray(changed) ? { arguments: changed } : undefined;
+    return typeof changed === "object" && changed !== null && !Array.isArray(changed)
+      ? { arguments: changed }
+      : undefined;
   }
 
   async afterTool(call: ToolHookCall, result: ToolExecutionResult, context: Context) {
