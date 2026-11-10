@@ -89,7 +89,8 @@ COPY --from=runner-build /tmp/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 COPY --from=runner-build /tmp/runner /app
 COPY --from=runner-build /app/LICENSE /app/LICENSE
-ENV NODE_ENV=production RUNNER_DATA_DIR=/data
+# npm installs the Runner's extensions; its notice of a newer npm is for the image's maintainers.
+ENV NODE_ENV=production RUNNER_DATA_DIR=/data NPM_CONFIG_UPDATE_NOTIFIER=false
 USER runner
 WORKDIR /app
 # Healthy once the Runner has finished starting: its model's authentication resolved, registered,
