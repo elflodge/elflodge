@@ -82,7 +82,7 @@ export default defineConfig({
     copy: [
       { from: "../../README.md", to: "." },
       // Share the canonical skill with Pi without maintaining a second copy in the CLI package.
-      { from: "../../skills/elflodge-batch-automation", to: "dist/skills" },
+      { from: "../../skills/elflodge-agent-batches", to: "dist/skills" },
     ],
     // The licences of the packages the bundle carries, beside it.
     plugins: [

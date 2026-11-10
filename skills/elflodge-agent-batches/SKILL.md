@@ -1,9 +1,9 @@
 ---
-name: elflodge-batch-automation
+name: elflodge-agent-batches
 description: Automate repeated tasks with parallel agents through Elflodge (formerly agent-batch). Use for batch document extraction, classification, enrichment, structured outputs, and submitting or recovering Elflodge jobs.
 ---
 
-# Elflodge batch automation
+# Elflodge Agent Batches
 
 Turn a repeated task into independent agent jobs with structured results. Each job has files and shell tools in an isolated workspace. Keep deterministic work in ordinary code; use agents for the parts that need judgment.
 

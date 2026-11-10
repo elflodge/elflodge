@@ -46,7 +46,7 @@ Open source, MIT, TypeScript. Early: versions are 0.x.
 Install the Elflodge skill to have your agent prepare a batch, test representative inputs, and collect structured results:
 
 ```sh
-npx skills add elflodge/elflodge --skill elflodge-batch-automation
+npx skills add elflodge/elflodge --skill elflodge-agent-batches
 ```
 
 Pi users can install the same skill from the npm package:
@@ -55,7 +55,7 @@ Pi users can install the same skill from the npm package:
 pi install npm:elflodge
 ```
 
-The [skill and worked extraction example](https://github.com/elflodge/elflodge/tree/main/skills/elflodge-batch-automation) cover setup, output schemas, failures and safe retries. Elflodge was formerly named `agent-batch`; both names refer to this project.
+The [skill and worked extraction example](https://github.com/elflodge/elflodge/tree/main/skills/elflodge-agent-batches) cover setup, output schemas, failures and safe retries. Elflodge was formerly named `agent-batch`; both names refer to this project.
 
 ## An everyday chore, done by an agent
 
