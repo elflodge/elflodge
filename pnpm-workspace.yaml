@@ -84,7 +84,10 @@ catalog:
   testcontainers: ^12.2.1
   trpc-cli: ^0.17.1
   type-fest: ^5.10.0
-  typescript: 7.1.0-beta
+  # TypeScript 7.0 only: the declaration build that vite-plus bundles (rolldown-plugin-dts 0.28)
+  # recognises 7.0 and fails on 7.1; its 0.29 needs 7.1 (voidzero-dev/vite-plus#3237). Move to 7.1
+  # when vite-plus bundles it.
+  typescript: ~7.0.2
   uuid: ^14.0.3
   valid-filename: ^5.0.0
   vite: npm:@voidzero-dev/vite-plus-core@1.5.0
