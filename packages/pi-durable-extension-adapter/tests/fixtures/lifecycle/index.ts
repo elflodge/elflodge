@@ -3,9 +3,9 @@ import { Type } from "typebox";
 
 // An extension that follows a run as observability and prompt extensions do: it adds to the
 // system prompt, sends a message with the prompt and selects the active tools in
-// `before_agent_start`, and records the lifecycle events, which its tool returns. It registers tools
-// just before and after its selection, as extensions that register tools when a run starts do
-// beside another that selects them.
+// `before_agent_start`, and records the lifecycle events, which its tool returns and it saves at the
+// end of the session. It registers tools just before and after its selection, as extensions that
+// register tools when a run starts do beside another that selects them.
 export default function extension(pi: ExtensionAPI) {
   const seen: string[] = [];
   const events = [
@@ -16,8 +16,11 @@ export default function extension(pi: ExtensionAPI) {
     "tool_execution_end",
     "turn_end",
     "agent_end",
+    "agent_settled",
   ] as const;
   for (const event of events) pi.on(event, () => void seen.push(event));
+  // What it saw by the end of the session, kept with the conversation.
+  pi.on("session_shutdown", () => pi.appendEntry("seen", { events: seen }));
   pi.on("before_agent_start", (event) => {
     seen.push(`before_agent_start ${event.prompt}`);
     event.systemPromptOptions.sections.notes = "Answer in French.";

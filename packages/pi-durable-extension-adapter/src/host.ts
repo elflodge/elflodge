@@ -62,6 +62,7 @@ import {
   type Conversation,
   type ToolExecutionResult,
   type ToolHookCall,
+  type TaskId,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
@@ -689,7 +690,7 @@ class Installation {
         afterTools: async (assistant, _results, api, context) =>
           this.#for(owner, api)?.turnEnd(assistant, api, context),
       }),
-      ...(has("agent_end") && {
+      ...(has("agent_end", "agent_settled") && {
         afterRun: async (run, api, context) => {
           await this.#for(owner, api)?.agentEnd(run, api, context);
           return undefined;
@@ -795,6 +796,8 @@ class AttachedConversation {
   #loaded: ReadonlyMap<string, string> | undefined;
   /** The extensions being opened, which hooks and calls wait for. */
   #ready: Promise<unknown> = Promise.resolve();
+  /** The latest run's end delivered to the extensions, or to be, by its generation, which `close` waits for. */
+  #runEnd: { taskId: TaskId; delivered: PromiseWithResolvers<void> } | undefined;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
@@ -1194,13 +1197,34 @@ class AttachedConversation {
     });
   }
 
-  /** `agent_end` with the run's messages; pi-durable has no hook for a run that fails or aborts. */
+  /**
+   * `agent_end` with the run's messages, then `agent_settled`, as Pi ends a run; pi-durable has no
+   * hook for a run that fails or aborts.
+   */
   async agentEnd(run: RunSummary, api: HookApi, context: Context) {
-    await awaitWithContext(this.#ready, context);
-    if (!this.#running) return;
-    const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
-    const messages = range.flatMap((record) => record.model ?? []);
-    await this.#rpc.emit(this.#route, { type: "agent_end", messages });
+    try {
+      await awaitWithContext(this.#ready, context);
+      if (!this.#running) return;
+      if (this.#listens("agent_end")) {
+        const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
+        const messages = range.flatMap((record) => record.model ?? []);
+        await this.#rpc.emit(this.#route, { type: "agent_end", messages });
+      }
+      // A run that answered was not aborted.
+      if (this.#listens("agent_settled")) {
+        await this.#rpc.emit(this.#route, { type: "agent_settled", aborted: false });
+      }
+    } finally {
+      this.#ranEnd(api.taskId).delivered.resolve();
+    }
+  }
+
+  /** The end of the run whose generation is `taskId`, kept for the latest run only. */
+  #ranEnd(taskId: TaskId) {
+    if (this.#runEnd?.taskId !== taskId) {
+      this.#runEnd = { taskId, delivered: Promise.withResolvers() };
+    }
+    return this.#runEnd;
   }
 
   /** `session_before_compact`: a cancel declines the compaction, a summary replaces pi-durable's. */
@@ -1622,7 +1646,28 @@ class AttachedConversation {
     return this.#closing;
   }
 
+  /**
+   * Waits for the end of a run that answered to reach the extensions, when it has not yet. Pi ends a
+   * run before its session; here `submission.wait()` resolves at the answer, before pi-durable asks
+   * the `afterRun` hooks, so closing right after it would end the session first. Not a run under
+   * way, whose end may be far off, nor queued input or child work, which `waitForIdle` covers.
+   */
+  async #runEnded() {
+    if (!this.#listens("agent_end", "agent_settled")) return;
+    const { harness, conversation } = this.#options;
+    const limited = withAbortSignal(AbortSignal.timeout(RUN_END_MS), BACKGROUND_CONTEXT);
+    try {
+      const run = (await harness.snapshot(LiveDoc, conversation.id, limited))?.run;
+      // `afterRun` is set at the answer, and its `tasks` once every hook has returned.
+      if (run?.afterRun === undefined || run.afterRun.tasks !== undefined) return;
+      await awaitWithContext(this.#ranEnd(run.taskId).delivered.promise, limited);
+    } catch {
+      // Past the limit, or with the Harness closed, the extensions close without the run's end.
+    }
+  }
+
   async #close() {
+    await this.#runEnded();
     // One time limit for the loading under way and the shutdown handlers.
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(this.#ready, limited).catch(() => {});
@@ -1649,6 +1694,13 @@ class AttachedConversation {
  * busy that long counts too, as it holds up every conversation on it already.
  */
 const STUCK_AFTER_MS = 10_000;
+
+/**
+ * How long `close` waits for an answered run's end to reach the extensions, apart from the time
+ * limit for their shutdown handlers. Delivering it takes milliseconds; it waits longer only behind
+ * a slow `afterRun` hook of another extension, or one that is itself waiting for this `close`.
+ */
+const RUN_END_MS = 2_000;
 
 /** The pi-durable extension that carries a conversation's extensions. */
 function extensionName(conversation: ConversationId) {

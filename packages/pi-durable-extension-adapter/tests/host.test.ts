@@ -366,30 +366,49 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and sele
   expect(first?.tools).toContain("dropped");
   expect(second?.tools).not.toContain("dropped");
   expect(second?.tools).toEqual(expect.arrayContaining(["earlier", "later"]));
+  // What the extension saw by the time its tool ran in the second run.
+  const seen = [
+    "before_agent_start hi",
+    "agent_start",
+    "turn_start",
+    // The failed attempt's turn too, as in Pi.
+    "message_end",
+    "turn_end",
+    "turn_start",
+    "message_end",
+    "turn_end",
+    "agent_end",
+    "agent_settled",
+    "before_agent_start again",
+    "agent_start",
+    "turn_start",
+    "message_end",
+    "tool_execution_start",
+  ];
   expect(toolResults(third?.messages ?? [])).toEqual([
-    {
-      tool: "events",
-      text: [
-        "before_agent_start hi",
-        "agent_start",
-        "turn_start",
-        // The failed attempt's turn too, as in Pi.
-        "message_end",
+    { tool: "events", text: seen.join(", "), isError: false },
+  ]);
+
+  // Closed right after the answer, its session ends after the run, as in Pi.
+  await extensions.close();
+  const {
+    items: [saved],
+  } = await conversation.entries({ order: "descending" }, 1, undefined, context);
+  expect(saved).toMatchObject({
+    kind: "piext.seen",
+    data: {
+      events: [
+        ...seen,
+        "tool_execution_end",
         "turn_end",
         "turn_start",
         "message_end",
         "turn_end",
         "agent_end",
-        "before_agent_start again",
-        "agent_start",
-        "turn_start",
-        "message_end",
-        "tool_execution_start",
-      ].join(", "),
-      isError: false,
+        "agent_settled",
+      ],
     },
-  ]);
-  await extensions.close();
+  });
 });
 
 test("a run's prompt additions reach its later rounds after the host restarts", async () => {
