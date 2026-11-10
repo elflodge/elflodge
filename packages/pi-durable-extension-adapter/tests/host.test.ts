@@ -399,6 +399,7 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and sele
     data: {
       events: [
         ...seen,
+        "tool_execution_update",
         "tool_execution_end",
         "turn_end",
         "turn_start",

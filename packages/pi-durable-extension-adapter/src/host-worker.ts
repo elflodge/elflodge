@@ -347,24 +347,41 @@ const functions: WorkerFunctions = {
     const { running, durations } = instance;
     running.set(callId, controller);
     const begun = performance.now();
+    // As Pi's agent loop does: each partial result is a `tool_execution_update`, until `execute`
+    // settles, and the result waits for the handlers. pi-durable records only text a tool streams,
+    // which Pi's partial results are not, so they reach extensions alone.
+    const updates: Promise<unknown>[] = [];
+    let updating = true;
     try {
       const params = definition.prepareArguments ? definition.prepareArguments(args) : args;
       const result = await definition.execute(
         callId,
         params,
         controller.signal,
-        // pi-durable records a call's output as text it streams, which Pi's partial results are not.
-        () => {},
+        (partialResult) => {
+          if (!updating) return;
+          updates.push(
+            runner.emit({
+              type: "tool_execution_update",
+              toolCallId: callId,
+              toolName: name,
+              args,
+              partialResult,
+            }),
+          );
+        },
         runner.createToolContext(callId, controller.signal),
       );
       return toolResult(result);
     } finally {
+      updating = false;
       running.delete(callId);
       // For `tool_execution_end`, which the host asks for after the result, when someone listens;
       // whole milliseconds, as Pi gives them.
       if (instance.events().includes("tool_execution_end")) {
         durations.set(callId, Math.round(performance.now() - begun));
       }
+      await Promise.all(updates);
     }
   },
   cancelTool(key, callId) {
