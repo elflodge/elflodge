@@ -3,9 +3,10 @@ import { Type } from "typebox";
 
 // An extension that follows a run as observability and prompt extensions do: it adds to the
 // system prompt, sends a message with the prompt and selects the active tools in
-// `before_agent_start`, and records the lifecycle events, which its tool returns, reporting
-// progress after, and it saves at the end of the session. It registers tools just before and after its selection, as extensions that
-// register tools when a run starts do beside another that selects them.
+// `before_agent_start`, and records the lifecycle events. Its tool returns the events so far and
+// then reports progress; at the end of the session it saves the events and the context's usage. It
+// registers tools just before and after its selection, as extensions that register tools when a
+// run starts do beside another that selects them.
 export default function extension(pi: ExtensionAPI) {
   const seen: string[] = [];
   const events = [

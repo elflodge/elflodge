@@ -81,15 +81,16 @@ const ADDON = /\.node$/;
  * stay installed by `ADDON`. Leaving every dependency installed instead would make the list
  * unnecessary, but then dependencies import Pi's packages without the bundle's aliases, and ship
  * code Node will not run from `node_modules`, for no saving in memory. Recheck the list with each
- * Pi minor release, which needs a tested release of this package anyway: a dependency Pi's npm
+ * Pi release, which needs a tested release of this package anyway: a dependency Pi's npm
  * bundle leaves external that reads its own files belongs here.
  */
 const LEFT_INSTALLED = ["@silvia-odwyer/photon-node"];
 
 /**
  * The files and packages of the coding agent this package pins that the build relies on, by the
- * real paths the build sees. A Pi patch release can move them, and the build would then drop their
- * work without an error, so prepare fails naming what is missing instead.
+ * real paths the build sees. Another Pi release can move them, and the build would then drop their
+ * work without an error; the pin keeps that release out, but an application can override it, so
+ * prepare fails naming what is missing instead.
  */
 interface PiLayout {
   /**

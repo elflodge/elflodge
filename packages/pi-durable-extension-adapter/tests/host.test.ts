@@ -295,7 +295,7 @@ test("attach fails while the default selection selects the conversations' extens
   await expect(attach(exact)).rejects.toThrow(missing);
 });
 
-test("a run's lifecycle reaches the extensions, which add to its prompt and select tools", async () => {
+test("a run's lifecycle reaches the extensions, which add to its prompt, select tools and read the context's usage", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
