@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { MessageChannel, Worker, type WorkerOptions } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
@@ -63,9 +64,11 @@ import {
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { createBirpc, type BirpcReturn } from "birpc";
-import { Equal, Predicate, Schema } from "effect";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
+import Type, { type Static } from "typebox";
+import { Guard } from "typebox/guard";
+import { Value } from "typebox/value";
 
 import type { PreparedExtensions } from "./prepare.ts";
 import type {
@@ -574,7 +577,7 @@ class Installation {
       for (const event of conversation.registrations.events) events.add(event);
     }
     const wanted = [[...tools.values()], [...events].toSorted()];
-    if (Equal.equals(wanted, this.#installedFor)) return;
+    if (isDeepStrictEqual(wanted, this.#installedFor)) return;
     this.#installedFor = wanted;
     this.#installed = defineExtension({
       name: "pi-durable-extension-adapter",
@@ -876,8 +879,8 @@ class AttachedConversation {
     });
     if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
     const changed = toJson(input);
-    if (changed === undefined || Equal.equals(changed, call.arguments)) return undefined;
-    return Predicate.isObject(changed) ? { arguments: changed } : undefined;
+    if (changed === undefined || isDeepStrictEqual(changed, call.arguments)) return undefined;
+    return Guard.IsObject(changed) ? { arguments: changed } : undefined;
   }
 
   async afterTool(call: ToolHookCall, result: ToolExecutionResult, context: Context) {
@@ -965,7 +968,10 @@ class AttachedConversation {
   ): Promise<RunStart | undefined> {
     const memo = "pi-durable-extension-adapter.agentStart";
     const done = await api.memo<JsonValue>(memo, context);
-    if (done !== undefined) return Schema.decodeUnknownSync(RunStart)(done);
+    if (done !== undefined) {
+      Value.Assert(RunStart, done);
+      return done;
+    }
     const trigger = await this.#runTrigger(run, messages, api, context);
     if (!trigger) return undefined;
     const { conversation, cwd } = this.#options;
@@ -984,7 +990,8 @@ class AttachedConversation {
     const kept = await api.memo<JsonValue>(memo, toJson(recorded) ?? null, context);
     for (const message of started.messages) this.act({ type: "sendMessage", args: [message] });
     if (started.selection) this.act({ type: "setActiveTools", ...started.selection });
-    return Schema.decodeUnknownSync(RunStart)(kept);
+    Value.Assert(RunStart, kept);
+    return kept;
   }
 
   /**
@@ -1040,7 +1047,7 @@ class AttachedConversation {
     const message = record?.model?.find((each) => each.role === "user");
     if (!record || !message) return userTrigger(newestUserContent(messages));
     if (!record.kind.startsWith("piext.")) return userTrigger(message.content);
-    const data = Predicate.isObject(record.data) ? record.data : {};
+    const data = Guard.IsObject(record.data) ? record.data : {};
     return {
       messageType: "custom",
       message: {
@@ -1450,7 +1457,7 @@ class AttachedConversation {
         const customType = record.kind.slice("piext.".length);
         // A message an extension sent carries what the model sees; `appendEntry`'s carries only data.
         if (first?.role === "user") {
-          const sent = Predicate.isObject(record.data) ? record.data : {};
+          const sent = Guard.IsObject(record.data) ? record.data : {};
           entries.push({
             type: "custom_message",
             id,
@@ -1575,21 +1582,17 @@ const DEFAULT_MAX_BUFFER = Math.min(256 * 1024 * 1024, constants.MAX_STRING_LENG
  * executes.
  */
 function repairArguments(args: unknown, schema: object): unknown {
-  if (
-    !Predicate.isObject(args) ||
-    !("properties" in schema) ||
-    !Predicate.isObject(schema.properties)
-  )
+  if (!Guard.IsObject(args) || !("properties" in schema) || !Guard.IsObject(schema.properties))
     return args;
   let repaired: Record<string, unknown> | undefined;
   for (const [name, property] of Object.entries(schema.properties)) {
     const value = args[name];
-    if (typeof value !== "string" || !Predicate.isObject(property)) continue;
+    if (typeof value !== "string" || !Guard.IsObject(property)) continue;
     const wanted = property.type;
     if (wanted !== "array" && wanted !== "object") continue;
     try {
       const parsed: unknown = JSON.parse(value);
-      if (wanted === "array" ? Array.isArray(parsed) : Predicate.isObject(parsed)) {
+      if (wanted === "array" ? Array.isArray(parsed) : Guard.IsObject(parsed)) {
         repaired ??= { ...args };
         repaired[name] = parsed;
       }
@@ -1627,11 +1630,12 @@ function toolOutput(result: ToolResult) {
 }
 
 /** A text or image part of a message's content, as pi-ai has them. */
-const ContentPart = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("image"), data: Schema.String, mimeType: Schema.String }),
+const ContentPart = Type.Union([
+  Type.Object({ type: Type.Literal("text"), text: Type.String() }),
+  Type.Object({ type: Type.Literal("image"), data: Type.String(), mimeType: Type.String() }),
 ]);
-const isContentPart = Schema.is(ContentPart);
+const isContentPart = (value: unknown): value is Static<typeof ContentPart> =>
+  Value.Check(ContentPart, value);
 
 /** The events a request's hook dispatches. */
 const REQUEST_EVENTS = [
@@ -1646,10 +1650,10 @@ const REQUEST_EVENTS = [
  * What a run's `before_agent_start` returned that each attempt of its first request applies: the
  * system prompt sections, and the content of the messages, which the request carries.
  */
-type RunStart = typeof RunStart.Type;
-const RunStart = Schema.Struct({
-  sections: Schema.Record(Schema.String, Schema.String),
-  sent: Schema.Array(Schema.Union([Schema.String, Schema.Array(ContentPart)])),
+type RunStart = Static<typeof RunStart>;
+const RunStart = Type.Object({
+  sections: Type.Record(Type.String(), Type.String()),
+  sent: Type.Array(Type.Union([Type.String(), Type.Array(ContentPart)])),
 });
 
 /**

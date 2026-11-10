@@ -3,7 +3,8 @@ import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Schema } from "effect";
+import Type, { type Static } from "typebox";
+import { Value } from "typebox/value";
 
 /** The child process's module beside this one: `.ts` from source, `.mjs` built. */
 const processModule = fileURLToPath(
@@ -32,27 +33,27 @@ export interface PrepareOptions {
 }
 
 /** One extension's module in the bundle. */
-export interface PreparedExtension extends Schema.Schema.Type<typeof PreparedExtension> {}
-const PreparedExtension = Schema.Struct({
+export interface PreparedExtension extends Static<typeof PreparedExtension> {}
+const PreparedExtension = Type.Object({
   /** The source it came from, as given. */
-  source: Schema.String,
-  path: Schema.String,
+  source: Type.String(),
+  path: Type.String(),
 });
 
 /** The bundle `startExtensionHost` runs. */
-export interface PreparedExtensions extends Schema.Schema.Type<typeof PreparedExtensions> {}
-const PreparedExtensions = Schema.Struct({
+export interface PreparedExtensions extends Static<typeof PreparedExtensions> {}
+const PreparedExtensions = Type.Object({
   /** This package's runtime in the bundle, which shares Pi's code with the extensions. */
-  runtime: Schema.String,
-  extensions: Schema.Array(PreparedExtension),
+  runtime: Type.String(),
+  extensions: Type.Array(PreparedExtension),
   /** The native add-ons the extensions load, which the host loads in its main thread first. */
-  addons: Schema.Array(Schema.String),
+  addons: Type.Array(Type.String()),
   /** Sources that could not be installed or bundled, with the reason; the rest are prepared without them. */
-  failures: Schema.Array(Schema.Struct({ source: Schema.String, message: Schema.String })),
+  failures: Type.Array(Type.Object({ source: Type.String(), message: Type.String() })),
 });
 
 /** What the child process replies. */
-const PrepareReply = Schema.Union([PreparedExtensions, Schema.Struct({ error: Schema.String })]);
+const PrepareReply = Type.Union([PreparedExtensions, Type.Object({ error: Type.String() })]);
 
 /**
  * Installs the extension packages `sources` with Pi's own package manager, as `pi install` does, and
@@ -86,7 +87,7 @@ export async function prepareExtensions(options: PrepareOptions): Promise<Prepar
     ...(options.npmCommand && { npmCommand: [...options.npmCommand] }),
   });
   const [message] = await Promise.race([once(child, "message"), exited]);
-  const reply = Schema.decodeUnknownSync(PrepareReply)(message);
-  if ("error" in reply) throw new Error(`Preparing extensions failed: ${reply.error}`);
-  return reply;
+  Value.Assert(PrepareReply, message);
+  if ("error" in message) throw new Error(`Preparing extensions failed: ${message.error}`);
+  return message;
 }

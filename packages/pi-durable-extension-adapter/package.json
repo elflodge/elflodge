@@ -45,11 +45,11 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "catalog:pi-durable-extension-adapter",
     "birpc": "catalog:",
-    "effect": "catalog:",
     "ensure-error": "catalog:",
     "is-path-inside": "catalog:",
     "rolldown": "catalog:",
-    "sync-message-port": "catalog:"
+    "sync-message-port": "catalog:",
+    "typebox": "catalog:"
   },
   "devDependencies": {
     "@earendil-works/chord": "catalog:",
