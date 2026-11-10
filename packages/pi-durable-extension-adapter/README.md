@@ -2,7 +2,7 @@
 
 Run Pi coding-agent extensions on pi-durable.
 
-This package isn't part of Pi. It was built for [Elflodge](https://elflodge.com)'s Runner, which runs many unattended agents in one process, and it is tested with the extensions listed below. pi-durable has no built-in way to run coding-agent extensions yet (earendil-works/pi#10386). When it does, this package will point you to it.
+This package isn't part of Pi. It was built for [Elflodge](https://elflodge.com)'s Runner, which runs many unattended agents in one process, and it is tested with the extensions listed below. pi-durable has no built-in way to run coding-agent extensions yet ([earendil-works/pi#10386](https://github.com/earendil-works/pi/issues/10386)). When it does, this package will point you to it.
 
 ## Usage
 
@@ -79,7 +79,7 @@ Other extensions work as far as they use what the table above lists; only these 
 - Extensions' modules load once per worker and are shared by its conversations. State an extension keeps in its factory is per conversation; state at module level is per worker.
 - An extension that does not bundle is not loaded; loading it as Pi does would need Pi's TypeScript loader and its whole coding agent in every worker.
 - Bundled code reads files relative to the file it is bundled into, through `__dirname` or `import.meta`: code in an entry finds only files relative to the entry's directory, and code in `dir/bundle` finds none. Photon, Pi's image library, stays where it is installed for this reason.
-- Native add-ons load from where they are installed, and the host also loads each one in its main thread before starting workers, so a worker that exits cannot unload one that crashes when unloaded (zhangyuang/node-ffi-rs#145).
+- Native add-ons load from where they are installed, and the host also loads each one in its main thread before starting workers, so a worker that exits cannot unload one that crashes when unloaded ([zhangyuang/node-ffi-rs#145](https://github.com/zhangyuang/node-ffi-rs/issues/145)).
 - An extension that runs work in a Pi process of its own, as `pi-subagents` does for its subagents, starts the Pi CLI there, outside pi-durable and the conversation; such extensions are not supported.
 - pi-durable validates a tool's arguments on the host before the call reaches the worker, where the tool's own `prepareArguments` runs. The host first parses arrays and objects sent as JSON text, the repair models most often need; a `prepareArguments` that renames fields or fills in required ones never gets arguments that fail validation.
 - When a worker exits, the tool calls running in it fail with the reason, such as running out of memory, and its conversations' extensions are opened again on another worker, with `session_start` reason `resume`, as after a restart: what they kept in memory is lost, and the other conversations on that worker restart with them. A conversation whose extensions fail to open again, as when the new worker also exits, an extension that loaded before fails to load, or loading takes longer than 10 s, stays without them, as does every one with `restart: false`: its extension tools fail, its hooks no longer run, and if its extensions handle `tool_call`, its tool calls are blocked, as Pi blocks a call when a `tool_call` handler fails. `onWorkerExit` gets which conversations were opened again and which were lost, by default on standard error.
