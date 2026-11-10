@@ -476,8 +476,9 @@ test("right after a compaction, the context's usage is unknown", async () => {
   const {
     items: [saved],
   } = await conversation.entries({ order: "descending" }, 1, undefined, context);
-  expect(saved?.data).toMatchObject({
-    usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
+  expect(saved).toMatchObject({
+    kind: "piext.seen",
+    data: { usage: { tokens: null, contextWindow: model.contextWindow, percent: null } },
   });
 });
 
