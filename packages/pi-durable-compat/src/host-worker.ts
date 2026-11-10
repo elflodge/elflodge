@@ -1,4 +1,6 @@
 import { pathToFileURL } from "node:url";
+// Node's own comparison, not Effect's `Equal`, which would load part of Effect into every worker.
+import { isDeepStrictEqual } from "node:util";
 import { workerData as startData } from "node:worker_threads";
 
 import type {
@@ -7,7 +9,6 @@ import type {
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
-import * as Equal from "effect/Equal";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
@@ -260,7 +261,7 @@ const functions: WorkerFunctions = {
       }),
     );
     await runner.emit({ type: "agent_start" });
-    const edited = !Equal.equals(options.selectedTools, selectedTools);
+    const edited = !isDeepStrictEqual(options.selectedTools, selectedTools);
     return {
       messages: started.messages,
       sections,
