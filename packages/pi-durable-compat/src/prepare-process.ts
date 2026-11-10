@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { glob, rm } from "node:fs/promises";
+import { findPackageJSON } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import ensureError from "ensure-error";
@@ -33,16 +34,6 @@ const HOST_PACKAGES =
  */
 const PI_MODULES =
   /[\\/]node_modules[\\/](@earendil-works[\\/]pi-(ai|agent-core|coding-agent|tui)|typebox)[\\/]/;
-
-/**
- * The modules of Pi's packages whose import does work other modules depend on, which the build
- * keeps whenever it keeps anything that imports them: pi-ai's image providers register themselves,
- * and the coding agent's entry with `core/sdk.js` sets the stream function an `Agent` created
- * without one uses. Found by listing every import-time statement in Pi 1.5's modules; the others
- * fill registries or caches no extension reads unless it imports them itself.
- */
-const PI_INITIALIZERS =
-  /[\\/]node_modules[\\/]@earendil-works[\\/](pi-ai[\\/]dist[\\/]providers[\\/]images[\\/]register-builtins|pi-coding-agent[\\/]dist[\\/](index|core[\\/]sdk))\.js$/;
 
 /** This package's runtime, built into the bundle with the extensions (`.ts` from source, `.mjs` built). */
 const runtimeModule = fileURLToPath(
@@ -92,7 +83,63 @@ const ADDON = /\.node$/;
  * Pi minor release, which needs a tested release of this package anyway: a dependency Pi's npm
  * bundle leaves external that reads its own files belongs here.
  */
-const LEFT_INSTALLED = /[\\/]node_modules[\\/]@silvia-odwyer[\\/]photon-node[\\/]/;
+const LEFT_INSTALLED = ["@silvia-odwyer/photon-node"];
+
+/**
+ * The files and packages of the coding agent this package pins that the build relies on, by the
+ * real paths the build sees. A Pi patch release can move them, and the build would then drop their
+ * work without an error, so prepare fails naming what is missing instead.
+ */
+interface PiLayout {
+  /**
+   * The modules of Pi's packages whose import does work other modules depend on, which the build
+   * keeps whenever it keeps anything that imports them: pi-ai's image providers register
+   * themselves, and the coding agent's entry with `core/sdk.js` sets the stream function an `Agent`
+   * created without one uses. Found by listing every import-time statement in Pi 1.5's modules; the
+   * others fill registries or caches no extension reads unless it imports them itself.
+   */
+  initializers: Set<string>;
+  /** The directories of the `LEFT_INSTALLED` packages. */
+  leftInstalled: string[];
+  /** TypeBox's directory, whose modules get a chunk of their own. */
+  typebox: string;
+}
+
+function piLayout(): PiLayout {
+  const piAi = installedPackage("@earendil-works/pi-ai");
+  const initializers = [
+    codingAgentEntry,
+    path.join(path.dirname(codingAgentEntry), "core", "sdk.js"),
+    path.join(piAi, "dist", "providers", "images", "register-builtins.js"),
+  ];
+  return {
+    initializers: new Set(initializers.map((file) => realPath(file, file))),
+    leftInstalled: LEFT_INSTALLED.map(installedPackage),
+    typebox: installedPackage("typebox"),
+  };
+}
+
+/** The directory of the package `name` as the coding agent resolves it. */
+function installedPackage(name: string): string {
+  let found: string | undefined;
+  try {
+    found = findPackageJSON(name, pathToFileURL(codingAgentEntry));
+  } catch {
+    // Not resolvable from the coding agent: reported below as missing.
+  }
+  return realPath(found && path.dirname(found), name);
+}
+
+function realPath(file: string | undefined, name: string): string {
+  try {
+    if (file) return realpathSync(file);
+  } catch {
+    // Missing: reported below.
+  }
+  throw new Error(
+    `The installed coding agent no longer has ${name}, which this version of @elflodge/pi-durable-compat relies on; it needs a release tested with this Pi.`,
+  );
+}
 
 interface Input {
   sources: string[];
@@ -110,7 +157,7 @@ async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
     source,
     message,
   }));
-  const bundled = await bundle(found, dir);
+  const bundled = await bundle(found, dir, piLayout());
   return { ...bundled, failures: [...failures, ...bundled.failures] };
 }
 
@@ -126,7 +173,11 @@ async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
  * slow. When the combined build fails, each extension is tried with the runtime alone, without
  * writing, and the build is made of those that pass; the others are failures.
  */
-async function bundle(found: PreparedExtension[], dir: string): Promise<PreparedExtensions> {
+async function bundle(
+  found: PreparedExtension[],
+  dir: string,
+  layout: PiLayout,
+): Promise<PreparedExtensions> {
   const outDir = path.join(dir, "bundle");
   await rm(outDir, { recursive: true, force: true });
   for await (const stale of glob(`**/*${ENTRY_SUFFIX}`, { cwd: dir })) {
@@ -136,18 +187,18 @@ async function bundle(found: PreparedExtension[], dir: string): Promise<Prepared
   let included = found;
   let built: Built;
   try {
-    built = await buildEntries(entries(included), dir);
+    built = await buildEntries(entries(included), dir, layout);
   } catch {
     included = [];
     for (const each of found) {
       try {
-        await buildEntries(entries([each]), dir, false);
+        await buildEntries(entries([each]), dir, layout, false);
         included.push(each);
       } catch (error) {
         failures.push({ source: each.source, message: `Bundling failed: ${errorMessage(error)}` });
       }
     }
-    built = await buildEntries(entries(included), dir);
+    built = await buildEntries(entries(included), dir, layout);
   }
   const file = (name: string) => {
     const chunk = built.chunks.find((each) => each.isEntry && each.name === name);
@@ -189,6 +240,7 @@ interface Built {
 async function buildEntries(
   input: Record<string, string>,
   dir: string,
+  layout: PiLayout,
   write = true,
 ): Promise<Built> {
   const addons: string[] = [];
@@ -201,7 +253,8 @@ async function buildEntries(
     // Native add-ons load from where they are installed (see `externalAddons`), and the host
     // loads each in its main thread too (see `startExtensionHost`). `LEFT_INSTALLED` packages
     // also load from where they are installed.
-    external: (id, _importer, resolved) => resolved && (ADDON.test(id) || LEFT_INSTALLED.test(id)),
+    external: (id, _importer, resolved) =>
+      resolved && (ADDON.test(id) || layout.leftInstalled.some((each) => isPathInside(id, each))),
     makeAbsoluteExternalsRelative: false,
     transform: {
       define: {
@@ -215,7 +268,9 @@ async function buildEntries(
         "process.env.PI_PACKAGE_DIR": JSON.stringify(path.dirname(path.dirname(codingAgentEntry))),
       },
     },
-    treeshake: { moduleSideEffects: (id) => !PI_MODULES.test(id) || PI_INITIALIZERS.test(id) },
+    treeshake: {
+      moduleSideEffects: (id) => !PI_MODULES.test(id) || layout.initializers.has(id),
+    },
     output: {
       dir,
       format: "esm",
@@ -223,14 +278,14 @@ async function buildEntries(
         const source = chunk.facadeModuleId;
         if (!source || !isPathInside(source, dir)) return "bundle/[name].mjs";
         const relative = path.relative(dir, source);
-        return relative.slice(0, relative.length - path.extname(relative).length) + ENTRY_SUFFIX;
+        return path.join(path.dirname(relative), path.parse(relative).name + ENTRY_SUFFIX);
       },
       chunkFileNames: "bundle/chunks/[name]-[hash].mjs",
       codeSplitting: {
         // TypeBox in a chunk of its own: left where Rolldown puts it, it can share a chunk with an
         // extension module that awaits at top level a module importing TypeBox back, and the
         // two wait on each other (pi-mcp-adapter).
-        groups: [{ name: "typebox", test: /[\\/]node_modules[\\/]typebox[\\/]/ }],
+        groups: [{ name: "typebox", test: (id) => isPathInside(id, layout.typebox) }],
       },
     },
   });
