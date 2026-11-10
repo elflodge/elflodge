@@ -425,6 +425,62 @@ test("a run's lifecycle reaches the extensions, which add to its prompt, select 
   });
 });
 
+test("right after a compaction, the context's usage is unknown", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  faux.setResponses([
+    () => fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
+    () => fauxAssistantMessage([fauxText("Done.")]),
+    () => fauxAssistantMessage([fauxText("Summary.")]),
+  ]);
+  const registry = createRegistry();
+  // Keeping the second run, whose request wrote the tools the extension selected in the first,
+  // and cutting the first run's long answer.
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    { models, registry, settings: { ...settings, compaction: { keepRecentTokens: 2000 } } },
+    context,
+  );
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+  await (await conversation.submit({ type: "input", content: "again" }, context)).wait(context);
+  // Idle, so the summary is placed at once rather than at the next run.
+  await conversation.waitForIdle(context);
+  await harness.waitForTask(await conversation.compact(undefined, context), context);
+  const { messages } = await conversation.context(context);
+  // The kept history carries the system entry the second run's request wrote.
+  expect(messages.map((message) => message.role)).toContain("system");
+
+  // The next request writes the whole system prompt again, which is not counted yet, so the tokens
+  // are unknown, as Pi's are after a compaction, rather than low; the kept system entry does not
+  // change that.
+  await extensions.close();
+  const {
+    items: [saved],
+  } = await conversation.entries({ order: "descending" }, 1, undefined, context);
+  expect(saved?.data).toMatchObject({
+    usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
+  });
+});
+
 test("a run's prompt additions reach its later rounds after the host restarts", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
