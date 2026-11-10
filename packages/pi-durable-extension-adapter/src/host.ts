@@ -895,9 +895,7 @@ class AttachedConversation {
     if (result?.block) return { block: result.reason ?? "Blocked by an extension" };
     const changed = toJson(input);
     if (changed === undefined || isDeepStrictEqual(changed, call.arguments)) return undefined;
-    return typeof changed === "object" && changed !== null && !Array.isArray(changed)
-      ? { arguments: changed }
-      : undefined;
+    return Guard.IsObjectNotArray(changed) ? { arguments: changed } : undefined;
   }
 
   async afterTool(call: ToolHookCall, result: ToolExecutionResult, context: Context) {
