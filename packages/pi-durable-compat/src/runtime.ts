@@ -149,9 +149,22 @@ export async function createInstance(
       errors.push({ source, message: ensureError(error).message });
     }
   }
-  // After the factories, as Pi's session sets them (`agent-session.js`): a factory reads a flag's
-  // default, its handlers the value given.
-  for (const [name, value] of Object.entries(bridge.flags)) runtime.flagValues.set(name, value);
+  // After the factories, as Pi's SDK sets them (`applyExtensionFlagValues`): a factory reads a
+  // flag's default, its handlers the value given. As there, a name no extension registered, or a
+  // value of the wrong type, is reported and not set; unlike a command line, `false` can be given.
+  const registered = new Map(
+    records.flatMap((record) => [...record.flags].map(([name, flag]) => [name, { record, flag }])),
+  );
+  for (const [name, value] of Object.entries(bridge.flags)) {
+    const found = registered.get(name);
+    if (!found) errors.push({ source: "flags", message: `Unknown option: --${name}` });
+    else if (typeof value !== found.flag.type) {
+      errors.push({
+        source: found.record.path,
+        message: `Extension flag "--${name}" takes a ${found.flag.type}`,
+      });
+    } else runtime.flagValues.set(name, value);
+  }
   const runner = new ExtensionRunner(
     records,
     runtime,

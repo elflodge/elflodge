@@ -40,7 +40,7 @@
     "dev": "vp pack --watch",
     "test": "vp test",
     "check": "vp check",
-    "prepublishOnly": "vp run build"
+    "prepack": "vp run build"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "catalog:pi-durable-compat",

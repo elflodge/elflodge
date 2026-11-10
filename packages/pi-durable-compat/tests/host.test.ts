@@ -22,7 +22,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { expect, onTestFinished, test } from "vite-plus/test";
 
-import { startExtensionHost, type WorkerExit } from "../src/host.ts";
+import { type ExtensionHostOptions, startExtensionHost, type WorkerExit } from "../src/host.ts";
 import { prepareExtensions } from "../src/prepare.ts";
 
 const fixture = path.join(import.meta.dirname, "fixtures", "notes");
@@ -444,7 +444,7 @@ test("a run the application continues starts once for the extensions", async () 
   await extensions.close();
 });
 
-test("extensions read the flag values given to attach", async () => {
+test("extensions read the flag values given to attach, and a mistyped one is reported", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -474,23 +474,34 @@ test("extensions read the flag values given to attach", async () => {
     agent: { model: { provider: model.provider, modelId: model.id } },
   });
   const extensions = await host.attach(
-    { harness, conversation, registry, models, cwd: dir, flags: { greeting: "bonjour" } },
+    {
+      harness,
+      conversation,
+      registry,
+      models,
+      cwd: dir,
+      flags: { greeting: "bonjour", greting: "salut" },
+    },
     context,
   );
+  expect(extensions.errors).toEqual([{ source: "flags", message: "Unknown option: --greting" }]);
   await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
 
   expect(toolResults(seen)).toEqual([{ tool: "greet", text: "bonjour", isError: false }]);
   await extensions.close();
 });
 
-/** A conversation with the worker fixture and a tool of the application's own, `echo`. */
-async function workerConversation(options: { restart?: boolean } = {}) {
+/** A conversation with a fixture extension, by default `worker`, and a tool of the application's own, `echo`. */
+async function workerConversation({
+  extension = "worker",
+  ...options
+}: Pick<ExtensionHostOptions, "restart" | "workerOptions"> & { extension?: string } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const exits: ({ message: string } & WorkerExit)[] = [];
   const host = startExtensionHost({
     prepared: await prepareExtensions({
-      sources: [path.join(import.meta.dirname, "fixtures", "worker")],
+      sources: [path.join(import.meta.dirname, "fixtures", extension)],
       dir,
     }),
     ...options,
@@ -527,7 +538,7 @@ async function workerConversation(options: { restart?: boolean } = {}) {
     context,
   );
   onTestFinished(() => extensions.close());
-  return { faux, conversation, exits };
+  return { faux, conversation, extensions, exits };
 }
 
 test("a conversation whose extension worker exited gets its extensions back on another", async () => {
@@ -574,4 +585,33 @@ test("without restart, a conversation whose extension worker exited goes on with
   expect(exits).toEqual([
     { message: expect.stringContaining("exited"), reopened: [], lost: [conversation.id] },
   ]);
+});
+
+test("a conversation whose extensions fail to load again is lost, and its gate blocks its tools", async () => {
+  const marker = path.join(await mkdtemp(path.join(tmpdir(), "pi-durable-compat-")), "loaded");
+  onTestFinished(() => rm(path.dirname(marker), { recursive: true, force: true }));
+  const { faux, conversation, extensions, exits } = await workerConversation({
+    extension: "gate",
+    workerOptions: { env: { ...process.env, GATE_MARKER: marker } },
+  });
+  let seen: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("echo", {})], { stopReason: "toolUse" }),
+    (request) => {
+      seen = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+
+  expect(toolResults(seen)).toEqual([
+    { tool: "crash", text: expect.stringContaining("exited"), isError: true },
+    { tool: "echo", text: expect.stringContaining("blocking execution"), isError: true },
+  ]);
+  expect(exits).toEqual([
+    { message: expect.stringContaining("exited"), reopened: [], lost: [conversation.id] },
+  ]);
+  // The application goes on submitting: lost extensions run no `input` handlers.
+  expect(await extensions.input("next")).toEqual({ action: "continue" });
 });

@@ -58,6 +58,8 @@ interface Opened extends Instance {
   readonly started: Set<string>;
   /** How long each finished call's `execute` took, in milliseconds, until `tool_execution_end`. */
   readonly durations: Map<string, number>;
+  /** Prompts `sendUserMessage` is passing through the `input` handlers, which close waits for. */
+  readonly prompts: Set<Promise<void>>;
 }
 
 const instances = new Map<string, Opened>();
@@ -129,20 +131,26 @@ function registrations(instance: Instance): Registrations {
 }
 
 const functions: WorkerFunctions = {
-  async open(key, cwd, flags) {
+  async open(key, sessionId, cwd, flags) {
     const life = new AbortController();
     // A write after close, such as a timer's message, is dropped rather than thrown, which would
-    // end the worker with every other conversation on it; and never reaches a conversation
-    // attached again under the same key.
+    // end the worker with every other conversation on it. A later instance of the same conversation
+    // has a key of its own, so this one's late writes, past the host's time limit, find none.
     const send = (action: Action) => {
       if (!life.signal.aborted) act(key, action);
     };
+    const prompts = new Set<Promise<void>>();
     const instance = await runtime.createInstance(extensions, {
       cwd,
       flags,
       actions: {
         sendMessage: (...args) => send({ type: "sendMessage", args }),
-        sendUserMessage: (...args) => send({ type: "sendUserMessage", args }),
+        sendUserMessage: (content, options) => {
+          if (life.signal.aborted) return;
+          const sent = prompt(key, content, options, send);
+          prompts.add(sent);
+          void sent.finally(() => prompts.delete(sent));
+        },
         appendEntry: (customType, data) => send({ type: "appendEntry", customType, data }),
         setSessionName: (name) => send({ type: "setSessionName", name }),
         getSessionName: () => undefined,
@@ -186,7 +194,7 @@ const functions: WorkerFunctions = {
         compact: (options) => send({ type: "compact", instructions: options?.customInstructions }),
         getSystemPrompt: () => "",
       },
-      sessionManager: sessionManager(key, cwd),
+      sessionManager: sessionManager(key, sessionId, cwd),
       modelRegistry: modelRegistry(key),
       exec: (command, args, options) => exec(key, command, args, options),
       changed: () => host.changed(key),
@@ -198,6 +206,7 @@ const functions: WorkerFunctions = {
       running: new Map(),
       started: new Set(),
       durations: new Map(),
+      prompts,
     });
     return { ...registrations(instance), errors: [...loadErrors, ...instance.errors] };
   },
@@ -350,6 +359,8 @@ const functions: WorkerFunctions = {
     // The instance stays open while its shutdown handlers run, which may still read and act.
     try {
       await found.runner.emit({ type: "session_shutdown", reason: "quit" });
+      // A prompt they sent is kept too, once the `input` handlers are done with it.
+      await Promise.allSettled(found.prompts);
       // What the handlers wrote travels on the journal channel, not with this reply. A read there
       // returns once the host has done those writes, so the host's close finds them done.
       read(key, "flush");
@@ -360,6 +371,47 @@ const functions: WorkerFunctions = {
     }
   },
 };
+
+/**
+ * An extension's prompt, through the `input` handlers first, as Pi's `sendUserMessage` sends it
+ * through `prompt` with source `"extension"`: text parts joined by line breaks, images apart, and
+ * the delivery told to handlers only while a run is under way.
+ */
+async function prompt(
+  key: string,
+  content: SendUserMessageArgs[0],
+  options: SendUserMessageArgs[1],
+  send: (action: Action) => void,
+) {
+  const text =
+    typeof content === "string"
+      ? content
+      : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+  const images = typeof content === "string" ? [] : content.filter((part) => part.type === "image");
+  const delivery = options?.deliverAs && !read(key, "isIdle") ? options.deliverAs : undefined;
+  let result: Awaited<ReturnType<Instance["runner"]["emitInput"]>>;
+  try {
+    result = await runnerFor(key).emitInput(
+      text,
+      images.length > 0 ? images : undefined,
+      "extension",
+      delivery,
+    );
+  } catch {
+    // The instance closed meanwhile; what it sends now is dropped, as any late action.
+    return;
+  }
+  if (result.action === "handled") return;
+  const sent =
+    result.action === "continue"
+      ? content
+      : result.images?.length
+        ? [{ type: "text" as const, text: result.text }, ...result.images]
+        : result.text;
+  send({ type: "sendUserMessage", args: [sent, options] });
+}
+
+type SendUserMessageArgs = Extract<Action, { type: "sendUserMessage" }>["args"];
 
 /** A tool's snippet on one line, as Pi's `AgentSession` lists it; none when it is blank. */
 function promptSnippet(text: string | undefined) {
@@ -457,11 +509,11 @@ function unsupported(name: string) {
   };
 }
 
-function sessionManager(key: string, cwd: string): ReadonlySessionManager {
+function sessionManager(key: string, sessionId: string, cwd: string): ReadonlySessionManager {
   return {
     getCwd: () => cwd,
     getSessionDir: unsupported("getSessionDir"),
-    getSessionId: () => key,
+    getSessionId: () => sessionId,
     getSessionFile: () => undefined,
     getLeafId: () => read(key, "getLeafId"),
     getLeafEntry: unsupported("getLeafEntry"),

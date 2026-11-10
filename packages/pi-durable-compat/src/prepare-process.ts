@@ -8,6 +8,7 @@ import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-codin
 import ensureError from "ensure-error";
 import isPathInside from "is-path-inside";
 import { build, type OutputChunk, type Plugin } from "rolldown";
+import { exactRegex } from "rolldown/filter";
 
 import type { PreparedExtension, PreparedExtensions } from "./prepare.ts";
 
@@ -112,6 +113,9 @@ function piLayout(): PiLayout {
     path.join(path.dirname(codingAgentEntry), "core", "sdk.js"),
     path.join(piAi, "dist", "providers", "images", "register-builtins.js"),
   ];
+  // The loader and pi-ai's extension view are resolved by their paths; a moved one would fail
+  // each extension's build alone, and prepare would succeed without them.
+  for (const file of [piLoader, piAiView]) realPath(file, file);
   return {
     initializers: new Set(initializers.map((file) => realPath(file, file))),
     leftInstalled: LEFT_INSTALLED.map(installedPackage),
@@ -326,7 +330,7 @@ function hostPackages(): Plugin {
   return {
     name: "pi-host-packages",
     resolveId: {
-      filter: { id: [new RegExp(`^${PI_LOADER}$`), HOST_PACKAGES] },
+      filter: { id: [exactRegex(PI_LOADER), HOST_PACKAGES] },
       async handler(source, importer, extraOptions) {
         if (source === PI_LOADER) return piLoader;
         if (importer === codingAgentEntry) return null;

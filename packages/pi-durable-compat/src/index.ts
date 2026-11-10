@@ -1,3 +1,4 @@
+export type { ExtensionError, Flags, HandlerError } from "./protocol.ts";
 export {
   type AttachedExtensions,
   type AttachOptions,

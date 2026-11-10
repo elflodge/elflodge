@@ -140,7 +140,8 @@ export type Flags = Readonly<Record<string, boolean | string>>;
 
 /** What the worker serves to the host. */
 export interface WorkerFunctions extends DispatchFunctions {
-  open(key: string, cwd: string, flags: Flags): Promise<Opened>;
+  /** `key` names this instance in later calls; `sessionId` is what `ctx.sessionManager` gives. */
+  open(key: string, sessionId: string, cwd: string, flags: Flags): Promise<Opened>;
   registrations(key: string): Registrations;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;
