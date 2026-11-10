@@ -2,7 +2,7 @@
 
 Run Pi coding-agent extensions on pi-durable.
 
-This package isn't part of Pi. It was built for [Elflodge](https://github.com/elflodge/elflodge)'s Runner, which runs many unattended agents in one process, and it is tested with the extensions listed below. pi-durable has no built-in way to run coding-agent extensions yet (earendil-works/pi#10386). When it does, this package will point you to it.
+This package isn't part of Pi. It was built for [Elflodge](https://elflodge.com)'s Runner, which runs many unattended agents in one process, and it is tested with the extensions listed below. pi-durable has no built-in way to run coding-agent extensions yet (earendil-works/pi#10386). When it does, this package will point you to it.
 
 ## Usage
 
