@@ -10,7 +10,7 @@ Extensions are trusted as the Runner is: they run in its process with its files,
 
 - Starting without an extension that fails to prepare, with a log line: the operator who configured it would not see that jobs ran without it, and their results would depend on what happened at start.
 - Logging an extension that does not load in a job and carrying on: the same, per job, and inconsistent with refusing to start.
-- `RUNNER_EXTENSIONS` as a JSON array: only a local path can hold a comma, and a list in a shell variable or `.env` reads more easily separated by commas, as Effect's `Config.Array` reads it.
+- `RUNNER_EXTENSIONS` as a JSON array: a list in a shell variable or `.env` reads more easily separated by commas, as Effect's `Config.Array` reads it, and a source rarely holds one.
 - An extension host per job: a worker set and the extensions' modules for each job, against the adapter's sharing, to tell jobs apart where a per-attachment callback does.
 - Routing a job's input through `input` handlers: the transformed input would have to be journaled so that a recovered run does not transform it again, a design of its own, for no extension the Runner ships.
 - Filtering the environment extensions see: code that reads the Runner's files and asks its model registry for credentials is not isolated by it.
@@ -18,4 +18,4 @@ Extensions are trusted as the Runner is: they run in its process with its files,
 
 ## Consequences
 
-The first start takes a few seconds more, about 7 s and 90 MB for pi-web-access in the image. A local path holding a comma cannot be listed. The proxy guard and the default settings name pi-web-access's tools and providers, so each upgrade of its pinned version rechecks them. Reconsider the refusal if operators need optional extensions, input routing when an extension the Runner ships needs `input`, and the proxy guard when pi-web-access can lock its proxy without one configured.
+The first start takes a few seconds more, about 7 s and 90 MB for pi-web-access in the image. A source holding a comma, such as a local path or a git reference with one, cannot be listed. The proxy guard and the default settings name pi-web-access's tools and providers, so each upgrade of its pinned version rechecks them. Reconsider the refusal if operators need optional extensions, input routing when an extension the Runner ships needs `input`, and the proxy guard when pi-web-access can lock its proxy without one configured.
