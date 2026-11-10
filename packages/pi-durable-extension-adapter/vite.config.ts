@@ -7,7 +7,9 @@ export default defineConfig({
     // extensions when they are prepared, so each is a file of its own; only the entry is exported.
     entry: ["src/index.ts", "src/host-worker.ts", "src/prepare-process.ts", "src/runtime.ts"],
     dts: true,
-    // In the workspace the export points to the source, as the other packages' do (ADR 0006).
+    // In the workspace the source is exported under a condition of its own, which the Runner's and
+    // the hub's settings add, and the build otherwise: `pnpm deploy` copies this manifest into the
+    // Runner's image without applying `publishConfig`, and the image loads the build (ADR 0006).
     exports: {
       devExports: "@elflodge/source",
       exclude: ["host-worker", "prepare-process", "runtime"],

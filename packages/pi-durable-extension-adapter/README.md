@@ -74,7 +74,7 @@ await host.close(); // when the process shuts down
 
 `storage`, `models`, `model` and `context` are what you already pass to pi-durable. `env` is a pi-durable `ExecutionEnv`, such as `NodeExecutionEnv`, in which `pi.exec` runs commands; without one, `pi.exec` throws.
 
-Check what did not load. `prepared.failures` lists the sources that could not be installed or bundled, and `extensions.errors` lists the extensions that failed to load for this conversation; in both cases the others work without them.
+Check what did not load. `prepared.failures` lists the sources that could not be installed or bundled or have no extension, and `extensions.errors` lists the extensions that failed to load for this conversation; in both cases the others work without them.
 
 `extensions.input()` runs the extensions' `input` handlers, which can leave the prompt as it is (`continue`), replace its text and images (`transform`), or answer it themselves (`handled`), in which case you submit nothing.
 

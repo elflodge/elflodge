@@ -38,6 +38,8 @@ function startRunnerProcess(dataDir: string, registrationKey: string, phase: "be
       ChildProcess.make(
         process.execPath,
         [
+          // The workspace's packages resolve to their source, as in the hub's other tests.
+          "--conditions=@elflodge/source",
           path.join(import.meta.dirname, "runner-restart.runner.ts"),
           system.url().href,
           registrationKey,

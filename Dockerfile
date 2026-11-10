@@ -57,13 +57,12 @@ CMD ["dist/main.mjs"]
 # of one workspace package, copies the Runner's files (`files` in its manifest) with a fresh
 # production install of its dependencies, whole, as the Runner loads some of their files by path,
 # pi-env's daemon and sandbox-runtime's seccomp helpers among them. Vite+ runs it through a script
-# (voidzero-dev/vite-plus#1038). The extension adapter is built first, as the Runner loads its
-# build, which the deployment copies. Then the exact Node the Runner runs on, as the guide exports
+# (voidzero-dev/vite-plus#1038). The build is transitive, so the extension adapter, whose build the
+# Runner loads and the deployment copies, is built first. Then the exact Node the Runner runs on, as the guide exports
 # it, with its licence, and the npm of the same Node distribution, with which the Runner installs
 # its extensions as it starts; the cache is off as for the hub ---
 FROM build AS runner-build
-RUN vp run --no-cache @elflodge/pi-durable-extension-adapter#build \
-  && vp run --no-cache runner#build && vp run --no-cache runner#notices \
+RUN vp run --no-cache -t runner#build && vp run --no-cache runner#notices \
   && vp run --no-cache runner#pnpm-deploy /tmp/runner \
   && node="$(vp env which node | head -1)" \
   && cp "$node" /tmp/node && cp "$(dirname "$node")/../LICENSE" /tmp/node-LICENSE \

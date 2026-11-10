@@ -218,7 +218,7 @@ function runRegistered(
         environments,
         models: options.models,
         model: options.model,
-        extensions: extensionHost,
+        extensionHost,
       };
       const jobs = new JobRunner(
         options.maxJobs ?? DEFAULT_MAX_JOBS,

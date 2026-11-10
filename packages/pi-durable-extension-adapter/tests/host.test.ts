@@ -62,6 +62,20 @@ function offeredTools(messages: readonly Message[]) {
   return [...tools];
 }
 
+test("prepare resolves a path starting with ./ from the working directory and reports one with no extension", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const missing = path.join("tests", "fixtures", "missing");
+  const prepared = await prepareExtensions({
+    sources: [`./${path.relative(process.cwd(), fixture)}`, missing],
+    dir,
+  });
+  expect(prepared.extensions).toHaveLength(1);
+  expect(prepared.failures).toEqual([
+    { source: missing, message: "No extension was found there." },
+  ]);
+});
+
 test("a conversation runs an extension's tools, saved entries, gate and input transform", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));

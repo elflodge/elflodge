@@ -83,7 +83,7 @@ const modelBaseUrlSetting = Config.schema(
 /**
  * The Pi extensions every job runs with unless `RUNNER_EXTENSIONS` says otherwise: pi-web-access,
  * which lets the agent search the web and read pages and PDFs, pinned, so a restarted Runner loads
- * what it installed without the registry and no release reaches it unreviewed.
+ * what it installed without the registry and a new release of it does not reach jobs unreviewed.
  */
 const DEFAULT_EXTENSIONS = ["npm:pi-web-access@0.47.0"];
 
@@ -91,15 +91,8 @@ const DEFAULT_EXTENSIONS = ["npm:pi-web-access@0.47.0"];
  * `RUNNER_EXTENSIONS`: Pi package sources separated by commas, which replace the default; `none` for
  * no extension, since the environment's empty value reads as unset.
  */
-const extensionsSetting = Config.String("RUNNER_EXTENSIONS").pipe(
-  Config.map((value) =>
-    value.trim() === "none"
-      ? []
-      : value
-          .split(",")
-          .map((source) => source.trim())
-          .filter(Boolean),
-  ),
+const extensionsSetting = Config.Array(Schema.Trim, "RUNNER_EXTENSIONS").pipe(
+  Config.map((sources) => (sources.join() === "none" ? [] : sources.filter(Boolean))),
   Config.withDefault(DEFAULT_EXTENSIONS),
 );
 

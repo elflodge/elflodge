@@ -155,14 +155,31 @@ interface Input {
 async function prepare({ sources, dir, npmCommand }: Input): Promise<PreparedExtensions> {
   const settingsManager = SettingsManager.inMemory(npmCommand && { npmCommand });
   const packages = new DefaultPackageManager({ cwd: dir, agentDir: dir, settingsManager });
-  const resolved = await packages.resolveExtensionSources(sources);
+  // Pi resolves a relative local path against `dir`, its agent directory here; the caller means its
+  // own working directory, as Pi's `--extension` does. Only a path that starts with `.` reads as
+  // relative for certain: Pi takes any source without a known prefix for a local path.
+  const given = new Map(
+    sources.map(
+      (source) => [/^\.\.?[/\\]/.test(source) ? path.resolve(source) : source, source] as const,
+    ),
+  );
+  const resolved = await packages.resolveExtensionSources([...given.keys()]);
   const found: PreparedExtension[] = resolved.extensions
     .filter((each) => each.enabled)
-    .map((each) => ({ source: each.metadata.source, path: each.path }));
+    .map((each) => ({
+      source: given.get(each.metadata.source) ?? each.metadata.source,
+      path: each.path,
+    }));
   const failures = (resolved.installFailures ?? []).map(({ source, message }) => ({
-    source,
+    source: given.get(source) ?? source,
     message,
   }));
+  // Pi skips a local path that does not exist, and a package without extensions has none to run.
+  for (const source of given.values()) {
+    if (found.some((each) => each.source === source)) continue;
+    if (failures.some((each) => each.source === source)) continue;
+    failures.push({ source, message: "No extension was found there." });
+  }
   const bundled = await bundle(found, dir, piLayout());
   return { ...bundled, failures: [...failures, ...bundled.failures] };
 }

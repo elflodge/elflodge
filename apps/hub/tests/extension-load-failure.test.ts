@@ -29,7 +29,9 @@ test("a job whose extension fails to load fails, naming the extension", async ()
     status: "failed",
     failure: {
       reason: "runFaulted",
-      message: expect.stringContaining("This extension needs a setting it does not have."),
+      message: expect.stringMatching(
+        /broken-extension.*This extension needs a setting it does not have\./,
+      ),
     },
   });
 });

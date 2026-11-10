@@ -17,13 +17,12 @@ import {
   ROOT_CONVERSATION_ID,
   type SettledSubmissionRecord,
   type Submission,
-  ToolTask,
   type UsageState,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { obj, opt, str, unknown } from "@earendil-works/pi-schema";
-import type { AttachedExtensions, ExtensionHost } from "@elflodge/pi-durable-extension-adapter";
+import type { ExtensionHost } from "@elflodge/pi-durable-extension-adapter";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   type Failure,
@@ -49,6 +48,7 @@ import ensureError from "ensure-error";
 import { compileSchema } from "json-schema-library";
 import * as z from "zod/mini";
 
+import { describeFailures, webAccessProxyGuard } from "./extensions.ts";
 import {
   appendUnderRequest,
   closingRequest,
@@ -95,14 +95,8 @@ export interface AgentSettings {
   models: Models;
   model: AgentModel;
   /** The Pi extensions every job's agent runs with, if the Runner loads any. */
-  extensions?: ExtensionHost;
+  extensionHost?: ExtensionHost;
 }
-
-/**
- * The tools of pi-web-access, the Runner's default extension, that take a proxy URL. Checked on each
- * upgrade of its pinned version.
- */
-const WEB_ACCESS_TOOLS = new Set(["web_search", "fetch_content", "source_check"]);
 
 /**
  * What a resumed job whose work pi had settled is told, as the user's message, so that it carries on;
@@ -322,21 +316,7 @@ export function openJob(
             await awaitWithContext(new Promise<never>(() => {}), requestContext);
           },
         }),
-        // pi-web-access's tools take a proxy URL the model chooses, checked for its scheme only,
-        // which would route the Runner's requests through any host, past the extension's guard
-        // against private addresses. The model is told to leave it out; `""`, a direct request,
-        // is allowed, as is a proxy the operator configures for the extension.
-        hook(ToolTask, {
-          beforeTool: (call) => {
-            const proxy = call.arguments["proxy"];
-            if (!WEB_ACCESS_TOOLS.has(call.name) || typeof proxy !== "string" || proxy === "") {
-              return undefined;
-            }
-            return {
-              block: "Choosing a proxy is not allowed here: call the tool without `proxy`.",
-            };
-          },
-        }),
+        webAccessProxyGuard,
         // Compaction summarizes with model calls of its own, outside generation's requests, so one
         // past the budget is declined. A blocking summary already admitted runs to its end, as a
         // request does; a background one is cut off when the job stops, and its usage is lost, as
@@ -364,11 +344,11 @@ export function openJob(
       Effect.sync(() => options.environments.open(jobId, paths)),
       (opened) => Effect.promise(() => opened.close()),
     ).pipe(Scope.provide(sandbox));
-    // The job's Pi extensions, attached once its conversation is open. On an interrupt they close
-    // after the journal, so nothing their `session_shutdown` handlers do, such as a message that
-    // would start the agent again, reaches the journal of a job that is to carry on.
-    let extensions: AttachedExtensions | undefined;
-    yield* Effect.addFinalizer(() => Effect.promise(async () => extensions?.close()));
+    // The scope of the job's Pi extensions, attached once its conversation is open. Forked before
+    // the journal opens, so on an interrupt they close after it, and nothing their
+    // `session_shutdown` handlers do, such as a message that would start the agent again, reaches
+    // the journal of a job that is to carry on.
+    const extensionsScope = yield* Scope.fork(yield* Effect.scope);
     // Completed once the job's extensions are gone for good, as when their worker exits and they
     // cannot be reopened: the job's agent would carry on without tools it was meant to have, and
     // pi-web-access's gate, for one, blocks every tool once its own state is gone.
@@ -448,33 +428,37 @@ export function openJob(
           return false;
         }, context),
       ));
-    const host = options.extensions;
+    // Why the job fails before its agent starts, if an extension failed as it loaded, or called
+    // what the adapter does not support, such as registering a model provider: its agent would run
+    // without what the operator gave it, as a Runner that cannot prepare one refuses to start.
+    let notLoaded: Failure | undefined;
+    const host = options.extensionHost;
     if (host && !closed) {
-      const attached = yield* Effect.promise(() =>
-        host.attach(
-          {
-            harness,
-            conversation: root,
-            registry,
-            models: options.models,
-            env,
-            cwd: paths.workspace,
-            onLost: (error) => Deferred.doneUnsafe(extensionsLost, Effect.succeed(error)),
-          },
-          context,
-        ),
-      );
-      extensions = attached;
-      // An extension that does not load fails the job, as one that cannot be prepared stops the
-      // Runner from starting: its agent would run without what the operator gave it.
-      if (attached.errors.length > 0) {
-        return yield* Effect.die(
-          new Error(
-            `These extensions did not load: ${attached.errors
-              .map(({ source, message }) => `${source}: ${message}`)
-              .join("; ")}`,
+      // Acquired uninterruptibly, so extensions attached as the job is paused still close.
+      const attached = yield* Effect.acquireRelease(
+        Effect.promise(() =>
+          host.attach(
+            {
+              harness,
+              conversation: root,
+              registry,
+              models: options.models,
+              env,
+              cwd: paths.workspace,
+              onLost: (error) => Deferred.doneUnsafe(extensionsLost, Effect.succeed(error)),
+            },
+            context,
           ),
-        );
+        ),
+        (opened) => Effect.promise(() => opened.close()),
+      ).pipe(Scope.provide(extensionsScope));
+      if (attached.errors.length > 0) {
+        notLoaded = {
+          reason: "runFaulted",
+          message: failureMessage(
+            `These extensions failed as they loaded: ${describeFailures(attached.errors)}`,
+          ),
+        };
       }
     }
     // pi's plain abort leaves background work, such as a compaction, running, so this abort includes
@@ -524,6 +508,13 @@ export function openJob(
     };
     const runAgent = Effect.gen(function* () {
       if (closed) return;
+      if (notLoaded) {
+        yield* Scope.close(extensionsScope, Exit.void);
+        yield* Effect.promise(() =>
+          submitClosing(root, options.runId, JobFailed, { timestamp: Date.now(), ...notLoaded }),
+        );
+        return;
+      }
       const answered = Effect.promise(async () => {
         const submission = await submitInput();
         return submission.wait(context);
@@ -554,8 +545,8 @@ export function openJob(
       );
       // The extensions' session ends with the job's work. What their `session_shutdown` handlers
       // start, such as a message to the agent, is stopped too, so the job's end is its last entry.
-      if (extensions) {
-        yield* Effect.promise(() => extensions.close());
+      if (host) {
+        yield* Scope.close(extensionsScope, Exit.void);
         yield* stopWork;
       }
       const accepted = yield* Effect.promise(() =>
