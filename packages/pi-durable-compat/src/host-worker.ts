@@ -125,7 +125,7 @@ function registrations(instance: Instance): Registrations {
 }
 
 const functions: WorkerFunctions = {
-  async open(key, cwd) {
+  async open(key, cwd, flags) {
     const life = new AbortController();
     // A write after close, such as a timer's message, is dropped rather than thrown, which would
     // end the worker with every other conversation on it; and never reaches a conversation
@@ -135,6 +135,7 @@ const functions: WorkerFunctions = {
     };
     const instance = await runtime.createInstance(extensions, {
       cwd,
+      flags,
       actions: {
         sendMessage: (...args) => send({ type: "sendMessage", args }),
         sendUserMessage: (...args) => send({ type: "sendUserMessage", args }),
@@ -349,7 +350,8 @@ const functions: WorkerFunctions = {
       // returns once the host has done those writes, so the host's close finds them done.
       read(key, "flush");
     } finally {
-      instances.delete(key);
+      // The host stops waiting after its time limit and may open the conversation here again.
+      if (instances.get(key) === found) instances.delete(key);
       found.life.abort();
     }
   },

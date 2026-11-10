@@ -22,6 +22,13 @@ export interface PrepareOptions {
    * reuses them while the sources stay the same, and the bundle is built there again on every call.
    */
   readonly dir: string;
+  /** Pi's `npmCommand` setting: the command that runs npm, with its arguments. Default `["npm"]`. */
+  readonly npmCommand?: readonly string[];
+  /**
+   * Stops preparing: the child process ends and the promise rejects with Node's `AbortError`, the
+   * signal's reason as its `cause`. A package manager it started goes on until it is done.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** One extension's module in the bundle. */
@@ -58,7 +65,12 @@ const PrepareReply = Schema.Union([PreparedExtensions, Schema.Struct({ error: Sc
  * its threads and their memory stay in the process; a process returns it.
  */
 export async function prepareExtensions(options: PrepareOptions): Promise<PreparedExtensions> {
-  const child = fork(processModule);
+  // The child's output, the package manager's included, goes to standard error, as Pi sends a
+  // package manager's when its standard output carries a protocol (`package-manager.js`).
+  const child = fork(processModule, {
+    stdio: ["ignore", 2, 2, "ipc"],
+    ...(options.signal && { signal: options.signal }),
+  });
   // A failure to start rejects the wait for the reply; one after it has no one to report to.
   child.on("error", () => {});
   // `close` comes after the channel has delivered every message, unlike `exit`.
@@ -68,7 +80,11 @@ export async function prepareExtensions(options: PrepareOptions): Promise<Prepar
       reject(new Error(`Preparing extensions failed: the process exited with ${how}`));
     });
   });
-  child.send({ sources: [...options.sources], dir: options.dir });
+  child.send({
+    sources: [...options.sources],
+    dir: options.dir,
+    ...(options.npmCommand && { npmCommand: [...options.npmCommand] }),
+  });
   const [message] = await Promise.race([once(child, "message"), exited]);
   const reply = Schema.decodeUnknownSync(PrepareReply)(message);
   if ("error" in reply) throw new Error(`Preparing extensions failed: ${reply.error}`);

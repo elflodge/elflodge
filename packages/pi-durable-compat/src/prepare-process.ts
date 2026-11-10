@@ -144,10 +144,11 @@ function realPath(file: string | undefined, name: string): string {
 interface Input {
   sources: string[];
   dir: string;
+  npmCommand?: string[];
 }
 
-async function prepare({ sources, dir }: Input): Promise<PreparedExtensions> {
-  const settingsManager = SettingsManager.inMemory();
+async function prepare({ sources, dir, npmCommand }: Input): Promise<PreparedExtensions> {
+  const settingsManager = SettingsManager.inMemory(npmCommand && { npmCommand });
   const packages = new DefaultPackageManager({ cwd: dir, agentDir: dir, settingsManager });
   const resolved = await packages.resolveExtensionSources(sources);
   const found: PreparedExtension[] = resolved.extensions

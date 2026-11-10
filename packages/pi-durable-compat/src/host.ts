@@ -1,9 +1,10 @@
 import { constants } from "node:buffer";
+import { once } from "node:events";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-import { MessageChannel, Worker } from "node:worker_threads";
+import { MessageChannel, Worker, type WorkerOptions } from "node:worker_threads";
 
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
@@ -62,6 +63,7 @@ import type {
   Action,
   AgentStartTrigger,
   ExtensionError,
+  Flags,
   HandlerError,
   HostFunctions,
   JournalMessage,
@@ -94,6 +96,17 @@ export interface ExtensionHostOptions {
    * goes on. Default: written to standard error, as Pi's print mode writes it.
    */
   readonly onError?: (error: HandlerError, conversation: ConversationId) => void;
+  /**
+   * How long closing a conversation's extensions waits for their `session_shutdown` handlers, in
+   * milliseconds, before it goes on and drops what they do later. Default 10 s. Pi waits without a
+   * limit, but here one stuck handler would hold up `close`, the host's too.
+   */
+  readonly closeTimeout?: number;
+  /**
+   * Node's options for the worker threads: `resourceLimits` caps their memory, so a worker that runs
+   * out exits alone and the process goes on; `env` is their `process.env`, by default the process's.
+   */
+  readonly workerOptions?: Pick<WorkerOptions, "env" | "resourceLimits">;
 }
 
 /** What `attach` binds a conversation's extensions to. */
@@ -111,6 +124,11 @@ export interface AttachOptions {
   readonly env?: ExecutionEnv;
   /** The directory extensions see as `ctx.cwd`. */
   readonly cwd: string;
+  /**
+   * Values for the flags extensions register (`pi.registerFlag`), by name, as Pi's command line
+   * gives them: set once the extensions have loaded, so `getFlag` returns them from `session_start`.
+   */
+  readonly flags?: Flags;
 }
 
 /** One conversation's extensions. */
@@ -148,13 +166,14 @@ export interface ExtensionHost {
 export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost {
   loadAddons(options.prepared.addons);
   const workers = new Workers(options);
-  const installations = new Map<Registry, Installation>();
   const installationFor = ({ harness, registry }: AttachOptions) => {
     let found = installations.get(registry);
     if (!found) {
-      found = new Installation(harness, registry, () => installations.delete(registry));
+      found = new Installation(workers, harness, registry, () => installations.delete(registry));
       installations.set(registry, found);
     }
+    // Each host installs its extension under the same name, which the registry replaces.
+    if (found.workers !== workers) throw new Error("A registry can serve one extension host only");
     // Hooks and tools know their conversation's ID only, which is unique within one Harness.
     if (found.harness !== harness) throw new Error("A registry can serve one Harness only");
     return found;
@@ -165,6 +184,9 @@ export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost
     close: () => workers.close(),
   };
 }
+
+/** Every host's installations, by registry, so a second host on one registry is refused. */
+const installations = new WeakMap<Registry, Installation>();
 
 /**
  * Loads each native add-on the extensions use once in this thread, where it stays loaded. Node
@@ -212,9 +234,11 @@ class Workers {
    */
   readonly #orphans = new Set<AttachedConversation>();
   #closed = false;
+  readonly closeTimeout: number;
 
   constructor(options: ExtensionHostOptions) {
     this.#options = options;
+    this.closeTimeout = options.closeTimeout ?? 10_000;
   }
 
   acquire(key: string, conversation: AttachedConversation): HostedWorker {
@@ -270,6 +294,7 @@ class Workers {
       rpc: rpc.port2,
     };
     const worker = new Worker(workerModule, {
+      ...this.#options.workerOptions,
       workerData,
       transferList: [journal.port2, rpc.port2],
     });
@@ -389,12 +414,12 @@ async function attachConversation(
   // A conversation gets its provider session ID when it is created; one from before that gets
   // it at its first request, so it is keyed by its own ID until then.
   const key = provider?.sessionId ?? `${conversation.id}`;
-  const attached = new AttachedConversation(key, options, installation);
+  const attached = new AttachedConversation(key, options, installation, workers.closeTimeout);
   installation.add(attached);
   const hosted = workers.acquire(key, attached);
   attached.bind(hosted, () => workers.release(hosted, key, attached));
   try {
-    const opened = await hosted.rpc.open(key, options.cwd);
+    const opened = await hosted.rpc.open(key, options.cwd, options.flags ?? {});
     attached.update(opened);
     // A conversation with entries is one a host opened again, as after a restart, which extensions
     // learn as Pi tells them about a session it opens again.
@@ -422,6 +447,8 @@ async function attachConversation(
  * it to some conversations with pi-durable's own selection.
  */
 class Installation {
+  /** The host that installed it. */
+  readonly workers: Workers;
   readonly harness: Harness;
   readonly #registry: Registry;
   readonly #emptied: () => void;
@@ -429,7 +456,8 @@ class Installation {
   #installed: ReturnType<typeof defineExtension> | undefined;
   #installedFor: unknown;
 
-  constructor(harness: Harness, registry: Registry, emptied: () => void) {
+  constructor(workers: Workers, harness: Harness, registry: Registry, emptied: () => void) {
+    this.workers = workers;
     this.harness = harness;
     this.#registry = registry;
     this.#emptied = emptied;
@@ -571,6 +599,7 @@ class AttachedConversation {
   #closed = false;
   #closing: Promise<void> | undefined;
   readonly #installation: Installation;
+  readonly #closeTimeout: number;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
@@ -590,16 +619,31 @@ class AttachedConversation {
     return this.#options.conversation.id;
   }
 
-  constructor(key: string, options: AttachOptions, installation: Installation) {
+  constructor(
+    key: string,
+    options: AttachOptions,
+    installation: Installation,
+    closeTimeout: number,
+  ) {
     this.key = key;
     this.models = options.models;
     this.#options = options;
     this.#installation = installation;
+    this.#closeTimeout = closeTimeout;
   }
 
   get #rpc() {
-    if (!this.#hosted || this.#closed) throw new Error("The conversation's extensions are closed");
+    if (this.#closed) throw new Error("The conversation's extensions are closed");
+    if (!this.#hosted) throw new Error("The conversation's extension worker exited");
     return this.#hosted.rpc;
+  }
+
+  /**
+   * Whether the extensions still run: not once closed, nor once their worker exited, when their
+   * hooks do nothing rather than fail every request; `beforeTool` decides for itself.
+   */
+  get #running() {
+    return !this.#closed && this.#hosted !== undefined;
   }
 
   bind(hosted: HostedWorker, release: () => void) {
@@ -620,6 +664,12 @@ class AttachedConversation {
 
   async beforeTool(call: ToolHookCall) {
     if (this.#closed) return undefined;
+    // Extensions that gate tool calls block them once their worker exited, as Pi blocks a call
+    // when a `tool_call` handler fails (`agent-session.js`); without a gate, calls go on.
+    if (!this.#hosted) {
+      if (!this.#listens("tool_call")) return undefined;
+      return { block: "Extension failed, blocking execution: the extension worker exited" };
+    }
     const { result, input } = await this.#rpc.toolCall(this.key, {
       type: "tool_call",
       toolCallId: call.id,
@@ -633,7 +683,7 @@ class AttachedConversation {
   }
 
   async afterTool(call: ToolHookCall, result: ToolExecutionResult) {
-    if (this.#closed) return undefined;
+    if (!this.#running) return undefined;
     const changed = await this.#rpc.toolResult(this.key, {
       type: "tool_result",
       toolCallId: call.id,
@@ -668,7 +718,7 @@ class AttachedConversation {
     api: HookApi,
     context: Context,
   ) {
-    if (this.#closed) return undefined;
+    if (!this.#running) return undefined;
     let messages = [...request.messages];
     if (this.#listens("before_agent_start", "agent_start", "turn_start")) {
       const live = await api.snapshot(LiveDoc, api.conversationId, context);
@@ -786,7 +836,7 @@ class AttachedConversation {
    * calling once another extension's hook continues the run.
    */
   async afterResponse(message: AssistantMessage, api: HookApi, context: Context) {
-    if (this.#closed) return;
+    if (!this.#running) return;
     if (this.#listens("message_end")) await this.#rpc.messageEnd(this.key, message);
     // A tool round's `turn_end` comes from `afterTools`; pi-durable starts one only for a response
     // with calls, and takes one without as an answer.
@@ -810,7 +860,7 @@ class AttachedConversation {
 
   /** `turn_end` for a tool round, from the committed entries: the hook's `results` can be empty. */
   async turnEnd(assistant: EntryId, api: HookApi, context: Context) {
-    if (this.#closed) return;
+    if (!this.#running) return;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     const [first, ...rest] = await records(api, { minEntryId: assistant }, context);
     const message = first?.model?.find((each) => each.role === "assistant");
@@ -834,7 +884,7 @@ class AttachedConversation {
 
   /** `agent_end` with the run's messages; pi-durable has no hook for a run that fails or aborts. */
   async agentEnd(run: RunSummary, api: HookApi, context: Context) {
-    if (this.#closed) return;
+    if (!this.#running) return;
     const range = await records(api, { minEntryId: run.first, maxEntryId: run.last }, context);
     const messages = range.flatMap((record) => record.model ?? []);
     await this.#rpc.emit(this.key, { type: "agent_end", messages });
@@ -847,7 +897,7 @@ class AttachedConversation {
     readonly firstKept: EntryId;
     readonly instructions?: string;
   }) {
-    if (this.#closed) return undefined;
+    if (!this.#running) return undefined;
     const decision = await this.#rpc.beforeCompact(this.key, {
       reason: compaction.reason,
       instructions: compaction.instructions,
@@ -860,7 +910,7 @@ class AttachedConversation {
   }
 
   async beforeProviderRequest(request: { readonly payload: unknown }) {
-    if (this.#closed) return undefined;
+    if (!this.#running) return undefined;
     return { payload: await this.#rpc.providerRequest(this.key, request.payload) };
   }
 
@@ -1199,7 +1249,10 @@ class AttachedConversation {
     return this.#rpc.input(this.key, text, images && [...images], "rpc");
   }
 
-  /** The worker exited: the conversation's extensions are gone, and its tools fail from now on. */
+  /**
+   * The worker exited: the conversation's extensions are gone, its tools fail from now on, and its
+   * hooks do nothing, except a gate's, which blocks.
+   */
   lost() {
     this.#hosted = undefined;
   }
@@ -1214,8 +1267,11 @@ class AttachedConversation {
     const hosted = this.#hosted;
     if (hosted) {
       // What `session_shutdown` handlers write is kept, as the worker waits for it before it
-      // answers; what extensions do after it is dropped.
-      await hosted.rpc.close(this.key).catch(() => {});
+      // answers; what extensions do after it, or after the time limit, is dropped.
+      await Promise.race([
+        hosted.rpc.close(this.key).catch(() => {}),
+        once(AbortSignal.timeout(this.#closeTimeout), "abort"),
+      ]);
     }
     this.#closed = true;
     this.#release?.();

@@ -13,7 +13,7 @@ import {
 import ensureError from "ensure-error";
 import { loadExtensionFromFactory } from "pi-extension-loader";
 
-import type { HandlerError } from "./protocol.ts";
+import type { Flags, HandlerError } from "./protocol.ts";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
@@ -28,6 +28,8 @@ export { convertToLlm, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-co
 /** What an instance needs from its host: the conversation's state and every action that leaves the worker. */
 export interface Bridge {
   readonly cwd: string;
+  /** Values for the flags extensions register, set once they have loaded, as Pi sets its command line's. */
+  readonly flags: Flags;
   readonly actions: Omit<ExtensionActions, "refreshTools">;
   readonly context: ExtensionContextActions;
   /** `ctx.sessionManager`: reads of the conversation's history, answered synchronously by the host. */
@@ -147,6 +149,9 @@ export async function createInstance(
       errors.push({ source, message: ensureError(error).message });
     }
   }
+  // After the factories, as Pi's session sets them (`agent-session.js`): a factory reads a flag's
+  // default, its handlers the value given.
+  for (const [name, value] of Object.entries(bridge.flags)) runtime.flagValues.set(name, value);
   const runner = new ExtensionRunner(
     records,
     runtime,

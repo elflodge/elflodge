@@ -131,9 +131,12 @@ export interface Compaction {
 
 export type CompactDecision = { readonly cancel: true } | { readonly summary: string };
 
+/** Values for the flags extensions register, by name, as Pi's command line gives them. */
+export type Flags = Readonly<Record<string, boolean | string>>;
+
 /** What the worker serves to the host. */
 export interface WorkerFunctions extends DispatchFunctions {
-  open(key: string, cwd: string): Promise<Opened>;
+  open(key: string, cwd: string, flags: Flags): Promise<Opened>;
   registrations(key: string): Registrations;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;

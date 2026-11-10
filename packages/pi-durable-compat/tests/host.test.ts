@@ -13,6 +13,7 @@ import {
 import {
   createRegistry,
   defineExtension,
+  defineTool,
   GenerationTask,
   Harness,
   hook,
@@ -324,5 +325,102 @@ test("a run the application continues starts once for the extensions", async () 
   ]);
   expect(events.filter((event) => event === "agent_start")).toHaveLength(1);
   expect(events.filter((event) => event === "turn_start")).toHaveLength(2);
+  await extensions.close();
+});
+
+test("extensions read the flag values given to attach", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "worker")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  let seen: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("greet", {})], { stopReason: "toolUse" }),
+    (request) => {
+      seen = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir, flags: { greeting: "bonjour" } },
+    context,
+  );
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+
+  expect(toolResults(seen)).toEqual([{ tool: "greet", text: "bonjour", isError: false }]);
+  await extensions.close();
+});
+
+test("a conversation whose extension worker exited goes on with its other tools", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "worker")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  let seen: readonly Message[] = [];
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("greet", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("echo", {})], { stopReason: "toolUse" }),
+    (request) => {
+      seen = request.messages;
+      return fauxAssistantMessage([fauxText("Done.")]);
+    },
+  ]);
+  const registry = createRegistry();
+  registry.install(
+    defineExtension({
+      name: "app",
+      tools: [
+        defineTool({
+          name: "echo",
+          description: "Echo",
+          parameters: { type: "object", properties: {} },
+          execute: async () => ({ output: [{ type: "text", text: "echoed" }] }),
+        }),
+      ],
+    }),
+  );
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
+
+  expect(toolResults(seen)).toEqual([
+    { tool: "crash", text: expect.stringContaining("exited"), isError: true },
+    { tool: "greet", text: expect.stringContaining("exited"), isError: true },
+    { tool: "echo", text: "echoed", isError: false },
+  ]);
   await extensions.close();
 });
