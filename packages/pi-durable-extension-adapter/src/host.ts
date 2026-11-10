@@ -798,13 +798,21 @@ class AttachedConversation {
     this.#release = () => this.#workers.release(hosted, route, this);
     this.#opening = true;
     // Its own awaits stop at the limit too.
-    const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), context);
+    const limit = AbortSignal.timeout(STUCK_AFTER_MS);
+    const limited = withAbortSignal(limit, context);
     const loading = this.#open(hosted, route, limited).finally(() => {
       this.#opening = false;
       // Closed, or given up on, while loading: the instance goes when it is done.
       if (this.#closed || this.#hosted !== hosted) void hosted.rpc.close(route).catch(() => {});
     });
-    const opened = awaitWithContext(loading, limited);
+    const opened = awaitWithContext(loading, limited).catch((error: unknown) => {
+      // Named, so a caller tells a stuck extension from its own deadline, which a timeout signal
+      // reports with the same message.
+      if (!limit.aborted || context.abortSignal?.aborted) throw error;
+      throw new Error(`Opening the extensions took longer than ${STUCK_AFTER_MS} ms`, {
+        cause: error,
+      });
+    });
     this.#ready = opened.catch(() => {});
     return opened;
   }
@@ -861,7 +869,9 @@ class AttachedConversation {
 
   /** Takes the extensions' current registrations, and installs them in the registry. */
   update(registrations: Registrations) {
-    if (this.#closed) return;
+    // From the start of closing: an opening given up on can still finish loading, and its
+    // registrations would install the extension again after the conversation left.
+    if (this.#closing) return;
     this.registrations = registrations;
     this.#installation.refresh();
   }
@@ -1545,10 +1555,12 @@ class AttachedConversation {
 /**
  * How long opening a conversation's extensions, or closing them, may take before it is given up
  * on. Loading and the session handlers take well under a second (about 180 ms on a new worker with
- * `pi-web-access` and `pi-web-search`), so only a handler that never finishes reaches it. Without a limit, such a handler would hold up
- * `attach`, the conversation's hooks after a reopen, or the end of its work and its place on the
- * worker, until the caller's own deadline, which is sized for a whole job. Pi has no limit, as a
- * person at the terminal ends what hangs; nobody does for an unattended host.
+ * `pi-web-access` and `pi-web-search`), so only a handler that never finishes reaches it. Without a
+ * limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
+ * of its work and its place on the worker, until the caller's own deadline, which is sized for a
+ * whole job. Pi has no limit, as a person at the terminal ends what hangs; nobody does for an
+ * unattended host. It is wall time: a worker that another conversation's synchronous work keeps busy
+ * that long counts too, as it holds up every conversation on it already.
  */
 const STUCK_AFTER_MS = 10_000;
 
