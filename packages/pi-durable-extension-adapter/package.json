@@ -3,11 +3,11 @@
   "version": "0.7.1",
   "description": "Run Pi coding-agent extensions on pi-durable.",
   "keywords": [
-    "agent",
+    "durable-execution",
     "pi",
     "pi-coding-agent",
     "pi-durable",
-    "pi-extensions"
+    "pi-extension"
   ],
   "homepage": "https://github.com/elflodge/elflodge/tree/main/packages/pi-durable-extension-adapter#readme",
   "bugs": {
