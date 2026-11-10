@@ -3,12 +3,14 @@ import { StringEnum, Type } from "@mariozechner/pi-ai";
 
 // An extension using what extensions commonly use: tools, saved entries read back from the
 // session, a `tool_call` gate, an `input` transform and a `context` handler, with Pi's former
-// package names.
+// package names. A tool brings a prompt snippet and guidelines.
 export default function extension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "remember",
     label: "Remember",
     description: "Save a note",
+    promptSnippet: "Save a note\n  for later",
+    promptGuidelines: ["Save each note once", " Save each note once "],
     parameters: Type.Object({ text: Type.String(), tags: Type.Array(Type.String()) }),
     // Tags sent as JSON text are parsed, as `pi-web-access` does for its arrays.
     prepareArguments: (args) => {

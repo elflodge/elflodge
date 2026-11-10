@@ -27,6 +27,10 @@ export interface ToolDescriptor {
   readonly executionMode: "parallel" | "sequential" | undefined;
   readonly exposure: "direct" | "model-only" | "codemode" | "deferred" | "hidden" | undefined;
   readonly defaultActive: boolean | undefined;
+  /** What Pi lists for the tool among its prompt's tools while it is active, on one line. */
+  readonly promptSnippet: string | undefined;
+  /** What Pi adds to its prompt's rules while the tool is active, trimmed and once each. */
+  readonly promptGuidelines: readonly string[];
 }
 
 /** What a conversation's extensions registered: their tools and the events they listen to. */

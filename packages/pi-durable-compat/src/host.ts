@@ -34,6 +34,8 @@ import {
   type EntryRecord,
   type Cursor,
   type Page,
+  type PromptInput,
+  type PromptSection,
   type GenerationHooks,
   GenerationTask,
   type Harness,
@@ -44,6 +46,7 @@ import {
   type LiveRun,
   ProviderDoc,
   type Registry,
+  section,
   type RunSummary,
   ToolTask,
   UserEntry,
@@ -502,6 +505,7 @@ class Installation {
     this.#installed = defineExtension({
       name: "pi-durable-compat",
       tools: [...tools.values()].flatMap((tool) => this.#tool(tool)),
+      sections: this.#sections(),
       hooks: this.#hooks(events),
     });
     this.#registry.install(this.#installed);
@@ -560,6 +564,40 @@ class Installation {
       );
     }
     return hooks;
+  }
+
+  /**
+   * The offered tools' snippets and guidelines, as Pi puts its active tools' in the tools and rules
+   * sections of its prompt (`core/system-prompt.js`), each conversation its own extensions'. The
+   * guidelines get rules of their own, apart from those a run's `before_agent_start` adds, which
+   * come after the sections render.
+   */
+  #sections(): PromptSection[] {
+    const offered = (input: PromptInput) => {
+      const own = new Map(this.#for(input)?.registrations.tools.map((tool) => [tool.name, tool]));
+      return input.agent.tools.flatMap((tool) => own.get(tool.name) ?? []);
+    };
+    return [
+      section(
+        "pi-extensions-tools",
+        (input) =>
+          listSection(
+            "tools",
+            offered(input).flatMap((tool) =>
+              tool.promptSnippet ? [`${tool.name}: ${tool.promptSnippet}`] : [],
+            ),
+          ),
+        { tag: false },
+      ),
+      section(
+        "pi-extensions-tool-rules",
+        (input) =>
+          listSection("rules", [
+            ...new Set(offered(input).flatMap((tool) => tool.promptGuidelines)),
+          ]),
+        { tag: false },
+      ),
+    ];
   }
 
   #tool(descriptor: ToolDescriptor): ToolRegistration[] {
@@ -1276,6 +1314,12 @@ class AttachedConversation {
     this.#closed = true;
     this.#release?.();
   }
+}
+
+/** `lines` as a list in a section tagged `name`, as Pi renders its tools and rules; none if empty. */
+function listSection(name: string, lines: readonly string[]) {
+  if (lines.length === 0) return undefined;
+  return `<${name}>\n${lines.map((line) => `- ${line}`).join("\n")}\n</${name}>`;
 }
 
 /** Whether Pi leaves a tool out of the active set when it is registered. */

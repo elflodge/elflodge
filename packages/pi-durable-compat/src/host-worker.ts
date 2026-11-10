@@ -119,6 +119,10 @@ function registrations(instance: Instance): Registrations {
       executionMode: definition.executionMode,
       exposure: definition.exposure,
       defaultActive: definition.defaultActive,
+      promptSnippet: promptSnippet(definition.promptSnippet),
+      promptGuidelines: [
+        ...new Set((definition.promptGuidelines ?? []).map((each) => each.trim()).filter(Boolean)),
+      ],
     })),
     events: instance.events(),
   };
@@ -357,6 +361,11 @@ const functions: WorkerFunctions = {
   },
 };
 
+/** A tool's snippet on one line, as Pi's `AgentSession` lists it; none when it is blank. */
+function promptSnippet(text: string | undefined) {
+  return text?.replaceAll(/\s+/g, " ").trim() || undefined;
+}
+
 /** The section names Pi accepts, as `core/system-prompt.js` checks them. */
 const SECTION_NAME = /^[a-z][a-z0-9_-]*$/;
 
@@ -381,7 +390,7 @@ function promptSections(
   // Rendered as Pi renders a section, and keyed apart from pi-durable's own sections, which the
   // same request carries: unprefixed, an extension's `rules` would replace pi-durable's.
   const tagged = (name: string, content: string) => {
-    sections[`pi-extensions.${name}`] = `<${name}>\n${content}\n</${name}>`;
+    sections[`pi-extensions-${name}`] = `<${name}>\n${content}\n</${name}>`;
   };
   const guidelines = [
     ...new Set(options.promptGuidelines.map((each) => each.trim()).filter(Boolean)),

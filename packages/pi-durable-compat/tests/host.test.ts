@@ -118,8 +118,13 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
     },
     { tool: "danger", text: expect.stringContaining("Not allowed"), isError: true },
   ]);
-  // The extension's `context` handler leaves the system prompt in place, as Pi does.
-  expect(seen.filter((message) => message.role === "system")).not.toEqual([]);
+  // The extension's `context` handler leaves the system prompt in place, as Pi does, which lists
+  // the tool's snippet and guidelines as Pi lists an active tool's.
+  const system = seen.find((message) => message.role === "system");
+  expect(system?.role === "system" && system.sections).toMatchObject({
+    "pi-extensions-tools": "<tools>\n- remember: Save a note for later\n</tools>",
+    "pi-extensions-tool-rules": "<rules>\n- Save each note once\n</rules>",
+  });
   await extensions.close();
 });
 
