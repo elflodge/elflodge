@@ -53,8 +53,8 @@ interface Opened extends Instance {
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
   readonly running: Map<string, AbortController>;
-  /** Calls whose `tool_execution_start` was emitted. */
-  readonly started: Set<string>;
+  /** Calls whose `tool_execution_start` was emitted, with the arguments it gave. */
+  readonly started: Map<string, unknown>;
   /** How long each finished call's `execute` took, in milliseconds, until `tool_execution_end`. */
   readonly durations: Map<string, number>;
   /** Prompts `sendUserMessage` is passing through the `input` handlers, which close waits for. */
@@ -203,7 +203,7 @@ const functions: WorkerFunctions = {
         abort: () => send({ type: "abort" }),
         hasPendingMessages: () => false,
         shutdown: () => send({ type: "shutdown" }),
-        getContextUsage: () => undefined,
+        getContextUsage: () => read(key, "getContextUsage"),
         compact: (options) => send({ type: "compact", instructions: options?.customInstructions }),
         getSystemPrompt: () => "",
       },
@@ -217,7 +217,7 @@ const functions: WorkerFunctions = {
       ...instance,
       life,
       running: new Map(),
-      started: new Set(),
+      started: new Map(),
       durations: new Map(),
       prompts,
     });
@@ -233,12 +233,13 @@ const functions: WorkerFunctions = {
   // `tool_call`, as a copy that `tool_call` handlers' edits leave alone; `tool_execution_end` with the result `tool_result` handlers made.
   async toolCall(key, event) {
     const { runner, started } = instanceFor(key);
-    started.add(event.toolCallId);
+    const args = structuredClone(event.input);
+    started.set(event.toolCallId, args);
     await runner.emit({
       type: "tool_execution_start",
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      args: structuredClone(event.input),
+      args,
     });
     const result = await runner.emitToolCall(event);
     return { result, input: event.input };
@@ -344,27 +345,46 @@ const functions: WorkerFunctions = {
       throw new Error(`Tool ${name} is not registered in this conversation`);
     }
     const controller = new AbortController();
-    const { running, durations } = instance;
+    const { running, durations, started } = instance;
     running.set(callId, controller);
     const begun = performance.now();
+    // As Pi's agent loop does: each partial result is a `tool_execution_update`, until `execute`
+    // settles, and the result waits for the handlers. pi-durable records only text a tool streams,
+    // which Pi's partial results are not, so they reach extensions alone.
+    const updates: Promise<unknown>[] = [];
+    let updating = true;
     try {
       const params = definition.prepareArguments ? definition.prepareArguments(args) : args;
       const result = await definition.execute(
         callId,
         params,
         controller.signal,
-        // pi-durable records a call's output as text it streams, which Pi's partial results are not.
-        () => {},
+        (partialResult) => {
+          if (!updating) return;
+          updates.push(
+            runner.emit({
+              type: "tool_execution_update",
+              toolCallId: callId,
+              toolName: name,
+              // The model's arguments, as Pi gives them: those `tool_execution_start` gave, or,
+              // with no one listening to it or `tool_call`, the arguments the tool runs with.
+              args: started.get(callId) ?? args,
+              partialResult,
+            }),
+          );
+        },
         runner.createToolContext(callId, controller.signal),
       );
       return toolResult(result);
     } finally {
+      updating = false;
       running.delete(callId);
       // For `tool_execution_end`, which the host asks for after the result, when someone listens;
       // whole milliseconds, as Pi gives them.
       if (instance.events().includes("tool_execution_end")) {
         durations.set(callId, Math.round(performance.now() - begun));
       }
+      await Promise.all(updates);
     }
   },
   cancelTool(key, callId) {

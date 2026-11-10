@@ -21,8 +21,10 @@ import type {
   Model,
   Models,
 } from "@earendil-works/pi-ai";
+import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type {
+  ContextUsage,
   ExecResult,
   InputEvent,
   InputEventResult,
@@ -56,6 +58,7 @@ import {
   ProviderDoc,
   type Registry,
   section,
+  SystemEntry,
   type RunSummary,
   ToolTask,
   UserEntry,
@@ -1521,10 +1524,10 @@ class AttachedConversation {
         return (await this.#entries()).find((entry) => entry.id === args[0]);
       case "getLeafId":
         return (await this.#entries()).at(-1)?.id ?? null;
-      case "getModel": {
-        const { model } = await conversation.agent(context);
-        return model && this.models.getModel(model.provider, model.modelId);
-      }
+      case "getModel":
+        return this.#model();
+      case "getContextUsage":
+        return this.#contextUsage();
       case "getThinkingLevel":
         return (await conversation.agent(context)).thinkingLevel;
       case "isIdle":
@@ -1554,6 +1557,44 @@ class AttachedConversation {
     }
     const unknown: never = method;
     throw new Error(`Unknown read ${String(unknown)}`);
+  }
+
+  /** The conversation's model, from the `models` given to `attach`. */
+  async #model(): Promise<Model<Api> | undefined> {
+    const { model } = await this.#options.conversation.agent(BACKGROUND_CONTEXT);
+    return model && this.models.getModel(model.provider, model.modelId);
+  }
+
+  /**
+   * How full the conversation's context is, as pi-durable measures it to decide on compaction: the
+   * newest answer's usage plus estimates of the messages after it. pi-durable also counts the system
+   * entries the next request will write, which it does not expose. While no system entry follows the
+   * latest compaction, or the conversation's start, the next request writes the whole system prompt
+   * and every tool, as pi-durable plans it, so the tokens are unknown until then, as Pi's are after
+   * a compaction; after a change to the prompt or the tools, the figure reads low by that change
+   * until the next request.
+   *
+   * pi-durable does not export its own estimate, so pi-ai's stands in. pi-ai drops an answer's usage
+   * when a message ahead of it is newer, as a compaction's summary is; pi-durable when the answer was
+   * placed before the summary. They differ when an answer's request started after the summary was
+   * written and before it was placed (a retry during a compaction can), when the clocks of one
+   * conversation's hosts disagree, or when an application's edit places messages newer than the
+   * answers after them. pi-ai then keeps an answer's usage from before a compaction, overstating the
+   * context until the next answer, so an extension that compacts above a threshold may compact
+   * again; or it drops a usage pi-durable keeps and estimates instead. pi-durable's own compaction
+   * is unaffected.
+   */
+  async #contextUsage(): Promise<ContextUsage | undefined> {
+    const contextWindow = (await this.#model())?.contextWindow;
+    if (!contextWindow || contextWindow <= 0) return undefined;
+    const { head, entries, messages } =
+      await this.#options.conversation.context(BACKGROUND_CONTEXT);
+    const prompted = entries.some(
+      (entry) => SystemEntry.is(entry) && (head === undefined || entry.id > head.id),
+    );
+    if (!prompted) return { tokens: null, contextWindow, percent: null };
+    const { tokens } = estimateContextTokens(messages);
+    return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
   }
 
   /**

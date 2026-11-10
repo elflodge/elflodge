@@ -42,7 +42,8 @@ jobs:
       # `vp run ready`, with the hub's tests on the Node hub only: `node-22` runs them on the Workers
       # hub, with its Runners on Node 22, so each hub runs the suite once.
       - run: vp check
-      - run: vp run --filter runner --filter elflodge test
+      # Every package's tests but the hub's, so a new package is tested without being listed here.
+      - run: vp run --filter '!hub' test
       - run: vp test --project node
         working-directory: apps/hub
       - run: vp run -r build
@@ -60,8 +61,9 @@ jobs:
             exit 1
           fi
 
-  # What users run on their own Node (the CLI, the Runner and their shared contract) supports Node 22
-  # from the lowest release `engines.node` allows (ADR 0024); the hub runs only on Node 26 and workerd.
+  # What users run on their own Node (the CLI, the Runner, their shared contract and the extension
+  # adapter) supports Node 22 from the lowest release `engines.node` allows (ADR 0024); the hub runs
+  # only on Node 26 and workerd.
   node-22:
     if: github.event_name == 'merge_group'
     runs-on: *ubuntu
@@ -72,7 +74,7 @@ jobs:
           cache: true
           node-version: 22.19.0
       - *job-sandbox
-      - run: vp run --filter runner --filter elflodge test
+      - run: vp run --filter '!hub' test
       # The hub in workerd, with the tests and the Runners they start on Node 22. The `node` project
       # would run the hub itself on the tests' Node.
       - run: vp test --project workers
