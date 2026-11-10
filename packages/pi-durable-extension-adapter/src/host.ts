@@ -30,6 +30,8 @@ import type {
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import {
+  AgentDoc,
+  type AgentState,
   CompactionTask,
   type CompactionReason,
   defineExtension,
@@ -195,10 +197,10 @@ export interface AttachedExtensions {
 
 export interface ExtensionHost {
   /**
-   * Starts the extensions for `conversation` on a worker. The first conversation attached through a
-   * registry installs a pi-durable extension in it, `pi-durable-extension-adapter`, with the
-   * extensions' tools and only the hooks some extension listens to, for every conversation attached
-   * through it.
+   * Starts the extensions for `conversation` on a worker, and installs a pi-durable extension for
+   * it in `registry`, `pi-durable-extension-adapter:<conversation ID>`, with their tools and only the
+   * hooks they listen to, which the conversation's stored selection gets. Fails when it finds the
+   * default selection selecting such extensions, as without the Harness's `settings.extensions`.
    */
   attach(options: AttachOptions, context: Context): Promise<AttachedExtensions>;
   /** Closes every attached conversation's extensions and stops the workers. */
@@ -219,7 +221,8 @@ export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost
       found = new Installation(workers, harness, registry, () => installations.delete(registry));
       installations.set(registry, found);
     }
-    // Each host installs its extension under the same name, which the registry replaces.
+    // Two hosts would each attach a conversation under the same extension name, which the
+    // registry replaces.
     if (found.workers !== workers) throw new Error("A registry can serve one extension host only");
     // Hooks and tools know their conversation's ID only, which is unique within one Harness.
     if (found.harness !== harness) throw new Error("A registry can serve one Harness only");
@@ -510,6 +513,7 @@ async function attachConversation(
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
+    await selectExtension(options, installation.conversations(), context);
     const opened = await attached.open(context);
     return {
       errors: opened.errors,
@@ -526,11 +530,64 @@ async function attachConversation(
 }
 
 /**
- * The pi-durable extension in one registry, `pi-durable-extension-adapter`, shared by the
- * conversations attached through it: its tools and hooks act for the attached conversation they
- * run in. One extension, rather than one per conversation, because pi-durable selects every
- * installed extension for every conversation by default and the same tool names would replace each
- * other; hosts limit it to some conversations with pi-durable's own selection.
+ * Adds the conversation's extension to its stored selection, keeping the rest of it, its order
+ * included. Names of others' extensions it inherited, as a subagent or a fork does, go: it has its
+ * own now. Fails when the default selection selects the conversations' extensions.
+ */
+async function selectExtension(
+  { harness, conversation }: AttachOptions,
+  attached: Iterable<Conversation>,
+  context: Context,
+) {
+  const own = extensionName(conversation.id);
+  // A conversation's extension one selects without naming it comes from the default selection: the
+  // conversation's own, which `Installation.add` installed for this, or another attached
+  // conversation's, as when an app reopens its Harness without the setting. A conversation that
+  // selects exactly the names it stores shows nothing of the default, so the first attached one
+  // that edits it shows it for all, as they share it.
+  for (const each of [conversation, ...attached]) {
+    const stored = (await harness.snapshot(AgentDoc, each.id, context))?.extensions;
+    if (Array.isArray(stored)) continue;
+    const named = new Set(stored?.add);
+    const { extensions } = await each.agent(context);
+    if (extensions.some(({ name }) => name.startsWith(EXTENSION_PREFIX) && !named.has(name))) {
+      throw new Error(
+        "Set the Harness's settings.extensions to the extensions conversations select by default: " +
+          "without it, every conversation selects every attached conversation's extensions",
+      );
+    }
+    break;
+  }
+  // The stored document, rather than `configure`, which replaces the selection as a whole. An equal
+  // value writes nothing.
+  await conversation.commit(async (tx) => {
+    const agent = await tx.doc(AgentDoc, conversation.id);
+    agent.extensions = replacingAdapterExtensions(agent.extensions, own);
+  }, context);
+}
+
+/** `selection` with `own` in place of the adapter's other extensions, where it already is if so. */
+function replacingAdapterExtensions(
+  selection: AgentState["extensions"],
+  own: string,
+): AgentState["extensions"] {
+  const replaced = (names: readonly string[]) => {
+    const kept = names.filter((name) => !name.startsWith(EXTENSION_PREFIX) || name === own);
+    return kept.includes(own) ? kept : [...kept, own];
+  };
+  if (Array.isArray(selection)) return replaced(selection);
+  return {
+    ...(selection?.remove && { remove: selection.remove.filter((name) => name !== own) }),
+    add: replaced(selection?.add ?? []),
+  };
+}
+
+/**
+ * The conversations attached through one registry, each with a pi-durable extension of its own,
+ * `pi-durable-extension-adapter:<conversation ID>`, holding its extensions' tools and only the hooks
+ * they listen to. Its own, rather than one the conversations share, so each is offered only its own
+ * extensions' tools, as described by them, as a Pi session is. The conversation's stored agent
+ * selects it (`attach`), so the app's default selection must leave it out.
  */
 class Installation {
   /** The host that installed it. */
@@ -539,8 +596,8 @@ class Installation {
   readonly #registry: Registry;
   readonly #emptied: () => void;
   readonly #conversations = new Map<ConversationId, AttachedConversation>();
-  #installed: ReturnType<typeof defineExtension> | undefined;
-  #installedFor: unknown;
+  /** What each conversation's extension was installed from, to skip installing the same again. */
+  readonly #installedFor = new Map<ConversationId, unknown>();
 
   constructor(workers: Workers, harness: Harness, registry: Registry, emptied: () => void) {
     this.workers = workers;
@@ -554,87 +611,87 @@ class Installation {
       throw new Error(`Conversation ${conversation.id} has extensions attached already`);
     }
     this.#conversations.set(conversation.id, conversation);
+    this.refresh(conversation);
+  }
+
+  /** The attached conversations. */
+  *conversations() {
+    for (const each of this.#conversations.values()) yield each.conversation;
   }
 
   remove(conversation: AttachedConversation) {
     if (this.#conversations.get(conversation.id) !== conversation) return;
     this.#conversations.delete(conversation.id);
-    if (this.#conversations.size > 0) {
-      this.refresh();
-      return;
-    }
-    if (this.#installed) this.#registry.uninstall(this.#installed);
-    this.#installed = undefined;
-    this.#emptied();
+    this.#installedFor.delete(conversation.id);
+    this.#registry.uninstall({ name: extensionName(conversation.id) });
+    if (this.#conversations.size === 0) this.#emptied();
+  }
+
+  /** Installs the conversation's extension again when its extensions' tools or events changed. */
+  refresh(conversation: AttachedConversation) {
+    const { id } = conversation;
+    if (this.#conversations.get(id) !== conversation) return;
+    const { tools, events } = conversation.registrations;
+    const wanted = [tools, [...events].toSorted()];
+    if (isDeepStrictEqual(wanted, this.#installedFor.get(id))) return;
+    this.#installedFor.set(id, wanted);
+    this.#registry.install(
+      defineExtension({
+        name: extensionName(id),
+        tools: tools.flatMap((tool) => this.#tool(id, tool)),
+        sections: this.#sections(id),
+        hooks: this.#hooks(id, new Set(events)),
+      }),
+    );
   }
 
   /**
-   * Installs the extension again when the attached conversations' tools or events changed: every
-   * tool any of them registered, by name, the first registration winning, and every event any of
-   * them listens to. A conversation whose extensions did not register a tool fails its calls.
+   * The conversation `owner`, when it is the one `api` runs in. A conversation created from it, such
+   * as a subagent or a fork, inherits its selection and so its extension, and is not attached: its
+   * calls to the tools fail and the hooks do nothing for it.
    */
-  refresh() {
-    const tools = new Map<string, ToolDescriptor>();
-    const events = new Set<string>();
-    for (const conversation of this.#conversations.values()) {
-      for (const tool of conversation.registrations.tools) {
-        if (!tools.has(tool.name)) tools.set(tool.name, tool);
-      }
-      for (const event of conversation.registrations.events) events.add(event);
-    }
-    const wanted = [[...tools.values()], [...events].toSorted()];
-    if (isDeepStrictEqual(wanted, this.#installedFor)) return;
-    this.#installedFor = wanted;
-    this.#installed = defineExtension({
-      name: EXTENSION_NAME,
-      tools: [...tools.values()].flatMap((tool) => this.#tool(tool)),
-      sections: this.#sections(),
-      hooks: this.#hooks(events),
-    });
-    this.#registry.install(this.#installed);
+  #for(owner: ConversationId, api: { conversationId: ConversationId }) {
+    return api.conversationId === owner ? this.#conversations.get(owner) : undefined;
   }
 
-  #for(api: { conversationId: ConversationId }) {
-    return this.#conversations.get(api.conversationId);
-  }
-
-  /** Hooks for the Pi events some attached conversation listens to, and only those. */
-  #hooks(events: Set<string>): HookRegistration[] {
+  /** Hooks for the Pi events the conversation's extensions listen to, and only those. */
+  #hooks(owner: ConversationId, events: Set<string>): HookRegistration[] {
     const has = (...names: string[]) => names.some((name) => events.has(name));
     const hooks: HookRegistration[] = [];
     if (has("tool_call", "tool_result", "tool_execution_start", "tool_execution_end")) {
       hooks.push(
         hook(ToolTask, {
           ...(has("tool_call", "tool_execution_start") && {
-            beforeTool: async (call, api, context) => this.#for(api)?.beforeTool(call, context),
+            beforeTool: async (call, api, context) =>
+              this.#for(owner, api)?.beforeTool(call, context),
           }),
           // Whenever `beforeTool` is installed too, as the worker ends there the calls it started,
           // and starts the calls pi-durable rejected before its hooks.
           afterTool: async (call, result, api, context) =>
-            this.#for(api)?.afterTool(call, result, context),
+            this.#for(owner, api)?.afterTool(call, result, context),
         }),
       );
     }
     const generation: Partial<GenerationHooks> = {
       ...(has(...REQUEST_EVENTS) && {
         beforeRequest: async (request, api, context) =>
-          this.#for(api)?.beforeRequest(request, api, context),
+          this.#for(owner, api)?.beforeRequest(request, api, context),
       }),
       ...(has("before_provider_request") && {
         beforeProviderRequest: async (request, api, context) =>
-          this.#for(api)?.beforeProviderRequest(request, context),
+          this.#for(owner, api)?.beforeProviderRequest(request, context),
       }),
       ...(has("message_end", "turn_end") && {
         afterResponse: async (message, api, context) =>
-          this.#for(api)?.afterResponse(message, api, context),
+          this.#for(owner, api)?.afterResponse(message, api, context),
       }),
       ...(has("turn_end") && {
         afterTools: async (assistant, _results, api, context) =>
-          this.#for(api)?.turnEnd(assistant, api, context),
+          this.#for(owner, api)?.turnEnd(assistant, api, context),
       }),
       ...(has("agent_end") && {
         afterRun: async (run, api, context) => {
-          await this.#for(api)?.agentEnd(run, api, context);
+          await this.#for(owner, api)?.agentEnd(run, api, context);
           return undefined;
         },
       }),
@@ -644,7 +701,7 @@ class Installation {
       hooks.push(
         hook(CompactionTask, {
           beforeCompact: async (compaction, api, context) =>
-            this.#for(api)?.beforeCompact(compaction, context),
+            this.#for(owner, api)?.beforeCompact(compaction, context),
         }),
       );
     }
@@ -653,13 +710,14 @@ class Installation {
 
   /**
    * The offered tools' snippets and guidelines, as Pi puts its active tools' in the tools and rules
-   * sections of its prompt (`core/system-prompt.js`), each conversation its own extensions'. The
-   * guidelines get rules of their own, apart from those a run's `before_agent_start` adds, which
-   * come after the sections render.
+   * sections of its prompt (`core/system-prompt.js`). The guidelines get rules of their own, apart
+   * from those a run's `before_agent_start` adds, which come after the sections render.
    */
-  #sections(): PromptSection[] {
+  #sections(owner: ConversationId): PromptSection[] {
     const offered = (input: PromptInput) => {
-      const own = new Map(this.#for(input)?.registrations.tools.map((tool) => [tool.name, tool]));
+      const own = new Map(
+        this.#for(owner, input)?.registrations.tools.map((tool) => [tool.name, tool]),
+      );
       return input.agent.tools.flatMap((tool) => own.get(tool.name) ?? []);
     };
     return [
@@ -685,7 +743,7 @@ class Installation {
     ];
   }
 
-  #tool(descriptor: ToolDescriptor): ToolRegistration[] {
+  #tool(owner: ConversationId, descriptor: ToolDescriptor): ToolRegistration[] {
     if (descriptor.exposure === "hidden") return [];
     return [
       defineTool({
@@ -703,7 +761,7 @@ class Installation {
           prepareArguments: (args: unknown) => repairArguments(args, descriptor.parameters),
         }),
         execute: async (args, api, context) => {
-          const conversation = this.#for(api);
+          const conversation = this.#for(owner, api);
           if (!conversation) throw new Error("No Pi extensions are attached to this conversation");
           return conversation.executeTool(descriptor.name, args, api.callId, context);
         },
@@ -745,6 +803,11 @@ class AttachedConversation {
   #activation: Promise<void> = Promise.resolve();
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
   readonly #execs = new Map<number, AbortController>();
+
+  /** The conversation these extensions are attached to. */
+  get conversation(): Conversation {
+    return this.#options.conversation;
+  }
 
   /** The conversation these extensions act for. */
   get conversationId(): ConversationId {
@@ -874,7 +937,7 @@ class AttachedConversation {
     // registrations would install the extension again after the conversation left.
     if (this.#closing) return;
     this.registrations = registrations;
-    this.#installation.refresh();
+    this.#installation.refresh(this);
   }
 
   async beforeTool(call: ToolHookCall, context: Context) {
@@ -1293,13 +1356,14 @@ class AttachedConversation {
   #setActiveTools(names: readonly string[], registered: Registrations) {
     const { conversation } = this.#options;
     const context = BACKGROUND_CONTEXT;
+    const own = extensionName(conversation.id);
     const known = new Set(registered.tools.map((tool) => tool.name));
     // One after the other, so the last selection made is the one that holds.
     const activated = this.#activation.then(async () => {
       const { extensions } = await conversation.agent(context);
-      // The adapter's other tools are other conversations' or registered later, and stay as they are.
+      // The extensions' tools registered later stay as they are.
       const tools = extensions.flatMap((each) =>
-        (each.tools ?? []).filter((tool) => each.name !== EXTENSION_NAME || known.has(tool.name)),
+        (each.tools ?? []).filter((tool) => each.name !== own || known.has(tool.name)),
       );
       const named = new Set(names);
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -1586,8 +1650,12 @@ class AttachedConversation {
  */
 const STUCK_AFTER_MS = 10_000;
 
-/** The name of the pi-durable extension that carries the conversations' extensions in a registry. */
-const EXTENSION_NAME = "pi-durable-extension-adapter";
+/** The pi-durable extension that carries a conversation's extensions. */
+function extensionName(conversation: ConversationId) {
+  return `${EXTENSION_PREFIX}${conversation}`;
+}
+
+const EXTENSION_PREFIX = "pi-durable-extension-adapter:";
 
 /** `lines` as a list in a section tagged `name`, as Pi renders its tools and rules; none if empty. */
 function listSection(name: string, lines: readonly string[]) {
