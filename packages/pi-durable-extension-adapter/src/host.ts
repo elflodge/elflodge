@@ -1559,8 +1559,8 @@ class AttachedConversation {
  * limit, such a handler would hold up `attach`, the conversation's hooks after a reopen, or the end
  * of its work and its place on the worker, until the caller's own deadline, which is sized for a
  * whole job. Pi has no limit, as a person at the terminal ends what hangs; nobody does for an
- * unattended host. It is wall time: a worker that another conversation's synchronous work keeps busy
- * that long counts too, as it holds up every conversation on it already.
+ * unattended host. It is wall time: a worker that another conversation's synchronous work keeps
+ * busy that long counts too, as it holds up every conversation on it already.
  */
 const STUCK_AFTER_MS = 10_000;
 
