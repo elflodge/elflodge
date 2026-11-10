@@ -229,8 +229,11 @@ export type JournalMessage =
     };
 
 /**
- * The host's answer to a read. A worker waits on each read before it sends anything else, so the
- * next message it receives is the answer to its read, and needs no ID to match it.
+ * The host's answer to a read. A worker waits on each read before it sends anything else, and
+ * without a time limit; the host sends nothing else on this channel, and one answer to each read.
+ * So the next message a worker receives is the answer to its read, and needs no ID to match it. A
+ * time limit on the wait, or other messages from the host here, would need IDs: a late answer, or
+ * another message, would be taken for the next read's answer.
  */
 export type ReadReply = { readonly value: unknown } | { readonly error: Error };
 
