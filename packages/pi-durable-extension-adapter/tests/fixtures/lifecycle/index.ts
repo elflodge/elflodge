@@ -2,8 +2,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 // An extension that follows a run as observability and prompt extensions do: it adds to the
-// system prompt, sends a message with the prompt, activates a tool and registers another in
-// `before_agent_start`, and records the lifecycle events, which its tool returns.
+// system prompt, sends a message with the prompt and selects the active tools in
+// `before_agent_start`, and records the lifecycle events, which its tool returns. It registers tools
+// just before and after its selection, as extensions that register tools when a run starts do
+// beside another that selects them.
 export default function extension(pi: ExtensionAPI) {
   const seen: string[] = [];
   const events = [
@@ -19,18 +21,12 @@ export default function extension(pi: ExtensionAPI) {
   pi.on("before_agent_start", (event) => {
     seen.push(`before_agent_start ${event.prompt}`);
     event.systemPromptOptions.sections.notes = "Answer in French.";
-    pi.setActiveTools([...pi.getActiveTools(), "events"]);
-    pi.registerTool({
-      name: "later",
-      label: "Later",
-      description: "Registered after the tools were selected",
-      parameters: Type.Object({}),
-      async execute() {
-        return { content: [{ type: "text", text: "later" }], details: {} };
-      },
-    });
+    pi.registerTool(tool("earlier"));
+    pi.setActiveTools([...pi.getActiveTools().filter((name) => name !== "dropped"), "events"]);
+    pi.registerTool(tool("later"));
     return { message: { customType: "reminder", content: "Remember the notes.", display: false } };
   });
+  pi.registerTool(tool("dropped"));
   pi.registerTool({
     name: "events",
     label: "Events",
@@ -41,4 +37,16 @@ export default function extension(pi: ExtensionAPI) {
       return { content: [{ type: "text", text: seen.join(", ") }], details: {} };
     },
   });
+}
+
+function tool(name: string) {
+  return {
+    name,
+    label: name,
+    description: `Returns ${name}`,
+    parameters: Type.Object({}),
+    async execute() {
+      return { content: [{ type: "text" as const, text: name }], details: {} };
+    },
+  };
 }

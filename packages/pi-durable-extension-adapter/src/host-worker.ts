@@ -165,7 +165,10 @@ const functions: WorkerFunctions = {
         setSessionName: (name) => send({ type: "setSessionName", name }),
         getSessionName: () => undefined,
         setLabel: (entryId, label) => send({ type: "setLabel", entryId, label }),
-        getActiveTools: () => read(key, "getActiveTools"),
+        getActiveTools: () => {
+          act(key, { type: "registrations", registrations: registrations(instanceFor(key)) });
+          return read(key, "getActiveTools");
+        },
         getAllTools: () => allTools(key),
         getSettings: () => ({}),
         setActiveTools: (names) => {
