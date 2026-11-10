@@ -1,6 +1,6 @@
 {
   "name": "elflodge",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Hundreds of agents working unattended. One job API. Run jobs in parallel on your own machine and get structured results.",
   "keywords": [
     "agent-batch",
