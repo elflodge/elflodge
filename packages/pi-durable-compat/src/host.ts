@@ -102,8 +102,10 @@ export interface ExtensionHostOptions {
   readonly onError?: (error: HandlerError, conversation: ConversationId) => void;
   /**
    * How long closing a conversation's extensions waits for their `session_shutdown` handlers, in
-   * milliseconds, before it goes on and drops what they do later. Default 10 s. Pi waits without a
-   * limit, but here one stuck handler would hold up `close`, the host's too.
+   * milliseconds, before it goes on and drops what they do later, and how long opening them again
+   * after their worker exited may take before they count as lost. Default 10 s. Pi waits without a
+   * limit, but here one stuck handler would hold up `close`, the host's too, or a conversation's
+   * hooks.
    */
   readonly closeTimeout?: number;
   /**
@@ -767,8 +769,8 @@ class AttachedConversation {
     this.#opening = true;
     const opened = this.#open(hosted, context).finally(() => {
       this.#opening = false;
-      // Closed while loading, past its time limit: the instance goes when it is done.
-      if (this.#closed) void hosted.rpc.close(this.key).catch(() => {});
+      // Closed, or given up on, while loading past a time limit: the instance goes when it is done.
+      if (this.#closed || this.#hosted !== hosted) void hosted.rpc.close(this.key).catch(() => {});
     });
     this.#ready = opened.catch(() => {});
     return opened;
@@ -777,22 +779,40 @@ class AttachedConversation {
   async #open(hosted: HostedWorker, context: Context): Promise<Opened> {
     const { conversation, cwd, flags } = this.#options;
     const opened = await hosted.rpc.open(this.key, cwd, flags ?? {});
+    this.#stillOn(hosted);
     this.update(opened);
     // A conversation with entries is one opened again, after a restart or its worker's exit,
     // which extensions learn as Pi tells them about a session it opens again.
     const earlier = await conversation.entries({ order: "ascending" }, 1, undefined, context);
     const reason = earlier.items.length > 0 ? "resume" : "startup";
     await hosted.rpc.emit(this.key, { type: "session_start", reason });
+    const registrations = await hosted.rpc.registrations(this.key);
+    this.#stillOn(hosted);
     // Extensions often register tools in `session_start`; they are installed before the first request.
-    this.update(await hosted.rpc.registrations(this.key));
+    this.update(registrations);
     this.#attached = true;
     return opened;
   }
 
-  /** Opens the extensions again on another worker after theirs exited. */
+  /** Fails a loading that its conversation gave up on, so it installs nothing. */
+  #stillOn(hosted: HostedWorker) {
+    if (this.#hosted !== hosted) throw new Error("The extensions stopped loading on this worker");
+  }
+
+  /** Opens the extensions again on another worker after theirs exited, within `closeTimeout`. */
   async reopen() {
+    // A start that never ends would keep the conversation's hooks waiting, so past the time limit
+    // the reopen fails.
+    const limit = this.#workers.closeTimeout;
+    const reopened = Promise.race([
+      this.open(BACKGROUND_CONTEXT),
+      once(AbortSignal.timeout(limit), "abort").then(() => {
+        throw new Error(`Opening the extensions again took longer than ${limit} ms`);
+      }),
+    ]);
+    this.#ready = reopened.catch(() => {});
     try {
-      await this.open(BACKGROUND_CONTEXT);
+      await reopened;
     } catch (error) {
       // On a worker that is still running, its instance and its place go, and the conversation is
       // lost as on an exit.
