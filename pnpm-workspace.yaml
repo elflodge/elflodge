@@ -119,10 +119,10 @@ catalog:
   zod: ^4.6.7
 catalogs:
   # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its
-  # extension view of pi-ai, the modules whose import registers providers), which a minor release
-  # may move, so it takes patch releases only.
+  # extension view of pi-ai, the modules whose import registers providers), which any release may
+  # move or change, so it takes only the version its tests ran on.
   pi-durable-extension-adapter:
-    "@earendil-works/pi-coding-agent": ~1.5.1
+    "@earendil-works/pi-coding-agent": 1.5.1
 
 patchedDependencies:
   "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
