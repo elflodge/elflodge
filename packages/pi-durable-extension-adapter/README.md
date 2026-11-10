@@ -22,11 +22,13 @@ Two extensions are tested today, listed under [Tested extensions](#tested-extens
 
 ## Quick start
 
-The package needs pi-durable and the two packages pi-durable itself needs, on Node 22.19 or later. Extensions from npm also need `npm` on the machine.
+Install it in your pi-durable app, on Node 22.19 or later:
 
 ```sh
-npm install @elflodge/pi-durable-extension-adapter @earendil-works/pi-durable @earendil-works/pi-ai @earendil-works/chord
+npm install @elflodge/pi-durable-extension-adapter
 ```
+
+It works with your app's own pi-durable, pi-ai and chord, 1.5.1 or later, and npm installs them if they are missing. Extensions from npm sources also need `npm` on the machine.
 
 Prepare the extensions once when your process starts, then attach them to each conversation before you submit to it:
 
