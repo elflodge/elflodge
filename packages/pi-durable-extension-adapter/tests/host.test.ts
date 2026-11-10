@@ -286,6 +286,12 @@ test("attach fails while the default selection selects the conversations' extens
   defaults = undefined;
   // The second names its own extension from before, and would select the first's by default.
   await expect(attach(second)).rejects.toThrow(missing);
+  // One that selects exactly what it stores would be selected by the first's default.
+  const exact = await harness.createConversation(
+    { ownership: { kind: "ownerless" }, agent: { extensions: [] } },
+    context,
+  );
+  await expect(attach(exact)).rejects.toThrow(missing);
 });
 
 test("a run's lifecycle reaches the extensions, which add to its prompt and select tools", async () => {

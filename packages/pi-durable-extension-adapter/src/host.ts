@@ -513,7 +513,7 @@ async function attachConversation(
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
-    await selectExtension(options, context);
+    await selectExtension(options, installation.conversations(), context);
     const opened = await attached.open(context);
     return {
       errors: opened.errors,
@@ -534,14 +534,29 @@ async function attachConversation(
  * included. Names of others' extensions it inherited, as a subagent or a fork does, go: it has its
  * own now. Fails when the default selection selects the conversations' extensions.
  */
-async function selectExtension({ harness, conversation }: AttachOptions, context: Context) {
+async function selectExtension(
+  { harness, conversation }: AttachOptions,
+  attached: Iterable<Conversation>,
+  context: Context,
+) {
   const own = extensionName(conversation.id);
-  // A conversation's extension it selects without naming it comes from the default selection: its
-  // own, which `Installation.add` installed for this, or another attached conversation's, as when an
-  // app reopens its Harness without the setting.
-  const stored = (await harness.snapshot(AgentDoc, conversation.id, context))?.extensions;
+  const selection = async (each: Conversation) =>
+    (await harness.snapshot(AgentDoc, each.id, context))?.extensions;
+  // A conversation's extension one selects without naming it comes from the default selection: the
+  // conversation's own, which `Installation.add` installed for this, or another attached
+  // conversation's, as when an app reopens its Harness without the setting. One that selects
+  // exactly the names it stores shows nothing of the default, which another attached conversation
+  // that edits it shows, as they share it.
+  let shows = conversation;
+  let stored = await selection(conversation);
+  for (const each of attached) {
+    if (!Array.isArray(stored)) break;
+    if (each === conversation) continue;
+    shows = each;
+    stored = await selection(each);
+  }
   const named = new Set(Array.isArray(stored) ? stored : stored?.add);
-  const { extensions } = await conversation.agent(context);
+  const { extensions } = await shows.agent(context);
   if (extensions.some(({ name }) => name.startsWith(EXTENSION_PREFIX) && !named.has(name))) {
     throw new Error(
       "Set the Harness's settings.extensions to the extensions conversations select by default: " +
@@ -602,6 +617,11 @@ class Installation {
     }
     this.#conversations.set(conversation.id, conversation);
     this.refresh(conversation);
+  }
+
+  /** The attached conversations. */
+  *conversations() {
+    for (const each of this.#conversations.values()) yield each.conversation;
   }
 
   remove(conversation: AttachedConversation) {
@@ -788,6 +808,10 @@ class AttachedConversation {
   #activation: Promise<void> = Promise.resolve();
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
   readonly #execs = new Map<number, AbortController>();
+
+  get conversation(): Conversation {
+    return this.#options.conversation;
+  }
 
   /** The conversation these extensions act for. */
   get conversationId(): ConversationId {
