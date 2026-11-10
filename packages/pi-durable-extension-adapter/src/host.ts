@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { MessageChannel, Worker, type WorkerOptions } from "node:worker_threads";
 
-import type { Context, JsonValue } from "@earendil-works/chord";
 import {
   awaitWithContext,
   BACKGROUND_CONTEXT,
+  type Context,
   withAbortSignal,
 } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type {
   Api,
   AssistantMessage,
