@@ -45,6 +45,15 @@ export interface ExtensionError {
   readonly message: string;
 }
 
+/**
+ * A handler that failed after its extension loaded, with what Pi's runner reports of it (its own
+ * `ExtensionError`): the event it handled, and the error's stack when there is one.
+ */
+export interface HandlerError extends ExtensionError {
+  readonly event: string;
+  readonly stack?: string;
+}
+
 /** A tool's result, as Pi's tools return them. */
 export interface ToolResult {
   readonly content: readonly unknown[];
@@ -175,7 +184,7 @@ export interface HostFunctions {
   ): ReturnType<ModelRegistry["getApiKeyForProvider"]>;
   changed(key: string): void;
   /** A handler of the conversation's extensions failed after loading. */
-  error(key: string, error: ExtensionError): void;
+  error(key: string, error: HandlerError): void;
 }
 
 /**
@@ -215,7 +224,7 @@ export type JournalMessage =
  * The host's answer to a read. A worker waits on each read before it sends anything else, so the
  * next message it receives is the answer to its read, and needs no ID to match it.
  */
-export type ReadReply = { readonly value: unknown } | { readonly error: string };
+export type ReadReply = { readonly value: unknown } | { readonly error: Error };
 
 export interface WorkerData {
   /** The bundle's runtime module and extension modules, in load order. */

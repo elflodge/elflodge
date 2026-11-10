@@ -92,7 +92,7 @@ function read<M extends keyof Reads>(
   const reply = journal.receiveMessage();
   if (typeof reply !== "object" || reply === null)
     throw new Error("The host's reply is not an object");
-  if ("error" in reply) throw new Error(String(reply.error));
+  if ("error" in reply) throw ensureError(reply.error);
   const value: unknown = "value" in reply ? reply.value : undefined;
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
   return value as ReturnType<Reads[M]>;
@@ -254,6 +254,7 @@ const functions: WorkerFunctions = {
       // Pi fails the run before `agent_start`; a request's hook cannot, so the section is left out.
       host.error(key, {
         source: "before_agent_start",
+        event: "before_agent_start",
         message: `Invalid system prompt section name: ${name}`,
       }),
     );

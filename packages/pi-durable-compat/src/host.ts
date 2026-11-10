@@ -62,6 +62,7 @@ import type {
   Action,
   AgentStartTrigger,
   ExtensionError,
+  HandlerError,
   HostFunctions,
   JournalMessage,
   ReadReply,
@@ -92,7 +93,7 @@ export interface ExtensionHostOptions {
    * Called when an extension's handler fails after it loaded, which Pi catches so the conversation
    * goes on. Default: written to standard error, as Pi's print mode writes it.
    */
-  readonly onError?: (error: ExtensionError, conversation: ConversationId) => void;
+  readonly onError?: (error: HandlerError, conversation: ConversationId) => void;
 }
 
 /** What `attach` binds a conversation's extensions to. */
@@ -310,8 +311,11 @@ class Workers {
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
         reads.postMessage(value);
       } catch (error) {
-        // A value that cannot be cloned; the worker waits for an answer all the same.
-        if (!("error" in value)) reply({ error: ensureError(error).message });
+        // A value, or an error's `cause`, that cannot be cloned: the worker waits for an answer all
+        // the same, so it gets the message alone, which can.
+        const message = ensureError("error" in value ? value.error : error).message;
+        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
+        reads.postMessage({ error: new Error(message) } satisfies ReadReply);
       }
     };
     reads.on("message", (message: JournalMessage) => {
@@ -326,12 +330,12 @@ class Workers {
         return;
       }
       if (!found) {
-        reply({ error: `No conversation ${message.key} on this worker` });
+        reply({ error: new Error(`No conversation ${message.key} on this worker`) });
         return;
       }
       found.read(message.method, message.args).then(
         (value) => reply({ value }),
-        (error: unknown) => reply({ error: ensureError(error).message }),
+        (error: unknown) => reply({ error: ensureError(error) }),
       );
     });
     const hosted: HostedWorker = {
@@ -360,7 +364,9 @@ class Workers {
     worker.on("exit", () => {
       this.#workers.delete(hosted);
       client.$close(
-        new Error(`The extension worker exited${failure ? `: ${failure.message}` : ""}`),
+        new Error(`The extension worker exited${failure ? `: ${failure.message}` : ""}`, {
+          cause: failure,
+        }),
       );
       for (const each of conversations.values()) {
         each.lost();

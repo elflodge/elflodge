@@ -13,6 +13,8 @@ import {
 import ensureError from "ensure-error";
 import { loadExtensionFromFactory } from "pi-extension-loader";
 
+import type { HandlerError } from "./protocol.ts";
+
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
 // not export (the bundle reaches it by path, see `prepare-process.ts`), and Pi's `ExtensionRunner`
@@ -37,7 +39,7 @@ export interface Bridge {
   /** The extensions' tools or event subscriptions changed after loading. */
   changed(): void;
   /** A handler failed after loading; Pi's runner catches it and goes on. */
-  error(error: { readonly source: string; readonly message: string }): void;
+  error(error: HandlerError): void;
 }
 
 /** What extensions read through `ctx.sessionManager`: Pi's `ReadonlySessionManager`, which its root does not export. */
@@ -165,7 +167,14 @@ export async function createInstance(
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });
   stopListening();
-  runner.onError((error) => bridge.error({ source: error.extensionPath, message: error.error }));
+  runner.onError((error) =>
+    bridge.error({
+      source: error.extensionPath,
+      event: error.event,
+      message: error.error,
+      ...(error.stack !== undefined && { stack: error.stack }),
+    }),
+  );
   runner.setUIContext(undefined, "print");
   return {
     runner,
