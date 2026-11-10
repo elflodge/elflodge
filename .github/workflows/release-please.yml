@@ -39,7 +39,7 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-  publish-cli:
+  publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
@@ -54,7 +54,8 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
-      # Stages the workspace's public packages, the CLI and its `agent-batch` alias (ADR 0004, 0037), built by its prepack.
+      # Stages the workspace's public packages, each built by its prepack: the CLI, its `agent-batch`
+      # alias and `@elflodge/pi-durable-extension-adapter` (ADR 0004, 0037, 0038).
       # npm's staged publishing: a maintainer approves the version with 2FA before it goes live, so
       # this workflow or its trust alone cannot put a version on npm.
       - run: vp pm stage publish -r
