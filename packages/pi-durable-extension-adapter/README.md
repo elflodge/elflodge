@@ -220,7 +220,7 @@ Only the extensions in this table are tested. An extension outside it has what t
 
 ## Limits
 
-- Extensions run in worker threads of your process, with its permissions. A worker thread is not a sandbox: `exec` goes through your `env`, but an extension that uses `node:fs` or `node:child_process` itself is not contained. Install only extensions you trust.
+- Extensions can do anything your process can, as in Pi: they run in its worker threads with its permissions. Only `pi.exec` goes through the `env` you give `attach`, so a sandboxed `env` does not contain an extension that reads files or starts programs itself. Install only extensions you trust.
 - State an extension keeps at module level is shared by the conversations on its worker, because modules load once per worker. State kept in its factory is per conversation.
 - What extensions keep in memory is lost when their worker exits, for every conversation on that worker. See [When a worker exits](#when-a-worker-exits) for what follows, including the case in which a conversation loses its extensions and has its tool calls blocked.
 - An extension that does not bundle is not loaded. Loading it as Pi does would need Pi's TypeScript loader and its whole coding agent in every worker.
