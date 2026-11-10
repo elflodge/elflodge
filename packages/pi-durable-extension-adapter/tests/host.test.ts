@@ -15,9 +15,11 @@ import {
   fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import {
+  type Conversation,
   createRegistry,
   defineExtension,
   defineTool,
+  type Extension,
   GenerationTask,
   Harness,
   hook,
@@ -241,6 +243,49 @@ test("conversations attached through one registry each have their own extensions
   expect(firstTools).not.toContain("postgres");
   expect(secondTools).toContain("postgres");
   expect(secondTools).not.toContain("github");
+});
+
+test("attach fails while the default selection selects the conversations' extensions", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({ sources: [fixture], dir }),
+  });
+  onTestFinished(() => host.close());
+  const models = createModels();
+  const registry = createRegistry();
+  // Read at every use, so the test can drop it as an app reopening its Harness without it would.
+  let defaults: Extension[] | undefined;
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    {
+      models,
+      registry,
+      settings: {
+        get extensions() {
+          return defaults;
+        },
+      },
+    },
+    context,
+  );
+  onTestFinished(() => harness.close(context));
+  const conversation = async () =>
+    harness.createConversation({ ownership: { kind: "ownerless" } }, context);
+  const attach = async (each: Conversation) =>
+    host.attach({ harness, conversation: each, registry, models, cwd: dir }, context);
+  const missing = /settings\.extensions/;
+
+  await expect(attach(await conversation())).rejects.toThrow(missing);
+
+  defaults = [];
+  const first = await conversation();
+  const second = await conversation();
+  await attach(first);
+  await (await attach(second)).close();
+  defaults = undefined;
+  // The second names its own extension from before, and would select the first's by default.
+  await expect(attach(second)).rejects.toThrow(missing);
 });
 
 test("a run's lifecycle reaches the extensions, which add to its prompt and select tools", async () => {

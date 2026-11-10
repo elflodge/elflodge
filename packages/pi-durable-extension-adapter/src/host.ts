@@ -199,8 +199,8 @@ export interface ExtensionHost {
   /**
    * Starts the extensions for `conversation` on a worker, and installs a pi-durable extension for
    * it in `registry`, `pi-durable-extension-adapter:<conversation ID>`, with their tools and only the
-   * hooks they listen to, which the conversation's stored selection gets. Fails unless the Harness's
-   * `settings.extensions` leaves such extensions out of the default selection.
+   * hooks they listen to, which the conversation's stored selection gets. Fails when it finds the
+   * default selection selecting such extensions, as without the Harness's `settings.extensions`.
    */
   attach(options: AttachOptions, context: Context): Promise<AttachedExtensions>;
   /** Closes every attached conversation's extensions and stops the workers. */
@@ -221,7 +221,8 @@ export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost
       found = new Installation(workers, harness, registry, () => installations.delete(registry));
       installations.set(registry, found);
     }
-    // Each host installs its extension under the same name, which the registry replaces.
+    // Two hosts would each attach a conversation under the same extension name, which the
+    // registry replaces.
     if (found.workers !== workers) throw new Error("A registry can serve one extension host only");
     // Hooks and tools know their conversation's ID only, which is unique within one Harness.
     if (found.harness !== harness) throw new Error("A registry can serve one Harness only");
@@ -529,40 +530,45 @@ async function attachConversation(
 }
 
 /**
- * Adds the conversation's extension to its stored selection, keeping the rest of it. Names of
- * others' extensions it inherited, as a subagent or a fork does, go: it has its own now.
+ * Adds the conversation's extension to its stored selection, keeping the rest of it, its order
+ * included. Names of others' extensions it inherited, as a subagent or a fork does, go: it has its
+ * own now. Fails when the default selection selects the conversations' extensions.
  */
 async function selectExtension({ harness, conversation }: AttachOptions, context: Context) {
   const own = extensionName(conversation.id);
+  // A conversation's extension it selects without naming it comes from the default selection: its
+  // own, which `Installation.add` installed for this, or another attached conversation's, as when an
+  // app reopens its Harness without the setting.
   const stored = (await harness.snapshot(AgentDoc, conversation.id, context))?.extensions;
+  const named = new Set(Array.isArray(stored) ? stored : stored?.add);
   const { extensions } = await conversation.agent(context);
-  // Selected though the conversation names it nowhere: the default selection holds every installed
-  // extension, so every conversation would select every attached conversation's.
-  if (extensions.some((each) => each.name === own) && !selectionNames(stored).includes(own)) {
+  if (extensions.some(({ name }) => name.startsWith(EXTENSION_PREFIX) && !named.has(name))) {
     throw new Error(
       "Set the Harness's settings.extensions to the extensions conversations select by default: " +
         "without it, every conversation selects every attached conversation's extensions",
     );
   }
+  // The stored document, rather than `configure`, which replaces the selection as a whole. An equal
+  // value writes nothing.
   await conversation.commit(async (tx) => {
     const agent = await tx.doc(AgentDoc, conversation.id);
-    const selection = withExtension(agent.extensions, own);
-    if (!isDeepStrictEqual(selection, agent.extensions)) agent.extensions = selection;
+    agent.extensions = replacingAdapterExtensions(agent.extensions, own);
   }, context);
 }
 
-function selectionNames(selection: AgentState["extensions"]) {
-  return Array.isArray(selection) ? selection : (selection?.add ?? []);
-}
-
-function withExtension(selection: AgentState["extensions"], own: string): AgentState["extensions"] {
-  const others = (names: readonly string[]) =>
-    names.filter((name) => !name.startsWith(EXTENSION_PREFIX) || name === own);
-  const added = (names: readonly string[]) => [...others(names).filter((n) => n !== own), own];
-  if (Array.isArray(selection)) return added(selection);
+/** `selection` with `own` in place of the adapter's other extensions, where it already is if so. */
+function replacingAdapterExtensions(
+  selection: AgentState["extensions"],
+  own: string,
+): AgentState["extensions"] {
+  const replaced = (names: readonly string[]) => {
+    const kept = names.filter((name) => !name.startsWith(EXTENSION_PREFIX) || name === own);
+    return kept.includes(own) ? kept : [...kept, own];
+  };
+  if (Array.isArray(selection)) return replaced(selection);
   return {
     ...(selection?.remove && { remove: selection.remove.filter((name) => name !== own) }),
-    add: added(selection?.add ?? []),
+    add: replaced(selection?.add ?? []),
   };
 }
 
