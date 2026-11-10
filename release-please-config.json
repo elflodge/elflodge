@@ -12,7 +12,7 @@
         { "type": "json", "path": "packages/contract/package.json", "jsonpath": "$.version" },
         {
           "type": "json",
-          "path": "packages/pi-durable-compat/package.json",
+          "path": "packages/pi-durable-extension-adapter/package.json",
           "jsonpath": "$.version"
         },
         { "type": "generic", "path": "compose.yaml" },

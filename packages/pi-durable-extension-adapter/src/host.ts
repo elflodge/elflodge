@@ -195,7 +195,7 @@ export interface AttachedExtensions {
 export interface ExtensionHost {
   /**
    * Starts the extensions for `conversation` on a worker. The first conversation attached through a
-   * registry installs a pi-durable extension in it, `pi-durable-compat`, with the extensions' tools
+   * registry installs a pi-durable extension in it, `pi-durable-extension-adapter`, with the extensions' tools
    * and only the hooks some extension listens to, for every conversation attached through it.
    */
   attach(options: AttachOptions, context: Context): Promise<AttachedExtensions>;
@@ -523,7 +523,7 @@ async function attachConversation(
 }
 
 /**
- * The pi-durable extension in one registry, `pi-durable-compat`, shared by the conversations
+ * The pi-durable extension in one registry, `pi-durable-extension-adapter`, shared by the conversations
  * attached through it: its tools and hooks act for the attached conversation they run in. One
  * extension, rather than one per conversation, because pi-durable selects every installed extension
  * for every conversation by default and the same tool names would replace each other; hosts limit
@@ -583,7 +583,7 @@ class Installation {
     if (Equal.equals(wanted, this.#installedFor)) return;
     this.#installedFor = wanted;
     this.#installed = defineExtension({
-      name: "pi-durable-compat",
+      name: "pi-durable-extension-adapter",
       tools: [...tools.values()].flatMap((tool) => this.#tool(tool)),
       sections: this.#sections(),
       hooks: this.#hooks(events),
@@ -976,7 +976,7 @@ class AttachedConversation {
     api: HookApi,
     context: Context,
   ): Promise<RunStart | undefined> {
-    const memo = "pi-durable-compat.agentStart";
+    const memo = "pi-durable-extension-adapter.agentStart";
     const done = await api.memo<JsonValue>(memo, context);
     if (done !== undefined) return Schema.decodeUnknownSync(RunStart)(done);
     const trigger = await this.#runTrigger(run, messages, api, context);
@@ -1650,7 +1650,7 @@ const RunStart = Schema.Struct({
  * pi-durable recorded it, keeps none.
  */
 const RunSections = defineDoc<{ run?: EntryId; sections: Record<string, string> }>({
-  kind: "pi-durable-compat.runSections",
+  kind: "pi-durable-extension-adapter.runSections",
   version: 1,
   scope: "conversation",
   history: "latest",

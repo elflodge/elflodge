@@ -64,7 +64,7 @@ const piAiView = path.join(
 );
 
 /** How an extension's entry is named beside its source. */
-const ENTRY_SUFFIX = ".pi-durable-compat.mjs";
+const ENTRY_SUFFIX = ".pi-durable-extension-adapter.mjs";
 
 /** A native add-on. */
 const ADDON = /\.node$/;
@@ -141,7 +141,7 @@ function realPath(file: string | undefined, name: string): string {
     // Missing: reported below.
   }
   throw new Error(
-    `The installed coding agent no longer has ${name}, which this version of @elflodge/pi-durable-compat relies on; it needs a release tested with this Pi.`,
+    `The installed coding agent no longer has ${name}, which this version of @elflodge/pi-durable-extension-adapter relies on; it needs a release tested with this Pi.`,
   );
 }
 
@@ -170,7 +170,7 @@ async function prepare({ sources, dir, npmCommand }: Input): Promise<PreparedExt
  * Bundles `found`, with this package's runtime, into one build, with code splitting, so what the
  * extensions and the runtime share of Pi loads once per worker and an extension's own dynamic
  * imports stay lazy. The entry of each extension installed in `dir` is written beside its source, as
- * `<name>.pi-durable-compat.mjs`, so the files a package reads relative to it (`package.json`,
+ * `<name>.pi-durable-extension-adapter.mjs`, so the files a package reads relative to it (`package.json`,
  * templates, WebAssembly) are where it looks; the runtime, extensions from local paths outside `dir`
  * and the shared chunks go in `<dir>/bundle`.
  * It builds on every call, in about a second, so no change to an extension, to Pi or to this package

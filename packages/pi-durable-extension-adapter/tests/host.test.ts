@@ -53,7 +53,7 @@ function offeredTools(messages: readonly Message[]) {
 }
 
 test("a conversation runs an extension's tools, saved entries, gate and input transform", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const prepared = await prepareExtensions({ sources: [fixture], dir });
   expect(prepared.failures).toEqual([]);
@@ -135,7 +135,7 @@ test("a conversation runs an extension's tools, saved entries, gate and input tr
 });
 
 test("an extension's own prompt goes through the input handlers", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({ sources: [fixture], dir }),
@@ -177,7 +177,7 @@ test("an extension's own prompt goes through the input handlers", async () => {
 });
 
 test("conversations attached through one registry each have their own extensions", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({ sources: [fixture], dir }),
@@ -227,7 +227,7 @@ test("conversations attached through one registry each have their own extensions
 });
 
 test("a run's lifecycle reaches the extensions, which add to its prompt and activate tools", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({
@@ -320,7 +320,7 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
 });
 
 test("a run's prompt additions reach its later rounds after the host restarts", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const prepared = await prepareExtensions({
     sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
@@ -383,7 +383,7 @@ test("a run's prompt additions reach its later rounds after the host restarts", 
 });
 
 test("a run the application continues starts once for the extensions", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({
@@ -445,7 +445,7 @@ test("a run the application continues starts once for the extensions", async () 
 });
 
 test("extensions read the flag values given to attach, and a mistyped one is reported", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({
@@ -496,7 +496,7 @@ async function workerConversation({
   extension = "worker",
   ...options
 }: Pick<ExtensionHostOptions, "restart" | "workerOptions"> & { extension?: string } = {}) {
-  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-compat-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const exits: ({ message: string } & WorkerExit)[] = [];
   const host = startExtensionHost({
@@ -588,7 +588,10 @@ test("without restart, a conversation whose extension worker exited goes on with
 });
 
 test("a conversation whose extensions fail to load again is lost, and its gate blocks its tools", async () => {
-  const marker = path.join(await mkdtemp(path.join(tmpdir(), "pi-durable-compat-")), "loaded");
+  const marker = path.join(
+    await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-")),
+    "loaded",
+  );
   onTestFinished(() => rm(path.dirname(marker), { recursive: true, force: true }));
   const { faux, conversation, extensions, exits } = await workerConversation({
     extension: "gate",

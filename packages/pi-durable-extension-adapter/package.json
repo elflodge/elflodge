@@ -1,5 +1,5 @@
 {
-  "name": "@elflodge/pi-durable-compat",
+  "name": "@elflodge/pi-durable-extension-adapter",
   "version": "0.7.1",
   "description": "Run Pi coding-agent extensions on pi-durable.",
   "keywords": [
@@ -9,7 +9,7 @@
     "pi-durable",
     "pi-extensions"
   ],
-  "homepage": "https://github.com/elflodge/elflodge/tree/main/packages/pi-durable-compat#readme",
+  "homepage": "https://github.com/elflodge/elflodge/tree/main/packages/pi-durable-extension-adapter#readme",
   "bugs": {
     "url": "https://github.com/elflodge/elflodge/issues"
   },
@@ -18,7 +18,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/elflodge/elflodge.git",
-    "directory": "packages/pi-durable-compat"
+    "directory": "packages/pi-durable-extension-adapter"
   },
   "files": [
     "dist"
@@ -43,7 +43,7 @@
     "prepack": "vp run build"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "catalog:pi-durable-compat",
+    "@earendil-works/pi-coding-agent": "catalog:pi-durable-extension-adapter",
     "birpc": "catalog:",
     "effect": "catalog:",
     "ensure-error": "catalog:",

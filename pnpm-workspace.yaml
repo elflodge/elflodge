@@ -101,10 +101,10 @@ catalog:
   ws: ^8.22.1
   zod: ^4.6.7
 catalogs:
-  # pi-durable-compat relies on the coding agent's internal files (its loader, its extension view of
+  # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its extension view of
   # pi-ai, the modules whose import registers providers), which a minor release may move, so it
   # takes patch releases only.
-  pi-durable-compat:
+  pi-durable-extension-adapter:
     "@earendil-works/pi-coding-agent": ~1.5.0
 
 patchedDependencies:

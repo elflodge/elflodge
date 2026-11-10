@@ -202,7 +202,7 @@ export async function createInstance(
 }
 
 function unsupported(name: string): never {
-  throw new Error(`${name} is not supported by pi-durable-compat`);
+  throw new Error(`${name} is not supported by pi-durable-extension-adapter`);
 }
 
 /**

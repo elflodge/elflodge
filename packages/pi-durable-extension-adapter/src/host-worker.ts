@@ -505,7 +505,7 @@ function toolResult(result: {
 
 function unsupported(name: string) {
   return () => {
-    throw new Error(`ctx.sessionManager.${name} is not supported by pi-durable-compat`);
+    throw new Error(`ctx.sessionManager.${name} is not supported by pi-durable-extension-adapter`);
   };
 }
 

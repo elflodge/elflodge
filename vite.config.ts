@@ -41,7 +41,7 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
     // Extensions as their authors write them, importing Pi's packages under the names Pi's loader
     // accepts, former ones included, which the workspace does not install.
-    ignorePatterns: ["packages/pi-durable-compat/tests/fixtures/**"],
+    ignorePatterns: ["packages/pi-durable-extension-adapter/tests/fixtures/**"],
   },
   run: {
     cache: true,
