@@ -58,6 +58,7 @@ import {
   ProviderDoc,
   type Registry,
   section,
+  SystemEntry,
   type RunSummary,
   ToolTask,
   UserEntry,
@@ -1567,10 +1568,11 @@ class AttachedConversation {
   /**
    * How full the conversation's context is, as pi-durable measures it to decide on compaction: the
    * newest answer's usage plus estimates of the messages after it. pi-durable also counts the system
-   * entries the next request will write, which it does not expose. On a new conversation and right
-   * after a compaction those are the whole system prompt and every tool, so the tokens are unknown
-   * until the next answer, as Pi's are after a compaction; after a change to the prompt or the tools,
-   * the figure reads low by that change until then.
+   * entries the next request will write, which it does not expose. While no system entry follows the
+   * latest compaction, or the conversation's start, the next request writes the whole system prompt
+   * and every tool, as pi-durable plans it, so the tokens are unknown until then, as Pi's are after
+   * a compaction; after a change to the prompt or the tools, the figure reads low by that change
+   * until the next request.
    *
    * pi-durable does not export its own estimate, so pi-ai's stands in. pi-ai drops an answer's usage
    * when a message ahead of it is newer, as a compaction's summary is; pi-durable when the answer was
@@ -1585,10 +1587,12 @@ class AttachedConversation {
   async #contextUsage(): Promise<ContextUsage | undefined> {
     const contextWindow = (await this.#model())?.contextWindow;
     if (!contextWindow || contextWindow <= 0) return undefined;
-    const { messages } = await this.#options.conversation.context(BACKGROUND_CONTEXT);
-    if (!messages.some((message) => message.role === "system")) {
-      return { tokens: null, contextWindow, percent: null };
-    }
+    const { head, entries, messages } =
+      await this.#options.conversation.context(BACKGROUND_CONTEXT);
+    const prompted = entries.some(
+      (entry) => SystemEntry.is(entry) && (head === undefined || entry.id > head.id),
+    );
+    if (!prompted) return { tokens: null, contextWindow, percent: null };
     const { tokens } = estimateContextTokens(messages);
     return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
   }

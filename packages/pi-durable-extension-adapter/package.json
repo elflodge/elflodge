@@ -63,5 +63,8 @@
     "@earendil-works/chord": "catalog:",
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-durable": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }
