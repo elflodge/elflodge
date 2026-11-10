@@ -1,0 +1,25 @@
+{
+  "name": "elflodge",
+  "displayName": "Elflodge Agent Batches",
+  "version": "0.7.1",
+  "description": "Run batches of work with parallel agents: document extraction, classification, enrichment and structured results.",
+  "author": {
+    "name": "Elflodge",
+    "url": "https://elflodge.com"
+  },
+  "homepage": "https://elflodge.com",
+  "repository": "https://github.com/elflodge/elflodge",
+  "license": "MIT",
+  "keywords": [
+    "ai-agents",
+    "batch-processing",
+    "automation",
+    "document-extraction",
+    "structured-output",
+    "self-hosted"
+  ],
+  "skills": ["./elflodge-agent-batches"],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/elflodge/elflodge/tree/main/skills",
+  "supportUrl": "https://github.com/elflodge/elflodge/issues"
+}
