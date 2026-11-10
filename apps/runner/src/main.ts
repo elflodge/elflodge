@@ -80,6 +80,29 @@ const modelBaseUrlSetting = Config.schema(
   "RUNNER_MODEL_BASE_URL",
 ).pipe(Config.option);
 
+/**
+ * The Pi extensions every job runs with unless `RUNNER_EXTENSIONS` says otherwise: pi-web-access,
+ * which lets the agent search the web and read pages and PDFs, pinned, so a restarted Runner loads
+ * what it installed without the registry and no release reaches it unreviewed.
+ */
+const DEFAULT_EXTENSIONS = ["npm:pi-web-access@0.47.0"];
+
+/**
+ * `RUNNER_EXTENSIONS`: Pi package sources separated by commas, which replace the default; `none` for
+ * no extension, since the environment's empty value reads as unset.
+ */
+const extensionsSetting = Config.String("RUNNER_EXTENSIONS").pipe(
+  Config.map((value) =>
+    value.trim() === "none"
+      ? []
+      : value
+          .split(",")
+          .map((source) => source.trim())
+          .filter(Boolean),
+  ),
+  Config.withDefault(DEFAULT_EXTENSIONS),
+);
+
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
 const runnerSettings = Config.all({
   hubUrl: Config.URL("HUB_URL"),
@@ -103,6 +126,7 @@ const runnerSettings = Config.all({
   runWithoutSandbox: Config.Boolean("RUNNER_RUN_WITHOUT_SANDBOX").pipe(
     Config.withDefault(DEFAULT_SANDBOX_SETTINGS.runWithoutSandbox),
   ),
+  extensions: extensionsSetting,
 });
 
 /**
@@ -336,10 +360,12 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         jobMemoryLimit: settings.jobMemoryLimit,
         runWithoutSandbox: settings.runWithoutSandbox,
       },
+      extensions: settings.extensions,
       register: options.register,
       onReady: ready.open,
     }).pipe(
       Effect.catchTag("SandboxUnavailable", (error) => refuse(error.message)),
+      Effect.catchTag("ExtensionsUnavailable", (error) => refuse(error.message)),
       Effect.catchTag("Removed", () =>
         // FIXME: re-registering belongs to the CLI. Once it exists, this message names its command
         // (such as `elflodge runner register`) and `register` moves out of this entry point.

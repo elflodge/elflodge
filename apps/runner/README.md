@@ -12,6 +12,7 @@ A Node process that connects out to the hub and runs many jobs' agents at once. 
 - `RUNNER_JOB_MEMORY_LIMIT`: how much memory each job's processes may use together, in systemd's notation; `1G` by default. A command that goes over is stopped and the agent is told.
 - `RUNNER_JOB_READ_PATHS`: folders jobs may read besides the system's, separated by `:` as in `PATH`, such as where mise, nvm or Homebrew keep the tools jobs should use.
 - `RUNNER_RUN_WITHOUT_SANDBOX`: `true` runs jobs without a sandbox where none can start, instead of refusing to start; only for jobs whose inputs you trust.
+- `RUNNER_EXTENSIONS`: the Pi extensions every job runs with, as Pi package sources separated by commas, such as `npm:pi-web-access@0.47.0,./my-extension`; `npm:pi-web-access@0.47.0` by default, and `none` for none. A list replaces the default, so keep pi-web-access in it to keep its tools. See [Extensions](#extensions).
 
 `vp run start login` saves authentication for `RUNNER_MODEL_PROVIDER` in `auth.json` in `RUNNER_DATA_DIR`, readable only by the Runner's user and out of jobs' reach. It offers Pi's supported methods: a provider API key, entered hidden, or a subscription sign-in. A provider with one method goes straight to it. A subscription sign-in prints a page to open in a browser on any device; on a host without a browser, paste back the final address even if its `127.0.0.1` page does not load. Pi renews the sign-in as it expires. A Runner already running uses saved authentication from its next model call.
 
@@ -39,6 +40,23 @@ A job waiting for this warm-up occupies a Runner slot but has no start event yet
 When a Linux host runs out of memory, the kernel kills a job's process rather than the Runner, as jobs' processes start with the highest `oom_score_adj`, unless the Runner itself holds most of the host's memory. The job carries on. Where jobs have a memory limit, a command that ended meanwhile tells the agent whether the host or the job's own limit ran short, and the Runner logs each kill with the job's ID. systemd-oomd, where it runs, stops whole cgroups by rules of its own, which this score does not steer.
 
 A Runner that stops, or is killed outright (by the out-of-memory killer, `kill -9` or a crash), recovers its jobs when it starts again on the same `RUNNER_DATA_DIR`: the hub sends it the jobs still placed on it, and each carries on from its journal where it left off, with its Workspace as it was. A tool call that had completed does not run again. One the stop cut off does not run again either: the job's commands stop with the Runner, and the agent gets pi-durable's `interrupted` result, saying the call may have partly run. A Runner that starts with fewer slots than the jobs placed on it, as after lowering `RUNNER_MAX_JOBS`, recovers as many as it has slots for, and the rest as those end. This covers the Runner's process, not the host: after a power loss or an operating-system crash, a job's last journal commits may be lost, and the job then carries on from slightly earlier.
+
+## Extensions
+
+Jobs' agents run with Pi coding-agent extensions, which add tools and react to the agent's work as they do in Pi. By default that is [pi-web-access](https://www.npmjs.com/package/pi-web-access), whose `fetch_content` reads web pages and PDFs and whose `web_search` searches the web.
+
+The Runner installs and bundles its extensions as it starts, in `extensions` in `RUNNER_DATA_DIR`, and refuses to start, naming each one and why, when any cannot be. Installing needs npm, which the image brings, and the registry the first time: a pinned npm source stays installed, so a Runner restarted on the same data directory starts without the registry. Give npm sources a version, as the default does, so that no release reaches jobs unreviewed. A local path works too; git sources are not supported in the image, which has no git. The first start takes a few seconds longer for pi-web-access. A job fails, naming the extension, when one does not load, and when the extensions' worker exits and they cannot be opened again.
+
+Extensions run in worker threads of the Runner's process, which its jobs share, and are as trusted as the Runner itself: they read its files and environment, provider keys included, and reach the network. Install only extensions you would run as the Runner's user. Commands they run through Pi's `exec` run in the job's sandbox and Workspace, as the agent's own do. Pi's `input` handlers do not run for a job's input.
+
+What extensions spend falls outside a job's model budget: searches cost what their provider charges, and an extension's own model calls are not counted.
+
+pi-web-access reads its settings from `web-search.json` in `pi-agent` in `RUNNER_DATA_DIR`, which the Runner writes when it is missing and leaves to you from then on; restart the Runner after editing it. The Runner's file:
+
+- allows only search providers that need a key or URL, so a job searches only where you gave one, such as `BRAVE_API_KEY` in the Runner's environment. The keyless providers (Exa's free endpoint, DuckDuckGo, AnySearch, Keenable and Parallel's MCP endpoint), which the model can name, are left out; add them to `webSearch.allowedProviders` to allow them. A key in the Runner's environment for a provider that also searches, such as `GEMINI_API_KEY`, or the Runner's own OpenAI key or ChatGPT sign-in, lets jobs search through it at that account's cost.
+- turns video off, since pi-web-access reads local video files anywhere on the host.
+
+The model cannot choose a proxy for pi-web-access's requests: a call that names one is refused, so a job cannot route them around pi-web-access's guard against private addresses. A proxy configured in `web-search.json` still applies. That guard checks a request's addresses before it is made, which narrows but does not close what a job can reach; isolating jobs' network fully needs it enforced outside the Runner.
 
 ## What a host needs
 

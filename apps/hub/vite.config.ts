@@ -1,7 +1,10 @@
 import { externals } from "nf3/plugin";
-import { configDefaults, defineConfig } from "vite-plus";
+import { configDefaults, defaultServerConditions, defineConfig } from "vite-plus";
 
 export default defineConfig({
+  // The tests start a Runner in this process, which loads the extension adapter's source under the
+  // condition its exports give it in the workspace (ADR 0006).
+  ssr: { resolve: { conditions: ["@elflodge/source", ...defaultServerConditions] } },
   pack: {
     // The Node hub, which the Docker image runs; the Worker is built by Wrangler.
     entry: ["src/main.ts"],

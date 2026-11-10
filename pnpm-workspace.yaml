@@ -115,7 +115,9 @@ catalog:
   vite-plus: 1.5.0
   vitest: 5.1.0
   wrangler: ^4.157.0
-  ws: ^8.22.1
+  # The version Pi's chord takes as a peer, exactly: with any other, pi-ai resolves twice, and
+  # `pnpm deploy` cannot build the Runner's image, whose extension adapter takes pi-ai as a peer.
+  ws: 8.21.0
   zod: ^4.6.7
 catalogs:
   # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its

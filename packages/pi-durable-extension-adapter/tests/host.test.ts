@@ -734,16 +734,25 @@ async function workerConversation({
   const conversation = await harness.root(context, {
     agent: { model: { provider: model.provider, modelId: model.id } },
   });
+  // Why the conversation's extensions were lost, as its attacher hears it.
+  const losses: string[] = [];
   const extensions = await host.attach(
-    { harness, conversation, registry, models, cwd: dir },
+    {
+      harness,
+      conversation,
+      registry,
+      models,
+      cwd: dir,
+      onLost: (error) => losses.push(error.message),
+    },
     context,
   );
   onTestFinished(() => extensions.close());
-  return { faux, conversation, extensions, exits };
+  return { faux, conversation, extensions, exits, losses };
 }
 
 test("a conversation whose extension worker exited gets its extensions back on another", async () => {
-  const { faux, conversation, exits } = await workerConversation();
+  const { faux, conversation, exits, losses } = await workerConversation();
   let seen: readonly Message[] = [];
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
@@ -762,10 +771,11 @@ test("a conversation whose extension worker exited gets its extensions back on a
   expect(exits).toEqual([
     { message: expect.stringContaining("exited"), reopened: [conversation.id], lost: [] },
   ]);
+  expect(losses).toEqual([]);
 });
 
 test("without restart, a conversation whose extension worker exited goes on with its other tools", async () => {
-  const { faux, conversation, exits } = await workerConversation({ restart: false });
+  const { faux, conversation, exits, losses } = await workerConversation({ restart: false });
   let seen: readonly Message[] = [];
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall("crash", {})], { stopReason: "toolUse" }),
@@ -786,6 +796,7 @@ test("without restart, a conversation whose extension worker exited goes on with
   expect(exits).toEqual([
     { message: expect.stringContaining("exited"), reopened: [], lost: [conversation.id] },
   ]);
+  expect(losses).toEqual([expect.stringContaining("exited")]);
 });
 
 test("a conversation whose extensions fail to load again is lost, and its gate blocks its tools", async () => {
@@ -794,7 +805,7 @@ test("a conversation whose extensions fail to load again is lost, and its gate b
     "loaded",
   );
   onTestFinished(() => rm(path.dirname(marker), { recursive: true, force: true }));
-  const { faux, conversation, extensions, exits } = await workerConversation({
+  const { faux, conversation, extensions, exits, losses } = await workerConversation({
     extension: "gate",
     workerOptions: { env: { ...process.env, GATE_MARKER: marker } },
   });
@@ -816,6 +827,7 @@ test("a conversation whose extensions fail to load again is lost, and its gate b
   expect(exits).toEqual([
     { message: expect.stringContaining("exited"), reopened: [], lost: [conversation.id] },
   ]);
+  expect(losses).toEqual([expect.stringContaining("exited")]);
   // The application goes on submitting: lost extensions run no `input` handlers.
   expect(await extensions.input("next")).toEqual({ action: "continue" });
 });

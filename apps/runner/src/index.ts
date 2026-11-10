@@ -4,6 +4,7 @@ import { text } from "node:stream/consumers";
 
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import type { PreparedExtensions } from "@elflodge/pi-durable-extension-adapter";
 import { createORPCClient } from "@orpc/client";
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -43,6 +44,11 @@ import WebSocket from "ws";
 import * as z from "zod/mini";
 
 import type { AgentModel, HubHttpClient } from "./agent.ts";
+import {
+  ExtensionsUnavailable,
+  prepareRunnerExtensions,
+  startRunnerExtensions,
+} from "./extensions.ts";
 import { JobRunner } from "./jobs.ts";
 import { makePromptCacheWarmup } from "./prompt-cache.ts";
 import {
@@ -52,7 +58,7 @@ import {
   SandboxUnavailable,
 } from "./sandbox.ts";
 
-export { SandboxUnavailable };
+export { ExtensionsUnavailable, SandboxUnavailable };
 
 // TODO: remove once `@types/ws` declares `closeTimeout`, added in `ws` 8.19.
 declare module "ws" {
@@ -99,6 +105,11 @@ export interface RunnerOptions {
   maxJobs?: number;
   /** How jobs' sandboxes are made; `DEFAULT_SANDBOX_SETTINGS` unless given. */
   sandbox?: SandboxSettings;
+  /**
+   * The Pi extensions every job's agent runs with, as Pi's settings name their packages: an npm
+   * package, a git repository or a local path. None unless given.
+   */
+  extensions?: readonly string[];
   /** How often to send a heartbeat; tests set it shorter. */
   heartbeatIntervalMs?: number;
   /** Discards the Runner's own key and registers again, as the `register` command does. */
@@ -144,12 +155,13 @@ export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
  */
 export function runRunner(
   options: RunnerOptions,
-): Effect.Effect<never, Removed | SandboxUnavailable> {
+): Effect.Effect<never, Removed | SandboxUnavailable | ExtensionsUnavailable> {
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
     const environments = yield* prepareEnvironments(options);
+    const extensions = yield* prepareRunnerExtensions(options.dataDir, options.extensions ?? []);
     const registration = yield* loadOrRegister(hubUrl, options);
-    return yield* runRegistered(hubUrl, registration, options, environments);
+    return yield* runRegistered(hubUrl, registration, options, environments, extensions);
   });
 }
 
@@ -160,9 +172,12 @@ export function runRunner(
 export async function startRunner(options: StartRunnerOptions): Promise<Runner> {
   const hubUrl = new URL(options.hubUrl);
   const environments = await Effect.runPromise(prepareEnvironments(options));
+  const extensions = await Effect.runPromise(
+    prepareRunnerExtensions(options.dataDir, options.extensions ?? []),
+  );
   const registration = await Effect.runPromise(loadOrRegister(hubUrl, options));
   const loop = Effect.runFork(
-    runRegistered(hubUrl, registration, options, environments).pipe(
+    runRegistered(hubUrl, registration, options, environments, extensions).pipe(
       Effect.catchTag("Removed", () => Effect.sync(() => options.onRemoved?.())),
     ),
   );
@@ -183,10 +198,14 @@ function runRegistered(
   registration: RegisteredRunner,
   options: RunnerOptions,
   environments: JobEnvironments,
+  extensions: PreparedExtensions | undefined,
 ): Effect.Effect<never, Removed> {
   return Effect.scoped(
     Effect.gen(function* () {
       const syncNow = yield* Latch.make(false);
+      // Started before the jobs, so it stops after them.
+      const extensionHost =
+        extensions && (yield* startRunnerExtensions(options.dataDir, extensions));
       const agent = {
         jobsDir: path.join(options.dataDir, "jobs"),
         fileSystem: yield* FileSystem.FileSystem,
@@ -199,6 +218,7 @@ function runRegistered(
         environments,
         models: options.models,
         model: options.model,
+        extensions: extensionHost,
       };
       const jobs = new JobRunner(
         options.maxJobs ?? DEFAULT_MAX_JOBS,

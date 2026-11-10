@@ -87,6 +87,10 @@ services:
       # sign in to the provider instead, with
       # `docker compose run --rm --no-deps runner node dist/main.mjs login`.
       OPENROUTER_API_KEY:
+      # The Pi extensions each job runs with, by default pi-web-access, which reads web pages and
+      # PDFs and searches the web through a provider given a key, such as BRAVE_API_KEY, added the
+      # same way (apps/runner/README.md).
+      RUNNER_EXTENSIONS:
     volumes:
       - runner-data:/data
     restart: unless-stopped

@@ -26,6 +26,7 @@
     "@earendil-works/pi-env": "catalog:",
     "@earendil-works/pi-schema": "catalog:",
     "@effect/platform-node-shared": "catalog:",
+    "@elflodge/pi-durable-extension-adapter": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",

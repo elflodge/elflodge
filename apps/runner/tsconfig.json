@@ -6,6 +6,8 @@
     "moduleDetection": "force",
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    // The extension adapter's source rather than its build, as its exports give it in the workspace.
+    "customConditions": ["@elflodge/source"],
     "resolveJsonModule": true,
     "types": ["node"],
     "strict": true,

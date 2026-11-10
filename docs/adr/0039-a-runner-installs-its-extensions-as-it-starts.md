@@ -1,0 +1,21 @@
+# A Runner installs its extensions as it starts
+
+A Runner runs its jobs' agents with Pi coding-agent extensions through the extension adapter (ADR 0038), by default pi-web-access at a pinned version, so jobs can read the web without a provider of their own. The operator lists them in `RUNNER_EXTENSIONS`, as Pi package sources separated by commas, which replace the default; `none` gives none, as Effect reads an empty variable as unset. The Runner installs and bundles them as it starts, before it registers or recovers a job, in its data directory, and refuses to start, naming each source and why, when any fails. Pi keeps a pinned npm source installed while it stays the same, so a Runner restarted on the same data directory starts without the registry. The image brings the npm of the Node distribution the Runner runs on, and no git, so git sources are not supported there.
+
+One extension host serves all of a Runner's jobs. Each job's conversation is attached once it is open and its run has not closed, and before its input is submitted; the extensions close when the job's work stops, before its end is written, so nothing their shutdown handlers start lands after it, and on an interrupt after the journal closes, so nothing reaches a job that is to carry on. A job fails when an extension does not load in it, and when its extensions are lost after their worker exits, which the adapter reports per attachment, as every job's root conversation has the same ID. Recording a pause or a cancel attaches nothing. A job's input is submitted directly rather than through Pi's `input` handlers.
+
+Extensions are trusted as the Runner is: they run in its process with its files, environment and network, while their commands run in the job's sandbox. Their spending, such as search fees or their own model calls, falls outside a job's model budget. The Runner tells them of an agent directory in its data directory, where it writes pi-web-access's settings once, when they are missing: only search providers given a key or URL, since the keyless ones send a job's queries to services the operator never chose and the model can name them, and video off, since it reads local files anywhere on the host. The Runner's own extension refuses calls to pi-web-access's tools that name a proxy, which the tools check only for its scheme, so a model cannot route their requests around the guard against private addresses.
+
+## Considered options
+
+- Starting without an extension that fails to prepare, with a log line: the operator who configured it would not see that jobs ran without it, and their results would depend on what happened at start.
+- Logging an extension that does not load in a job and carrying on: the same, per job, and inconsistent with refusing to start.
+- `RUNNER_EXTENSIONS` as a JSON array: no Pi source holds a comma, and a list in a shell variable or `.env` reads more easily as one.
+- An extension host per job: a worker set and the extensions' modules for each job, against the adapter's sharing, to tell jobs apart where a per-attachment callback does.
+- Routing a job's input through `input` handlers: the transformed input would have to be journaled so that a recovered run does not transform it again, a design of its own, for no extension the Runner ships.
+- Filtering the environment extensions see: code that reads the Runner's files and asks its model registry for credentials is not isolated by it.
+- Installing extensions into the image: the operator's list would need a build of its own.
+
+## Consequences
+
+The first start takes a few seconds more, about 5 s and 90 MB for pi-web-access. The proxy guard and the default settings name pi-web-access's tools and providers, so each upgrade of its pinned version rechecks them. Reconsider the refusal if operators need optional extensions, input routing when an extension the Runner ships needs `input`, and the proxy guard when pi-web-access can lock its proxy without one configured.

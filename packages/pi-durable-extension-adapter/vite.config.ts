@@ -8,6 +8,9 @@ export default defineConfig({
     entry: ["src/index.ts", "src/host-worker.ts", "src/prepare-process.ts", "src/runtime.ts"],
     dts: true,
     // In the workspace the export points to the source, as the other packages' do (ADR 0006).
-    exports: { devExports: true, exclude: ["host-worker", "prepare-process", "runtime"] },
+    exports: {
+      devExports: "@elflodge/source",
+      exclude: ["host-worker", "prepare-process", "runtime"],
+    },
   },
 });

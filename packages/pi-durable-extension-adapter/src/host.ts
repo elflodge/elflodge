@@ -165,6 +165,12 @@ export interface AttachOptions {
    * gives them: set once the extensions have loaded, so `getFlag` returns them from `session_start`.
    */
   readonly flags?: Flags;
+  /**
+   * Called once if the conversation's extensions are lost, as `WorkerExit` describes, with why
+   * their worker exited. Unlike `onWorkerExit`, it tells apart conversations of different Harnesses,
+   * whose IDs can be the same.
+   */
+  readonly onLost?: (error: Error) => void;
 }
 
 /** What `input` handlers are told of the input besides its text, as Pi's `prompt` options say. */
@@ -363,12 +369,25 @@ class Workers {
           if (this.#closed) void each.close();
           else this.#orphans.add(each);
         }
-        return { id: each.conversationId, reopened };
+        return { conversation: each, reopened };
       }),
     );
+    for (const { conversation, reopened } of results) {
+      if (reopened) continue;
+      // One attacher's failing report must not keep the others from theirs.
+      try {
+        conversation.reportLost(error);
+      } catch (failed) {
+        console.error(ensureError(failed));
+      }
+    }
     const exit: WorkerExit = {
-      reopened: results.filter((each) => each.reopened).map((each) => each.id),
-      lost: results.filter((each) => !each.reopened).map((each) => each.id),
+      reopened: results
+        .filter((each) => each.reopened)
+        .map((each) => each.conversation.conversationId),
+      lost: results
+        .filter((each) => !each.reopened)
+        .map((each) => each.conversation.conversationId),
     };
     if (this.#options.onWorkerExit) this.#options.onWorkerExit(error, exit);
     else {
@@ -1685,6 +1704,11 @@ class AttachedConversation {
     // Their worker can no longer read the result, and a new one numbers its commands afresh.
     for (const each of this.#execs.values()) each.abort();
     this.#execs.clear();
+  }
+
+  /** Tells the attacher that its extensions are gone for good, as `#recover` found. */
+  reportLost(error: Error) {
+    this.#options.onLost?.(error);
   }
 
   close(): Promise<void> {
