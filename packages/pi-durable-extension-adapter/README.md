@@ -13,7 +13,7 @@ It was built for [Elflodge](https://elflodge.com), which runs hundreds of Pi age
 - Extensions install from the same sources as `pi install` takes: an npm package, a git repository or a local path. Pi's own package manager installs them.
 - Extensions run on Pi's own code. Pi's loader and runner load them and call their handlers, so the order of handlers, the way their results combine and the way one failing handler is kept from the others are Pi's. Where pi-durable works differently from Pi's coding agent, the [table below](#what-extensions-get) says what an extension sees.
 - What extensions save is as durable as the conversation. Entries from `appendEntry` and the messages extensions send are written to the conversation's journal, so an extension finds its state again after a restart.
-- Many conversations share a few worker threads. Each conversation gets its own instance of every extension, as each Pi session does, while the extensions' code loads once per worker, bundled with only the parts of Pi it uses.
+- Many conversations share a few worker threads. Each conversation gets its own instance of every extension, as each Pi session does, while the extensions' code loads once per worker, bundled with only the parts of Pi it uses. Two workers with 50 conversations attached, each with `pi-web-access` and `pi-web-search`, added 74 MiB to the process.
 - Your app stays responsive. Extensions run in worker threads, so an extension's heavy synchronous work, such as parsing a large page, does not stall pi-durable or your own code.
 - Your app survives an extension that crashes. An uncaught error, `process.exit()` or a full heap ends only the worker it happened in, and the conversations on that worker get their extensions back on another one.
 - An extension that hangs while it opens or closes cannot stall a conversation's start or end: each has a time limit of 10 s.
@@ -193,10 +193,18 @@ What `before_agent_start` handlers add to `systemPromptOptions` (`sections`, `ap
 
 ## Tested extensions
 
-| Extension                                                      | Version | What was checked                                                             |
-| -------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------- |
-| [`pi-web-access`](https://www.npmjs.com/package/pi-web-access) | 0.47.0  | Loads and registers its tools; `fetch_content` fetches pages and reads PDFs. |
-| [`pi-web-search`](https://www.npmjs.com/package/pi-web-search) | 1.7.0   | Loads and registers its tools.                                               |
+| Extension                                                                                                | Version | What was checked                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@dietrichgebert/ponytail`](https://www.npmjs.com/package/@dietrichgebert/ponytail)                     | 5.3.3   | Its instructions reach the model.                                                                                                              |
+| [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) | 2.15.0  | Without a UI, its tool tells the model it is not available.                                                                                    |
+| [`@juicesharp/rpiv-todo`](https://www.npmjs.com/package/@juicesharp/rpiv-todo)                           | 2.15.0  | Adds and lists tasks, and lists them again after a restart.                                                                                    |
+| [`cc-safety-net`](https://www.npmjs.com/package/cc-safety-net)                                           | 2.7.8   | Blocks `git reset --hard` in pi-durable's `bash` tool before it runs.                                                                          |
+| [`context-mode`](https://www.npmjs.com/package/context-mode)                                             | 2.1.7   | `ctx_execute` runs JavaScript, also with `pi-lens`. It registers its tools in `before_agent_start`, so they are offered from the next request. |
+| [`pi-lens`](https://www.npmjs.com/package/pi-lens)                                                       | 4.4.11  | `lens_diagnostics` reports a syntax error from its language server.                                                                            |
+| [`pi-mcp-adapter`](https://www.npmjs.com/package/pi-mcp-adapter)                                         | 7.0.1   | Calls a local MCP server's tool over stdio. It logs that it cannot read a `package.json` beside its code, which does not stop it.              |
+| [`pi-mcp-extension`](https://www.npmjs.com/package/pi-mcp-extension)                                     | 1.14.5  | Calls a local MCP server's tool over stdio.                                                                                                    |
+| [`pi-web-access`](https://www.npmjs.com/package/pi-web-access)                                           | 0.47.0  | Loads and registers its tools; `fetch_content` fetches pages and reads PDFs.                                                                   |
+| [`pi-web-search`](https://www.npmjs.com/package/pi-web-search)                                           | 1.7.0   | Loads and registers its tools.                                                                                                                 |
 
 Only the extensions in this table are tested. An extension outside it has what the [table above](#what-extensions-get) lists to work with, within the limits below.
 
@@ -205,6 +213,7 @@ Only the extensions in this table are tested. An extension outside it has what t
 - Extensions can do anything your process can, as in Pi: they run in its worker threads with its permissions. Only `pi.exec` goes through the `env` you give `attach`, so a sandboxed `env` does not contain an extension that reads files or starts programs itself. Install only extensions you trust.
 - An extension's module-level state is shared by the conversations on its worker, where in Pi one session has the process to itself. State kept in its factory is per conversation.
 - A crash inside a native add-on ends your whole process; worker threads share it.
+- Extensions that change model requests by intercepting `fetch`, as `billion-context` does, see no requests: they run in worker threads, and pi-durable makes model calls outside them, in your app.
 - Extensions that run work in Pi processes of their own, as `pi-subagents` does for its subagents, are not supported.
 - After a crash of your process, pi-durable does not run an interrupted extension tool again.
 
