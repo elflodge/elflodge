@@ -508,13 +508,6 @@ export function openJob(
     };
     const runAgent = Effect.gen(function* () {
       if (closed) return;
-      if (notLoaded) {
-        yield* Scope.close(extensionsScope, Exit.void);
-        yield* Effect.promise(() =>
-          submitClosing(root, options.runId, JobFailed, { timestamp: Date.now(), ...notLoaded }),
-        );
-        return;
-      }
       const answered = Effect.promise(async () => {
         const submission = await submitInput();
         return submission.wait(context);
@@ -524,25 +517,28 @@ export function openJob(
       // not as a pause does: the work it cut off is aborted and settled, and the job fails naming
       // the limit, unless the agent's output was accepted meanwhile. The timeout counts from here,
       // so time spent waiting for a slot or while the Runner was down counts nothing. Each gives
-      // why the job failed, should its agent have no accepted output.
-      const failure: Failure = yield* Effect.raceAllFirst([
-        answered.pipe(Effect.map(failureOf)),
-        Effect.sleep(Duration.seconds(options.runTimeoutSeconds)).pipe(
-          Effect.as({ reason: "runTimedOut" } as const),
-        ),
-        overBudget.await.pipe(Effect.as({ reason: "modelBudgetExceeded" } as const)),
-        Deferred.await(extensionsLost).pipe(
-          Effect.map((error): Failure => ({
-            reason: "runFaulted",
-            message: failureMessage(`The job's extensions stopped: ${error.message}`),
-          })),
-        ),
-      ]).pipe(
-        Effect.onExitIf(
-          (exit) => !Exit.hasInterrupts(exit),
-          () => stopWork,
-        ),
-      );
+      // why the job failed, should its agent have no accepted output. A job whose extensions did
+      // not load runs nothing: work a restart left pending is stopped as at the job's end.
+      const failure: Failure = notLoaded
+        ? yield* stopWork.pipe(Effect.as(notLoaded))
+        : yield* Effect.raceAllFirst([
+            answered.pipe(Effect.map(failureOf)),
+            Effect.sleep(Duration.seconds(options.runTimeoutSeconds)).pipe(
+              Effect.as({ reason: "runTimedOut" } as const),
+            ),
+            overBudget.await.pipe(Effect.as({ reason: "modelBudgetExceeded" } as const)),
+            Deferred.await(extensionsLost).pipe(
+              Effect.map((error): Failure => ({
+                reason: "runFaulted",
+                message: failureMessage(`The job's extensions stopped: ${error.message}`),
+              })),
+            ),
+          ]).pipe(
+            Effect.onExitIf(
+              (exit) => !Exit.hasInterrupts(exit),
+              () => stopWork,
+            ),
+          );
       // The extensions' session ends with the job's work. What their `session_shutdown` handlers
       // start, such as a message to the agent, is stopped too, so the job's end is its last entry.
       if (host) {

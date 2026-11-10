@@ -155,9 +155,11 @@ interface Input {
 async function prepare({ sources, dir, npmCommand }: Input): Promise<PreparedExtensions> {
   const settingsManager = SettingsManager.inMemory(npmCommand && { npmCommand });
   const packages = new DefaultPackageManager({ cwd: dir, agentDir: dir, settingsManager });
-  // Pi resolves a relative local path against `dir`, its agent directory here; the caller means its
-  // own working directory, as Pi's `--extension` does. Only a path that starts with `.` reads as
-  // relative for certain: Pi takes any source without a known prefix for a local path.
+  // Pi resolves a relative local path against `dir`, its agent directory here, where the caller
+  // means its own working directory. Pi's `--extension` resolves there with a temporary scope, which
+  // would also install npm sources in a temporary directory, so paths starting with `./` or `../`
+  // are resolved here; a bare relative path, which Pi also takes for local, still resolves in `dir`,
+  // since Pi's test for a local source is not exported.
   const given = new Map(
     sources.map(
       (source) => [/^\.\.?[/\\]/.test(source) ? path.resolve(source) : source, source] as const,

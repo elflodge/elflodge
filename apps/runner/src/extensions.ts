@@ -77,14 +77,24 @@ const KEYED_SEARCH_PROVIDERS = [
 /**
  * pi-web-access's settings for a Runner whose operator has not written them yet: the keyed search
  * providers, with Exa when the Runner has an Exa key, read from the environment variable by name so
- * that a key that goes missing fails the search rather than fall back to Exa's free endpoint; and
+ * that a key that goes missing fails the search rather than fall back to Exa's free endpoint, and
+ * degoog when the Runner names its own instance in `DEGOOG_URL`, kept in the file so that the
+ * variable going missing does not fall back to degoog's public instance; and
  * video off, since its local files are read from anywhere on the Runner's host.
  */
 function defaultWebSearch(env: NodeJS.ProcessEnv) {
   const exa = Boolean(env["EXA_API_KEY"]);
+  const degoog = env["DEGOOG_URL"];
   return {
-    webSearch: { allowedProviders: [...KEYED_SEARCH_PROVIDERS, ...(exa ? ["exa"] : [])] },
+    webSearch: {
+      allowedProviders: [
+        ...KEYED_SEARCH_PROVIDERS,
+        ...(exa ? ["exa"] : []),
+        ...(degoog ? ["degoog"] : []),
+      ],
+    },
     ...(exa ? { exaApiKey: "$EXA_API_KEY" } : {}),
+    ...(degoog ? { degoogBaseUrl: degoog } : {}),
     video: { enabled: false },
   };
 }

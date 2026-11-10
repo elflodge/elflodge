@@ -92,7 +92,9 @@ const DEFAULT_EXTENSIONS = ["npm:pi-web-access@0.47.0"];
  * no extension, since the environment's empty value reads as unset.
  */
 const extensionsSetting = Config.Array(Schema.Trim, "RUNNER_EXTENSIONS").pipe(
-  Config.map((sources) => (sources.join() === "none" ? [] : sources.filter(Boolean))),
+  Config.map((sources) =>
+    sources.length === 1 && sources[0] === "none" ? [] : sources.filter(Boolean),
+  ),
   Config.withDefault(DEFAULT_EXTENSIONS),
 );
 
