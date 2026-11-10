@@ -311,7 +311,7 @@ class Workers {
         reads.postMessage(value);
       } catch (error) {
         // A value that cannot be cloned; the worker waits for an answer all the same.
-        if (!("error" in value)) reply({ id: value.id, error: ensureError(error).message });
+        if (!("error" in value)) reply({ error: ensureError(error).message });
       }
     };
     reads.on("message", (message: JournalMessage) => {
@@ -326,12 +326,12 @@ class Workers {
         return;
       }
       if (!found) {
-        reply({ id: message.id, error: `No conversation ${message.key} on this worker` });
+        reply({ error: `No conversation ${message.key} on this worker` });
         return;
       }
       found.read(message.method, message.args).then(
-        (value) => reply({ id: message.id, value }),
-        (error: unknown) => reply({ id: message.id, error: ensureError(error).message }),
+        (value) => reply({ value }),
+        (error: unknown) => reply({ error: ensureError(error).message }),
       );
     });
     const hosted: HostedWorker = {

@@ -206,15 +206,16 @@ export type JournalMessage =
   | { readonly type: "act"; readonly key: string; readonly action: Action }
   | {
       readonly type: "read";
-      readonly id: number;
       readonly key: string;
       readonly method: keyof Reads;
       readonly args: readonly unknown[];
     };
 
-export type ReadReply =
-  | { readonly id: number; readonly value: unknown }
-  | { readonly id: number; readonly error: string };
+/**
+ * The host's answer to a read. A worker waits on each read before it sends anything else, so the
+ * next message it receives is the answer to its read, and needs no ID to match it.
+ */
+export type ReadReply = { readonly value: unknown } | { readonly error: string };
 
 export interface WorkerData {
   /** The bundle's runtime module and extension modules, in load order. */

@@ -64,7 +64,6 @@ const instances = new Map<string, Opened>();
 type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
 
 const journal = new SyncMessagePort(workerData.journal);
-let nextRead = 0;
 let nextExec = 0;
 
 /** Sends `action` on the journal channel, ahead of any read that follows it. */
@@ -86,19 +85,17 @@ function read<M extends keyof Reads>(
   method: M,
   ...args: Parameters<Reads[M]>
 ): ReturnType<Reads[M]> {
-  const id = nextRead++;
-  const message: JournalMessage = { type: "read", id, key, method, args };
+  const message: JournalMessage = { type: "read", key, method, args };
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   journal.postMessage(message);
-  for (;;) {
-    const reply = journal.receiveMessage();
-    if (typeof reply !== "object" || reply === null || !("id" in reply) || reply.id !== id)
-      continue;
-    if ("error" in reply) throw new Error(String(reply.error));
-    const value: unknown = "value" in reply ? reply.value : undefined;
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
-    return value as ReturnType<Reads[M]>;
-  }
+  // The next message is the answer to this read (`ReadReply`).
+  const reply = journal.receiveMessage();
+  if (typeof reply !== "object" || reply === null)
+    throw new Error("The host's reply is not an object");
+  if ("error" in reply) throw new Error(String(reply.error));
+  const value: unknown = "value" in reply ? reply.value : undefined;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
+  return value as ReturnType<Reads[M]>;
 }
 
 function instanceFor(key: string): Opened {
