@@ -12,6 +12,7 @@
     "@commitlint/config-conventional": "catalog:",
     "@types/node": "catalog:",
     "generate-license-file": "catalog:",
+    "typescript": "catalog:",
     "vite-plus": "catalog:"
   },
   "devEngines": {
