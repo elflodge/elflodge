@@ -586,7 +586,7 @@ class Installation {
     if (isDeepStrictEqual(wanted, this.#installedFor)) return;
     this.#installedFor = wanted;
     this.#installed = defineExtension({
-      name: "pi-durable-extension-adapter",
+      name: EXTENSION_NAME,
       tools: [...tools.values()].flatMap((tool) => this.#tool(tool)),
       sections: this.#sections(),
       hooks: this.#hooks(events),
@@ -1271,7 +1271,10 @@ class AttachedConversation {
         // notice of it travels on another channel, and asking the worker would wait on it while
         // it waits for this action to be done before its next read.
         this.update(action.registrations);
-        return this.#setActiveTools(action.names);
+        return this.#setActiveTools(action.names, action.registrations);
+      case "registrations":
+        this.update(action.registrations);
+        return undefined;
       default:
         // Session names, labels and shutdown have no counterpart here.
         return undefined;
@@ -1279,19 +1282,37 @@ class AttachedConversation {
   }
 
   /**
-   * Offers the model exactly the tools `names` names, as Pi's active tools, from the next request:
-   * any tool of the conversation's extensions, the deferred ones too. Names of no such tool are
-   * left out, as Pi leaves them out.
+   * Offers the model the tools `names` names, as Pi's active tools, from the next request: any tool
+   * of the conversation's extensions, the deferred ones too. Names of no such tool are left out, as
+   * Pi leaves them out. A tool registered later is offered as well unless it is deferred, as Pi
+   * activates a tool on registration after a selection too (`_refreshToolRegistry`), so the
+   * selection removes the tools it leaves out instead of listing the ones it keeps. Later means
+   * after `registered`, the extensions' registrations when the selection was made: the registry
+   * may have more by the time this runs.
    */
-  #setActiveTools(names: readonly string[]) {
+  #setActiveTools(names: readonly string[], registered: Registrations) {
     const { conversation } = this.#options;
     const context = BACKGROUND_CONTEXT;
+    const known = new Set(registered.tools.map((tool) => tool.name));
     // One after the other, so the last selection made is the one that holds.
     const activated = this.#activation.then(async () => {
       const { extensions } = await conversation.agent(context);
-      const tools = new Map(extensions.flatMap((each) => each.tools ?? []).map((t) => [t.name, t]));
-      const modelTools = names.flatMap((name) => tools.get(name) ?? []);
-      await conversation.configure({ modelTools }, context);
+      // The adapter's other tools are other conversations' or registered later, and stay as they are.
+      const tools = extensions.flatMap((each) =>
+        (each.tools ?? []).filter((tool) => each.name !== EXTENSION_NAME || known.has(tool.name)),
+      );
+      const named = new Set(names);
+      const byName = new Map(tools.map((tool) => [tool.name, tool]));
+      // pi-durable offers the deferred tools in `add` and ignores the others there.
+      await conversation.configure(
+        {
+          modelTools: {
+            remove: tools.filter((tool) => !named.has(tool.name)),
+            add: names.flatMap((name) => byName.get(name) ?? []),
+          },
+        },
+        context,
+      );
     });
     this.#activation = activated.catch(() => {});
     return activated;
@@ -1564,6 +1585,9 @@ class AttachedConversation {
  * busy that long counts too, as it holds up every conversation on it already.
  */
 const STUCK_AFTER_MS = 10_000;
+
+/** The name of the pi-durable extension that carries the conversations' extensions in a registry. */
+const EXTENSION_NAME = "pi-durable-extension-adapter";
 
 /** `lines` as a list in a section tagged `name`, as Pi renders its tools and rules; none if empty. */
 function listSection(name: string, lines: readonly string[]) {

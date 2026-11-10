@@ -154,7 +154,9 @@ export interface WorkerFunctions extends DispatchFunctions {
   close(key: string): Promise<void>;
 }
 
-/** The actions extensions take that the host carries out. */
+/**
+ * The actions extensions take that the host carries out, and the registrations a read depends on.
+ */
 export type Action =
   | { readonly type: "sendMessage"; readonly args: Parameters<ExtensionActions["sendMessage"]> }
   | {
@@ -170,6 +172,11 @@ export type Action =
       /** The registrations as the action finds them, which include a tool registered just before. */
       readonly registrations: Registrations;
     }
+  /**
+   * The registrations, sent before `getActiveTools` so its answer includes a tool registered just
+   * before, as Pi's does: the worker's notice of it travels on another channel.
+   */
+  | { readonly type: "registrations"; readonly registrations: Registrations }
   | { readonly type: "setThinkingLevel"; readonly level: ThinkingLevel }
   | { readonly type: "compact"; readonly instructions: string | undefined }
   | { readonly type: "abort" }
