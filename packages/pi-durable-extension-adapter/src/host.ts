@@ -1279,9 +1279,11 @@ class AttachedConversation {
   }
 
   /**
-   * Offers the model exactly the tools `names` names, as Pi's active tools, from the next request:
-   * any tool of the conversation's extensions, the deferred ones too. Names of no such tool are
-   * left out, as Pi leaves them out.
+   * Offers the model the tools `names` names, as Pi's active tools, from the next request: any tool
+   * of the conversation's extensions, the deferred ones too. Names of no such tool are left out, as
+   * Pi leaves them out. A tool registered later is offered as well unless it is deferred, as Pi
+   * activates a tool on registration after a selection too (`_refreshToolRegistry`), so the
+   * selection removes the tools it leaves out instead of listing the ones it keeps.
    */
   #setActiveTools(names: readonly string[]) {
     const { conversation } = this.#options;
@@ -1289,9 +1291,12 @@ class AttachedConversation {
     // One after the other, so the last selection made is the one that holds.
     const activated = this.#activation.then(async () => {
       const { extensions } = await conversation.agent(context);
-      const tools = new Map(extensions.flatMap((each) => each.tools ?? []).map((t) => [t.name, t]));
-      const modelTools = names.flatMap((name) => tools.get(name) ?? []);
-      await conversation.configure({ modelTools }, context);
+      const named = new Set(names);
+      const tools = extensions.flatMap((each) => each.tools ?? []);
+      const remove = tools.filter((tool) => !tool.deferred && !named.has(tool.name));
+      const deferred = new Map(tools.filter((tool) => tool.deferred).map((t) => [t.name, t]));
+      const add = names.flatMap((name) => deferred.get(name) ?? []);
+      await conversation.configure({ modelTools: { remove, add } }, context);
     });
     this.#activation = activated.catch(() => {});
     return activated;

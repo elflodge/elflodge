@@ -230,7 +230,7 @@ test("conversations attached through one registry each have their own extensions
   ]);
 });
 
-test("a run's lifecycle reaches the extensions, which add to its prompt and activate tools", async () => {
+test("a run's lifecycle reaches the extensions, which add to its prompt, activate and register tools", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -297,6 +297,8 @@ test("a run's lifecycle reaches the extensions, which add to its prompt and acti
   // a request's tools before its hooks run.
   expect(first?.tools).not.toContain("events");
   expect(second?.tools).toContain("events");
+  // A tool registered after the selection is offered too, as Pi activates it on registration.
+  expect(second?.tools).toContain("later");
   expect(toolResults(third?.messages ?? [])).toEqual([
     {
       tool: "events",

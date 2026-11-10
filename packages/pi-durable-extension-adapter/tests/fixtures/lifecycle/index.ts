@@ -2,8 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 // An extension that follows a run as observability and prompt extensions do: it adds to the
-// system prompt, sends a message with the prompt and activates a tool in `before_agent_start`, and
-// records the lifecycle events, which its tool returns.
+// system prompt, sends a message with the prompt, activates a tool and registers another in
+// `before_agent_start`, and records the lifecycle events, which its tool returns.
 export default function extension(pi: ExtensionAPI) {
   const seen: string[] = [];
   const events = [
@@ -20,6 +20,15 @@ export default function extension(pi: ExtensionAPI) {
     seen.push(`before_agent_start ${event.prompt}`);
     event.systemPromptOptions.sections.notes = "Answer in French.";
     pi.setActiveTools([...pi.getActiveTools(), "events"]);
+    pi.registerTool({
+      name: "later",
+      label: "Later",
+      description: "Registered after the tools were selected",
+      parameters: Type.Object({}),
+      async execute() {
+        return { content: [{ type: "text", text: "later" }], details: {} };
+      },
+    });
     return { message: { customType: "reminder", content: "Remember the notes.", display: false } };
   });
   pi.registerTool({
