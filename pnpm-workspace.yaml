@@ -16,20 +16,6 @@ peerDependencyRules:
     vite: "*"
     vitest: "*"
 minimumReleaseAge: 1440
-minimumReleaseAgeExclude:
-  # Pi 1.5.1 was taken before its day passed, for its scheduler fix (earendil-works/pi#11892).
-  # Remove these once it has, after 2026-11-10 23:41 UTC.
-  - "@earendil-works/chord@1.5.1"
-  - "@earendil-works/pi-agent-core@1.5.1"
-  - "@earendil-works/pi-ai@1.5.1"
-  - "@earendil-works/pi-codemode@1.5.1"
-  - "@earendil-works/pi-coding-agent@1.5.1"
-  - "@earendil-works/pi-durable@1.5.1"
-  - "@earendil-works/pi-env@1.5.1"
-  - "@earendil-works/pi-mcp@1.5.1"
-  - "@earendil-works/pi-schema@1.5.1"
-  - "@earendil-works/pi-telemetry@1.5.1"
-  - "@earendil-works/pi-tui@1.5.1"
 allowBuilds:
   # Both download their platform's native binary in postinstall; wrangler needs them.
   workerd: true
@@ -46,11 +32,11 @@ catalog:
   "@better-auth/api-key": 1.7.17
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
-  "@earendil-works/chord": ^1.5.1
-  "@earendil-works/pi-ai": ^1.5.1
-  "@earendil-works/pi-durable": ^1.5.1
-  "@earendil-works/pi-env": ^1.5.1
-  "@earendil-works/pi-schema": ^1.5.1
+  "@earendil-works/chord": ^1.5.2
+  "@earendil-works/pi-ai": ^1.5.2
+  "@earendil-works/pi-durable": ^1.5.2
+  "@earendil-works/pi-env": ^1.5.2
+  "@earendil-works/pi-schema": ^1.5.2
   "@effect/platform-node-shared": ^4.1.2
   "@effect/vitest": 4.1.2
   "@hono/node-server": ^2.1.6
@@ -126,7 +112,7 @@ catalogs:
   # extension view of pi-ai, the modules whose import registers providers, its path helpers), which
   # any release may move or change, so it takes only the version its tests ran on.
   pi-durable-extension-adapter:
-    "@earendil-works/pi-coding-agent": 1.5.1
+    "@earendil-works/pi-coding-agent": 1.5.2
 
 patchedDependencies:
   "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
