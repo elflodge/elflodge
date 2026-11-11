@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/elflodge/elflodge/compare/v0.8.0...v0.9.0) (2026-11-11)
+
+
+### Features
+
+* **cli:** elflodge stack start --search sets the providers jobs may search through, and --reset-search returns to the Runner's default ([81d3965](https://github.com/elflodge/elflodge/commit/81d3965f8ee9ea312236ae1c771f26d183b57f7a))
+* **pi-durable-extension-adapter:** attach takes onLost, called for each conversation whose extensions are lost when their worker exits ([81d3965](https://github.com/elflodge/elflodge/commit/81d3965f8ee9ea312236ae1c771f26d183b57f7a))
+* **runner:** run Pi extensions in jobs, from an npm project folder named in RUNNER_EXTENSIONS_DIR, with their settings files from RUNNER_EXTENSION_SETTINGS_DIR and web search through the providers RUNNER_WEB_SEARCH names; the image's has pi-web-access, which reads web pages and PDFs, with web search off otherwise, except through a ChatGPT subscription the jobs' model runs on ([81d3965](https://github.com/elflodge/elflodge/commit/81d3965f8ee9ea312236ae1c771f26d183b57f7a))
+
+
+### Bug Fixes
+
+* **pi-durable-extension-adapter:** prepareExtensions resolves local sources from the working directory, with Pi's own path helpers, instead of from Pi's install directory, and reports a source with no extension as a failure instead of skipping it ([81d3965](https://github.com/elflodge/elflodge/commit/81d3965f8ee9ea312236ae1c771f26d183b57f7a))
+
 ## [0.8.0](https://github.com/elflodge/elflodge/compare/v0.7.1...v0.8.0) (2026-11-10)
 
 
