@@ -107,7 +107,9 @@ const webSearchSetting = Config.schema(
         Schema.Trim.pipe(
           Schema.check(Schema.isNonEmpty({ message: "Expected a provider's name between commas" })),
         ),
-      ).pipe(Schema.check(Schema.isMinLength(1, { message: "Expected a provider's name" }))),
+      ).pipe(
+        Schema.refine(Array.isReadonlyArrayNonEmpty, { message: "Expected a provider's name" }),
+      ),
       {
         decode: SchemaGetter.split(),
         encode: SchemaGetter.transform((names: readonly string[]) => names.join(",")),
@@ -116,7 +118,7 @@ const webSearchSetting = Config.schema(
   ),
   "RUNNER_WEB_SEARCH",
 ).pipe(
-  Config.map((names) => Array.dedupe(names.map((name) => name.toLowerCase()))),
+  Config.map((names) => Array.dedupe(Array.map(names, (name) => name.toLowerCase()))),
   Config.option,
 );
 

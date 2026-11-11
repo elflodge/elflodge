@@ -38,6 +38,7 @@ import {
   Schedule,
   Scope,
 } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import * as Socket from "effect/socket/Socket";
 import ensureError from "ensure-error";
 import WebSocket from "ws";
@@ -113,7 +114,7 @@ export interface RunnerOptions {
    * its default settings. Unset, search is off, except through a ChatGPT subscription the model runs
    * on.
    */
-  webSearch?: readonly string[];
+  webSearch?: NonEmptyReadonlyArray<string>;
   /** How often to send a heartbeat; tests set it shorter. */
   heartbeatIntervalMs?: number;
   /** Discards the Runner's own key and registers again, as the `register` command does. */

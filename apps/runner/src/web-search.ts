@@ -1,4 +1,5 @@
 import { Option, Predicate, Result, Schema, Struct } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 
 // What the Runner reads and changes in pi-web-access's settings file, as of the version the image's
 // folder pins: whether web search is on, through which providers, and with which credentials.
@@ -28,7 +29,7 @@ export interface WebSearchInput {
   /** Whether the operator gave these settings, in the settings folder, rather than the set's defaults. */
   readonly chosen: boolean;
   /** The providers `RUNNER_WEB_SEARCH` names, if it is set. */
-  readonly providers: readonly string[] | undefined;
+  readonly providers: NonEmptyReadonlyArray<string> | undefined;
   /** The jobs' model's provider, when it is a ChatGPT subscription. */
   readonly subscription: string | undefined;
 }

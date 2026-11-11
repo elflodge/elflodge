@@ -8,6 +8,7 @@ import {
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
 import { Data, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import { ChildProcess } from "effect/process";
 import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
@@ -100,7 +101,7 @@ export interface ExtensionFolders {
 /** Where jobs may search, and on what the jobs' model runs, which `planWebSearch` decides from. */
 export interface WebSearchSetting {
   /** The providers `RUNNER_WEB_SEARCH` names, if it is set. */
-  readonly providers?: readonly string[];
+  readonly providers?: NonEmptyReadonlyArray<string>;
   /** The jobs' model's Pi provider. */
   readonly modelProvider: string;
 }
