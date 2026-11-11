@@ -130,4 +130,5 @@ catalogs:
 
 patchedDependencies:
   "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
+  "@types/folder-hash@4.0.4": patches/@types__folder-hash@4.0.4.patch
   generate-license-file: patches/generate-license-file.patch

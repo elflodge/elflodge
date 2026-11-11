@@ -1,0 +1,10 @@
+diff --git a/index.d.ts b/index.d.ts
+index 30a7eb07f4d752169b5d626e570200142ca795a0..9585819288c978b5a188b66b34f87a6331d1e7a0 100644
+--- a/index.d.ts
++++ b/index.d.ts
+@@ -1,4 +1,4 @@
+-export type PathGlobFunction = () => string[];
++export type PathGlobFunction = (path: string) => boolean;
+ 
+ export interface FolderAndFileOptions {
+     exclude?: string[] | PathGlobFunction | undefined;

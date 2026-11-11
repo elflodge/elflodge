@@ -9,6 +9,7 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
       # The exact version Pi's chord takes as a peer, which `pnpm deploy` needs (pnpm-workspace.yaml).
+      # This also stops security updates for it, which need chord's own update.
       - dependency-name: "ws"
     # A dependency joins the first group it matches, so the families come before the catch-all.
     groups:

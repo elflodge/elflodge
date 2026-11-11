@@ -388,6 +388,7 @@ overrides:
 
 patchedDependencies:
   '@anthropic-ai/sandbox-runtime@0.0.81': df29d7ba509018b20a6d102aa2e8cd008094084a315c47afc663b047297a17e0
+  '@types/folder-hash@4.0.4': c272fda9d094b6c35e097b0b68f31400355d158c3c1eb33068c15e14c7a0d723
   generate-license-file: 39dc6d5bd5ec5e5ddd92d2ee76311082bf88278eee1c9107bdd223e80773ea08
 
 importers:
@@ -620,7 +621,7 @@ importers:
         version: 4.1.2(effect@4.1.2)(vitest@5.1.0)
       '@types/folder-hash':
         specifier: 'catalog:'
-        version: 4.0.4
+        version: 4.0.4(patch_hash=c272fda9d094b6c35e097b0b68f31400355d158c3c1eb33068c15e14c7a0d723)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.5
@@ -7485,7 +7486,7 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
-  '@types/folder-hash@4.0.4': {}
+  '@types/folder-hash@4.0.4(patch_hash=c272fda9d094b6c35e097b0b68f31400355d158c3c1eb33068c15e14c7a0d723)': {}
 
   '@types/ms@2.1.0': {}
 

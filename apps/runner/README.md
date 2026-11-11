@@ -63,7 +63,7 @@ pi-web-access reads its settings from `pi-agent/web-search.json` in the folder. 
 
 pi-web-access refuses a provider name it does not know, so check the file when you change its version.
 
-The Runner refuses a `web_search` call that asks for a summary (`workflow` other than `none`), which pi-web-access writes with a model on the Runner's credentials, outside the job's budget. A call without `workflow` uses the settings' `workflow`, `none` unless you set another.
+The Runner refuses a `web_search` call that asks for a summary (`workflow` other than `none`), which pi-web-access writes with a model on the Runner's credentials, outside the job's budget, and one that names the search provider's model (`model`), which the settings choose. A call without `workflow` uses the settings' `workflow`, `none` unless you set another.
 
 The model cannot choose a proxy for pi-web-access's requests: a call that names one, even `""` for a direct request, is refused, so a job cannot route them around pi-web-access's guard against private addresses or around a proxy configured in `web-search.json`; with a proxy configured, also set `lockProxy: true`, which pi-web-access checks itself. Tools renamed there with `toolNames` lose this check. The guard against private addresses checks a request's addresses before it is made, which narrows but does not close what a job can reach; isolating jobs' network fully needs it enforced outside the Runner.
 

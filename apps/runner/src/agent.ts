@@ -437,7 +437,7 @@ export function openJob(
       // Acquired uninterruptibly, so extensions attached as the job is paused still close. Opening
       // them can fail outright, as when their worker cannot start them in time; that fails the job
       // the same way.
-      const attached = yield* Effect.acquireRelease(
+      const loadFailure = yield* Effect.acquireRelease(
         Effect.tryPromise(() =>
           host.attach(
             {
@@ -455,15 +455,17 @@ export function openJob(
         (opened) => Effect.promise(() => opened.close()),
       ).pipe(
         Scope.provide(extensionsScope),
-        Effect.map(({ errors }) => (errors.length > 0 ? describeFailures(errors) : undefined)),
-        Effect.catch((error) => Effect.succeed(ensureError(error.cause).message)),
+        Effect.map(({ errors }) =>
+          errors.length > 0
+            ? `These extensions failed as they loaded: ${describeFailures(errors)}`
+            : undefined,
+        ),
+        Effect.catch((error) =>
+          Effect.succeed(`The extensions could not be opened: ${ensureError(error.cause).message}`),
+        ),
       );
-      if (attached !== undefined) {
-        notLoaded = {
-          reason: "runFaulted",
-          message: failureMessage(`These extensions failed as they loaded: ${attached}`),
-        };
-      }
+      if (loadFailure !== undefined)
+        notLoaded = { reason: "runFaulted", message: failureMessage(loadFailure) };
     }
     // pi's plain abort leaves background work, such as a compaction, running, so this abort includes
     // it and waits until all of it has stopped: nothing then adds to the journal after the job's end

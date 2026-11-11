@@ -7,7 +7,7 @@ import {
   prepareExtensions,
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
-import { Data, Effect, FileSystem, Schema } from "effect";
+import { Data, Effect, FileSystem, Option, Path, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
@@ -20,9 +20,16 @@ import { NodeServices, runCommand } from "./sandbox.ts";
 
 /**
  * The directory in the Runner's data directory that holds the installed extensions: one folder per
- * set, named after what it installs, in which npm installs them and they are bundled.
+ * set, named after what it installs, which holds the npm project npm installs them in, and what the
+ * adapter writes as it bundles them (its `bundle` folder).
  */
 const EXTENSIONS_DIR = "extensions";
+
+/**
+ * The folder of an installed set that holds the copy of the operator's npm project, apart from the
+ * adapter's own output, which would otherwise replace a local package at the same path.
+ */
+const PROJECT_DIR = "project";
 
 /**
  * Pi's agent directory for the extensions, in the Runner's data directory, which they are told of as
@@ -53,8 +60,9 @@ const PROXY_TOOLS = new Set(["web_search", "fetch_content", "source_check"]);
  * Refuses a call to pi-web-access's tools that names a proxy, telling the model to leave it out; a
  * proxy the operator configures for the extension still applies. Also refuses a search that asks for
  * a summary (`workflow` other than `none`), which pi-web-access writes with a model through the
- * Runner's credentials, outside the job's budget: the operator's settings choose the workflow, and
- * the model may not spend beyond them. A tool renamed in the extension's settings (`toolNames`) is
+ * Runner's credentials, outside the job's budget, and one that names the search provider's model
+ * (`model`): the operator's settings choose both, and the model may not spend beyond them. A tool
+ * renamed in the extension's settings (`toolNames`) is
  * not recognised.
  */
 export const webAccessGuard = hook(ToolTask, {
@@ -64,6 +72,10 @@ export const webAccessGuard = hook(ToolTask, {
     const workflow = call.arguments["workflow"];
     if (call.name === "web_search" && workflow !== undefined && workflow !== "none")
       return { block: "Search summaries are not allowed here: call the tool without `workflow`." };
+    if (call.name === "web_search" && call.arguments["model"] !== undefined)
+      return {
+        block: "Choosing the search model is not allowed here: call the tool without `model`.",
+      };
     return undefined;
   },
 });
@@ -94,10 +106,19 @@ export function prepareRunnerExtensions(
   if (folder === undefined) return Effect.succeed(undefined);
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const source = path.resolve(folder);
+    const paths = yield* Path.Path;
     // The Runner replaces what it keeps in its data directory, so a folder there, or one holding
-    // it, would lose its files or be copied with the data.
-    const data = path.resolve(dataDir);
+    // it, would lose its files or be copied with the data; their real paths, as a symbolic link
+    // could hide either inside the other.
+    const source = yield* fs
+      .realPath(folder)
+      .pipe(Effect.mapError((error) => unavailable(`${folder} cannot be read`, error)));
+    const data = yield* fs.makeDirectory(dataDir, { recursive: true }).pipe(
+      Effect.andThen(fs.realPath(dataDir)),
+      Effect.mapError((error) => unavailable(`${dataDir} cannot be read`, error)),
+    );
+    const contains = (parent: string, child: string) =>
+      Option.isSome(paths.resolveWithin(parent, paths.relative(parent, child)));
     if (contains(source, data) || contains(data, source))
       return yield* new ExtensionsUnavailable({
         message: `The extensions folder ${source} and RUNNER_DATA_DIR ${data} must not contain one another`,
@@ -113,14 +134,15 @@ export function prepareRunnerExtensions(
     if (names.length === 0) return undefined;
     const installed = yield* installReplacingOthers(source, path.resolve(dataDir, EXTENSIONS_DIR));
     const sourceOf = new Map(
-      names.map((name) => [path.join(installed, "node_modules", name), name]),
+      names.map((name) => [path.join(installed, PROJECT_DIR, "node_modules", name), name]),
     );
     const prepared = yield* Effect.tryPromise({
       try: (signal) =>
         prepareExtensions({
           sources: [...sourceOf.keys()],
           // Their bundled entries are written beside their sources, inside `dir`, so files a package
-          // reads relative to itself are where it looks.
+          // reads relative to itself are where it looks; the adapter's own output goes beside the
+          // project.
           dir: installed,
           signal,
         }),
@@ -141,13 +163,14 @@ export function prepareRunnerExtensions(
 }
 
 /**
- * Installs the npm project in `source` into a folder of `dir` named after it, unless an earlier start
- * installed the same set, and removes every other folder there. Returns the folder.
+ * Installs the npm project in `source` into a folder of `dir` named after it, in its `project`
+ * folder, unless an earlier start installed the same set, and removes every other folder there.
+ * Returns the folder.
  */
 function installReplacingOthers(source: string, dir: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const installed = path.join(dir, yield* setKey(source));
+    const installed = path.join(dir, yield* installKey(source));
     yield* fs.makeDirectory(dir, { recursive: true });
     // Earlier sets, and an install a stop interrupted, which never got its final name.
     for (const entry of yield* fs.readDirectory(dir)) {
@@ -156,9 +179,10 @@ function installReplacingOthers(source: string, dir: string) {
     }
     if (yield* fs.exists(installed)) return installed;
     const partial = `${installed}.partial`;
-    yield* fs.copy(source, partial);
+    const project = path.join(partial, PROJECT_DIR);
+    yield* fs.copy(source, project);
     for (const entry of NOT_INSTALLED)
-      yield* fs.remove(path.join(partial, entry), { recursive: true, force: true });
+      yield* fs.remove(path.join(project, entry), { recursive: true, force: true });
     // As Pi installs a package: without its development dependencies, nor the Pi packages
     // extensions declare as peers, which Pi supplies (the folder's `.npmrc` says so too, for the
     // lockfile). npm ci refuses a folder without a lockfile, naming it.
@@ -166,7 +190,7 @@ function installReplacingOthers(source: string, dir: string) {
       ChildProcess.make(
         "npm",
         ["ci", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund"],
-        { cwd: partial },
+        { cwd: project },
       ),
     );
     if (failure !== undefined)
@@ -186,13 +210,22 @@ function installReplacingOthers(source: string, dir: string) {
  * What identifies the set the npm project in `source` installs: a hash of its files, and the Node
  * ABI and platform its native add-ons were built for, so a Runner on another Node installs afresh.
  */
-function setKey(source: string) {
+function installKey(source: string) {
+  // The folders the install leaves out, at the top only, as a local package may hold its own.
+  // folder-hash documents a function of the path here; its types declare another, which the patch
+  // in `patches/` corrects.
+  const left = new Set([...NOT_INSTALLED].map((entry) => path.join(source, entry)));
   return Effect.tryPromise({
     try: () =>
       hashElement(source, {
         algo: "sha256",
         encoding: "hex",
-        folders: { exclude: [...NOT_INSTALLED], ignoreRootName: true },
+        folders: {
+          exclude: (folder) => left.has(folder),
+          matchBasename: false,
+          matchPath: true,
+          ignoreRootName: true,
+        },
         files: { ignoreRootName: true },
       }),
     catch: (error) => unavailable("The extensions folder cannot be read", error),
@@ -202,12 +235,6 @@ function setKey(source: string) {
         `${hash.slice(0, 16)}-node${process.versions.modules}-${process.platform}-${process.arch}`,
     ),
   );
-}
-
-/** Whether `child` is `parent` or inside it. */
-function contains(parent: string, child: string) {
-  const relative = path.relative(parent, child);
-  return !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 /** Replaces the extensions' agent directory with a copy of the `pi-agent` folder in `source`, if any. */

@@ -185,7 +185,7 @@ const SEARCH_SETTINGS = "web-search";
  * pi-web-access's settings with search on for the chosen providers: the image's own, so every other
  * setting stays as the image ships it, with its search tools on and only those providers allowed.
  */
-function readSearchSettings(state: State, version: string) {
+function settingsWithSearch(state: State, version: string) {
   return Effect.gen(function* () {
     const settings = yield* dockerOutput([
       "run",
@@ -685,7 +685,7 @@ function start(version: string, flags: StartFlags) {
     // volume. An existing deployment's settings stay authoritative until its hub is healthy.
     if (saved === undefined) yield* writeState(state);
     const runner = yield* existingRunner();
-    const search = state.search.length > 0 ? yield* readSearchSettings(state, images) : undefined;
+    const search = state.search.length > 0 ? yield* settingsWithSearch(state, images) : undefined;
     const replaceRunner =
       runner === undefined ||
       flags.env !== undefined ||
