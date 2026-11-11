@@ -1,0 +1,70 @@
+{
+  "name": "@elflodge/pi-durable-extension-adapter",
+  "version": "0.8.0",
+  "description": "Run Pi coding-agent extensions on pi-durable.",
+  "keywords": [
+    "durable-execution",
+    "pi",
+    "pi-coding-agent",
+    "pi-durable",
+    "pi-extension"
+  ],
+  "homepage": "https://github.com/elflodge/elflodge/tree/main/packages/pi-durable-extension-adapter#readme",
+  "bugs": {
+    "url": "https://github.com/elflodge/elflodge/issues"
+  },
+  "license": "MIT",
+  "author": "lodgekeeper",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elflodge/elflodge.git",
+    "directory": "packages/pi-durable-extension-adapter"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./package.json": "./package.json"
+    },
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "prepack": "vp run build"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "catalog:pi-durable-extension-adapter",
+    "birpc": "catalog:",
+    "ensure-error": "catalog:",
+    "is-path-inside": "catalog:",
+    "rolldown": "catalog:",
+    "sync-message-port": "catalog:",
+    "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "@earendil-works/chord": "catalog:",
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-durable": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/chord": "catalog:",
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-durable": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

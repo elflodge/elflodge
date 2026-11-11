@@ -1,7 +1,7 @@
 {
   "name": "elflodge",
   "displayName": "Elflodge Agent Batches",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Run batches of work with parallel agents: document extraction, classification, enrichment and structured results.",
   "author": {
     "name": "Elflodge",

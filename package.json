@@ -1,6 +1,6 @@
 {
   "name": "elflodge-workspace",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "@commitlint/config-conventional": "catalog:",
     "@types/node": "catalog:",
     "generate-license-file": "catalog:",
+    "typescript": "catalog:",
     "vite-plus": "catalog:"
   },
   "devEngines": {
