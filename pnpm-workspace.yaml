@@ -85,7 +85,7 @@ catalog:
   generate-license-file: ^4.2.5
   get-port: ^7.2.0
   hono: 5.0.0-rc.1
-  hono-problem-details: ^0.12.2
+  hono-problem-details: ^0.12.3
   is-network-error: ^1.3.2
   is-path-inside: ^4.0.0
   json-rpc-2.0: ^1.8.1
@@ -106,7 +106,7 @@ catalog:
   type-fest: ^5.10.0
   # Exactly the version Pi pins, so installs share Pi's copy; a range would resolve to a newer one
   # beside it. Follow Pi when it moves.
-  typebox: 1.3.27
+  typebox: 1.4.5
   # TypeScript 7.0 only: the declaration build that vite-plus bundles (rolldown-plugin-dts 0.28)
   # recognises 7.0 and fails on 7.1; its 0.29 needs 7.1 (voidzero-dev/vite-plus#3237). Move to 7.1
   # when vite-plus bundles it.
@@ -116,7 +116,7 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.5.0
   vite-plus: 1.5.0
   vitest: 5.1.0
-  wrangler: ^4.157.0
+  wrangler: ^4.158.0
   # The version Pi's chord takes as a peer, exactly: with any other, pi-ai resolves twice, and
   # `pnpm deploy` cannot build the Runner's image, whose extension adapter takes pi-ai as a peer.
   ws: 8.21.0
