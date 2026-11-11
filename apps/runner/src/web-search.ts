@@ -115,7 +115,7 @@ export function describeWebSearch(
   modelProvider: string,
 ): WebSearchSetup {
   if (!isOn(settings)) return { enabled: false };
-  // A default provider, under either name, takes every search that names none, past the routing.
+  // A configured provider, under either name and even `auto`, turns the routing off.
   const routing = ["provider", "searchProvider"].some((key) => Object.hasOwn(settings, key))
     ? {}
     : fieldsOf(settings["searchRouting"]);
