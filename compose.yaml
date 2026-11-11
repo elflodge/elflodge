@@ -88,18 +88,15 @@ services:
       # `docker compose run --rm --no-deps runner node dist/main.mjs login`.
       OPENROUTER_API_KEY:
       # The folder of the Pi extensions each job runs with: the image's has pi-web-access, which
-      # reads web pages and PDFs, with web search off. To change the extensions, copy it with
+      # reads web pages and PDFs. To change the extensions, copy it with
       # `docker compose cp runner:/app/extensions ./extensions`, edit the copy, mount it with
       # `./extensions:/extensions:ro` under volumes and name /extensions here
       # (apps/runner/README.md).
       RUNNER_EXTENSIONS_DIR: /app/extensions
-      # To turn web search on, uncomment this line, the runner's configs below and the top-level
-      # configs at the end, name the providers jobs may use in allowedProviders there, and add
-      # their keys above, such as BRAVE_API_KEY.
-      # RUNNER_EXTENSION_SETTINGS_DIR: /extension-settings
-    # configs:
-    #   - source: web-search
-    #     target: /extension-settings/web-search.json
+      # The providers jobs may search the web through, such as brave, with their keys above, such
+      # as BRAVE_API_KEY. Unset, web search is off, except through a ChatGPT subscription the
+      # model runs on.
+      # RUNNER_WEB_SEARCH: brave
     volumes:
       - runner-data:/data
     restart: unless-stopped
@@ -107,17 +104,3 @@ services:
 volumes:
   database:
   runner-data:
-
-# pi-web-access's settings with web search on: the image's whole file, as yours replaces it.
-# configs:
-#   web-search:
-#     content: |
-#       {
-#         "tools": { "webSearch": { "enabled": true }, "sourceCheck": { "enabled": true } },
-#         "webSearch": { "allowedProviders": ["brave"] },
-#         "fetch": { "allowedModes": ["readable", "raw"] },
-#         "fetchRouting": { "providers": ["http"] },
-#         "pdf": { "provider": "unpdf" },
-#         "youtube": { "enabled": false },
-#         "video": { "enabled": false }
-#       }

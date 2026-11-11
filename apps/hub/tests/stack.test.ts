@@ -121,12 +121,13 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
     };
     const off = { webSearch: { enabled: false }, sourceCheck: { enabled: false } };
     expect(await webSearch()).toEqual({ tools: off, webSearch: undefined });
-    await elflodge("stack", "start", "--search", "brave");
+    const searching = await elflodge("stack", "start", "--search", "brave");
+    expect(searching.stderr).toContain("Web search is on through brave.");
     expect(await webSearch()).toEqual({
       tools: { webSearch: { enabled: true }, sourceCheck: { enabled: true } },
       webSearch: { allowedProviders: ["brave"] },
     });
-    await elflodge("stack", "start", "--clear-search");
+    await elflodge("stack", "start", "--reset-search");
     expect(await webSearch()).toEqual({ tools: off, webSearch: undefined });
 
     await elflodge("stack", "logout", "--provider", "openrouter");

@@ -1,6 +1,5 @@
 import path from "node:path";
 
-import type { Models } from "@earendil-works/pi-ai";
 import { hook, ToolTask } from "@earendil-works/pi-durable";
 import {
   type ExtensionHost,
@@ -8,7 +7,7 @@ import {
   prepareExtensions,
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
-import { Config, Data, Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Data, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
@@ -93,15 +92,23 @@ export interface ExtensionFolders {
    * The extensions: an npm project that lists them as dependencies, with its `package-lock.json`,
    * and their default settings in `pi-agent`.
    */
-  readonly extensions?: string;
+  readonly extensions: string;
   /** The operator's own settings files, each in place of the default of the same name. */
   readonly settings?: string;
 }
 
+/** Where jobs may search, and on what the jobs' model runs, which `planWebSearch` decides from. */
+export interface WebSearchSetting {
+  /** The providers `RUNNER_WEB_SEARCH` names, if it is set. */
+  readonly providers?: readonly string[];
+  /** The jobs' model's Pi provider. */
+  readonly modelProvider: string;
+}
+
 /**
  * Installs and bundles the extensions in `folders.extensions` as the Runner starts, and gives them
- * their settings: the set's defaults, each replaced by the operator's file of the same name. On the
- * defaults, a model on a ChatGPT subscription searches through it (`planWebSearch`).
+ * their settings: the set's defaults, each replaced by the operator's file of the same name, with
+ * web search as `planWebSearch` decides.
  *
  * npm installs the set once, with `npm ci`, which installs exactly the lockfile's versions and
  * checks each package's hash, into a folder of the data directory named after the set, so a Runner
@@ -114,15 +121,16 @@ export interface ExtensionFolders {
  */
 export function prepareRunnerExtensions(
   dataDir: string,
-  folders: ExtensionFolders,
-  model: { readonly models: Models; readonly provider: string },
+  folders: ExtensionFolders | undefined,
+  search: WebSearchSetting,
 ): Effect.Effect<PreparedExtensions | undefined, ExtensionsUnavailable> {
-  if (folders.extensions === undefined) {
-    return folders.settings === undefined
+  if (folders === undefined) {
+    return search.providers === undefined
       ? Effect.succeed(undefined)
       : Effect.fail(
           new ExtensionsUnavailable({
-            message: "RUNNER_EXTENSION_SETTINGS_DIR is set without RUNNER_EXTENSIONS_DIR",
+            message:
+              "RUNNER_WEB_SEARCH is set, but no extensions search: RUNNER_EXTENSIONS_DIR is not set",
           }),
         );
   }
@@ -163,6 +171,7 @@ export function prepareRunnerExtensions(
     yield* replaceSettings(source, settings, agentDir).pipe(
       Effect.mapError((error) => unavailable("Their settings cannot be copied", error)),
     );
+    yield* configureWebSearch(agentDir, settings, search);
     if (names.length === 0) return undefined;
     const installed = yield* installReplacingOthers(source, path.resolve(dataDir, EXTENSIONS_DIR));
     const sourceOf = new Map(
@@ -190,44 +199,52 @@ export function prepareRunnerExtensions(
         )}`,
       });
     }
-    yield* configureWebSearch(agentDir, settings, model);
     return prepared;
   }).pipe(Effect.provide(NodeServices));
 }
 
 /**
- * Applies `planWebSearch` to pi-web-access's settings, if the extensions have any, and logs what
- * web search does.
+ * Applies `planWebSearch` to pi-web-access's settings in the agent directory, and logs what web
+ * search does. Without its settings file there is nothing to apply, unless `RUNNER_WEB_SEARCH`
+ * asks for search, which then has no extension to go through.
  */
 function configureWebSearch(
   agentDir: string,
   settingsDir: string | undefined,
-  { models, provider }: { readonly models: Models; readonly provider: string },
+  search: WebSearchSetting,
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const file = path.join(agentDir, WEB_SEARCH_SETTINGS);
-    if (!(yield* fs.exists(file))) return;
-    const settings = yield* fs
-      .readFileString(file)
-      .pipe(Effect.flatMap(Schema.decodeUnknownEffect(SettingsFile)));
+    if (!(yield* fs.exists(file))) {
+      return yield* search.providers === undefined
+        ? Effect.void
+        : new ExtensionsUnavailable({
+            message: `RUNNER_WEB_SEARCH is set, but the extensions have no ${WEB_SEARCH_SETTINGS} to search with`,
+          });
+    }
+    const settings = yield* fs.readFileString(file).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(SettingsFile)),
+      Effect.mapError((error) => unavailable(`${WEB_SEARCH_SETTINGS} cannot be read`, error)),
+    );
     const chosen =
       settingsDir !== undefined && (yield* fs.exists(path.join(settingsDir, WEB_SEARCH_SETTINGS)));
-    const auth =
-      provider === CHATGPT_PROVIDER
-        ? yield* Effect.tryPromise((signal) => models.checkAuth(provider, { signal }))
-        : undefined;
-    const openAiKey = yield* Config.String("OPENAI_API_KEY").pipe(Config.option);
+    // A ChatGPT sign-in is the only way `openai-codex` signs in, and the Runner does not start
+    // without one.
     const plan = planWebSearch({
       settings,
       chosen,
-      subscription: auth?.type === "oauth" ? provider : undefined,
-      openAiKey: Option.isSome(openAiKey),
+      providers: search.providers,
+      subscription: search.modelProvider === CHATGPT_PROVIDER ? search.modelProvider : undefined,
     });
-    if (plan.settings) yield* fs.writeFileString(file, JSON.stringify(plan.settings, undefined, 2));
-    yield* plan.warning ? Effect.logWarning(plan.message) : Effect.logInfo(plan.message);
+    if (Result.isFailure(plan)) return yield* new ExtensionsUnavailable({ message: plan.failure });
+    const { settings: written, message, warning } = plan.success;
+    if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
+    return yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
   }).pipe(
-    Effect.mapError((error) => unavailable("pi-web-access's settings cannot be applied", error)),
+    Effect.catchTag("PlatformError", (error) =>
+      Effect.fail(unavailable(`${WEB_SEARCH_SETTINGS} cannot be applied`, error)),
+    ),
   );
 }
 

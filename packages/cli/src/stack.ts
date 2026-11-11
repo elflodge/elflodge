@@ -55,7 +55,7 @@ const stateSchema = z.object({
   model: modelSchema,
   /** Names only: their external values are required again when creating a Runner. */
   env: z._default(z.array(z.string()), []),
-  /** The search providers jobs may use, as pi-web-access names them; none, and no web search, at first. */
+  /** The providers jobs may search the web through, as `RUNNER_WEB_SEARCH`; none, the Runner's default, at first. */
   search: z._default(z.array(z.string()), []),
   /** The key Runners register with, which the Runner uses on its first start only. */
   registrationKey: z.optional(z.string()),
@@ -146,7 +146,7 @@ function runnerImage(version: string) {
 }
 
 /** The Runner declaration contains forwarding names, never their external values. */
-function runnerService(state: State, version: string, searchSettings?: string) {
+function runnerService(state: State, version: string) {
   return {
     image: runnerImage(version),
     // The image's healthcheck reports the Runner healthy once it has finished starting.
@@ -161,64 +161,18 @@ function runnerService(state: State, version: string, searchSettings?: string) {
       RUNNER_MODEL_ID: literal(state.model.id),
       RUNNER_DATA_DIR: "/data",
       RUNNER_EXTENSIONS_DIR: IMAGE_EXTENSIONS,
-      ...(searchSettings === undefined ? {} : { RUNNER_EXTENSION_SETTINGS_DIR: SETTINGS_DIR }),
+      ...(state.search.length === 0 ? {} : { RUNNER_WEB_SEARCH: literal(state.search.join(",")) }),
     },
     volumes: ["runner-data:/data"],
-    // The search settings replace the image's folder's defaults, which have search off.
-    ...(searchSettings === undefined
-      ? {}
-      : {
-          configs: [{ source: SEARCH_SETTINGS, target: `${SETTINGS_DIR}/web-search.json` }],
-        }),
     restart: "unless-stopped",
   };
 }
 
-/** The image's folder of the Runner's extensions: pi-web-access, which reads web pages, with web search off. */
+/** The image's folder of the Runner's extensions: pi-web-access, which reads web pages and searches where allowed. */
 const IMAGE_EXTENSIONS = "/app/extensions";
 
-/** The Runner's folder of extension settings, which holds the search settings when there are any. */
-const SETTINGS_DIR = "/extension-settings";
-
-/** The Compose config that holds pi-web-access's settings with search on. */
-const SEARCH_SETTINGS = "web-search";
-
-/**
- * pi-web-access's settings with search on for the chosen providers: the image's own, so every other
- * setting stays as the image ships it, with its search tools on and only those providers allowed.
- */
-function settingsWithSearch(state: State, version: string) {
-  return Effect.gen(function* () {
-    const settings = yield* dockerOutput([
-      "run",
-      "--rm",
-      "--entrypoint",
-      "cat",
-      runnerImage(version),
-      `${IMAGE_EXTENSIONS}/pi-agent/web-search.json`,
-    ]).pipe(
-      Effect.flatMap((text) =>
-        Effect.try({ try: () => z.parse(settingsSchema, JSON.parse(text)), catch: ensureError }),
-      ),
-    );
-    const on = { enabled: true };
-    return `${JSON.stringify(
-      {
-        ...settings,
-        tools: { ...settings.tools, webSearch: on, sourceCheck: on },
-        webSearch: { ...settings.webSearch, allowedProviders: state.search },
-      },
-      null,
-      2,
-    )}\n`;
-  });
-}
-
-const settingsObject = z.optional(z.record(z.string(), z.unknown()));
-const settingsSchema = z.looseObject({ tools: settingsObject, webSearch: settingsObject });
-
-function runnerConfiguration(state: State, version: string, searchSettings?: string) {
-  const runner = runnerService(state, version, searchSettings);
+function runnerConfiguration(state: State, version: string) {
+  const runner = runnerService(state, version);
   // Compose's hash includes resolved external values. This label compares the declaration
   // without reading retained secrets. The label travels with the container, so it describes the
   // Runner that exists; the file on disk is rewritten before each start and can describe one that
@@ -227,12 +181,11 @@ function runnerConfiguration(state: State, version: string, searchSettings?: str
   return JSON.stringify({
     ...runner,
     environment: { ...runner.environment, RUNNER_REGISTRATION_KEY: undefined },
-    searchSettings,
   });
 }
 
 /** The repository's Compose deployment with the stack's settings and a localhost-only hub. */
-function composeFile(state: State, version: string, searchSettings?: string) {
+function composeFile(state: State, version: string) {
   const database = {
     user: "elflodge",
     password: literal(state.postgresPassword),
@@ -271,26 +224,20 @@ function composeFile(state: State, version: string, searchSettings?: string) {
         restart: "unless-stopped",
       },
       runner: {
-        ...runnerService(state, version, searchSettings),
+        ...runnerService(state, version),
         labels: {
-          [RUNNER_CONFIG_LABEL]: literal(runnerConfiguration(state, version, searchSettings)),
+          [RUNNER_CONFIG_LABEL]: literal(runnerConfiguration(state, version)),
         },
       },
     },
     volumes: { database: {}, "runner-data": {} },
-    ...(searchSettings === undefined
-      ? {}
-      : { configs: { [SEARCH_SETTINGS]: { content: literal(searchSettings) } } }),
   };
 }
 
 /** Writes the stack's deployment declaration, with forwarding names but never their values. */
-function writeComposeFile(state: State, version: string, searchSettings?: string) {
+function writeComposeFile(state: State, version: string) {
   // JSON is YAML, which Compose reads.
-  return writeStateFile(
-    COMPOSE_FILE,
-    JSON.stringify(composeFile(state, version, searchSettings), null, 2),
-  );
+  return writeStateFile(COMPOSE_FILE, JSON.stringify(composeFile(state, version), null, 2));
 }
 
 /** A scoped declaration keeps credential commands from changing the selected deployment. */
@@ -579,7 +526,7 @@ type StartFlags = {
   env?: string[];
   clearEnv?: boolean;
   search?: string[];
-  clearSearch?: boolean;
+  resetSearch?: boolean;
 } & Parameters<typeof chooseModel>[0];
 
 /** Proposes settings without committing a failed start's selection or endpoint. */
@@ -588,8 +535,8 @@ function stateForStart(flags: StartFlags, saved: State | undefined) {
     if (flags.env !== undefined && flags.clearEnv) {
       return yield* Effect.fail(new Error("Use either --env or --clear-env, not both"));
     }
-    if (flags.search !== undefined && flags.clearSearch) {
-      return yield* Effect.fail(new Error("Use either --search or --clear-search, not both"));
+    if (flags.search !== undefined && flags.resetSearch) {
+      return yield* Effect.fail(new Error("Use either --search or --reset-search, not both"));
     }
     const model = yield* Effect.try({
       try: () => chooseModel(flags, saved?.model),
@@ -605,7 +552,7 @@ function stateForStart(flags: StartFlags, saved: State | undefined) {
       search: [],
     };
     const env = flags.clearEnv ? [] : (flags.env ?? state.env);
-    const search = flags.clearSearch ? [] : (flags.search ?? state.search);
+    const search = flags.resetSearch ? [] : (flags.search ?? state.search);
     return {
       ...state,
       port: flags.port ?? state.port,
@@ -628,7 +575,7 @@ const environmentName = z.string().check(
         "RUNNER_MODEL_ID",
         "RUNNER_DATA_DIR",
         "RUNNER_EXTENSIONS_DIR",
-        "RUNNER_EXTENSION_SETTINGS_DIR",
+        "RUNNER_WEB_SEARCH",
       ].includes(name),
     "This variable is configured by the stack",
   ),
@@ -688,11 +635,10 @@ function start(version: string, flags: StartFlags) {
     // volume. An existing deployment's settings stay authoritative until its hub is healthy.
     if (saved === undefined) yield* writeState(state);
     const runner = yield* existingRunner();
-    const search = state.search.length > 0 ? yield* settingsWithSearch(state, images) : undefined;
     const replaceRunner =
       runner === undefined ||
       flags.env !== undefined ||
-      runner.configuration !== runnerConfiguration(state, images, search);
+      runner.configuration !== runnerConfiguration(state, images);
     const interactive = process.stdin.isTTY && process.stdout.isTTY;
     if (replaceRunner) yield* requireForwardedEnvironment(state.env);
     // Temporary preflight is valid only when it has the same authentication inputs as the Runner
@@ -730,7 +676,7 @@ function start(version: string, flags: StartFlags) {
         ),
       );
     }
-    yield* writeComposeFile(state, images, search);
+    yield* writeComposeFile(state, images);
     // The first Runner needs a registration key from the healthy hub before it can start.
     yield* compose(["up", "-d", "--wait", "--wait-timeout", "60", "hub"]);
     yield* writeState(state);
@@ -738,7 +684,7 @@ function start(version: string, flags: StartFlags) {
       const client = yield* signIn(state);
       state = { ...state, ...(yield* createKeys(client)) };
       yield* writeState(state);
-      yield* writeComposeFile(state, images, search);
+      yield* writeComposeFile(state, images);
     }
     yield* compose([
       "up",
@@ -770,7 +716,7 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
-    yield* say(searchStatus(state));
+    yield* say(yield* runnerSearchStatus);
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -783,18 +729,33 @@ function start(version: string, flags: StartFlags) {
 }
 
 /**
- * What web search does, which the Runner logs as it starts but `stack start` does not show: as the
- * Runner decides it (`planWebSearch` in apps/runner/src/web-search.ts).
+ * What web search does, as the Runner logged it when it started: `stack start` does not show the
+ * Runner's log, and the Runner alone decides it (`planWebSearch` in apps/runner/src/web-search.ts).
  */
-function searchStatus(state: State) {
-  if (state.search.length > 0) {
-    return `Web search goes through ${state.search.join(", ")}; --search replaces the list, and --clear-search turns search off.`;
-  }
-  if (state.model.provider === "openai-codex" && !state.env.includes("OPENAI_API_KEY")) {
-    return "Web search goes through the ChatGPT subscription the model runs on, within its limits. --search replaces it with the providers you name; include openai to keep it.";
-  }
-  return "Web search is off; --search <provider> turns it on, with the provider's key forwarded by --env.";
-}
+const runnerSearchStatus = dockerOutput([
+  "compose",
+  "--project-name",
+  PROJECT,
+  "--file",
+  COMPOSE_FILE,
+  "logs",
+  "--no-log-prefix",
+  "runner",
+]).pipe(
+  Effect.map((log) =>
+    log
+      .split("\n")
+      .map((line) => / (?:INFO|WARN) \(#\d+\): (Web search .*)$/.exec(line)?.[1])
+      .findLast(Boolean),
+  ),
+  Effect.orElseSucceed(() => undefined),
+  Effect.map((status) =>
+    [
+      status ?? "The Runner's log does not say what web search does: see elflodge stack logs.",
+      "elflodge stack start --search <provider> sets RUNNER_WEB_SEARCH, with its key forwarded by --env; --reset-search unsets it.",
+    ].join("\n"),
+  ),
+);
 
 function runCredentialCommand(
   version: string,
@@ -909,14 +870,18 @@ export function stackCommands(version: string) {
               .check(
                 z.minLength(1),
                 z.describe(
-                  "Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. A key forwarded with --env alone turns on no provider; a model on a ChatGPT subscription searches through it until providers are named. Omit to retain the list; supply a list to replace it.",
+                  "Let jobs search the web through the named provider, as pi-web-access names it, such as brave; repeatable. Sets the Runner's RUNNER_WEB_SEARCH. A key forwarded with --env alone turns on no provider. Omit to retain the list; supply a list to replace it.",
                 ),
               ),
           ),
-          clearSearch: z.optional(
+          resetSearch: z.optional(
             z
               .boolean()
-              .check(z.describe("Turn web search off again; cannot be combined with --search.")),
+              .check(
+                z.describe(
+                  "Forget the named providers: web search goes back to the Runner's default, off, or through a ChatGPT subscription the model runs on. Cannot be combined with --search.",
+                ),
+              ),
           ),
         }),
       )

@@ -746,7 +746,7 @@ exports[`the commands and their flags 1`] = `
             },
             {
               "attributeName": "search",
-              "description": "Type: string; Min length: 1 Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. A key forwarded with --env alone turns on no provider; a model on a ChatGPT subscription searches through it until providers are named. Omit to retain the list; supply a list to replace it.; Min items: 1 array",
+              "description": "Type: string; Min length: 1 Let jobs search the web through the named provider, as pi-web-access names it, such as brave; repeatable. Sets the Runner's RUNNER_WEB_SEARCH. A key forwarded with --env alone turns on no provider. Omit to retain the list; supply a list to replace it.; Min items: 1 array",
               "flags": "--search [values...]",
               "name": "search",
               "negate": false,
@@ -755,10 +755,10 @@ exports[`the commands and their flags 1`] = `
               "variadic": true,
             },
             {
-              "attributeName": "clearSearch",
-              "description": "Turn web search off again; cannot be combined with --search.",
-              "flags": "--clear-search [boolean]",
-              "name": "clear-search",
+              "attributeName": "resetSearch",
+              "description": "Forget the named providers: web search goes back to the Runner's default, off, or through a ChatGPT subscription the model runs on. Cannot be combined with --search.",
+              "flags": "--reset-search [boolean]",
+              "name": "reset-search",
               "negate": false,
               "optional": true,
               "required": false,

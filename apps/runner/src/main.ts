@@ -83,16 +83,26 @@ const modelBaseUrlSetting = Config.schema(
 /**
  * `RUNNER_EXTENSIONS_DIR`: the folder of the Pi extensions every job runs with, an npm project
  * listing them as dependencies with its lockfile, and their default settings in `pi-agent`; none
- * unless given. `RUNNER_EXTENSION_SETTINGS_DIR`: the operator's own settings files for them.
+ * unless given. `RUNNER_EXTENSION_SETTINGS_DIR`: the operator's own settings files for them, which
+ * need the extensions.
  */
 const extensionsSetting = Config.all({
   extensions: Config.NonEmptyString("RUNNER_EXTENSIONS_DIR").pipe(Config.option),
   settings: Config.NonEmptyString("RUNNER_EXTENSION_SETTINGS_DIR").pipe(Config.option),
-}).pipe(
-  Config.map(({ extensions, settings }) => ({
-    extensions: Option.getOrUndefined(extensions),
-    settings: Option.getOrUndefined(settings),
-  })),
+});
+
+/**
+ * `RUNNER_WEB_SEARCH`: the providers jobs may search the web through, separated by commas, such as
+ * `brave,exa`. An empty value counts as unset, as for every setting Effect reads.
+ */
+const webSearchSetting = Config.String("RUNNER_WEB_SEARCH").pipe(
+  Config.map((value) =>
+    value
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
+  ),
+  Config.option,
 );
 
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
@@ -119,6 +129,7 @@ const runnerSettings = Config.all({
     Config.withDefault(DEFAULT_SANDBOX_SETTINGS.runWithoutSandbox),
   ),
   extensions: extensionsSetting,
+  webSearch: webSearchSetting,
 });
 
 /**
@@ -328,6 +339,10 @@ const authCheck = (offerLogin: boolean) =>
 const run = (options: { register: boolean; healthcheck: boolean }) =>
   Effect.gen(function* () {
     const settings = yield* runnerSettings;
+    const { extensions, settings: extensionSettings } = settings.extensions;
+    if (Option.isNone(extensions) && Option.isSome(extensionSettings)) {
+      return yield* refuse("RUNNER_EXTENSION_SETTINGS_DIR is set without RUNNER_EXTENSIONS_DIR.");
+    }
     const { models, auth } = runnerAuth(settings.dataDir);
     const problem = yield* auth.prepareModel({
       provider: settings.provider,
@@ -352,7 +367,11 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         jobMemoryLimit: settings.jobMemoryLimit,
         runWithoutSandbox: settings.runWithoutSandbox,
       },
-      extensions: settings.extensions,
+      extensions: Option.match(extensions, {
+        onNone: () => undefined,
+        onSome: (dir) => ({ extensions: dir, settings: Option.getOrUndefined(extensionSettings) }),
+      }),
+      webSearch: Option.getOrUndefined(settings.webSearch),
       register: options.register,
       onReady: ready.open,
     }).pipe(

@@ -1,50 +1,58 @@
+import { Result } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { planWebSearch } from "../src/web-search.ts";
+import { planWebSearch, type WebSearchInput } from "../src/web-search.ts";
 
-// Web search may spend money and send jobs' queries elsewhere, so the Runner turns it on only where
-// that is free and goes nowhere new: on the defaults, through the ChatGPT subscription the jobs'
-// model runs on. These hold it to that.
+// Web search may spend money and send jobs' queries elsewhere, so it goes only where the operator
+// said, once, and otherwise only through the ChatGPT subscription the jobs' model already runs on,
+// never through a key. These hold the Runner to that.
 
 const defaults = {
   tools: { webSearch: { enabled: false }, sourceCheck: { enabled: false } },
   pdf: { provider: "unpdf" },
 };
 
-test("on the defaults, a ChatGPT subscription searches through itself only", () => {
-  expect(
-    planWebSearch({
-      settings: defaults,
-      chosen: false,
-      subscription: "openai-codex",
-      openAiKey: false,
-    }).settings,
-  ).toEqual({
-    tools: { webSearch: { enabled: true }, sourceCheck: { enabled: true } },
+const plan = (input: Partial<WebSearchInput>) =>
+  planWebSearch({
+    settings: defaults,
+    chosen: false,
+    providers: undefined,
+    subscription: undefined,
+    ...input,
+  });
+
+const on = { webSearch: { enabled: true }, sourceCheck: { enabled: true } };
+
+test("named providers turn search on through exactly them, in order", () => {
+  expect(Result.getOrThrow(plan({ providers: ["brave", "exa"] })).settings).toEqual({
+    tools: on,
     pdf: { provider: "unpdf" },
-    webSearch: { allowedProviders: ["openai"] },
-    openaiSearchProviders: ["openai-codex"],
+    webSearch: { allowedProviders: ["brave", "exa"] },
+    searchRouting: { providers: ["brave", "exa"], fallbackOn: ["transient", "quota", "network"] },
   });
 });
 
-test("search stays off where pi-web-access could fall back to an OpenAI key", () => {
-  const plan = planWebSearch({
-    settings: defaults,
-    chosen: false,
-    subscription: "openai-codex",
-    openAiKey: true,
+test("on the defaults, a ChatGPT subscription searches through its sign-in only, never a key", () => {
+  expect(Result.getOrThrow(plan({ subscription: "openai-codex" })).settings).toEqual({
+    tools: on,
+    pdf: { provider: "unpdf" },
+    webSearch: { allowedProviders: ["openai"] },
+    searchRouting: { providers: ["openai"], fallbackOn: ["transient", "quota", "network"] },
+    openaiSearchProviders: ["openai-codex"],
+    openaiUseProviderBaseUrl: true,
   });
-  expect(plan.settings).toBeUndefined();
-  expect(plan.message).toContain("OPENAI_API_KEY");
+});
+
+test("without a subscription or named providers, search stays off", () => {
+  expect(Result.getOrThrow(plan({})).settings).toBeUndefined();
 });
 
 test("the operator's own settings are used as given", () => {
   expect(
-    planWebSearch({
-      settings: defaults,
-      chosen: true,
-      subscription: "openai-codex",
-      openAiKey: false,
-    }).settings,
+    Result.getOrThrow(plan({ chosen: true, subscription: "openai-codex" })).settings,
   ).toBeUndefined();
+});
+
+test("named providers and the operator's own settings together are refused", () => {
+  expect(Result.isFailure(plan({ chosen: true, providers: ["brave"] }))).toBe(true);
 });
