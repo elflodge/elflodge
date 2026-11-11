@@ -8,6 +8,8 @@ updates:
       # Types must match the Node versions we support (engines), not the newest Node.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # The exact version Pi's chord takes as a peer, which `pnpm deploy` needs (pnpm-workspace.yaml).
+      - dependency-name: "ws"
     # A dependency joins the first group it matches, so the families come before the catch-all.
     groups:
       better-auth:

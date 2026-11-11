@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 // The shared package avoids @effect/platform-node's required redis peer, which the CLI does not use.
@@ -140,10 +140,15 @@ function literal(value: string) {
   return value.replaceAll("$", "$$$$");
 }
 
+/** The Runner's image released as `version`. */
+function runnerImage(version: string) {
+  return `ghcr.io/elflodge/elflodge-runner:${version}`;
+}
+
 /** The Runner declaration contains forwarding names, never their external values. */
-function runnerService(state: State, version: string) {
+function runnerService(state: State, version: string, searchSettings?: string) {
   return {
-    image: `ghcr.io/elflodge/elflodge-runner:${version}`,
+    image: runnerImage(version),
     // The image's healthcheck reports the Runner healthy once it has finished starting.
     depends_on: { hub: { condition: "service_healthy" } },
     security_opt: ["seccomp=unconfined", "systempaths=unconfined", "apparmor=unconfined"],
@@ -157,13 +162,15 @@ function runnerService(state: State, version: string) {
       RUNNER_DATA_DIR: "/data",
       RUNNER_EXTENSIONS: IMAGE_EXTENSIONS,
     },
-    volumes: [
-      "runner-data:/data",
-      // The search settings replace the image's folder's own, which have search off.
-      ...(state.search.length > 0
-        ? [`${searchSettingsFile(state, version)}:${IMAGE_EXTENSIONS}/pi-agent/web-search.json:ro`]
-        : []),
-    ],
+    volumes: ["runner-data:/data"],
+    // The search settings replace the image's folder's own, which have search off.
+    ...(searchSettings === undefined
+      ? {}
+      : {
+          configs: [
+            { source: SEARCH_SETTINGS, target: `${IMAGE_EXTENSIONS}/pi-agent/web-search.json` },
+          ],
+        }),
     restart: "unless-stopped",
   };
 }
@@ -171,61 +178,45 @@ function runnerService(state: State, version: string) {
 /** The image's folder of the Runner's extensions: pi-web-access, which reads web pages, with web search off. */
 const IMAGE_EXTENSIONS = "/app/extensions";
 
-/**
- * Where the stack keeps pi-web-access's settings with search on, named after what they hold, so a
- * different choice is a different declaration and recreates the Runner.
- */
-function searchSettingsFile(state: State, version: string) {
-  const name = createHash("sha256")
-    .update(`${version}\0${state.search.join("\0")}`)
-    .digest("hex");
-  return path.join(STATE_DIR, `web-search-${name.slice(0, 16)}.json`);
-}
+/** The Compose config that holds pi-web-access's settings with search on. */
+const SEARCH_SETTINGS = "web-search";
 
 /**
- * Writes pi-web-access's settings with search on for the chosen providers, over the image's own, so
- * every other setting stays the image's; removes those written for earlier choices.
+ * pi-web-access's settings with search on for the chosen providers: the image's own, so every other
+ * setting stays as the image ships it, with its search tools on and only those providers allowed.
  */
-function writeSearchSettings(state: State, version: string) {
+function readSearchSettings(state: State, version: string) {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const file = searchSettingsFile(state, version);
-    for (const entry of yield* fs.readDirectory(STATE_DIR)) {
-      const stale = path.join(STATE_DIR, entry);
-      if (entry.startsWith("web-search-") && (state.search.length === 0 || stale !== file))
-        yield* fs.remove(stale);
-    }
-    if (state.search.length === 0) return;
-    const image = runnerService(state, version).image;
     const settings = yield* dockerOutput([
       "run",
       "--rm",
       "--entrypoint",
       "cat",
-      image,
+      runnerImage(version),
       `${IMAGE_EXTENSIONS}/pi-agent/web-search.json`,
     ]).pipe(
       Effect.flatMap((text) =>
-        Effect.try({
-          try: () => z.parse(z.record(z.string(), z.unknown()), JSON.parse(text)),
-          catch: ensureError,
-        }),
+        Effect.try({ try: () => z.parse(settingsSchema, JSON.parse(text)), catch: ensureError }),
       ),
     );
-    const webSearch = z.parse(z.optional(z.record(z.string(), z.unknown())), settings["webSearch"]);
-    yield* writeStateFile(
-      file,
-      `${JSON.stringify(
-        { ...settings, webSearch: { ...webSearch, enabled: true, allowedProviders: state.search } },
-        null,
-        2,
-      )}\n`,
-    );
+    const on = { enabled: true };
+    return `${JSON.stringify(
+      {
+        ...settings,
+        tools: { ...settings.tools, webSearch: on, sourceCheck: on },
+        webSearch: { ...settings.webSearch, allowedProviders: state.search },
+      },
+      null,
+      2,
+    )}\n`;
   });
 }
 
-function runnerConfiguration(state: State, version: string) {
-  const runner = runnerService(state, version);
+const settingsObject = z.optional(z.record(z.string(), z.unknown()));
+const settingsSchema = z.looseObject({ tools: settingsObject, webSearch: settingsObject });
+
+function runnerConfiguration(state: State, version: string, searchSettings?: string) {
+  const runner = runnerService(state, version, searchSettings);
   // Compose's hash includes resolved external values. This label compares the declaration
   // without reading retained secrets. The label travels with the container, so it describes the
   // Runner that exists; the file on disk is rewritten before each start and can describe one that
@@ -234,11 +225,12 @@ function runnerConfiguration(state: State, version: string) {
   return JSON.stringify({
     ...runner,
     environment: { ...runner.environment, RUNNER_REGISTRATION_KEY: undefined },
+    searchSettings,
   });
 }
 
 /** The repository's Compose deployment with the stack's settings and a localhost-only hub. */
-function composeFile(state: State, version: string) {
+function composeFile(state: State, version: string, searchSettings?: string) {
   const database = {
     user: "elflodge",
     password: literal(state.postgresPassword),
@@ -277,18 +269,26 @@ function composeFile(state: State, version: string) {
         restart: "unless-stopped",
       },
       runner: {
-        ...runnerService(state, version),
-        labels: { [RUNNER_CONFIG_LABEL]: literal(runnerConfiguration(state, version)) },
+        ...runnerService(state, version, searchSettings),
+        labels: {
+          [RUNNER_CONFIG_LABEL]: literal(runnerConfiguration(state, version, searchSettings)),
+        },
       },
     },
     volumes: { database: {}, "runner-data": {} },
+    ...(searchSettings === undefined
+      ? {}
+      : { configs: { [SEARCH_SETTINGS]: { content: literal(searchSettings) } } }),
   };
 }
 
 /** Writes the stack's deployment declaration, with forwarding names but never their values. */
-function writeComposeFile(state: State, version: string) {
+function writeComposeFile(state: State, version: string, searchSettings?: string) {
   // JSON is YAML, which Compose reads.
-  return writeStateFile(COMPOSE_FILE, JSON.stringify(composeFile(state, version), null, 2));
+  return writeStateFile(
+    COMPOSE_FILE,
+    JSON.stringify(composeFile(state, version, searchSettings), null, 2),
+  );
 }
 
 /** A scoped declaration keeps credential commands from changing the selected deployment. */
@@ -685,10 +685,11 @@ function start(version: string, flags: StartFlags) {
     // volume. An existing deployment's settings stay authoritative until its hub is healthy.
     if (saved === undefined) yield* writeState(state);
     const runner = yield* existingRunner();
+    const search = state.search.length > 0 ? yield* readSearchSettings(state, images) : undefined;
     const replaceRunner =
       runner === undefined ||
       flags.env !== undefined ||
-      runner.configuration !== runnerConfiguration(state, images);
+      runner.configuration !== runnerConfiguration(state, images, search);
     const interactive = process.stdin.isTTY && process.stdout.isTTY;
     if (replaceRunner) yield* requireForwardedEnvironment(state.env);
     // Temporary preflight is valid only when it has the same authentication inputs as the Runner
@@ -726,8 +727,7 @@ function start(version: string, flags: StartFlags) {
         ),
       );
     }
-    yield* writeSearchSettings(state, images);
-    yield* writeComposeFile(state, images);
+    yield* writeComposeFile(state, images, search);
     // The first Runner needs a registration key from the healthy hub before it can start.
     yield* compose(["up", "-d", "--wait", "--wait-timeout", "60", "hub"]);
     yield* writeState(state);
@@ -735,7 +735,7 @@ function start(version: string, flags: StartFlags) {
       const client = yield* signIn(state);
       state = { ...state, ...(yield* createKeys(client)) };
       yield* writeState(state);
-      yield* writeComposeFile(state, images);
+      yield* writeComposeFile(state, images, search);
     }
     yield* compose([
       "up",

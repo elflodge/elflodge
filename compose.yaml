@@ -88,8 +88,9 @@ services:
       # `docker compose run --rm --no-deps runner node dist/main.mjs login`.
       OPENROUTER_API_KEY:
       # The folder of the Pi extensions each job runs with: the image's has pi-web-access, which
-      # reads web pages and PDFs, with web search off. To change them or turn search on, copy the
-      # folder (apps/runner/extensions in the repository), edit it, mount it and name it here
+      # reads web pages and PDFs, with web search off. To change them or turn search on, copy it
+      # with `docker compose cp runner:/app/extensions ./extensions`, edit the copy, mount it with
+      # `./extensions:/extensions:ro` under volumes and name /extensions here
       # (apps/runner/README.md).
       RUNNER_EXTENSIONS: /app/extensions
     volumes:

@@ -113,13 +113,21 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
         "cat",
         "/data/pi-agent/web-search.json",
       ]);
-      return z.parse(z.object({ webSearch: z.unknown() }), JSON.parse(stdout)).webSearch;
+      const settings = z.parse(
+        z.object({ tools: z.unknown(), webSearch: z.optional(z.unknown()) }),
+        JSON.parse(stdout),
+      );
+      return { tools: settings.tools, webSearch: settings.webSearch };
     };
-    expect(await webSearch()).toEqual({ enabled: false });
+    const off = { webSearch: { enabled: false }, sourceCheck: { enabled: false } };
+    expect(await webSearch()).toEqual({ tools: off, webSearch: undefined });
     await elflodge("stack", "start", "--search", "brave");
-    expect(await webSearch()).toEqual({ enabled: true, allowedProviders: ["brave"] });
+    expect(await webSearch()).toEqual({
+      tools: { webSearch: { enabled: true }, sourceCheck: { enabled: true } },
+      webSearch: { allowedProviders: ["brave"] },
+    });
     await elflodge("stack", "start", "--clear-search");
-    expect(await webSearch()).toEqual({ enabled: false });
+    expect(await webSearch()).toEqual({ tools: off, webSearch: undefined });
 
     await elflodge("stack", "logout", "--provider", "openrouter");
     await elflodge("stack", "start", "--env", "OPENROUTER_API_KEY");

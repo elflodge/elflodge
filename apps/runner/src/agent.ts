@@ -48,7 +48,7 @@ import ensureError from "ensure-error";
 import { compileSchema } from "json-schema-library";
 import * as z from "zod/mini";
 
-import { describeFailures, webAccessProxyGuard } from "./extensions.ts";
+import { describeFailures, webAccessGuard } from "./extensions.ts";
 import {
   appendUnderRequest,
   closingRequest,
@@ -316,7 +316,7 @@ export function openJob(
             await awaitWithContext(new Promise<never>(() => {}), requestContext);
           },
         }),
-        webAccessProxyGuard,
+        webAccessGuard,
         // Compaction summarizes with model calls of its own, outside generation's requests, so one
         // past the budget is declined. A blocking summary already admitted runs to its end, as a
         // request does; a background one is cut off when the job stops, and its usage is lost, as
@@ -434,9 +434,11 @@ export function openJob(
     let notLoaded: Failure | undefined;
     const host = options.extensionHost;
     if (host && !closed) {
-      // Acquired uninterruptibly, so extensions attached as the job is paused still close.
+      // Acquired uninterruptibly, so extensions attached as the job is paused still close. Opening
+      // them can fail outright, as when their worker cannot start them in time; that fails the job
+      // the same way.
       const attached = yield* Effect.acquireRelease(
-        Effect.promise(() =>
+        Effect.tryPromise(() =>
           host.attach(
             {
               harness,
@@ -451,13 +453,15 @@ export function openJob(
           ),
         ),
         (opened) => Effect.promise(() => opened.close()),
-      ).pipe(Scope.provide(extensionsScope));
-      if (attached.errors.length > 0) {
+      ).pipe(
+        Scope.provide(extensionsScope),
+        Effect.map(({ errors }) => (errors.length > 0 ? describeFailures(errors) : undefined)),
+        Effect.catch((error) => Effect.succeed(ensureError(error.cause).message)),
+      );
+      if (attached !== undefined) {
         notLoaded = {
           reason: "runFaulted",
-          message: failureMessage(
-            `These extensions failed as they loaded: ${describeFailures(attached.errors)}`,
-          ),
+          message: failureMessage(`These extensions failed as they loaded: ${attached}`),
         };
       }
     }

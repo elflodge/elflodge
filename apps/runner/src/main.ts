@@ -347,8 +347,9 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
       register: options.register,
       onReady: ready.open,
     }).pipe(
-      Effect.catchTag("SandboxUnavailable", (error) => refuse(error.message)),
-      Effect.catchTag("ExtensionsUnavailable", (error) => refuse(error.message)),
+      Effect.catchTag(["SandboxUnavailable", "ExtensionsUnavailable"], (error) =>
+        refuse(error.message),
+      ),
       Effect.catchTag("Removed", () =>
         // FIXME: re-registering belongs to the CLI. Once it exists, this message names its command
         // (such as `elflodge runner register`) and `register` moves out of this entry point.

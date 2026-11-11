@@ -69,7 +69,7 @@ The hub and a Runner from their published images on one machine, as a deployment
 
    Another model goes in `RUNNER_MODEL_ID` the same way, such as `anthropic/claude-haiku-5.5` or `openai/gpt-6-luna` for real work.
 
-   Jobs read web pages and PDFs with pi-web-access, from the image's folder of extensions, with web search off. To turn search on or change the extensions, copy that folder, edit it, mount it and name it in `RUNNER_EXTENSIONS`, as the comment in `compose.yaml` says (see the Runner's README on [extensions](../apps/runner/README.md#extensions)).
+   Jobs read web pages and PDFs with pi-web-access, from the image's folder of extensions, with web search off. To turn search on or change the extensions, copy that folder out of the image you run with `docker compose cp runner:/app/extensions ./extensions`, edit the copy, mount it with `./extensions:/extensions:ro` in the runner's `volumes` and set `RUNNER_EXTENSIONS: /extensions`, as the comment in `compose.yaml` says. Copy it again when you upgrade the image. The Runner's README covers [extensions](../apps/runner/README.md#extensions).
 
 4. **Submit jobs** as in [the README's first job](../README.md#an-everyday-chore-done-by-an-agent), from writing `job.json` on, with `export ELFLODGE_URL=http://localhost:8787`; `docker compose logs runner` shows any error that keeps the Runner from connecting.
 
