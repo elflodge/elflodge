@@ -302,7 +302,7 @@ function installReplacingOthers(source: string, dir: string) {
 function installKey(source: string) {
   // The folders the install leaves out, at the top only, as a local package may hold its own.
   // folder-hash documents a function of the path here; its types declare another, which the patch
-  // in `patches/` corrects.
+  // in `patches/` corrects until DefinitelyTyped/DefinitelyTyped#76136 is released.
   const left = new Set([...NOT_INSTALLED].map((entry) => path.join(source, entry)));
   return Effect.tryPromise({
     try: () =>
