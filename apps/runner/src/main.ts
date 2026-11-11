@@ -124,9 +124,9 @@ const webSearchSetting = Config.schema(
  * Reads `RUNNER_WEB_SEARCH` from the process's environment, keeping an empty value, which Effect
  * otherwise reads as unset: an empty value, such as a template's unfilled variable, may be meant as
  * "off", and on a ChatGPT subscription unset turns search on, so the Runner refuses it instead.
- * Unlike the other settings, it ignores a `ConfigProvider` the caller provides, as only
- * `ConfigProvider.fromEnv` can keep empty values and keeping them for every setting would change
- * how the others read.
+ * Unlike the other settings, it ignores a `ConfigProvider` the caller provides: keeping empty
+ * values is an option of the provider, not of one setting, and keeping them for every setting
+ * would change how the others read.
  */
 const readWebSearch = webSearchSetting.parse(
   ConfigProvider.fromEnv({ preserveEmptyStrings: true }),
