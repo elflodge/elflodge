@@ -115,7 +115,10 @@ export function describeWebSearch(
   modelProvider: string,
 ): WebSearchSetup {
   if (!isOn(settings)) return { enabled: false };
-  const routing = fieldsOf(settings["searchRouting"]);
+  // A default provider, under either name, takes every search that names none, past the routing.
+  const routing = ["provider", "searchProvider"].some((key) => Object.hasOwn(settings, key))
+    ? {}
+    : fieldsOf(settings["searchRouting"]);
   const routed = providerList(routing["providers"]);
   const allowed = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
   // Routing tries its providers in order; the other allowed ones serve only a search that names them.

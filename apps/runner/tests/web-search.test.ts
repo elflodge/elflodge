@@ -122,7 +122,11 @@ test("routed OpenAI searches through the jobs' model are billed as the model is"
     openaiSearchProviders: ["openai-codex"],
     openaiUseProviderBaseUrl: true,
     webSearch: { allowedProviders: ["brave", "openai"] },
-    searchRouting: { providers: ["openai", "brave"], useCurrentModel: true },
+    searchRouting: {
+      providers: ["openai", "brave"],
+      useCurrentModel: true,
+      fallbackOn: ["transient"],
+    },
   };
   expect(describeWebSearch(settings, {}, "openai")).toEqual({
     enabled: true,

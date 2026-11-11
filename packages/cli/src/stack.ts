@@ -804,7 +804,10 @@ function webSearchStatus(
             ...(state.model.provider === "openai-codex" &&
             search.allowedProviders !== undefined &&
             !search.allowedProviders.includes("openai")
-              ? ["The ChatGPT subscription the model runs on can also search: add --search openai."]
+              ? [
+                  // --search replaces the list, so the hint gives all of it.
+                  `The ChatGPT subscription the model runs on can also search: ${CommandLine.display(["elflodge", "stack", "start", ...[...state.search, "openai"].flatMap((name) => ["--search", name])])}.`,
+                ]
               : []),
           ].join(" ");
   return [
