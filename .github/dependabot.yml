@@ -8,6 +8,9 @@ updates:
       # Types must match the Node versions we support (engines), not the newest Node.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # The exact version Pi's chord takes as a peer, which `pnpm deploy` needs (pnpm-workspace.yaml).
+      # This also stops security updates for it, which need chord's own update.
+      - dependency-name: "ws"
     # A dependency joins the first group it matches, so the families come before the catch-all.
     groups:
       better-auth:
@@ -48,6 +51,11 @@ updates:
         update-types: ["minor", "patch"]
         patterns:
           - "*"
+  # The extensions the Runner's image ships, an npm project of their own (ADR 0039).
+  - package-ecosystem: "npm"
+    directory: "/apps/runner/extensions"
+    schedule:
+      interval: "weekly"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

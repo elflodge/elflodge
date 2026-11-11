@@ -1,0 +1,25 @@
+{
+  "tools": {
+    "webSearch": {
+      "enabled": false
+    },
+    "sourceCheck": {
+      "enabled": false
+    }
+  },
+  "fetch": {
+    "allowedModes": ["readable", "raw"]
+  },
+  "fetchRouting": {
+    "providers": ["http"]
+  },
+  "pdf": {
+    "provider": "unpdf"
+  },
+  "youtube": {
+    "enabled": false
+  },
+  "video": {
+    "enabled": false
+  }
+}

@@ -55,6 +55,8 @@ const stateSchema = z.object({
   model: modelSchema,
   /** Names only: their external values are required again when creating a Runner. */
   env: z._default(z.array(z.string()), []),
+  /** The providers jobs may search the web through, as `RUNNER_WEB_SEARCH`; none, the Runner's default, at first. */
+  search: z._default(z.array(z.string()), []),
   /** The key Runners register with, which the Runner uses on its first start only. */
   registrationKey: z.optional(z.string()),
   /** The key for submitting and controlling jobs, which other commands use when no other is set. */
@@ -138,10 +140,15 @@ function literal(value: string) {
   return value.replaceAll("$", "$$$$");
 }
 
+/** The Runner's image released as `version`. */
+function runnerImage(version: string) {
+  return `ghcr.io/elflodge/elflodge-runner:${version}`;
+}
+
 /** The Runner declaration contains forwarding names, never their external values. */
 function runnerService(state: State, version: string) {
   return {
-    image: `ghcr.io/elflodge/elflodge-runner:${version}`,
+    image: runnerImage(version),
     // The image's healthcheck reports the Runner healthy once it has finished starting.
     depends_on: { hub: { condition: "service_healthy" } },
     security_opt: ["seccomp=unconfined", "systempaths=unconfined", "apparmor=unconfined"],
@@ -153,11 +160,16 @@ function runnerService(state: State, version: string) {
       RUNNER_MODEL_PROVIDER: literal(state.model.provider),
       RUNNER_MODEL_ID: literal(state.model.id),
       RUNNER_DATA_DIR: "/data",
+      RUNNER_EXTENSIONS_DIR: IMAGE_EXTENSIONS,
+      ...(state.search.length === 0 ? {} : { RUNNER_WEB_SEARCH: literal(state.search.join(",")) }),
     },
     volumes: ["runner-data:/data"],
     restart: "unless-stopped",
   };
 }
+
+/** The image's folder of the Runner's extensions: pi-web-access, which reads web pages and searches where allowed. */
+const IMAGE_EXTENSIONS = "/app/extensions";
 
 function runnerConfiguration(state: State, version: string) {
   const runner = runnerService(state, version);
@@ -213,7 +225,9 @@ function composeFile(state: State, version: string) {
       },
       runner: {
         ...runnerService(state, version),
-        labels: { [RUNNER_CONFIG_LABEL]: literal(runnerConfiguration(state, version)) },
+        labels: {
+          [RUNNER_CONFIG_LABEL]: literal(runnerConfiguration(state, version)),
+        },
       },
     },
     volumes: { database: {}, "runner-data": {} },
@@ -251,8 +265,9 @@ function runRunnerCommand(
     // Authentication starts no sandbox and never reaches the hub, so the container gets neither the
     // sandbox's security options nor the hub's address and registration key. Its command opens no
     // listener, so the image's healthcheck is off rather than reporting it unhealthy.
-    const { image, environment, volumes } = runnerService(state, version);
+    const { image, environment } = runnerService(state, version);
     const { HUB_URL: _hub, RUNNER_REGISTRATION_KEY: _key, ...authEnvironment } = environment;
+    const volumes = ["runner-data:/data"];
     const file = yield* writeTemporaryComposeFile({
       name: PROJECT,
       services: {
@@ -506,15 +521,22 @@ function chooseModel(
   return { provider, id };
 }
 
-type StartFlags = { port?: number; env?: string[]; clearEnv?: boolean } & Parameters<
-  typeof chooseModel
->[0];
+type StartFlags = {
+  port?: number;
+  env?: string[];
+  clearEnv?: boolean;
+  search?: string[];
+  resetSearch?: boolean;
+} & Parameters<typeof chooseModel>[0];
 
 /** Proposes settings without committing a failed start's selection or endpoint. */
 function stateForStart(flags: StartFlags, saved: State | undefined) {
   return Effect.gen(function* () {
     if (flags.env !== undefined && flags.clearEnv) {
       return yield* Effect.fail(new Error("Use either --env or --clear-env, not both"));
+    }
+    if (flags.search !== undefined && flags.resetSearch) {
+      return yield* Effect.fail(new Error("Use either --search or --reset-search, not both"));
     }
     const model = yield* Effect.try({
       try: () => chooseModel(flags, saved?.model),
@@ -527,9 +549,18 @@ function stateForStart(flags: StartFlags, saved: State | undefined) {
       port: 8787,
       model,
       env: [],
+      search: [],
     };
     const env = flags.clearEnv ? [] : (flags.env ?? state.env);
-    return { ...state, port: flags.port ?? state.port, model, env: [...new Set(env)].toSorted() };
+    const search = flags.resetSearch ? [] : (flags.search ?? state.search);
+    return {
+      ...state,
+      port: flags.port ?? state.port,
+      model,
+      env: [...new Set(env)].toSorted(),
+      // In the order given: the Runner tries the providers in that order.
+      search: [...new Set(search)],
+    };
   });
 }
 
@@ -544,6 +575,8 @@ const environmentName = z.string().check(
         "RUNNER_MODEL_PROVIDER",
         "RUNNER_MODEL_ID",
         "RUNNER_DATA_DIR",
+        "RUNNER_EXTENSIONS_DIR",
+        "RUNNER_WEB_SEARCH",
       ].includes(name),
     "This variable is configured by the stack",
   ),
@@ -684,6 +717,7 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
+    yield* say(yield* runnerSearchStatus);
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -694,6 +728,36 @@ function start(version: string, flags: StartFlags) {
     );
   }).pipe(Effect.scoped);
 }
+
+/**
+ * What web search does, as the Runner logged it when it started: `stack start` does not show the
+ * Runner's log, and the Runner alone decides it (`planWebSearch` in apps/runner/src/web-search.ts).
+ * Matches Effect's default log line; with another log format, the stack points to the log instead.
+ */
+const runnerSearchStatus = dockerOutput([
+  "compose",
+  "--project-name",
+  PROJECT,
+  "--file",
+  COMPOSE_FILE,
+  "logs",
+  "--no-log-prefix",
+  "runner",
+]).pipe(
+  Effect.map((log) =>
+    log
+      .split("\n")
+      .map((line) => / (?:INFO|WARN) \(#\d+\): (Web search .*)$/.exec(line)?.[1])
+      .findLast(Boolean),
+  ),
+  Effect.orElseSucceed(() => undefined),
+  Effect.map((status) =>
+    [
+      status ?? "The Runner's log does not say what web search does: see elflodge stack logs.",
+      "elflodge stack start --search <provider> sets RUNNER_WEB_SEARCH, with its key forwarded by --env; --reset-search unsets it.",
+    ].join("\n"),
+  ),
+);
 
 function runCredentialCommand(
   version: string,
@@ -799,6 +863,25 @@ export function stackCommands(version: string) {
               .check(
                 z.describe(
                   "Clear all forwarded variable names; cannot be combined with --env. The Runner must have another authentication source before recreation.",
+                ),
+              ),
+          ),
+          search: z.optional(
+            z
+              .array(z.string().check(z.minLength(1)))
+              .check(
+                z.minLength(1),
+                z.describe(
+                  "Let jobs search the web through the named provider, as pi-web-access names it, such as brave; repeatable. Sets the Runner's RUNNER_WEB_SEARCH. A key forwarded with --env alone turns on no provider. Omit to retain the list; supply a list to replace it.",
+                ),
+              ),
+          ),
+          resetSearch: z.optional(
+            z
+              .boolean()
+              .check(
+                z.describe(
+                  "Forget the named providers: web search goes back to the Runner's default, off, or through a ChatGPT subscription the model runs on. Cannot be combined with --search.",
                 ),
               ),
           ),

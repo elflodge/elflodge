@@ -16,6 +16,7 @@ COPY --chown=vp:vp apps/hub/package.json apps/hub/
 COPY --chown=vp:vp apps/runner/package.json apps/runner/
 COPY --chown=vp:vp packages/cli/package.json packages/cli/
 COPY --chown=vp:vp packages/contract/package.json packages/contract/
+COPY --chown=vp:vp packages/pi-durable-extension-adapter/package.json packages/pi-durable-extension-adapter/
 # pnpm applies the workspace's patches as it installs.
 COPY --chown=vp:vp patches/ patches/
 RUN vp install --frozen-lockfile --ignore-scripts
@@ -56,13 +57,16 @@ CMD ["dist/main.mjs"]
 # of one workspace package, copies the Runner's files (`files` in its manifest) with a fresh
 # production install of its dependencies, whole, as the Runner loads some of their files by path,
 # pi-env's daemon and sandbox-runtime's seccomp helpers among them. Vite+ runs it through a script
-# (voidzero-dev/vite-plus#1038). Then the exact Node the Runner runs on, as the guide exports it, with
-# its licence; the cache is off as for the hub ---
+# (voidzero-dev/vite-plus#1038). The build is transitive, so the extension adapter, whose build the
+# Runner loads and the deployment copies, is built first. Then the exact Node the Runner runs on, as the guide exports
+# it, with its licence, and the npm of the same Node distribution, with which the Runner installs
+# its extensions as it starts; the cache is off as for the hub ---
 FROM build AS runner-build
-RUN vp run --no-cache runner#build && vp run --no-cache runner#notices \
+RUN vp run --no-cache -t runner#build && vp run --no-cache runner#notices \
   && vp run --no-cache runner#pnpm-deploy /tmp/runner \
   && node="$(vp env which node | head -1)" \
-  && cp "$node" /tmp/node && cp "$(dirname "$node")/../LICENSE" /tmp/node-LICENSE
+  && cp "$node" /tmp/node && cp "$(dirname "$node")/../LICENSE" /tmp/node-LICENSE \
+  && cp -R "$(dirname "$node")/../lib/node_modules/npm" /tmp/npm
 
 # --- the Runner's runtime: Debian's current stable, slim, as the hub's distroless base is, with the
 # programs each job's sandbox needs (ADR 0027), poppler-utils for jobs that read PDFs, with the
@@ -80,9 +84,16 @@ RUN apt-get update \
   && install -d -o runner -g runner /data
 COPY --from=runner-build /tmp/node /usr/local/bin/node
 COPY --from=runner-build /tmp/node-LICENSE /usr/local/share/doc/node/LICENSE
+# Where Node's own distribution keeps npm, and its command, as there.
+COPY --from=runner-build /tmp/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 COPY --from=runner-build /tmp/runner /app
 COPY --from=runner-build /app/LICENSE /app/LICENSE
-ENV NODE_ENV=production RUNNER_DATA_DIR=/data
+# The extensions the image ships, which Compose and `elflodge stack` name (ADR 0039), copied as they
+# are: a package's files would leave out their lockfile and `.npmrc`, as npm never packs them.
+COPY --from=runner-build /app/apps/runner/extensions /app/extensions
+# npm installs the Runner's extensions; its notice of a newer npm is for the image's maintainers.
+ENV NODE_ENV=production RUNNER_DATA_DIR=/data NPM_CONFIG_UPDATE_NOTIFIER=false
 USER runner
 WORKDIR /app
 # Healthy once the Runner has finished starting: its model's authentication resolved, registered,

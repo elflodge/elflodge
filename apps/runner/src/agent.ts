@@ -22,6 +22,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { obj, opt, str, unknown } from "@earendil-works/pi-schema";
+import type { ExtensionHost } from "@elflodge/pi-durable-extension-adapter";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   type Failure,
@@ -32,6 +33,7 @@ import {
   type runnerHttpContract,
 } from "contract";
 import {
+  Deferred,
   Duration,
   Effect,
   Exit,
@@ -46,6 +48,7 @@ import ensureError from "ensure-error";
 import { compileSchema } from "json-schema-library";
 import * as z from "zod/mini";
 
+import { describeFailures, webAccessGuard } from "./extensions.ts";
 import {
   appendUnderRequest,
   closingRequest,
@@ -91,6 +94,8 @@ export interface AgentSettings {
   environments: JobEnvironments;
   models: Models;
   model: AgentModel;
+  /** The Pi extensions every job's agent runs with, if the Runner loads any. */
+  extensionHost?: ExtensionHost;
 }
 
 /**
@@ -285,49 +290,49 @@ export function openJob(
     const budgetSpent = async () =>
       journal !== undefined && spent(await journal.usage(context)) >= options.modelBudgetUsd;
     const registry = createRegistry();
+    const runnerExtension = defineExtension({
+      name: "elflodge",
+      tools: [submitOutputTool(job.outputContract.schema)],
+      hooks: [
+        hook(GenerationTask, {
+          // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
+          // whether the prefix this job's requests share with other jobs' is cached.
+          afterResponse: (message) => options.modelResponded(message),
+          // An accepted output ends the run only when every call of its round asks to; the job
+          // ends once the round's other calls are done, without another model turn. The output is
+          // read from the journal, so a round a restarted Runner finishes ends the run too.
+          afterTools: async (_assistant, _results, api) => {
+            const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
+            if (!accepted || !("output" in accepted)) return;
+            // Not awaited: the abort waits for this task, which is waiting for this hook. It
+            // fails only when the journal closes first, as when the Runner stops, or when the
+            // abort cannot be committed; the job's outcome is read from the journal either way.
+            conversation?.abort(context).catch(() => {});
+          },
+          // A request past the budget waits, so it is never made, until the job's work is aborted.
+          beforeRequest: async (_request, _api, requestContext) => {
+            if (!(await budgetSpent())) return;
+            overBudget.openUnsafe();
+            await awaitWithContext(new Promise<never>(() => {}), requestContext);
+          },
+        }),
+        webAccessGuard,
+        // Compaction summarizes with model calls of its own, outside generation's requests, so one
+        // past the budget is declined. A blocking summary already admitted runs to its end, as a
+        // request does; a background one is cut off when the job stops, and its usage is lost, as
+        // pi records a summary's usage only once it completes, where a cut-off request keeps its
+        // last saved partial's.
+        hook(CompactionTask, {
+          beforeCompact: async () => {
+            if (!(await budgetSpent())) return undefined;
+            overBudget.openUnsafe();
+            return { decline: true };
+          },
+        }),
+      ],
+    });
     registry.install(CodingTools);
-    registry.install(
-      defineExtension({
-        name: "elflodge",
-        tools: [submitOutputTool(job.outputContract.schema)],
-        hooks: [
-          hook(GenerationTask, {
-            // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
-            // whether the prefix this job's requests share with other jobs' is cached.
-            afterResponse: (message) => options.modelResponded(message),
-            // An accepted output ends the run only when every call of its round asks to; the job
-            // ends once the round's other calls are done, without another model turn. The output is
-            // read from the journal, so a round a restarted Runner finishes ends the run too.
-            afterTools: async (_assistant, _results, api) => {
-              const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
-              if (!accepted || !("output" in accepted)) return;
-              // Not awaited: the abort waits for this task, which is waiting for this hook. It
-              // fails only when the journal closes first, as when the Runner stops, or when the
-              // abort cannot be committed; the job's outcome is read from the journal either way.
-              conversation?.abort(context).catch(() => {});
-            },
-            // A request past the budget waits, so it is never made, until the job's work is aborted.
-            beforeRequest: async (_request, _api, requestContext) => {
-              if (!(await budgetSpent())) return;
-              overBudget.openUnsafe();
-              await awaitWithContext(new Promise<never>(() => {}), requestContext);
-            },
-          }),
-          // Compaction summarizes with model calls of its own, outside generation's requests, so one
-          // past the budget is declined. A blocking summary already admitted runs to its end, as a
-          // request does; a background one is cut off when the job stops, and its usage is lost, as
-          // pi records a summary's usage only once it completes, where a cut-off request keeps its
-          // last saved partial's.
-          hook(CompactionTask, {
-            beforeCompact: async () => {
-              if (!(await budgetSpent())) return undefined;
-              overBudget.openUnsafe();
-              return { decline: true };
-            },
-          }),
-        ],
-      }),
-    );
+    registry.install(runnerExtension);
     // A job's first run downloaded its Input files into the Workspace before this; a later one
     // keeps the agent's edits to them.
     yield* Effect.promise(() => mkdir(paths.workspace, { recursive: true }));
@@ -339,6 +344,15 @@ export function openJob(
       Effect.sync(() => options.environments.open(jobId, paths)),
       (opened) => Effect.promise(() => opened.close()),
     ).pipe(Scope.provide(sandbox));
+    // The scope of the job's Pi extensions, attached once its conversation is open. Forked before
+    // the journal opens, so on an interrupt they close after it, and nothing their
+    // `session_shutdown` handlers do, such as a message that would start the agent again, reaches
+    // the journal of a job that is to carry on.
+    const extensionsScope = yield* Scope.fork(yield* Effect.scope);
+    // Completed once the job's extensions are gone for good, as when their worker exits and they
+    // cannot be reopened: the job's agent would carry on without tools it was meant to have, and
+    // pi-web-access's gate, for one, blocks every tool once its own state is gone.
+    const extensionsLost = Deferred.makeUnsafe<Error>();
     const harness = yield* Effect.acquireRelease(
       Effect.promise(async () =>
         Harness.open(
@@ -351,7 +365,13 @@ export function openJob(
             // saves run on the thread all jobs share (with 100 jobs streaming answers for about 10.6 s,
             // they took 3.3 s of CPU at 100 ms, 1.5 s at one second), and only a restart reads them,
             // losing at most a second of the output of a command it cut off.
-            settings: { progress: { partialIntervalMs: 1_000, outputIntervalMs: 1_000 } },
+            settings: {
+              progress: { partialIntervalMs: 1_000, outputIntervalMs: 1_000 },
+              // What a job's agent runs with, beside its own Pi extensions, which the conversation
+              // selects as they are attached: pi-durable would otherwise select every extension in
+              // the registry, and the extension adapter requires a default selection.
+              extensions: [CodingTools, runnerExtension],
+            },
           },
           context,
         ),
@@ -408,6 +428,45 @@ export function openJob(
           return false;
         }, context),
       ));
+    // Why the job fails before its agent starts, if an extension failed as it loaded, or called
+    // what the adapter does not support, such as registering a model provider: its agent would run
+    // without what the operator gave it, as a Runner that cannot prepare one refuses to start.
+    let notLoaded: Failure | undefined;
+    const host = options.extensionHost;
+    if (host && !closed) {
+      // Acquired uninterruptibly, so extensions attached as the job is paused still close. Opening
+      // them can fail outright, as when their worker cannot start them in time; that fails the job
+      // the same way.
+      const loadFailure = yield* Effect.acquireRelease(
+        Effect.tryPromise(() =>
+          host.attach(
+            {
+              harness,
+              conversation: root,
+              registry,
+              models: options.models,
+              env,
+              cwd: paths.workspace,
+              onLost: (error) => Deferred.doneUnsafe(extensionsLost, Effect.succeed(error)),
+            },
+            context,
+          ),
+        ),
+        (opened) => Effect.promise(() => opened.close()),
+      ).pipe(
+        Scope.provide(extensionsScope),
+        Effect.map(({ errors }) =>
+          errors.length > 0
+            ? `These extensions failed as they loaded: ${describeFailures(errors)}`
+            : undefined,
+        ),
+        Effect.catch((error) =>
+          Effect.succeed(`The extensions could not be opened: ${ensureError(error.cause).message}`),
+        ),
+      );
+      if (loadFailure !== undefined)
+        notLoaded = { reason: "runFaulted", message: failureMessage(loadFailure) };
+    }
     // pi's plain abort leaves background work, such as a compaction, running, so this abort includes
     // it and waits until all of it has stopped: nothing then adds to the journal after the job's end
     // or runs on in its sandbox.
@@ -464,19 +523,34 @@ export function openJob(
       // not as a pause does: the work it cut off is aborted and settled, and the job fails naming
       // the limit, unless the agent's output was accepted meanwhile. The timeout counts from here,
       // so time spent waiting for a slot or while the Runner was down counts nothing. Each gives
-      // why the job failed, should its agent have no accepted output.
-      const failure: Failure = yield* Effect.raceAllFirst([
-        answered.pipe(Effect.map(failureOf)),
-        Effect.sleep(Duration.seconds(options.runTimeoutSeconds)).pipe(
-          Effect.as({ reason: "runTimedOut" } as const),
-        ),
-        overBudget.await.pipe(Effect.as({ reason: "modelBudgetExceeded" } as const)),
-      ]).pipe(
-        Effect.onExitIf(
-          (exit) => !Exit.hasInterrupts(exit),
-          () => stopWork,
-        ),
-      );
+      // why the job failed, should its agent have no accepted output. A job whose extensions did
+      // not load runs nothing: work a restart left pending is stopped as at the job's end.
+      const failure: Failure = notLoaded
+        ? yield* stopWork.pipe(Effect.as(notLoaded))
+        : yield* Effect.raceAllFirst([
+            answered.pipe(Effect.map(failureOf)),
+            Effect.sleep(Duration.seconds(options.runTimeoutSeconds)).pipe(
+              Effect.as({ reason: "runTimedOut" } as const),
+            ),
+            overBudget.await.pipe(Effect.as({ reason: "modelBudgetExceeded" } as const)),
+            Deferred.await(extensionsLost).pipe(
+              Effect.map((error): Failure => ({
+                reason: "runFaulted",
+                message: failureMessage(`The job's extensions stopped: ${error.message}`),
+              })),
+            ),
+          ]).pipe(
+            Effect.onExitIf(
+              (exit) => !Exit.hasInterrupts(exit),
+              () => stopWork,
+            ),
+          );
+      // The extensions' session ends with the job's work. What their `session_shutdown` handlers
+      // start, such as a message to the agent, is stopped too, so the job's end is its last entry.
+      if (host) {
+        yield* Scope.close(extensionsScope, Exit.void);
+        yield* stopWork;
+      }
       const accepted = yield* Effect.promise(() =>
         harness.snapshot(AcceptedOutput, root.id, context),
       );

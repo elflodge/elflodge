@@ -87,6 +87,16 @@ services:
       # sign in to the provider instead, with
       # `docker compose run --rm --no-deps runner node dist/main.mjs login`.
       OPENROUTER_API_KEY:
+      # The folder of the Pi extensions each job runs with: the image's has pi-web-access, which
+      # reads web pages and PDFs. To change the extensions, copy it with
+      # `docker compose cp runner:/app/extensions ./extensions`, edit the copy, mount it with
+      # `./extensions:/extensions:ro` under volumes and name /extensions here
+      # (apps/runner/README.md).
+      RUNNER_EXTENSIONS_DIR: /app/extensions
+      # The providers jobs may search the web through, such as brave, with their keys above, such
+      # as BRAVE_API_KEY. Unset, web search is off, except through a ChatGPT subscription the
+      # model runs on.
+      # RUNNER_WEB_SEARCH: brave
     volumes:
       - runner-data:/data
     restart: unless-stopped

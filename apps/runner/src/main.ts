@@ -15,7 +15,9 @@ import * as NodeStdio from "@effect/platform-node-shared/NodeStdio";
 import * as NodeTerminal from "@effect/platform-node-shared/NodeTerminal";
 import { getDotPath } from "@standard-schema/utils";
 import {
+  Array,
   Config,
+  ConfigProvider,
   Data,
   Effect,
   FileSystem,
@@ -25,6 +27,7 @@ import {
   Redacted,
   Runtime,
   Schema,
+  SchemaGetter,
   SchemaIssue,
   Terminal,
 } from "effect";
@@ -80,6 +83,57 @@ const modelBaseUrlSetting = Config.schema(
   "RUNNER_MODEL_BASE_URL",
 ).pipe(Config.option);
 
+/**
+ * `RUNNER_EXTENSIONS_DIR`: the folder of the Pi extensions every job runs with, an npm project
+ * listing them as dependencies with its lockfile, and their default settings in `pi-agent`; none
+ * unless given. `RUNNER_EXTENSION_SETTINGS_DIR`: the operator's own settings files for them, which
+ * need the extensions.
+ */
+const extensionsSetting = Config.all({
+  extensions: Config.NonEmptyString("RUNNER_EXTENSIONS_DIR").pipe(Config.option),
+  settings: Config.NonEmptyString("RUNNER_EXTENSION_SETTINGS_DIR").pipe(Config.option),
+});
+
+/**
+ * `RUNNER_WEB_SEARCH`: the providers jobs may search the web through, separated by commas, such as
+ * `brave,exa`, lowercased as pi-web-access reads them, and each named once. Split here rather than
+ * by `Config.Array`, which also accepts a structured array and so adds "Expected array" to every
+ * error in an environment value.
+ */
+const webSearchSetting = Config.schema(
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Array(
+        Schema.Trim.pipe(
+          Schema.check(Schema.isNonEmpty({ message: "Expected a provider's name between commas" })),
+        ),
+      ).pipe(
+        Schema.refine(Array.isReadonlyArrayNonEmpty, { message: "Expected a provider's name" }),
+      ),
+      {
+        decode: SchemaGetter.split(),
+        encode: SchemaGetter.transform((names: readonly string[]) => names.join(",")),
+      },
+    ),
+  ),
+  "RUNNER_WEB_SEARCH",
+).pipe(
+  Config.map((names) => Array.dedupe(Array.map(names, (name) => name.toLowerCase()))),
+  Config.option,
+);
+
+/**
+ * Reads `RUNNER_WEB_SEARCH` from the process's environment, keeping an empty value, which Effect
+ * otherwise reads as unset: an empty value, such as a template's unfilled variable, may be meant as
+ * "off", and on a ChatGPT subscription unset turns search on, so the Runner refuses it instead.
+ * Unlike the other settings, it ignores a `ConfigProvider` the caller provides: keeping empty
+ * values is an option of the provider, not of one setting, and keeping them for every setting
+ * would change how the others read.
+ */
+const readWebSearch = webSearchSetting.parse(
+  ConfigProvider.fromEnv({ preserveEmptyStrings: true }),
+);
+
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
 const runnerSettings = Config.all({
   hubUrl: Config.URL("HUB_URL"),
@@ -103,6 +157,7 @@ const runnerSettings = Config.all({
   runWithoutSandbox: Config.Boolean("RUNNER_RUN_WITHOUT_SANDBOX").pipe(
     Config.withDefault(DEFAULT_SANDBOX_SETTINGS.runWithoutSandbox),
   ),
+  extensions: extensionsSetting,
 });
 
 /**
@@ -312,6 +367,11 @@ const authCheck = (offerLogin: boolean) =>
 const run = (options: { register: boolean; healthcheck: boolean }) =>
   Effect.gen(function* () {
     const settings = yield* runnerSettings;
+    const webSearch = yield* readWebSearch;
+    const { extensions, settings: extensionSettings } = settings.extensions;
+    if (Option.isNone(extensions) && Option.isSome(extensionSettings)) {
+      return yield* refuse("RUNNER_EXTENSION_SETTINGS_DIR is set without RUNNER_EXTENSIONS_DIR.");
+    }
     const { models, auth } = runnerAuth(settings.dataDir);
     const problem = yield* auth.prepareModel({
       provider: settings.provider,
@@ -336,10 +396,17 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         jobMemoryLimit: settings.jobMemoryLimit,
         runWithoutSandbox: settings.runWithoutSandbox,
       },
+      extensions: Option.match(extensions, {
+        onNone: () => undefined,
+        onSome: (dir) => ({ extensions: dir, settings: Option.getOrUndefined(extensionSettings) }),
+      }),
+      webSearch: Option.getOrUndefined(webSearch),
       register: options.register,
       onReady: ready.open,
     }).pipe(
-      Effect.catchTag("SandboxUnavailable", (error) => refuse(error.message)),
+      Effect.catchTag(["SandboxUnavailable", "ExtensionsUnavailable"], (error) =>
+        refuse(error.message),
+      ),
       Effect.catchTag("Removed", () =>
         // FIXME: re-registering belongs to the CLI. Once it exists, this message names its command
         // (such as `elflodge runner register`) and `register` moves out of this entry point.

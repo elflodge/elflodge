@@ -26,6 +26,7 @@
     "@earendil-works/pi-env": "catalog:",
     "@earendil-works/pi-schema": "catalog:",
     "@effect/platform-node-shared": "catalog:",
+    "@elflodge/pi-durable-extension-adapter": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",
@@ -34,6 +35,7 @@
     "contract": "workspace:*",
     "effect": "catalog:",
     "ensure-error": "catalog:",
+    "folder-hash": "catalog:",
     "json-schema-library": "catalog:",
     "proper-lockfile": "catalog:",
     "ws": "catalog:",
@@ -41,6 +43,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@types/folder-hash": "catalog:",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "catalog:",
     "@types/ws": "catalog:",

@@ -6,6 +6,8 @@
     // `esnext` for import attributes, with which the hub reads its version from its package.json.
     "module": "esnext",
     "resolveJsonModule": true,
+    // The extension adapter's source, which the tests' Runner loads, rather than its build.
+    "customConditions": ["@elflodge/source"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "isolatedModules": true,

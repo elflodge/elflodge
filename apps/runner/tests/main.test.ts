@@ -74,7 +74,12 @@ describe("the Runner's command line", () => {
   it("accepts [] from a started process, and exits 1", async () => {
     const main = fileURLToPath(new URL("../src/main.ts", import.meta.url));
     await expect(
-      promisify(execFile)(process.execPath, [main], { env: { PATH: process.env.PATH } }),
+      promisify(execFile)(
+        process.execPath,
+        // The workspace's packages resolve to their source, as in the Runner's other tests.
+        ["--conditions=@elflodge/source", main],
+        { env: { PATH: process.env.PATH } },
+      ),
     ).rejects.toMatchObject({
       code: 1,
       stderr: expect.stringContaining("The Runner is not configured"),

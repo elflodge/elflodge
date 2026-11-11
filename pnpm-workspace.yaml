@@ -64,6 +64,7 @@ catalog:
   "@orpc/zod": 2.0.0-beta.48
   "@standard-schema/utils": ^0.3.0
   "@testcontainers/postgresql": ^12.2.1
+  "@types/folder-hash": ^4.0.4
   "@types/node": ^22.20.5
   "@types/pg": ^8.23.1
   "@types/ms": ^2.1.0
@@ -80,6 +81,7 @@ catalog:
   effect: ^4.1.2
   ensure-error: ^5.0.0
   env-paths: ^4.0.0
+  folder-hash: ^4.1.4
   generate-license-file: ^4.2.5
   get-port: ^7.2.0
   hono: 5.0.0-rc.1
@@ -115,15 +117,18 @@ catalog:
   vite-plus: 1.5.0
   vitest: 5.1.0
   wrangler: ^4.157.0
-  ws: ^8.22.1
+  # The version Pi's chord takes as a peer, exactly: with any other, pi-ai resolves twice, and
+  # `pnpm deploy` cannot build the Runner's image, whose extension adapter takes pi-ai as a peer.
+  ws: 8.21.0
   zod: ^4.6.7
 catalogs:
   # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its
-  # extension view of pi-ai, the modules whose import registers providers), which any release may
-  # move or change, so it takes only the version its tests ran on.
+  # extension view of pi-ai, the modules whose import registers providers, its path helpers), which
+  # any release may move or change, so it takes only the version its tests ran on.
   pi-durable-extension-adapter:
     "@earendil-works/pi-coding-agent": 1.5.1
 
 patchedDependencies:
   "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
+  "@types/folder-hash@4.0.4": patches/@types__folder-hash@4.0.4.patch
   generate-license-file: patches/generate-license-file.patch

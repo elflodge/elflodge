@@ -74,7 +74,7 @@ await host.close(); // when the process shuts down
 
 `storage`, `models`, `model` and `context` are what you already pass to pi-durable. `env` is a pi-durable `ExecutionEnv`, such as `NodeExecutionEnv`, in which `pi.exec` runs commands; without one, `pi.exec` throws.
 
-Check what did not load. `prepared.failures` lists the sources that could not be installed or bundled, and `extensions.errors` lists the extensions that failed to load for this conversation; in both cases the others work without them.
+Check what did not load. `prepared.failures` lists the sources that could not be installed or bundled or have no extension, and `extensions.errors` lists the extensions that failed to load for this conversation; in both cases the others work without them.
 
 `extensions.input()` runs the extensions' `input` handlers, which can leave the prompt as it is (`continue`), replace its text and images (`transform`), or answer it themselves (`handled`), in which case you submit nothing.
 
@@ -108,7 +108,7 @@ A worker exits when an extension throws an uncaught error, calls `process.exit()
 
 A conversation is lost when its extensions fail to open again, or when `restart` is false. It goes on without its extensions: their tools fail and their handlers no longer run. If its extensions handle `tool_call`, all its tool calls are blocked, as Pi blocks a call when a `tool_call` handler fails, because the host cannot tell a handler that guards calls from one that only observes them.
 
-To act on an exit yourself, for instance to fail the job, pass `onWorkerExit`: it receives the error and the IDs of the conversations that were opened again and of those that were lost.
+To act on a lost conversation yourself, for instance to fail the job, pass `onLost` to `attach`: it is called with the worker's error when that attachment's extensions are lost. `onWorkerExit` on the host receives the error and the IDs of the conversations that were opened again and of those that were lost; IDs are unique only within one Harness, so with several Harnesses on one host, as one per job, `onLost` tells their conversations apart.
 
 ### Registries and subagents
 
@@ -158,6 +158,7 @@ await child.configure({ extensions: null }, context);
 | `cwd`          | required | The directory extensions see as `ctx.cwd`.                                                                       |
 | `env`          | none     | The environment `pi.exec` runs commands in. Without one, `pi.exec` throws.                                       |
 | `flags`        | none     | Values for the flags extensions register with `pi.registerFlag`, by name.                                        |
+| `onLost`       | none     | Called with the worker's error when these extensions are lost after their worker exits.                          |
 
 It resolves to the conversation's extensions: `errors`, `input(text, options)` and `close()`. The options of `input` are the prompt's `images`, its `source` (default `rpc`, as Pi's RPC mode reports a client's prompt) and its `streamingBehavior`, as Pi's `prompt` takes them.
 
