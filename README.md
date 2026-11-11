@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/logo-dark.svg">
+  <img alt="Elflodge" width="96" height="96" src="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/logo-light.svg">
+</picture>
+
 # Elflodge
 
 <!-- Links to repository files are absolute because npmjs.com shows this file too, as the Elflodge package's README. -->
