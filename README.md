@@ -1,17 +1,16 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/logo-dark.svg">
-  <img alt="Elflodge" width="96" height="96" src="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/logo-light.svg">
-</picture>
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/logo-dark.svg">
+    <img alt="" width="40" height="40" src="https://raw.githubusercontent.com/elflodge/elflodge/main/docs/images/logo-light.svg">
+  </picture>
+  Elflodge
+</h1>
 
-# Elflodge
+**Hundreds of agents working unattended. One job API.**
 
 <!-- Links to repository files are absolute because npmjs.com shows this file too, as the Elflodge package's README. -->
 
-[![npm](https://img.shields.io/npm/v/elflodge)](https://www.npmjs.com/package/elflodge) [![License: MIT](https://img.shields.io/npm/l/elflodge)](https://github.com/elflodge/elflodge/blob/main/LICENSE)
-
-Website: [elflodge.com](https://elflodge.com)
-
-> Hundreds of agents working unattended. One job API.
+[Website](https://elflodge.com) · [![npm](https://img.shields.io/npm/v/elflodge)](https://www.npmjs.com/package/elflodge) [![License: MIT](https://img.shields.io/npm/l/elflodge)](https://github.com/elflodge/elflodge/blob/main/LICENSE)
 
 Run sandboxed agents in parallel on your own machine, without a costly fleet of hosted sandboxes. Send a task or a whole batch; get structured results your code can use.
 
