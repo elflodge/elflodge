@@ -1,6 +1,6 @@
 {
   "name": "agent-batch",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "The former name of Elflodge: installs elflodge and runs it as `agent-batch`.",
   "keywords": [
     "agent-batch",
