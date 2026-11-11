@@ -42,10 +42,10 @@ export const runnerSchema = z
      */
     lastSeenAt: z.date(),
     /**
-     * What the Runner reported about itself in its latest hello: what jobs on it can do. Absent
-     * when it reported nothing the hub could read, as an older Runner does.
+     * What the Runner reported about itself in its latest hello: what jobs on it can do. Null when
+     * it reported nothing this hub can read, as an older Runner reports nothing.
      */
-    setup: z.optional(runnerSetupSchema),
+    setup: z.nullable(runnerSetupSchema),
   })
   .register(z.globalRegistry, { id: "Runner" });
 export type Runner = z.infer<typeof runnerSchema>;

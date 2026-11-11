@@ -19,6 +19,7 @@ import {
   CHATGPT_PROVIDER,
   describeWebSearch,
   planWebSearch,
+  WEB_SEARCH_EXTENSION,
   WEB_SEARCH_SETTINGS,
   type WebSearchSetup,
 } from "./web-search.ts";
@@ -118,13 +119,13 @@ export interface RunnerExtensions {
   /** The bundled extensions for the host, unless there are none. */
   readonly prepared?: PreparedExtensions;
   /** The packages installed, at their installed versions. */
-  readonly installed: RunnerSetup["extensions"];
-  /** What web search comes to, unless the Runner cannot tell. */
+  readonly packages: RunnerSetup["extensions"];
+  /** What web search comes to, unless the Runner cannot tell: pi-web-access is not among them. */
   readonly webSearch?: WebSearchSetup;
 }
 
 /** No extensions, so no search. */
-const NO_EXTENSIONS: RunnerExtensions = { installed: [], webSearch: { enabled: false } };
+const NO_EXTENSIONS: RunnerExtensions = { packages: [], webSearch: { enabled: false } };
 
 /**
  * Installs and bundles the extensions in `folders.extensions` as the Runner starts, and gives them
@@ -195,9 +196,8 @@ export function prepareRunnerExtensions(
     const webSearch = yield* configureWebSearch(agentDir, settings, search);
     if (names.length === 0) return NO_EXTENSIONS;
     const installed = yield* installReplacingOthers(source, path.resolve(dataDir, EXTENSIONS_DIR));
-    const sourceOf = new Map(
-      names.map((name) => [path.join(installed, PROJECT_DIR, "node_modules", name), name]),
-    );
+    const packageDir = (name: string) => path.join(installed, PROJECT_DIR, "node_modules", name);
+    const sourceOf = new Map(names.map((name) => [packageDir(name), name]));
     const prepared = yield* Effect.tryPromise({
       try: (signal) =>
         prepareExtensions({
@@ -223,15 +223,21 @@ export function prepareRunnerExtensions(
     // The versions npm installed, which the manifest may give as ranges or paths. A package without
     // one, as a local folder may be, is named alone.
     const versions = yield* Effect.forEach(names, (name) =>
-      fs
-        .readFileString(path.join(installed, PROJECT_DIR, "node_modules", name, "package.json"))
-        .pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(InstalledPackage)),
-          Effect.map(({ version }) => (version === undefined ? { name } : { name, version })),
-          Effect.mapError((error) => unavailable(`${name}'s package.json cannot be read`, error)),
-        ),
+      fs.readFileString(path.join(packageDir(name), "package.json")).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(InstalledPackage)),
+        Effect.map(({ version }) => (version === undefined ? { name } : { name, version })),
+        Effect.mapError((error) => unavailable(`${name}'s package.json cannot be read`, error)),
+      ),
     );
-    return { prepared, installed: versions, ...(webSearch === undefined ? {} : { webSearch }) };
+    // Without its settings file, pi-web-access runs on its own defaults.
+    const searching = names.includes(WEB_SEARCH_EXTENSION)
+      ? (webSearch ?? describeWebSearch({}, process.env, search.modelProvider))
+      : undefined;
+    return {
+      prepared,
+      packages: versions,
+      ...(searching === undefined ? {} : { webSearch: searching }),
+    };
   }).pipe(Effect.provide(NodeServices));
 }
 
@@ -241,9 +247,8 @@ const InstalledPackage = Schema.fromJsonString(
 
 /**
  * Applies `planWebSearch` to pi-web-access's settings in the agent directory, logs what web search
- * does and returns what it comes to. Without its settings file there is nothing to apply, and the
- * Runner cannot tell, unless `RUNNER_WEB_SEARCH` asks for search, which then has no extension to go
- * through.
+ * does and returns what it comes to. Without its settings file there is nothing to apply, unless
+ * `RUNNER_WEB_SEARCH` asks for search, which then has no extension to go through.
  */
 function configureWebSearch(
   agentDir: string,
@@ -279,7 +284,7 @@ function configureWebSearch(
     if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
     yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
     // pi-web-access reads its keys from the workers' environment, the process's.
-    return describeWebSearch(written ?? settings, process.env);
+    return describeWebSearch(written ?? settings, process.env, search.modelProvider);
   }).pipe(
     Effect.catchTag("PlatformError", (error) =>
       Effect.fail(unavailable(`${WEB_SEARCH_SETTINGS} cannot be applied`, error)),

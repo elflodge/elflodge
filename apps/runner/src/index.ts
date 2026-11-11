@@ -37,6 +37,7 @@ import {
   Result,
   Schedule,
   Scope,
+  Struct,
 } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import * as Socket from "effect/socket/Socket";
@@ -249,12 +250,8 @@ function runRegistered(
         onReady: options.onReady ?? Effect.void,
         setup: {
           runnerVersion: RUNNER_VERSION,
-          model: {
-            provider: options.model.provider,
-            modelId: options.model.modelId,
-            thinkingLevel: options.model.thinkingLevel,
-          },
-          extensions: extensions.installed,
+          model: Struct.pick(options.model, ["provider", "modelId", "thinkingLevel"]),
+          extensions: extensions.packages,
           ...(extensions.webSearch === undefined ? {} : { webSearch: extensions.webSearch }),
         },
       });

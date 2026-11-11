@@ -20,6 +20,7 @@ import {
   Layer,
   Order,
   Path,
+  Result,
   Runtime,
   Stream,
 } from "effect";
@@ -729,7 +730,7 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
-    yield* say(webSearchStatus(yield* stackRunnerSetup(state)));
+    yield* say(webSearchStatus(state, yield* Effect.result(stackRunnerSetup(state))));
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -742,9 +743,10 @@ function start(version: string, flags: StartFlags) {
 }
 
 /**
- * What the stack's Runner reported about itself in its hello, which the hub keeps: the Runner
- * whose name is the container's hostname, which it reports as its name, the latest seen if several
- * are. Undefined when the hub has none, as for an older image, or cannot be asked.
+ * What the stack's Runner reported about itself in its hello, which the hub keeps, asked as the
+ * owner, which signs in anew: the Runner whose name is the container's hostname, which it reports
+ * as its name, the latest seen if several are. Null when it reported nothing the hub can read, as an
+ * older image reports nothing, and undefined when the hub lists no such Runner.
  */
 function stackRunnerSetup(state: State) {
   return Effect.gen(function* () {
@@ -771,14 +773,18 @@ function stackRunnerSetup(state: State) {
           Order.mapInput(Order.Date, (runner: Runner) => runner.lastSeenAt),
         ).setup
       : undefined;
-  }).pipe(Effect.orElseSucceed(() => undefined));
+  });
 }
 
 /** What web search does on the stack's Runner, from what it reported, and how to change it. */
-function webSearchStatus(setup: RunnerSetup | undefined) {
-  const search = setup?.webSearch;
-  const status =
-    search === undefined
+function webSearchStatus(
+  state: State,
+  reported: Result.Result<RunnerSetup | null | undefined, Error>,
+) {
+  const search = Result.isSuccess(reported) ? reported.success?.webSearch : undefined;
+  const status = Result.isFailure(reported)
+    ? `The hub could not be asked what web search does (${reported.failure.message}): see elflodge stack logs.`
+    : search === undefined
       ? "The Runner did not report what web search does: see elflodge stack logs."
       : !search.enabled
         ? "Web search is off."
@@ -786,26 +792,25 @@ function webSearchStatus(setup: RunnerSetup | undefined) {
             search.allowedProviders === undefined
               ? "Web search may use any provider the Runner finds a key for, keyless ones included."
               : `Web search is on through ${search.allowedProviders.join(", ")}.`,
-            ...(search.openai === undefined ? [] : [openaiBilling(search.openai)]),
+            ...(search.openai === undefined
+              ? []
+              : [
+                  search.openai.mayUseApiKey
+                    ? "OpenAI searches may be billed to an API key."
+                    : "OpenAI searches go only through the ChatGPT subscription, within its limits.",
+                ]),
+            // The Runner searches through a ChatGPT subscription the model runs on, Pi's
+            // `openai-codex`, unless --search names providers without it.
+            ...(state.model.provider === "openai-codex" &&
+            search.allowedProviders !== undefined &&
+            !search.allowedProviders.includes("openai")
+              ? ["The ChatGPT subscription the model runs on can also search: add --search openai."]
+              : []),
           ].join(" ");
   return [
     status,
     "elflodge stack start --search <provider> sets RUNNER_WEB_SEARCH, with its key forwarded by --env; --reset-search unsets it.",
   ].join("\n");
-}
-
-/** Who pays for OpenAI searches, which cost money per search unless a ChatGPT subscription runs them. */
-function openaiBilling(openai: NonNullable<NonNullable<RunnerSetup["webSearch"]>["openai"]>) {
-  // Pi's provider for a ChatGPT subscription.
-  const subscription = openai.logins.includes("openai-codex");
-  if (openai.mayUseApiKey) {
-    return subscription
-      ? "OpenAI searches use the ChatGPT subscription, and may be billed to an OpenAI API key."
-      : "OpenAI searches may be billed to an OpenAI API key.";
-  }
-  return subscription
-    ? "OpenAI searches use the ChatGPT subscription's limits."
-    : "OpenAI searches have no login to use.";
 }
 
 function runCredentialCommand(

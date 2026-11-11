@@ -410,9 +410,10 @@ export const runnerSetupSchema = z
       z.object({
         enabled: z.boolean(),
         /**
-         * The providers searches may go through, in the order they are tried when the Runner sets
-         * search up. Absent while search is on: any provider pi-web-access finds a key for, keyless
-         * ones included, as an allowlist does when left empty on OpenRouter.
+         * The providers searches may go through, those tried in turn first, in that order, then
+         * those only a search naming them reaches. Absent while search is on: any provider
+         * pi-web-access finds a key for, keyless ones included, as an allowlist does when left empty
+         * on OpenRouter.
          */
         allowedProviders: z.optional(z.array(z.string())),
         /** How OpenAI searches are paid for, when they may happen. */
@@ -422,7 +423,8 @@ export const runnerSetupSchema = z
             logins: z.array(z.string()),
             /**
              * Whether a search may be billed to an API key: one is set for pi-web-access to fall
-             * back to, or Pi's `openai` login, which can hold one, is among the logins.
+             * back to, or a login other than a ChatGPT subscription's, which can hold one, is among
+             * the logins.
              */
             mayUseApiKey: z.boolean(),
           }),

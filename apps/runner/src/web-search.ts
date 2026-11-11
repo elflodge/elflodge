@@ -6,6 +6,9 @@ import type { NonEmptyReadonlyArray } from "effect/Array";
 // folder pins: whether web search is on, through which providers, and with which credentials.
 // Checked on each upgrade of that version (ADR 0039).
 
+/** The extension package jobs search the web through. */
+export const WEB_SEARCH_EXTENSION = "pi-web-access";
+
 /** pi-web-access's settings file in the extensions' agent directory. */
 export const WEB_SEARCH_SETTINGS = "web-search.json";
 
@@ -78,18 +81,15 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
   if (!isOn(settings)) {
     return Result.succeed({ message: `Web search is off.${chosen ? source : ` ${TURN_ON}`}` });
   }
-  const allowed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(
-    fieldsOf(settings["webSearch"])["allowedProviders"],
-  );
+  const allowed = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
   return Result.succeed(
-    Option.match(allowed, {
-      onNone: () => ({
-        warning: true,
-        message:
-          "Web search may use any provider pi-web-access finds a key for, keyless ones included: name the providers jobs may use in webSearch.allowedProviders in web-search.json.",
-      }),
-      onSome: (names) => ({ message: `Web search is on through ${names.join(", ")}.${source}` }),
-    }),
+    allowed === undefined
+      ? {
+          warning: true,
+          message:
+            "Web search may use any provider pi-web-access finds a key for, keyless ones included: name the providers jobs may use in webSearch.allowedProviders in web-search.json.",
+        }
+      : { message: `Web search is on through ${allowed.join(", ")}.${source}` },
   );
 }
 
@@ -102,56 +102,65 @@ export type WebSearchSetup = NonNullable<RunnerSetup["webSearch"]>;
  */
 const DEFAULT_OPENAI_LOGINS = [CHATGPT_PROVIDER, "openai"];
 
-/** Pi's OpenAI provider, whose login can hold an API key (`login --with-api-key`). */
-const OPENAI_LOGIN = "openai";
-
 /**
- * What pi-web-access does with `settings` and the Runner's environment `env`: whether search is on,
- * through which providers, and for OpenAI, which logins pay for its searches and whether an API key
- * can, as pi-web-access resolves them as of the version the image's folder pins. Its key fallback is
- * off only with `openaiUseProviderBaseUrl` and no explicit Responses URL, and counts only when a key
- * is set.
+ * What pi-web-access does with `settings`, the Runner's environment `env` and the jobs' model's
+ * provider `modelProvider`, as of the version the image's folder pins: whether jobs can search,
+ * through which providers in the order searches try them, and for OpenAI, which logins pay for its
+ * searches and whether an API key can. Only a search confined to a ChatGPT subscription's sign-in
+ * is reported as never billed to a key: any other login, a gateway's included, may hold one.
  */
 export function describeWebSearch(
   settings: Settings,
   env: { readonly [name: string]: string | undefined },
+  modelProvider: string,
 ): WebSearchSetup {
   if (!isOn(settings)) return { enabled: false };
-  const allowedProviders = Option.getOrUndefined(
-    Schema.decodeUnknownOption(Schema.Array(Schema.String))(
-      fieldsOf(settings["webSearch"])["allowedProviders"],
-    ),
-  );
+  const routing = fieldsOf(settings["searchRouting"]);
+  const routed = providerList(routing["providers"]);
+  const allowed = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
+  // Routing tries its providers in order; the other allowed ones serve only a search that names them.
+  const allowedProviders = allowed && [...new Set([...(routed ?? []), ...allowed])];
   if (allowedProviders !== undefined && !allowedProviders.includes(OPENAI_SEARCH))
-    return { enabled: true, allowedProviders: [...allowedProviders] };
-  const logins = Option.getOrElse(
+    return { enabled: true, allowedProviders };
+  const configured = Option.match(
     Schema.decodeUnknownOption(Schema.Array(Schema.String))(settings["openaiSearchProviders"]),
-    () => DEFAULT_OPENAI_LOGINS,
+    { onNone: () => DEFAULT_OPENAI_LOGINS, onSome: (logins) => logins.map((id) => id.trim()) },
   );
+  // Routed OpenAI searches go through the jobs' own model instead.
+  const throughModel = routing["useCurrentModel"] === true && routed?.includes(OPENAI_SEARCH);
+  const logins = [...new Set(throughModel ? [modelProvider, ...configured] : configured)];
   const keyFallback =
     settings["openaiResponsesUrl"] !== undefined || settings["openaiUseProviderBaseUrl"] !== true;
   const keySet = [env["OPENAI_API_KEY"], settings["openaiApiKey"]].some(
     (key) => typeof key === "string" && key !== "",
   );
+  const subscriptionOnly = logins.length > 0 && logins.every((login) => login === CHATGPT_PROVIDER);
   return {
     enabled: true,
-    ...(allowedProviders === undefined ? {} : { allowedProviders: [...allowedProviders] }),
-    openai: {
-      logins: [...logins],
-      mayUseApiKey: (keyFallback && keySet) || logins.includes(OPENAI_LOGIN),
-    },
+    ...(allowedProviders === undefined ? {} : { allowedProviders }),
+    openai: { logins, mayUseApiKey: (keyFallback && keySet) || !subscriptionOnly },
   };
 }
 
+/** Search providers as pi-web-access reads a list of them: trimmed and lowercased. */
+const providerList = (value: unknown) =>
+  Option.getOrUndefined(
+    Schema.decodeUnknownOption(Schema.Array(Schema.String))(value).pipe(
+      Option.map((names) => names.map((name) => name.trim().toLowerCase())),
+    ),
+  );
+
 /**
- * Whether search is on, as pi-web-access decides: the tool's own switch, else the older one, else
- * on. A value that is not a boolean counts as unset, as it does there.
+ * Whether jobs can search, as pi-web-access decides for each of its two searching tools,
+ * `web_search` and `source_check`: the tool's own switch, else the shared one, else on. A value
+ * that is not a boolean counts as unset, as it does there.
  */
 function isOn(settings: Settings) {
-  return (
-    flag(fieldsOf(fieldsOf(settings["tools"])["webSearch"])["enabled"]) ??
-    flag(fieldsOf(settings["webSearch"])["enabled"]) ??
-    true
+  return (["webSearch", "sourceCheck"] as const).some(
+    (tool) =>
+      flag(fieldsOf(fieldsOf(settings["tools"])[tool])["enabled"]) ??
+      flag(fieldsOf(settings["webSearch"])["enabled"]) ??
+      true,
   );
 }
 

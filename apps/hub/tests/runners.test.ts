@@ -62,6 +62,7 @@ test("a runner whose setup the hub cannot read still connects, listed without it
     id: runnerId,
     name: "newer runner",
     lastSeenAt: expect.any(Date),
+    setup: null,
   });
   socket.close();
 });

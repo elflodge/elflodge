@@ -69,18 +69,25 @@ test("named providers and the operator's own settings together are refused", () 
   expect(Result.isFailure(plan({ chosen: true, providers: ["brave"] }))).toBe(true);
 });
 
-// What the Runner reports about search tells members whether a job's searches may cost money per
-// search, so it must follow what pi-web-access will do with the settings and the key it can find.
+// What the Runner reports about search tells members whether jobs can search and whether a search
+// may be billed to an API key, so it must follow what pi-web-access will do with the settings and
+// credentials it can find; where it cannot be sure, it says a key may pay.
 
 const KEY = { OPENAI_API_KEY: "sk-test" };
+const describe = (settings: { readonly [key: string]: unknown }, env = {}) =>
+  describeWebSearch(settings, env, "anthropic");
 
-test("search reported off is off", () => {
-  expect(describeWebSearch(defaults, KEY)).toEqual({ enabled: false });
+test("search is reported off only when neither searching tool is on", () => {
+  expect(describe(defaults)).toEqual({ enabled: false });
+  const sourceCheckOnly = {
+    tools: { webSearch: { enabled: false }, sourceCheck: { enabled: true } },
+  };
+  expect(describe(sourceCheckOnly).enabled).toBe(true);
 });
 
 test("search through a subscription's sign-in is reported as never billed to a key, even with one set", () => {
   const settings = Result.getOrThrow(plan({ subscription: "openai-codex" })).settings ?? {};
-  expect(describeWebSearch(settings, KEY)).toEqual({
+  expect(describe(settings, KEY)).toEqual({
     enabled: true,
     allowedProviders: ["openai"],
     openai: { logins: ["openai-codex"], mayUseApiKey: false },
@@ -89,15 +96,37 @@ test("search through a subscription's sign-in is reported as never billed to a k
 
 test("search through named providers without openai reports no OpenAI billing", () => {
   const settings = Result.getOrThrow(plan({ providers: ["brave"] })).settings ?? {};
-  expect(describeWebSearch(settings, KEY)).toEqual({ enabled: true, allowedProviders: ["brave"] });
+  expect(describe(settings, KEY)).toEqual({ enabled: true, allowedProviders: ["brave"] });
 });
 
-test("pi-web-access's own defaults are reported as open to any provider, and to a key once one is set", () => {
-  expect(describeWebSearch({}, {})).toEqual({
+test("pi-web-access's own defaults are reported as open to any provider and to a key", () => {
+  expect(describe({})).toEqual({
     enabled: true,
     openai: { logins: ["openai-codex", "openai"], mayUseApiKey: true },
   });
-  const signedInOnly = { openaiSearchProviders: ["openai-codex"] };
-  expect(describeWebSearch(signedInOnly, {}).openai?.mayUseApiKey).toBe(false);
-  expect(describeWebSearch(signedInOnly, KEY).openai?.mayUseApiKey).toBe(true);
+});
+
+test("any login but a ChatGPT subscription's may bill a key, a gateway's included", () => {
+  const pinned = { openaiUseProviderBaseUrl: true };
+  const loginsOf = (openaiSearchProviders: string[]) =>
+    describe({ ...pinned, openaiSearchProviders }, KEY).openai?.mayUseApiKey;
+  expect(loginsOf(["openai-codex"])).toBe(false);
+  expect(loginsOf(["openrouter"])).toBe(true);
+  expect(describe({ openaiSearchProviders: ["openai-codex"] }, KEY).openai?.mayUseApiKey).toBe(
+    true,
+  );
+});
+
+test("routed OpenAI searches through the jobs' model are billed as the model is", () => {
+  const settings = {
+    openaiSearchProviders: ["openai-codex"],
+    openaiUseProviderBaseUrl: true,
+    webSearch: { allowedProviders: ["brave", "openai"] },
+    searchRouting: { providers: ["openai", "brave"], useCurrentModel: true },
+  };
+  expect(describeWebSearch(settings, {}, "openai")).toEqual({
+    enabled: true,
+    allowedProviders: ["openai", "brave"],
+    openai: { logins: ["openai", "openai-codex"], mayUseApiKey: true },
+  });
 });

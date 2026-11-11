@@ -48,7 +48,7 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
 
 /**
  * Lists every Runner the hub has recorded, as its API returns them. A setup this hub cannot read, as
- * one a newer Runner reported to a newer hub before this one replaced it, is left out rather than
+ * one a newer Runner reported to a newer hub before this one replaced it, is null rather than
  * failing the list.
  */
 export const listRunners = Db.use((database) =>
@@ -57,10 +57,10 @@ export const listRunners = Db.use((database) =>
       .selectFrom("runner")
       .select(["id", "name", "lastSeenAt", "setup"])
       .execute();
-    return rows.map(({ setup, ...runner }) => {
-      const parsed = z.safeParse(runnerSetupSchema, setup);
-      return parsed.success ? { ...runner, setup: parsed.data } : runner;
-    });
+    return rows.map((runner) => ({
+      ...runner,
+      setup: z.safeParse(runnerSetupSchema, runner.setup).data ?? null,
+    }));
   }),
 );
 
