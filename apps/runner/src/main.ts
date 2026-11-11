@@ -27,6 +27,7 @@ import {
   Redacted,
   Runtime,
   Schema,
+  SchemaGetter,
   SchemaIssue,
   Terminal,
 } from "effect";
@@ -95,10 +96,24 @@ const extensionsSetting = Config.all({
 
 /**
  * `RUNNER_WEB_SEARCH`: the providers jobs may search the web through, separated by commas, such as
- * `brave,exa`, lowercased as pi-web-access reads them, and each named once.
+ * `brave,exa`, lowercased as pi-web-access reads them, and each named once. Split here rather than
+ * by `Config.Array`, which also accepts a structured array and so adds "Expected array" to every
+ * error in an environment value.
  */
-const webSearchSetting = Config.Array(
-  Schema.Trim.pipe(Schema.check(Schema.isNonEmpty())),
+const webSearchSetting = Config.schema(
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Array(
+        Schema.Trim.pipe(
+          Schema.check(Schema.isNonEmpty({ message: "Expected a provider's name between commas" })),
+        ),
+      ).pipe(Schema.check(Schema.isMinLength(1, { message: "Expected a provider's name" }))),
+      {
+        decode: SchemaGetter.split(),
+        encode: SchemaGetter.transform((names: readonly string[]) => names.join(",")),
+      },
+    ),
+  ),
   "RUNNER_WEB_SEARCH",
 ).pipe(
   Config.map((names) => Array.dedupe(names.map((name) => name.toLowerCase()))),
@@ -106,9 +121,12 @@ const webSearchSetting = Config.Array(
 );
 
 /**
- * Reads `RUNNER_WEB_SEARCH` keeping an empty value, which Effect otherwise reads as unset: an
- * empty value, such as a template's unfilled variable, may be meant as "off", and on a ChatGPT
- * subscription unset turns search on, so the Runner refuses it instead.
+ * Reads `RUNNER_WEB_SEARCH` from the process's environment, keeping an empty value, which Effect
+ * otherwise reads as unset: an empty value, such as a template's unfilled variable, may be meant as
+ * "off", and on a ChatGPT subscription unset turns search on, so the Runner refuses it instead.
+ * Unlike the other settings, it ignores a `ConfigProvider` the caller provides, as only
+ * `ConfigProvider.fromEnv` can keep empty values and keeping them for every setting would change
+ * how the others read.
  */
 const readWebSearch = webSearchSetting.parse(
   ConfigProvider.fromEnv({ preserveEmptyStrings: true }),

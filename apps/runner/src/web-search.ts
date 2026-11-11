@@ -57,7 +57,6 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
         "RUNNER_WEB_SEARCH and web-search.json in RUNNER_EXTENSION_SETTINGS_DIR both choose where jobs search: remove one",
       );
     }
-    if (providers.length === 0) return Result.fail("RUNNER_WEB_SEARCH names no provider");
     const also =
       subscription !== undefined && !providers.includes(OPENAI_SEARCH)
         ? ` The ChatGPT subscription the model runs on can also search: add ${OPENAI_SEARCH} to RUNNER_WEB_SEARCH.`
