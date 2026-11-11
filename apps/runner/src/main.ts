@@ -15,7 +15,9 @@ import * as NodeStdio from "@effect/platform-node-shared/NodeStdio";
 import * as NodeTerminal from "@effect/platform-node-shared/NodeTerminal";
 import { getDotPath } from "@standard-schema/utils";
 import {
+  Array,
   Config,
+  ConfigProvider,
   Data,
   Effect,
   FileSystem,
@@ -93,16 +95,23 @@ const extensionsSetting = Config.all({
 
 /**
  * `RUNNER_WEB_SEARCH`: the providers jobs may search the web through, separated by commas, such as
- * `brave,exa`. An empty value counts as unset, as for every setting Effect reads.
+ * `brave,exa`, lowercased as pi-web-access reads them, and each named once.
  */
-const webSearchSetting = Config.String("RUNNER_WEB_SEARCH").pipe(
-  Config.map((value) =>
-    value
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean),
-  ),
+const webSearchSetting = Config.Array(
+  Schema.Trim.pipe(Schema.check(Schema.isNonEmpty())),
+  "RUNNER_WEB_SEARCH",
+).pipe(
+  Config.map((names) => Array.dedupe(names.map((name) => name.toLowerCase()))),
   Config.option,
+);
+
+/**
+ * Reads `RUNNER_WEB_SEARCH` keeping an empty value, which Effect otherwise reads as unset: an
+ * empty value, such as a template's unfilled variable, may be meant as "off", and on a ChatGPT
+ * subscription unset turns search on, so the Runner refuses it instead.
+ */
+const readWebSearch = webSearchSetting.parse(
+  ConfigProvider.fromEnv({ preserveEmptyStrings: true }),
 );
 
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
@@ -129,7 +138,6 @@ const runnerSettings = Config.all({
     Config.withDefault(DEFAULT_SANDBOX_SETTINGS.runWithoutSandbox),
   ),
   extensions: extensionsSetting,
-  webSearch: webSearchSetting,
 });
 
 /**
@@ -339,6 +347,7 @@ const authCheck = (offerLogin: boolean) =>
 const run = (options: { register: boolean; healthcheck: boolean }) =>
   Effect.gen(function* () {
     const settings = yield* runnerSettings;
+    const webSearch = yield* readWebSearch;
     const { extensions, settings: extensionSettings } = settings.extensions;
     if (Option.isNone(extensions) && Option.isSome(extensionSettings)) {
       return yield* refuse("RUNNER_EXTENSION_SETTINGS_DIR is set without RUNNER_EXTENSIONS_DIR.");
@@ -371,7 +380,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         onNone: () => undefined,
         onSome: (dir) => ({ extensions: dir, settings: Option.getOrUndefined(extensionSettings) }),
       }),
-      webSearch: Option.getOrUndefined(settings.webSearch),
+      webSearch: Option.getOrUndefined(webSearch),
       register: options.register,
       onReady: ready.open,
     }).pipe(

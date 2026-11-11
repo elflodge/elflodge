@@ -78,7 +78,7 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
     return Result.succeed({ message: `Web search is off.${chosen ? source : ` ${TURN_ON}`}` });
   }
   const allowed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(
-    object(settings["webSearch"])["allowedProviders"],
+    fieldsOf(settings["webSearch"])["allowedProviders"],
   );
   return Result.succeed(
     Option.match(allowed, {
@@ -98,13 +98,14 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
  */
 function isOn(settings: Settings) {
   return (
-    flag(object(object(settings["tools"])["webSearch"])["enabled"]) ??
-    flag(object(settings["webSearch"])["enabled"]) ??
+    flag(fieldsOf(fieldsOf(settings["tools"])["webSearch"])["enabled"]) ??
+    flag(fieldsOf(settings["webSearch"])["enabled"]) ??
     true
   );
 }
 
-const object = (value: unknown): Settings => (Predicate.isObject(value) ? value : {});
+/** `value`'s fields, or none when it is not an object, as a mistyped setting may be. */
+const fieldsOf = (value: unknown): Settings => (Predicate.isObject(value) ? value : {});
 
 const flag = (value: unknown) =>
   Option.getOrUndefined(Schema.decodeUnknownOption(Schema.Boolean)(value));
@@ -116,7 +117,7 @@ const flag = (value: unknown) =>
  * routing, so none is kept.
  */
 function withSearch(settings: Settings, providers: readonly string[], subscription?: string) {
-  const tools = object(settings["tools"]);
+  const tools = fieldsOf(settings["tools"]);
   const pinned = subscription !== undefined && providers.includes(OPENAI_SEARCH);
   const kept = Struct.omit(
     settings,
@@ -126,14 +127,16 @@ function withSearch(settings: Settings, providers: readonly string[], subscripti
     ...kept,
     tools: {
       ...tools,
-      webSearch: { ...object(tools["webSearch"]), enabled: true },
-      sourceCheck: { ...object(tools["sourceCheck"]), enabled: true },
+      webSearch: { ...fieldsOf(tools["webSearch"]), enabled: true },
+      sourceCheck: { ...fieldsOf(tools["sourceCheck"]), enabled: true },
     },
-    webSearch: { ...object(settings["webSearch"]), allowedProviders: providers },
+    webSearch: { ...fieldsOf(settings["webSearch"]), allowedProviders: providers },
     searchRouting: {
-      ...object(settings["searchRouting"]),
+      ...fieldsOf(settings["searchRouting"]),
       providers,
-      fallbackOn: ["transient", "quota", "network"],
+      // As pi-web-access's own routing example: on to the next provider when one is down, out of
+      // quota, unreachable, answers badly or cannot serve the request, such as a domain filter.
+      fallbackOn: ["transient", "quota", "network", "invalid-response", "unsupported"],
     },
     // Only the subscription's sign-in, never a key: with provider URL reuse, pi-web-access refuses
     // to search when that sign-in fails rather than fall back to `openaiApiKey` or `OPENAI_API_KEY`.

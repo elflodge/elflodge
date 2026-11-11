@@ -558,7 +558,8 @@ function stateForStart(flags: StartFlags, saved: State | undefined) {
       port: flags.port ?? state.port,
       model,
       env: [...new Set(env)].toSorted(),
-      search: [...new Set(search)].toSorted(),
+      // In the order given: the Runner tries the providers in that order.
+      search: [...new Set(search)],
     };
   });
 }
@@ -731,6 +732,7 @@ function start(version: string, flags: StartFlags) {
 /**
  * What web search does, as the Runner logged it when it started: `stack start` does not show the
  * Runner's log, and the Runner alone decides it (`planWebSearch` in apps/runner/src/web-search.ts).
+ * Matches Effect's default log line; with another log format, the stack points to the log instead.
  */
 const runnerSearchStatus = dockerOutput([
   "compose",

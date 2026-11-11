@@ -28,7 +28,10 @@ test("named providers turn search on through exactly them, in order", () => {
     tools: on,
     pdf: { provider: "unpdf" },
     webSearch: { allowedProviders: ["brave", "exa"] },
-    searchRouting: { providers: ["brave", "exa"], fallbackOn: ["transient", "quota", "network"] },
+    searchRouting: {
+      providers: ["brave", "exa"],
+      fallbackOn: ["transient", "quota", "network", "invalid-response", "unsupported"],
+    },
   });
 });
 
@@ -37,10 +40,19 @@ test("on the defaults, a ChatGPT subscription searches through its sign-in only,
     tools: on,
     pdf: { provider: "unpdf" },
     webSearch: { allowedProviders: ["openai"] },
-    searchRouting: { providers: ["openai"], fallbackOn: ["transient", "quota", "network"] },
+    searchRouting: {
+      providers: ["openai"],
+      fallbackOn: ["transient", "quota", "network", "invalid-response", "unsupported"],
+    },
     openaiSearchProviders: ["openai-codex"],
     openaiUseProviderBaseUrl: true,
   });
+});
+
+test("naming openai on a subscription Runner searches through its sign-in only", () => {
+  expect(
+    Result.getOrThrow(plan({ providers: ["openai"], subscription: "openai-codex" })).settings,
+  ).toMatchObject({ openaiSearchProviders: ["openai-codex"], openaiUseProviderBaseUrl: true });
 });
 
 test("without a subscription or named providers, search stays off", () => {
