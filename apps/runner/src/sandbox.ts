@@ -226,7 +226,7 @@ export function prepareJobEnvironments(
 }
 
 /** Node's implementations of the process and file-system services the Runner's checks use. */
-const NodeServices = NodeChildProcessSpawner.layer.pipe(
+export const NodeServices = NodeChildProcessSpawner.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
 );
 
@@ -333,7 +333,7 @@ function tryMemoryCap(
  * failing is an answer, such as no user systemd manager, not an error. A command given an `env`
  * gets only that environment, not the Runner's.
  */
-function runCommand(
+export function runCommand(
   command: ChildProcess.Command,
 ): Effect.Effect<
   { stdout: string; failure: string | undefined },

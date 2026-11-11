@@ -1,0 +1,7 @@
+{
+  "name": "extensions",
+  "private": true,
+  "dependencies": {
+    "extension-fixture": "file:./extension"
+  }
+}

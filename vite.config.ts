@@ -5,7 +5,8 @@ export default defineConfig({
     // Off by default in Oxfmt; on, so import order is the formatter's, not a review point.
     sortImports: true,
     // release-please writes the changelog in its own Markdown style, and its release PR must pass checks.
-    ignorePatterns: ["CHANGELOG.md"],
+    // npm writes and rewrites its lockfiles itself.
+    ignorePatterns: ["CHANGELOG.md", "**/package-lock.json"],
   },
   staged: {
     "*": "vp check --fix",
@@ -43,7 +44,7 @@ export default defineConfig({
     // accepts, former ones included, which the workspace does not install.
     ignorePatterns: [
       "packages/pi-durable-extension-adapter/tests/fixtures/**",
-      "apps/hub/tests/fixtures/extension/**",
+      "apps/hub/tests/fixtures/extensions/extension/**",
     ],
   },
   run: {

@@ -48,6 +48,11 @@ updates:
         update-types: ["minor", "patch"]
         patterns:
           - "*"
+  # The extensions the Runner's image ships, an npm project of their own (ADR 0039).
+  - package-ecosystem: "npm"
+    directory: "/apps/runner/extensions"
+    schedule:
+      interval: "weekly"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

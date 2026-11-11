@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 
 // The shared package avoids @effect/platform-node's required redis peer, which the CLI does not use.
@@ -55,6 +55,8 @@ const stateSchema = z.object({
   model: modelSchema,
   /** Names only: their external values are required again when creating a Runner. */
   env: z._default(z.array(z.string()), []),
+  /** The search providers jobs may use, as pi-web-access names them; none, and no web search, at first. */
+  search: z._default(z.array(z.string()), []),
   /** The key Runners register with, which the Runner uses on its first start only. */
   registrationKey: z.optional(z.string()),
   /** The key for submitting and controlling jobs, which other commands use when no other is set. */
@@ -153,10 +155,73 @@ function runnerService(state: State, version: string) {
       RUNNER_MODEL_PROVIDER: literal(state.model.provider),
       RUNNER_MODEL_ID: literal(state.model.id),
       RUNNER_DATA_DIR: "/data",
+      RUNNER_EXTENSIONS: IMAGE_EXTENSIONS,
     },
-    volumes: ["runner-data:/data"],
+    volumes: [
+      "runner-data:/data",
+      // The search settings replace the image's folder's own, which have search off.
+      ...(state.search.length > 0
+        ? [`${searchSettingsFile(state, version)}:${IMAGE_EXTENSIONS}/pi-agent/web-search.json:ro`]
+        : []),
+    ],
     restart: "unless-stopped",
   };
+}
+
+/** The image's folder of the Runner's extensions: pi-web-access, which reads web pages, with web search off. */
+const IMAGE_EXTENSIONS = "/app/extensions";
+
+/**
+ * Where the stack keeps pi-web-access's settings with search on, named after what they hold, so a
+ * different choice is a different declaration and recreates the Runner.
+ */
+function searchSettingsFile(state: State, version: string) {
+  const name = createHash("sha256")
+    .update(`${version}\0${state.search.join("\0")}`)
+    .digest("hex");
+  return path.join(STATE_DIR, `web-search-${name.slice(0, 16)}.json`);
+}
+
+/**
+ * Writes pi-web-access's settings with search on for the chosen providers, over the image's own, so
+ * every other setting stays the image's; removes those written for earlier choices.
+ */
+function writeSearchSettings(state: State, version: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const file = searchSettingsFile(state, version);
+    for (const entry of yield* fs.readDirectory(STATE_DIR)) {
+      const stale = path.join(STATE_DIR, entry);
+      if (entry.startsWith("web-search-") && (state.search.length === 0 || stale !== file))
+        yield* fs.remove(stale);
+    }
+    if (state.search.length === 0) return;
+    const image = runnerService(state, version).image;
+    const settings = yield* dockerOutput([
+      "run",
+      "--rm",
+      "--entrypoint",
+      "cat",
+      image,
+      `${IMAGE_EXTENSIONS}/pi-agent/web-search.json`,
+    ]).pipe(
+      Effect.flatMap((text) =>
+        Effect.try({
+          try: () => z.parse(z.record(z.string(), z.unknown()), JSON.parse(text)),
+          catch: ensureError,
+        }),
+      ),
+    );
+    const webSearch = z.parse(z.optional(z.record(z.string(), z.unknown())), settings["webSearch"]);
+    yield* writeStateFile(
+      file,
+      `${JSON.stringify(
+        { ...settings, webSearch: { ...webSearch, enabled: true, allowedProviders: state.search } },
+        null,
+        2,
+      )}\n`,
+    );
+  });
 }
 
 function runnerConfiguration(state: State, version: string) {
@@ -251,8 +316,9 @@ function runRunnerCommand(
     // Authentication starts no sandbox and never reaches the hub, so the container gets neither the
     // sandbox's security options nor the hub's address and registration key. Its command opens no
     // listener, so the image's healthcheck is off rather than reporting it unhealthy.
-    const { image, environment, volumes } = runnerService(state, version);
+    const { image, environment } = runnerService(state, version);
     const { HUB_URL: _hub, RUNNER_REGISTRATION_KEY: _key, ...authEnvironment } = environment;
+    const volumes = ["runner-data:/data"];
     const file = yield* writeTemporaryComposeFile({
       name: PROJECT,
       services: {
@@ -506,15 +572,22 @@ function chooseModel(
   return { provider, id };
 }
 
-type StartFlags = { port?: number; env?: string[]; clearEnv?: boolean } & Parameters<
-  typeof chooseModel
->[0];
+type StartFlags = {
+  port?: number;
+  env?: string[];
+  clearEnv?: boolean;
+  search?: string[];
+  clearSearch?: boolean;
+} & Parameters<typeof chooseModel>[0];
 
 /** Proposes settings without committing a failed start's selection or endpoint. */
 function stateForStart(flags: StartFlags, saved: State | undefined) {
   return Effect.gen(function* () {
     if (flags.env !== undefined && flags.clearEnv) {
       return yield* Effect.fail(new Error("Use either --env or --clear-env, not both"));
+    }
+    if (flags.search !== undefined && flags.clearSearch) {
+      return yield* Effect.fail(new Error("Use either --search or --clear-search, not both"));
     }
     const model = yield* Effect.try({
       try: () => chooseModel(flags, saved?.model),
@@ -527,9 +600,17 @@ function stateForStart(flags: StartFlags, saved: State | undefined) {
       port: 8787,
       model,
       env: [],
+      search: [],
     };
     const env = flags.clearEnv ? [] : (flags.env ?? state.env);
-    return { ...state, port: flags.port ?? state.port, model, env: [...new Set(env)].toSorted() };
+    const search = flags.clearSearch ? [] : (flags.search ?? state.search);
+    return {
+      ...state,
+      port: flags.port ?? state.port,
+      model,
+      env: [...new Set(env)].toSorted(),
+      search: [...new Set(search)].toSorted(),
+    };
   });
 }
 
@@ -544,6 +625,7 @@ const environmentName = z.string().check(
         "RUNNER_MODEL_PROVIDER",
         "RUNNER_MODEL_ID",
         "RUNNER_DATA_DIR",
+        "RUNNER_EXTENSIONS",
       ].includes(name),
     "This variable is configured by the stack",
   ),
@@ -644,6 +726,7 @@ function start(version: string, flags: StartFlags) {
         ),
       );
     }
+    yield* writeSearchSettings(state, images);
     yield* writeComposeFile(state, images);
     // The first Runner needs a registration key from the healthy hub before it can start.
     yield* compose(["up", "-d", "--wait", "--wait-timeout", "60", "hub"]);
@@ -801,6 +884,21 @@ export function stackCommands(version: string) {
                   "Clear all forwarded variable names; cannot be combined with --env. The Runner must have another authentication source before recreation.",
                 ),
               ),
+          ),
+          search: z.optional(
+            z
+              .array(z.string().check(z.minLength(1)))
+              .check(
+                z.minLength(1),
+                z.describe(
+                  "Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. Jobs search through no provider until named here, even with its key forwarded with --env. Omit to retain the list; supply a list to replace it.",
+                ),
+              ),
+          ),
+          clearSearch: z.optional(
+            z
+              .boolean()
+              .check(z.describe("Turn web search off again; cannot be combined with --search.")),
           ),
         }),
       )

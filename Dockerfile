@@ -89,6 +89,9 @@ COPY --from=runner-build /tmp/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 COPY --from=runner-build /tmp/runner /app
 COPY --from=runner-build /app/LICENSE /app/LICENSE
+# The extensions the image ships, which Compose and `elflodge stack` name (ADR 0039), copied as they
+# are: a package's files would leave out their lockfile and `.npmrc`, as npm never packs them.
+COPY --from=runner-build /app/apps/runner/extensions /app/extensions
 # npm installs the Runner's extensions; its notice of a newer npm is for the image's maintainers.
 ENV NODE_ENV=production RUNNER_DATA_DIR=/data NPM_CONFIG_UPDATE_NOTIFIER=false
 USER runner
