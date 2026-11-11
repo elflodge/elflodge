@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { Models } from "@earendil-works/pi-ai";
 import { hook, ToolTask } from "@earendil-works/pi-durable";
 import {
   type ExtensionHost,
@@ -7,12 +8,13 @@ import {
   prepareExtensions,
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
-import { Data, Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Config, Data, Effect, FileSystem, Option, Path, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
 
 import { NodeServices, runCommand } from "./sandbox.ts";
+import { CHATGPT_PROVIDER, planWebSearch, WEB_SEARCH_SETTINGS } from "./web-search.ts";
 
 // Pi coding-agent extensions in jobs, through `@elflodge/pi-durable-extension-adapter` (ADR 0038):
 // installed and bundled once as the Runner starts, run in a few worker threads the Runner's jobs
@@ -85,50 +87,80 @@ export class ExtensionsUnavailable extends Data.TaggedError("ExtensionsUnavailab
   message: string;
 }> {}
 
+/** Where a Runner's extensions and their settings come from. */
+export interface ExtensionFolders {
+  /**
+   * The extensions: an npm project that lists them as dependencies, with its `package-lock.json`,
+   * and their default settings in `pi-agent`.
+   */
+  readonly extensions?: string;
+  /** The operator's own settings files, each in place of the default of the same name. */
+  readonly settings?: string;
+}
+
 /**
- * Installs and bundles the extensions in `folder`, an npm project that lists them as dependencies
- * with its `package-lock.json`, as the Runner starts, and gives them its `pi-agent` folder as their
- * settings.
+ * Installs and bundles the extensions in `folders.extensions` as the Runner starts, and gives them
+ * their settings: the set's defaults, each replaced by the operator's file of the same name. On the
+ * defaults, a model on a ChatGPT subscription searches through it (`planWebSearch`).
  *
  * npm installs the set once, with `npm ci`, which installs exactly the lockfile's versions and
  * checks each package's hash, into a folder of the data directory named after the set, so a Runner
  * restarted with the same set starts without the registry, and a changed set installs beside
  * nothing: earlier sets are removed. The folder is copied first, so it may be read-only and local
  * packages inside it keep their relative paths. The settings are copied at every start, so the
- * folder stays their only source; what extensions wrote in their agent directory does not survive a
+ * folders stay their only source; what extensions wrote in their agent directory does not survive a
  * restart. Fails, naming each extension and why, when any cannot be installed or bundled: a Runner
  * whose jobs lack an extension it was told to load would fail them in ways the operator never sees.
  */
 export function prepareRunnerExtensions(
   dataDir: string,
-  folder: string | undefined,
+  folders: ExtensionFolders,
+  model: { readonly models: Models; readonly provider: string },
 ): Effect.Effect<PreparedExtensions | undefined, ExtensionsUnavailable> {
-  if (folder === undefined) return Effect.succeed(undefined);
+  if (folders.extensions === undefined) {
+    return folders.settings === undefined
+      ? Effect.succeed(undefined)
+      : Effect.fail(
+          new ExtensionsUnavailable({
+            message: "RUNNER_EXTENSION_SETTINGS_DIR is set without RUNNER_EXTENSIONS_DIR",
+          }),
+        );
+  }
+  const folder = folders.extensions;
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const paths = yield* Path.Path;
+    const realPath = (dir: string) =>
+      fs
+        .realPath(dir)
+        .pipe(Effect.mapError((error) => unavailable(`${dir} cannot be read`, error)));
     // The Runner replaces what it keeps in its data directory, so a folder there, or one holding
     // it, would lose its files or be copied with the data; their real paths, as a symbolic link
     // could hide either inside the other.
-    const source = yield* fs
-      .realPath(folder)
-      .pipe(Effect.mapError((error) => unavailable(`${folder} cannot be read`, error)));
+    const source = yield* realPath(folder);
+    const settings = folders.settings === undefined ? undefined : yield* realPath(folders.settings);
     const data = yield* fs.makeDirectory(dataDir, { recursive: true }).pipe(
       Effect.andThen(fs.realPath(dataDir)),
       Effect.mapError((error) => unavailable(`${dataDir} cannot be read`, error)),
     );
     const contains = (parent: string, child: string) =>
       Option.isSome(paths.resolveWithin(parent, paths.relative(parent, child)));
-    if (contains(source, data) || contains(data, source))
-      return yield* new ExtensionsUnavailable({
-        message: `The extensions folder ${source} and RUNNER_DATA_DIR ${data} must not contain one another`,
-      });
+    for (const [name, dir] of [
+      ["extensions folder", source],
+      ["extension settings folder", settings],
+    ] as const) {
+      if (dir !== undefined && (contains(dir, data) || contains(data, dir)))
+        return yield* new ExtensionsUnavailable({
+          message: `The ${name} ${dir} and RUNNER_DATA_DIR ${data} must not contain one another`,
+        });
+    }
     const manifest = yield* fs.readFileString(path.join(source, "package.json")).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(ExtensionsManifest)),
       Effect.mapError((error) => unavailable(`${source}/package.json cannot be read`, error)),
     );
     const names = Object.keys(manifest.dependencies ?? {});
-    yield* replaceSettings(source, path.resolve(dataDir, PI_AGENT_DIR)).pipe(
+    const agentDir = path.resolve(dataDir, PI_AGENT_DIR);
+    yield* replaceSettings(source, settings, agentDir).pipe(
       Effect.mapError((error) => unavailable("Their settings cannot be copied", error)),
     );
     if (names.length === 0) return undefined;
@@ -158,9 +190,48 @@ export function prepareRunnerExtensions(
         )}`,
       });
     }
+    yield* configureWebSearch(agentDir, settings, model);
     return prepared;
   }).pipe(Effect.provide(NodeServices));
 }
+
+/**
+ * Applies `planWebSearch` to pi-web-access's settings, if the extensions have any, and logs what
+ * web search does.
+ */
+function configureWebSearch(
+  agentDir: string,
+  settingsDir: string | undefined,
+  { models, provider }: { readonly models: Models; readonly provider: string },
+) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const file = path.join(agentDir, WEB_SEARCH_SETTINGS);
+    if (!(yield* fs.exists(file))) return;
+    const settings = yield* fs
+      .readFileString(file)
+      .pipe(Effect.flatMap(Schema.decodeUnknownEffect(SettingsFile)));
+    const chosen =
+      settingsDir !== undefined && (yield* fs.exists(path.join(settingsDir, WEB_SEARCH_SETTINGS)));
+    const auth =
+      provider === CHATGPT_PROVIDER
+        ? yield* Effect.tryPromise((signal) => models.checkAuth(provider, { signal }))
+        : undefined;
+    const openAiKey = yield* Config.String("OPENAI_API_KEY").pipe(Config.option);
+    const plan = planWebSearch({
+      settings,
+      chosen,
+      subscription: auth?.type === "oauth" ? provider : undefined,
+      openAiKey: Option.isSome(openAiKey),
+    });
+    if (plan.settings) yield* fs.writeFileString(file, JSON.stringify(plan.settings, undefined, 2));
+    yield* plan.warning ? Effect.logWarning(plan.message) : Effect.logInfo(plan.message);
+  }).pipe(
+    Effect.mapError((error) => unavailable("pi-web-access's settings cannot be applied", error)),
+  );
+}
+
+const SettingsFile = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown));
 
 /**
  * Installs the npm project in `source` into a folder of `dir` named after it, in its `project`
@@ -237,14 +308,23 @@ function installKey(source: string) {
   );
 }
 
-/** Replaces the extensions' agent directory with a copy of the `pi-agent` folder in `source`, if any. */
-function replaceSettings(source: string, agentDir: string) {
+/**
+ * Replaces the extensions' agent directory with a copy of the `pi-agent` folder in `source`, if any,
+ * then each entry of `settings`, if given, in place of the one of the same name: an operator's file
+ * is used as written, as in Pi, not merged with the default.
+ */
+function replaceSettings(source: string, settings: string | undefined, agentDir: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     yield* fs.remove(agentDir, { recursive: true, force: true });
-    const settings = path.join(source, PI_AGENT_DIR);
-    if (yield* fs.exists(settings)) yield* fs.copy(settings, agentDir);
+    const defaults = path.join(source, PI_AGENT_DIR);
+    if (yield* fs.exists(defaults)) yield* fs.copy(defaults, agentDir);
     else yield* fs.makeDirectory(agentDir, { recursive: true });
+    if (settings === undefined) return;
+    for (const entry of yield* fs.readDirectory(settings)) {
+      yield* fs.remove(path.join(agentDir, entry), { recursive: true, force: true });
+      yield* fs.copy(path.join(settings, entry), path.join(agentDir, entry));
+    }
   });
 }
 

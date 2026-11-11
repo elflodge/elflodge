@@ -357,7 +357,7 @@ export function startSystem(
         register?: boolean;
         onRemoved?: () => void;
         maxJobs?: number;
-        extensions?: string;
+        extensions?: Parameters<typeof startRunner>[0]["extensions"];
       } = {},
     ): Promise<string> {
       runnerDataDir ??= await mkdtemp(path.join(tmpdir(), "runner-"));

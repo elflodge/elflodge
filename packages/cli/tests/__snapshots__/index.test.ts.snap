@@ -746,7 +746,7 @@ exports[`the commands and their flags 1`] = `
             },
             {
               "attributeName": "search",
-              "description": "Type: string; Min length: 1 Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. Jobs search through no provider until named here, even with its key forwarded with --env. Omit to retain the list; supply a list to replace it.; Min items: 1 array",
+              "description": "Type: string; Min length: 1 Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. A key forwarded with --env alone turns on no provider; a model on a ChatGPT subscription searches through it until providers are named. Omit to retain the list; supply a list to replace it.; Min items: 1 array",
               "flags": "--search [values...]",
               "name": "search",
               "negate": false,

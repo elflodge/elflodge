@@ -160,16 +160,15 @@ function runnerService(state: State, version: string, searchSettings?: string) {
       RUNNER_MODEL_PROVIDER: literal(state.model.provider),
       RUNNER_MODEL_ID: literal(state.model.id),
       RUNNER_DATA_DIR: "/data",
-      RUNNER_EXTENSIONS: IMAGE_EXTENSIONS,
+      RUNNER_EXTENSIONS_DIR: IMAGE_EXTENSIONS,
+      ...(searchSettings === undefined ? {} : { RUNNER_EXTENSION_SETTINGS_DIR: SETTINGS_DIR }),
     },
     volumes: ["runner-data:/data"],
-    // The search settings replace the image's folder's own, which have search off.
+    // The search settings replace the image's folder's defaults, which have search off.
     ...(searchSettings === undefined
       ? {}
       : {
-          configs: [
-            { source: SEARCH_SETTINGS, target: `${IMAGE_EXTENSIONS}/pi-agent/web-search.json` },
-          ],
+          configs: [{ source: SEARCH_SETTINGS, target: `${SETTINGS_DIR}/web-search.json` }],
         }),
     restart: "unless-stopped",
   };
@@ -177,6 +176,9 @@ function runnerService(state: State, version: string, searchSettings?: string) {
 
 /** The image's folder of the Runner's extensions: pi-web-access, which reads web pages, with web search off. */
 const IMAGE_EXTENSIONS = "/app/extensions";
+
+/** The Runner's folder of extension settings, which holds the search settings when there are any. */
+const SETTINGS_DIR = "/extension-settings";
 
 /** The Compose config that holds pi-web-access's settings with search on. */
 const SEARCH_SETTINGS = "web-search";
@@ -625,7 +627,8 @@ const environmentName = z.string().check(
         "RUNNER_MODEL_PROVIDER",
         "RUNNER_MODEL_ID",
         "RUNNER_DATA_DIR",
-        "RUNNER_EXTENSIONS",
+        "RUNNER_EXTENSIONS_DIR",
+        "RUNNER_EXTENSION_SETTINGS_DIR",
       ].includes(name),
     "This variable is configured by the stack",
   ),
@@ -767,6 +770,7 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
+    yield* say(searchStatus(state));
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -776,6 +780,20 @@ function start(version: string, flags: StartFlags) {
       ].join("\n"),
     );
   }).pipe(Effect.scoped);
+}
+
+/**
+ * What web search does, which the Runner logs as it starts but `stack start` does not show: as the
+ * Runner decides it (`planWebSearch` in apps/runner/src/web-search.ts).
+ */
+function searchStatus(state: State) {
+  if (state.search.length > 0) {
+    return `Web search goes through ${state.search.join(", ")}; --search replaces the list, and --clear-search turns search off.`;
+  }
+  if (state.model.provider === "openai-codex" && !state.env.includes("OPENAI_API_KEY")) {
+    return "Web search goes through the ChatGPT subscription the model runs on, within its limits. --search replaces it with the providers you name; include openai to keep it.";
+  }
+  return "Web search is off; --search <provider> turns it on, with the provider's key forwarded by --env.";
 }
 
 function runCredentialCommand(
@@ -891,7 +909,7 @@ export function stackCommands(version: string) {
               .check(
                 z.minLength(1),
                 z.describe(
-                  "Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. Jobs search through no provider until named here, even with its key forwarded with --env. Omit to retain the list; supply a list to replace it.",
+                  "Turn on web search through the named provider, as pi-web-access names it, such as brave; repeatable. A key forwarded with --env alone turns on no provider; a model on a ChatGPT subscription searches through it until providers are named. Omit to retain the list; supply a list to replace it.",
                 ),
               ),
           ),

@@ -81,10 +81,19 @@ const modelBaseUrlSetting = Config.schema(
 ).pipe(Config.option);
 
 /**
- * `RUNNER_EXTENSIONS`: the folder of the Pi extensions every job runs with, an npm project listing
- * them as dependencies with its lockfile, and their settings in `pi-agent`. None unless given.
+ * `RUNNER_EXTENSIONS_DIR`: the folder of the Pi extensions every job runs with, an npm project
+ * listing them as dependencies with its lockfile, and their default settings in `pi-agent`; none
+ * unless given. `RUNNER_EXTENSION_SETTINGS_DIR`: the operator's own settings files for them.
  */
-const extensionsSetting = Config.NonEmptyString("RUNNER_EXTENSIONS").pipe(Config.option);
+const extensionsSetting = Config.all({
+  extensions: Config.NonEmptyString("RUNNER_EXTENSIONS_DIR").pipe(Config.option),
+  settings: Config.NonEmptyString("RUNNER_EXTENSION_SETTINGS_DIR").pipe(Config.option),
+}).pipe(
+  Config.map(({ extensions, settings }) => ({
+    extensions: Option.getOrUndefined(extensions),
+    settings: Option.getOrUndefined(settings),
+  })),
+);
 
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
 const runnerSettings = Config.all({
@@ -343,7 +352,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         jobMemoryLimit: settings.jobMemoryLimit,
         runWithoutSandbox: settings.runWithoutSandbox,
       },
-      extensions: Option.getOrUndefined(settings.extensions),
+      extensions: settings.extensions,
       register: options.register,
       onReady: ready.open,
     }).pipe(

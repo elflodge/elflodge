@@ -13,7 +13,7 @@ const system = startSystem();
 beforeAll(async () => {
   await system.start();
   await system.startRunner({
-    extensions: path.join(import.meta.dirname, "fixtures", "extensions"),
+    extensions: { extensions: path.join(import.meta.dirname, "fixtures", "extensions") },
   });
 });
 afterAll(() => system.stop());

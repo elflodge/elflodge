@@ -46,6 +46,7 @@ import * as z from "zod/mini";
 import type { AgentModel, HubHttpClient } from "./agent.ts";
 import {
   ExtensionsUnavailable,
+  type ExtensionFolders,
   prepareRunnerExtensions,
   startRunnerExtensions,
 } from "./extensions.ts";
@@ -105,11 +106,8 @@ export interface RunnerOptions {
   maxJobs?: number;
   /** How jobs' sandboxes are made; `DEFAULT_SANDBOX_SETTINGS` unless given. */
   sandbox?: SandboxSettings;
-  /**
-   * The folder of the Pi extensions every job's agent runs with: an npm project that lists them as
-   * dependencies, with its `package-lock.json`, and their settings in `pi-agent`. None unless given.
-   */
-  extensions?: string;
+  /** Where the Pi extensions every job's agent runs with, and their settings, come from. None unless given. */
+  extensions?: ExtensionFolders;
   /** How often to send a heartbeat; tests set it shorter. */
   heartbeatIntervalMs?: number;
   /** Discards the Runner's own key and registers again, as the `register` command does. */
@@ -159,7 +157,10 @@ export function runRunner(
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
     const environments = yield* prepareEnvironments(options);
-    const extensions = yield* prepareRunnerExtensions(options.dataDir, options.extensions);
+    const extensions = yield* prepareRunnerExtensions(options.dataDir, options.extensions ?? {}, {
+      models: options.models,
+      provider: options.model.provider,
+    });
     const registration = yield* loadOrRegister(hubUrl, options);
     return yield* runRegistered(hubUrl, registration, options, environments, extensions);
   });
@@ -173,7 +174,10 @@ export async function startRunner(options: StartRunnerOptions): Promise<Runner> 
   const hubUrl = new URL(options.hubUrl);
   const environments = await Effect.runPromise(prepareEnvironments(options));
   const extensions = await Effect.runPromise(
-    prepareRunnerExtensions(options.dataDir, options.extensions),
+    prepareRunnerExtensions(options.dataDir, options.extensions ?? {}, {
+      models: options.models,
+      provider: options.model.provider,
+    }),
   );
   const registration = await Effect.runPromise(loadOrRegister(hubUrl, options));
   const loop = Effect.runFork(

@@ -11,7 +11,7 @@ const system = startSystem();
 beforeAll(async () => {
   await system.start();
   await system.startRunner({
-    extensions: path.join(import.meta.dirname, "fixtures", "broken-extensions"),
+    extensions: { extensions: path.join(import.meta.dirname, "fixtures", "broken-extensions") },
   });
 });
 afterAll(() => system.stop());
