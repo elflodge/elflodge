@@ -35,6 +35,9 @@ jobs:
       - &job-sandbox
         name: Job sandbox
         run: |
+          # kernel.org's Ubuntu mirror as a last fallback: the image's own mirrors all sit behind
+          # Canonical's DNS, which an outage takes down at once (actions/runner-images#15296).
+          sudo sed -i '$a http://mirrors.edge.kernel.org/ubuntu/' /etc/apt/apt-mirrors.txt
           sudo apt-get update
           sudo apt-get install -y bubblewrap socat ripgrep
           # Ubuntu 24.04 strips the capabilities from the user namespaces the sandbox creates (ADR 0027).
