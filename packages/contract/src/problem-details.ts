@@ -60,10 +60,6 @@ export function createProblemDetailsLink<T extends ClientContext>(
   const send = options.fetch ?? ((url: string, init: RequestInit) => globalThis.fetch(url, init));
   return new OpenAPILink<T>(contract, {
     ...options,
-    // oRPC fetches with `redirect: "manual"` and reads any status below 400 as an answer, so a
-    // redirect, as from an `http://` URL to its `https://` one, would be read as the call's answer;
-    // the API never redirects, so the caller is to call the URL it names instead.
-    //
     // An error page that is not Problem Details, as a proxy or gateway in front of the hub sends
     // while the hub restarts, in HTML or in JSON of its own, would fail to parse as the JSON the
     // contract says every body is, or as a problem, and lose its status; it reads as the problem
@@ -74,12 +70,6 @@ export function createProblemDetailsLink<T extends ClientContext>(
     // error of the hub carries.
     fetch: async (url, init, clientOptions, path) => {
       const response = await send(url, init, clientOptions, path);
-      if (response.status >= 300 && response.status < 400) {
-        await response.body?.cancel();
-        throw new Error(
-          `The API redirects to ${response.headers.get("location") ?? "another URL"}; call it there`,
-        );
-      }
       if (response.ok) return response;
       const contentType = parseContentType(response.headers.get("content-type") ?? "");
       if (contentType.type === "application/problem+json") return response;
