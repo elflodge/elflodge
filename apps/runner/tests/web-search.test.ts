@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { planWebSearch, type WebSearchInput } from "../src/web-search.ts";
+import { describeWebSearch, planWebSearch, type WebSearchInput } from "../src/web-search.ts";
 
 // Web search may spend money and send jobs' queries elsewhere, so it goes only where the operator
 // said, once, and otherwise only through the ChatGPT subscription the jobs' model already runs on,
@@ -67,4 +67,37 @@ test("the operator's own settings are used as given", () => {
 
 test("named providers and the operator's own settings together are refused", () => {
   expect(Result.isFailure(plan({ chosen: true, providers: ["brave"] }))).toBe(true);
+});
+
+// What the Runner reports about search tells members whether a job's searches may cost money per
+// search, so it must follow what pi-web-access will do with the settings and the key it can find.
+
+const KEY = { OPENAI_API_KEY: "sk-test" };
+
+test("search reported off is off", () => {
+  expect(describeWebSearch(defaults, KEY)).toEqual({ enabled: false });
+});
+
+test("search through a subscription's sign-in is reported as never billed to a key, even with one set", () => {
+  const settings = Result.getOrThrow(plan({ subscription: "openai-codex" })).settings ?? {};
+  expect(describeWebSearch(settings, KEY)).toEqual({
+    enabled: true,
+    allowedProviders: ["openai"],
+    openai: { logins: ["openai-codex"], mayUseApiKey: false },
+  });
+});
+
+test("search through named providers without openai reports no OpenAI billing", () => {
+  const settings = Result.getOrThrow(plan({ providers: ["brave"] })).settings ?? {};
+  expect(describeWebSearch(settings, KEY)).toEqual({ enabled: true, allowedProviders: ["brave"] });
+});
+
+test("pi-web-access's own defaults are reported as open to any provider, and to a key once one is set", () => {
+  expect(describeWebSearch({}, {})).toEqual({
+    enabled: true,
+    openai: { logins: ["openai-codex", "openai"], mayUseApiKey: true },
+  });
+  const signedInOnly = { openaiSearchProviders: ["openai-codex"] };
+  expect(describeWebSearch(signedInOnly, {}).openai?.mayUseApiKey).toBe(false);
+  expect(describeWebSearch(signedInOnly, KEY).openai?.mayUseApiKey).toBe(true);
 });

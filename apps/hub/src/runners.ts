@@ -1,20 +1,30 @@
-import type { Runner } from "contract";
+import { type Runner, type RunnerSetup, runnerSetupSchema } from "contract";
 import { Effect } from "effect";
+import * as z from "zod/mini";
 
 import { Db } from "./db/database.ts";
 import type { RunnerId } from "./db/types.ts";
 import { RunnerConnections } from "./platform.ts";
 
-// Runners are recorded only by when the hub last heard from them. These writes may arrive late or out
-// of order, so each one moves `lastSeenAt` forward or does nothing, and their order never matters.
+// Runners are recorded by when the hub last heard from them and what their latest hello reported.
+// These writes may arrive late or out of order, so each one moves `lastSeenAt` forward or does
+// nothing, and their order never matters.
 
-/** Records that the Runner said hello under `name` at `seenAt`. */
-export function recordRunnerHello(runnerId: RunnerId, name: string, seenAt: Date) {
+/**
+ * Records that the Runner said hello under `name` at `seenAt`, with what it reported about itself,
+ * which replaces what an earlier hello reported, so a Runner that reports nothing shows nothing.
+ */
+export function recordRunnerHello(
+  runnerId: RunnerId,
+  name: string,
+  setup: RunnerSetup | undefined,
+  seenAt: Date,
+) {
   return Db.use((database) =>
     database.query((db) =>
       db
         .updateTable("runner")
-        .set({ name, lastSeenAt: seenAt })
+        .set({ name, lastSeenAt: seenAt, setup: setup ?? null })
         .where("id", "=", runnerId)
         .where("lastSeenAt", "<", seenAt)
         .execute(),
@@ -36,11 +46,22 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
   ).pipe(Effect.asVoid);
 }
 
-/** Lists every Runner the hub has recorded, as its API returns them. */
+/**
+ * Lists every Runner the hub has recorded, as its API returns them. A setup this hub cannot read, as
+ * one a newer Runner reported to a newer hub before this one replaced it, is left out rather than
+ * failing the list.
+ */
 export const listRunners = Db.use((database) =>
-  database.query((db): Promise<Runner[]> =>
-    db.selectFrom("runner").select(["id", "name", "lastSeenAt"]).execute(),
-  ),
+  database.query(async (db): Promise<Runner[]> => {
+    const rows = await db
+      .selectFrom("runner")
+      .select(["id", "name", "lastSeenAt", "setup"])
+      .execute();
+    return rows.map(({ setup, ...runner }) => {
+      const parsed = z.safeParse(runnerSetupSchema, setup);
+      return parsed.success ? { ...runner, setup: parsed.data } : runner;
+    });
+  }),
 );
 
 /**

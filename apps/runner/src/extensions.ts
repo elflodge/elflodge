@@ -7,6 +7,7 @@ import {
   prepareExtensions,
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
+import type { RunnerSetup } from "contract";
 import { Data, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { ChildProcess } from "effect/process";
@@ -14,7 +15,13 @@ import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
 
 import { NodeServices, runCommand } from "./sandbox.ts";
-import { CHATGPT_PROVIDER, planWebSearch, WEB_SEARCH_SETTINGS } from "./web-search.ts";
+import {
+  CHATGPT_PROVIDER,
+  describeWebSearch,
+  planWebSearch,
+  WEB_SEARCH_SETTINGS,
+  type WebSearchSetup,
+} from "./web-search.ts";
 
 // Pi coding-agent extensions in jobs, through `@elflodge/pi-durable-extension-adapter` (ADR 0038):
 // installed and bundled once as the Runner starts, run in a few worker threads the Runner's jobs
@@ -106,6 +113,19 @@ export interface WebSearchSetting {
   readonly modelProvider: string;
 }
 
+/** The extensions the Runner prepared, and what it reports about them. */
+export interface RunnerExtensions {
+  /** The bundled extensions for the host, unless there are none. */
+  readonly prepared?: PreparedExtensions;
+  /** The packages installed, at their installed versions. */
+  readonly installed: RunnerSetup["extensions"];
+  /** What web search comes to, unless the Runner cannot tell. */
+  readonly webSearch?: WebSearchSetup;
+}
+
+/** No extensions, so no search. */
+const NO_EXTENSIONS: RunnerExtensions = { installed: [], webSearch: { enabled: false } };
+
 /**
  * Installs and bundles the extensions in `folders.extensions` as the Runner starts, and gives them
  * their settings: the set's defaults, each replaced by the operator's file of the same name, with
@@ -124,10 +144,10 @@ export function prepareRunnerExtensions(
   dataDir: string,
   folders: ExtensionFolders | undefined,
   search: WebSearchSetting,
-): Effect.Effect<PreparedExtensions | undefined, ExtensionsUnavailable> {
+): Effect.Effect<RunnerExtensions, ExtensionsUnavailable> {
   if (folders === undefined) {
     return search.providers === undefined
-      ? Effect.succeed(undefined)
+      ? Effect.succeed(NO_EXTENSIONS)
       : Effect.fail(
           new ExtensionsUnavailable({
             message:
@@ -172,8 +192,8 @@ export function prepareRunnerExtensions(
     yield* replaceSettings(source, settings, agentDir).pipe(
       Effect.mapError((error) => unavailable("Their settings cannot be copied", error)),
     );
-    yield* configureWebSearch(agentDir, settings, search);
-    if (names.length === 0) return undefined;
+    const webSearch = yield* configureWebSearch(agentDir, settings, search);
+    if (names.length === 0) return NO_EXTENSIONS;
     const installed = yield* installReplacingOthers(source, path.resolve(dataDir, EXTENSIONS_DIR));
     const sourceOf = new Map(
       names.map((name) => [path.join(installed, PROJECT_DIR, "node_modules", name), name]),
@@ -200,14 +220,30 @@ export function prepareRunnerExtensions(
         )}`,
       });
     }
-    return prepared;
+    // The versions npm installed, which the manifest may give as ranges or paths. A package without
+    // one, as a local folder may be, is named alone.
+    const versions = yield* Effect.forEach(names, (name) =>
+      fs
+        .readFileString(path.join(installed, PROJECT_DIR, "node_modules", name, "package.json"))
+        .pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(InstalledPackage)),
+          Effect.map(({ version }) => (version === undefined ? { name } : { name, version })),
+          Effect.mapError((error) => unavailable(`${name}'s package.json cannot be read`, error)),
+        ),
+    );
+    return { prepared, installed: versions, ...(webSearch === undefined ? {} : { webSearch }) };
   }).pipe(Effect.provide(NodeServices));
 }
 
+const InstalledPackage = Schema.fromJsonString(
+  Schema.Struct({ version: Schema.optional(Schema.String) }),
+);
+
 /**
- * Applies `planWebSearch` to pi-web-access's settings in the agent directory, and logs what web
- * search does. Without its settings file there is nothing to apply, unless `RUNNER_WEB_SEARCH`
- * asks for search, which then has no extension to go through.
+ * Applies `planWebSearch` to pi-web-access's settings in the agent directory, logs what web search
+ * does and returns what it comes to. Without its settings file there is nothing to apply, and the
+ * Runner cannot tell, unless `RUNNER_WEB_SEARCH` asks for search, which then has no extension to go
+ * through.
  */
 function configureWebSearch(
   agentDir: string,
@@ -219,7 +255,7 @@ function configureWebSearch(
     const file = path.join(agentDir, WEB_SEARCH_SETTINGS);
     if (!(yield* fs.exists(file))) {
       return yield* search.providers === undefined
-        ? Effect.void
+        ? Effect.succeed(undefined)
         : new ExtensionsUnavailable({
             message: `RUNNER_WEB_SEARCH is set, but the extensions have no ${WEB_SEARCH_SETTINGS} to search with`,
           });
@@ -241,7 +277,9 @@ function configureWebSearch(
     if (Result.isFailure(plan)) return yield* new ExtensionsUnavailable({ message: plan.failure });
     const { settings: written, message, warning } = plan.success;
     if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
-    return yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
+    yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
+    // pi-web-access reads its keys from the workers' environment, the process's.
+    return describeWebSearch(written ?? settings, process.env);
   }).pipe(
     Effect.catchTag("PlatformError", (error) =>
       Effect.fail(unavailable(`${WEB_SEARCH_SETTINGS} cannot be applied`, error)),

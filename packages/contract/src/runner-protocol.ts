@@ -390,11 +390,62 @@ export type JobReport = z.infer<typeof jobReportSchema>;
 const refusedReportSchema = z.object({ ...runRefSchema.shape, reason: z.string() });
 export type RefusedReport = z.infer<typeof refusedReportSchema>;
 
+/**
+ * What a Runner reports about itself: what its settings come to as it starts, not the settings,
+ * which stay on the Runner, so readers need none of their rules. It says what jobs on the Runner
+ * can do; the hub keeps the latest and shows it.
+ */
+export const runnerSetupSchema = z
+  .object({
+    runnerVersion: z.string(),
+    /** The model every job starts on, by Pi's names. */
+    model: z.object({ provider: z.string(), modelId: z.string(), thinkingLevel: z.string() }),
+    /** The extension packages every job's agent runs with, at their installed versions. */
+    extensions: z.array(z.object({ name: z.string(), version: z.optional(z.string()) })),
+    /**
+     * Where jobs may search the web, through pi-web-access. Absent when the Runner cannot tell, as
+     * when the operator's own extensions search without it.
+     */
+    webSearch: z.optional(
+      z.object({
+        enabled: z.boolean(),
+        /**
+         * The providers searches may go through, in the order they are tried when the Runner sets
+         * search up. Absent while search is on: any provider pi-web-access finds a key for, keyless
+         * ones included, as an allowlist does when left empty on OpenRouter.
+         */
+        allowedProviders: z.optional(z.array(z.string())),
+        /** How OpenAI searches are paid for, when they may happen. */
+        openai: z.optional(
+          z.object({
+            /** The Pi providers whose login OpenAI searches use, in order; `openai-codex` is ChatGPT. */
+            logins: z.array(z.string()),
+            /**
+             * Whether a search may be billed to an API key: one is set for pi-web-access to fall
+             * back to, or Pi's `openai` login, which can hold one, is among the logins.
+             */
+            mayUseApiKey: z.boolean(),
+          }),
+        ),
+      }),
+    ),
+  })
+  .check(storable);
+export type RunnerSetup = z.infer<typeof runnerSetupSchema>;
+
 /** The requests a Runner makes of the hub. */
 export const runnerRequests = {
   /** The first request on a new socket: who the Runner is. The hub says how often to sync. */
   hello: {
-    params: z.object({ name: z.string() }),
+    params: z.object({
+      name: z.string(),
+      /**
+       * What the Runner reports about itself, as `runnerSetupSchema` describes it. Unchecked here: the
+       * hub keeps none in place of a record it cannot read rather than refuse the hello, which the
+       * Runner would retry forever.
+       */
+      setup: z.optional(z.unknown()),
+    }),
     result: z.object({
       /** How often the Runner is to sync while nothing else prompts it; the hub's interval. */
       syncIntervalMs: z.int().check(z.nonnegative()),

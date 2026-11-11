@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 
+import { createJsonRpcClient, hubNotifications, runnerRequests } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
 import { startSystem } from "./harness.ts";
@@ -13,13 +14,23 @@ test("the hub lists no runners before any connect", async () => {
   expect(await system.owner().runners.list()).toEqual([]);
 });
 
-test("a runner that connects is listed under its host's name, seen when it said hello", async () => {
+test("a runner that connects is listed under its host's name with its setup, seen when it said hello", async () => {
   const before = Date.now();
   const runnerId = await system.startRunner();
 
   await expect
     .poll(() => system.findRunner(runnerId))
-    .toEqual({ id: runnerId, name: hostname(), lastSeenAt: expect.any(Date) });
+    .toEqual({
+      id: runnerId,
+      name: hostname(),
+      lastSeenAt: expect.any(Date),
+      setup: {
+        runnerVersion: expect.any(String),
+        model: { provider: expect.any(String), modelId: expect.any(String), thinkingLevel: "off" },
+        extensions: [],
+        webSearch: { enabled: false },
+      },
+    });
   expect(await system.lastSeen(runnerId)).toBeGreaterThanOrEqual(before);
 });
 
@@ -34,6 +45,25 @@ test("a runner that restarts keeps its identity, listed once and seen again", as
   expect(await system.owner().runners.list()).toEqual([
     expect.objectContaining({ id: runnerId, name: hostname() }),
   ]);
+});
+
+test("a runner whose setup the hub cannot read still connects, listed without it", async () => {
+  const { runnerId, socket } = await system.connectRunner();
+  const runner = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
+    socket.send(text),
+  );
+  socket.addEventListener("message", (event) => {
+    if (typeof event.data === "string") runner.receive(event.data);
+  });
+
+  await runner.request("hello", { name: "newer runner", setup: { runnerVersion: 2 } }, 10_000);
+
+  expect(await system.findRunner(runnerId)).toEqual({
+    id: runnerId,
+    name: "newer runner",
+    lastSeenAt: expect.any(Date),
+  });
+  socket.close();
 });
 
 test("the hub serves many requests at once", async () => {

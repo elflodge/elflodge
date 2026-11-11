@@ -1,3 +1,4 @@
+import type { RunnerSetup } from "contract";
 import { Option, Predicate, Result, Schema, Struct } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 
@@ -90,6 +91,56 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
       onSome: (names) => ({ message: `Web search is on through ${names.join(", ")}.${source}` }),
     }),
   );
+}
+
+/** What the Runner reports about web search: what pi-web-access's settings come to. */
+export type WebSearchSetup = NonNullable<RunnerSetup["webSearch"]>;
+
+/**
+ * The Pi providers whose login pi-web-access's OpenAI searches use when its settings name none, in
+ * order (`openai-search.ts`).
+ */
+const DEFAULT_OPENAI_LOGINS = [CHATGPT_PROVIDER, "openai"];
+
+/** Pi's OpenAI provider, whose login can hold an API key (`login --with-api-key`). */
+const OPENAI_LOGIN = "openai";
+
+/**
+ * What pi-web-access does with `settings` and the Runner's environment `env`: whether search is on,
+ * through which providers, and for OpenAI, which logins pay for its searches and whether an API key
+ * can, as pi-web-access resolves them as of the version the image's folder pins. Its key fallback is
+ * off only with `openaiUseProviderBaseUrl` and no explicit Responses URL, and counts only when a key
+ * is set.
+ */
+export function describeWebSearch(
+  settings: Settings,
+  env: { readonly [name: string]: string | undefined },
+): WebSearchSetup {
+  if (!isOn(settings)) return { enabled: false };
+  const allowedProviders = Option.getOrUndefined(
+    Schema.decodeUnknownOption(Schema.Array(Schema.String))(
+      fieldsOf(settings["webSearch"])["allowedProviders"],
+    ),
+  );
+  if (allowedProviders !== undefined && !allowedProviders.includes(OPENAI_SEARCH))
+    return { enabled: true, allowedProviders: [...allowedProviders] };
+  const logins = Option.getOrElse(
+    Schema.decodeUnknownOption(Schema.Array(Schema.String))(settings["openaiSearchProviders"]),
+    () => DEFAULT_OPENAI_LOGINS,
+  );
+  const keyFallback =
+    settings["openaiResponsesUrl"] !== undefined || settings["openaiUseProviderBaseUrl"] !== true;
+  const keySet = [env["OPENAI_API_KEY"], settings["openaiApiKey"]].some(
+    (key) => typeof key === "string" && key !== "",
+  );
+  return {
+    enabled: true,
+    ...(allowedProviders === undefined ? {} : { allowedProviders: [...allowedProviders] }),
+    openai: {
+      logins: [...logins],
+      mayUseApiKey: (keyFallback && keySet) || logins.includes(OPENAI_LOGIN),
+    },
+  };
 }
 
 /**
