@@ -5,6 +5,8 @@ description: Automate repeated tasks with parallel agents through Elflodge (form
 
 # Elflodge Agent Batches
 
+[Website](https://elflodge.com) · [GitHub](https://github.com/elflodge/elflodge)
+
 Turn a repeated task into independent agent jobs with structured results. Each job has files and shell tools in an isolated workspace. Keep deterministic work in ordinary code; use agents for the parts that need judgment.
 
 Take one path:
