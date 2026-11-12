@@ -55,14 +55,14 @@ it("an exception on a port opens that port alone, however the address and its ot
       }
       // curl rewrites some of these hosts before it asks, such as 2130706433 to 127.0.0.1, and
       // refuses others; a client that asks as written is refused too, or finds no such name (502).
-      for (const host of [
-        "2130706433",
-        "127.0.0.1..",
-        "localhost.",
-        "localhost..",
-        "job.localhost.",
-        "job.localhost..",
-      ]) {
+      for (const [host, status] of [
+        ["2130706433", 403],
+        ["127.0.0.1..", 502],
+        ["localhost.", 403],
+        ["localhost..", 403],
+        ["job.localhost.", 403],
+        ["job.localhost..", 403],
+      ] as const) {
         const asWritten = await run(
           job,
           `bash <<'EOF'
@@ -72,7 +72,7 @@ it("an exception on a port opens that port alone, however the address and its ot
           head -1 <&3
 EOF`,
         );
-        expect(asWritten.output, host).toMatch(/^HTTP\/1.1 (403|502) /);
+        expect(asWritten.output, host).toMatch(`HTTP/1.1 ${status} `);
       }
       const socks = await run(
         job,

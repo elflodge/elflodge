@@ -289,7 +289,7 @@ export function withNetwork(
       },
     });
   }
-  if (settings["proxy"] !== undefined)
+  if (Predicate.isNotNullish(settings["proxy"]))
     return Result.fail(
       `${WEB_SEARCH_SETTINGS} sets proxy, which the Runner replaces to hold pi-web-access to jobs' network; give the Runner HTTPS_PROXY instead, which jobs' proxy sends requests on to, and which then resolves names itself, so neither jobs' commands nor pi-web-access have their names checked against the refused addresses`,
     );

@@ -2,9 +2,10 @@ import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-// How sandbox-runtime itself reads a destination before matching and dialing it. It is not on the
-// package's main entry, which has no `exports` map to stop this import; should a release move it,
-// the build fails rather than the callback reading hosts differently.
+// How sandbox-runtime itself reads a destination before matching and dialing it, an IPv4-mapped
+// address as its IPv4 address. It is not on the package's main entry, which has no `exports` map to
+// stop this import; should a release move it, the typecheck and the Runner's start fail rather than
+// the callback reading hosts differently, as the Runner's build leaves dependencies external.
 import { canonicalizeHost } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect } from "effect";
@@ -252,7 +253,6 @@ export function sandboxNetwork(
       // ports of one opened on a port included.
       if (/(?:^|\.)localhost\.*$/i.test(dialed)) return localhost;
       const family = isIP(dialed);
-      // `BlockList` matches an IPv4-mapped address against IPv4 ranges.
       return family !== 0 && limited.check(dialed, family === 6 ? "ipv6" : "ipv4")
         ? otherPort
         : true;
