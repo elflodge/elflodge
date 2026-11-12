@@ -78,6 +78,8 @@ const SYSTEM_READ_PATHS: Partial<Record.ReadonlyRecord<NodeJS.Platform, readonly
     "/Library/Preferences",
     "/private/var/db/timezone",
     "/private/var/db/DarwinDirectory/local/recordStore.data",
+    // /bin/sh reads the system's shell selection before executing a command.
+    "/private/var/select",
     "/var/db",
     "/private/var/db",
     "/System/Library/Extensions",
@@ -85,6 +87,8 @@ const SYSTEM_READ_PATHS: Partial<Record.ReadonlyRecord<NodeJS.Platform, readonly
     "/System/Library/PrivateFrameworks",
     "/System/Library/SubFrameworks",
     "/System/Library/CoreServices",
+    // Node reads the system OpenSSL configuration before running any job command.
+    "/System/Library/OpenSSL",
     "/System/iOSSupport/System/Library/Frameworks",
     "/System/iOSSupport/System/Library/PrivateFrameworks",
     "/System/iOSSupport/System/Library/SubFrameworks",

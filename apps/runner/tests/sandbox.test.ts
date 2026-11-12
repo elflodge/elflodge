@@ -180,7 +180,9 @@ it("a job's processes see none of the Runner's variables, nor its processes or a
 it("a job's temporary files go to its temp directory", () =>
   withJob(async (job, { temp }) => {
     expect((await run(job, 'echo "$TMPDIR"')).output).toBe(`${temp}\n`);
-    expect((await run(job, "mktemp")).output.startsWith(`${temp}/`)).toBe(true);
+    expect((await run(job, 'mktemp "$TMPDIR/tmp.XXXXXX"')).output.startsWith(`${temp}/`)).toBe(
+      true,
+    );
   }));
 
 it("aborting or timing out a command stops it without touching another job's, and closing a job stops what it left running", () =>
