@@ -8,13 +8,12 @@ import {
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
 import type { RunnerCapabilities } from "contract";
-import { Data, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
+import { Data, Effect, FileSystem, Option, Path, Result, Schema, Struct } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { ChildProcess } from "effect/process";
 import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
 
-import type { NetworkSettings } from "./network.ts";
 import { NodeServices, runCommand } from "./sandbox.ts";
 import {
   CHATGPT_PROVIDER,
@@ -22,6 +21,7 @@ import {
   planWebSearch,
   WEB_SEARCH_EXTENSION,
   WEB_SEARCH_SETTINGS,
+  type JobsNetwork,
   type WebSearchCapability,
   withNetwork,
 } from "./web-search.ts";
@@ -147,7 +147,7 @@ export function prepareRunnerExtensions(
   dataDir: string,
   folders: ExtensionFolders | undefined,
   search: WebSearchSetting,
-  network: NetworkSettings,
+  network: JobsNetwork,
 ): Effect.Effect<RunnerExtensions, ExtensionsUnavailable> {
   if (folders === undefined) {
     return search.providers === undefined
@@ -262,7 +262,7 @@ function configureWebSearch(
   agentDir: string,
   settingsDir: string | undefined,
   search: WebSearchSetting,
-  access: { readonly network: NetworkSettings; readonly installed: boolean },
+  access: { readonly network: JobsNetwork; readonly installed: boolean },
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -272,7 +272,7 @@ function configureWebSearch(
         return yield* new ExtensionsUnavailable({
           message: `RUNNER_WEB_SEARCH is set, but the extensions have no ${WEB_SEARCH_SETTINGS} to search with`,
         });
-      const held = access.installed ? withNetwork({}, access.network) : undefined;
+      const held = access.installed ? yield* heldToNetwork({}, access.network) : undefined;
       if (held) yield* fs.writeFileString(file, JSON.stringify(held, undefined, 2));
       return undefined;
     }
@@ -292,7 +292,7 @@ function configureWebSearch(
     });
     if (Result.isFailure(plan)) return yield* new ExtensionsUnavailable({ message: plan.failure });
     const { settings: planned, capability, message, warning } = plan.success;
-    const written = withNetwork(planned ?? settings, access.network) ?? planned;
+    const written = (yield* heldToNetwork(planned ?? settings, access.network)) ?? planned;
     if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
     yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
     return capability;
@@ -302,6 +302,12 @@ function configureWebSearch(
     ),
   );
 }
+
+/** `withNetwork`, failing as the other extension checks do. */
+const heldToNetwork = (settings: Record<string, unknown>, network: JobsNetwork) =>
+  Effect.fromResult(withNetwork(settings, network)).pipe(
+    Effect.mapError((message) => new ExtensionsUnavailable({ message })),
+  );
 
 const SettingsFile = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown));
 
@@ -419,9 +425,14 @@ export function startRunnerExtensions(dataDir: string, prepared: PreparedExtensi
     Effect.sync(() =>
       startExtensionHost({
         prepared,
-        // Extensions are the operator's code, as trusted as the Runner: they see its environment.
+        // Extensions are the operator's code, as trusted as the Runner: they see its environment,
+        // but for `NO_PROXY`, whose hosts pi-web-access would reach directly, past jobs' proxy
+        // (`withNetwork`).
         workerOptions: {
-          env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+          env: {
+            ...Struct.omit(process.env, ["NO_PROXY", "no_proxy"]),
+            PI_CODING_AGENT_DIR: agentDir,
+          },
         },
       }),
     ),

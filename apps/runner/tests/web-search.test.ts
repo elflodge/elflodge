@@ -1,6 +1,7 @@
 import { Result } from "effect";
 import { expect, test } from "vite-plus/test";
 
+import { DEFAULT_NETWORK_SETTINGS, type NetworkSettings } from "../src/network.ts";
 import {
   describeWebSearch,
   planWebSearch,
@@ -116,15 +117,27 @@ test("pi-web-access's own defaults are reported as open to any provider and to a
 });
 
 // pi-web-access's requests leave from the Runner, outside jobs' sandboxes, so the jobs' network
-// reaches them only through its settings.
-test("pi-web-access has no fetch_content when jobs have no network, and reaches the operator's exception ranges otherwise", () => {
-  expect(withNetwork(defaults, { mode: "none", exceptions: [] })).toEqual({
+// reaches them only through its settings. That its requests go through jobs' proxy is tested
+// through a job, in the hub's `web-access.test.ts`.
+const PROXY = "http://runner:token@127.0.0.1:4100";
+const held = (settings: Record<string, unknown>, network: NetworkSettings) =>
+  Result.getOrThrow(withNetwork(settings, { settings: network, proxy: PROXY }));
+
+test("pi-web-access fetches no page when jobs have no network, and reaches the operator's exception ranges otherwise", () => {
+  expect(held(defaults, { mode: "none", exceptions: [] })).toEqual({
     ...defaults,
     tools: { ...defaults.tools, fetchContent: { enabled: false } },
+    fetchContent: { domainPolicy: { allow: ["invalid"] } },
   });
-  const own = { ssrf: { allowRanges: ["198.18.0.0/15"], trustEnvProxy: true } };
-  expect(withNetwork(own, { mode: "open", exceptions: ["10.20.0.0/16"] })).toEqual({
-    ssrf: { allowRanges: ["198.18.0.0/15", "10.20.0.0/16"], trustEnvProxy: true },
+  const own = { ssrf: { allowRanges: ["198.18.0.0/15"] } };
+  expect(held(own, { mode: "open", exceptions: ["10.20.0.0/16"] })).toMatchObject({
+    ssrf: { allowRanges: ["198.18.0.0/15", "10.20.0.0/16"] },
   });
-  expect(withNetwork(own, { mode: "open", exceptions: [] })).toBeUndefined();
+});
+
+test("an operator's own proxy for pi-web-access is refused, as jobs' proxy would replace it", () => {
+  const own = { proxy: "http://proxy.example:3128" };
+  expect(
+    Result.isFailure(withNetwork(own, { settings: DEFAULT_NETWORK_SETTINGS, proxy: PROXY })),
+  ).toBe(true);
 });

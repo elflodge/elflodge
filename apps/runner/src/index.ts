@@ -177,7 +177,7 @@ export function runRunner(
         providers: options.webSearch,
         modelProvider: options.model.provider,
       },
-      options.network ?? DEFAULT_NETWORK_SETTINGS,
+      { settings: options.network ?? DEFAULT_NETWORK_SETTINGS, proxy: environments.jobsProxy },
     );
     const registration = yield* loadOrRegister(hubUrl, options);
     return yield* runRegistered(hubUrl, registration, options, environments, extensions);
@@ -199,7 +199,7 @@ export async function startRunner(options: StartRunnerOptions): Promise<Runner> 
         providers: options.webSearch,
         modelProvider: options.model.provider,
       },
-      options.network ?? DEFAULT_NETWORK_SETTINGS,
+      { settings: options.network ?? DEFAULT_NETWORK_SETTINGS, proxy: environments.jobsProxy },
     ),
   );
   const registration = await Effect.runPromise(loadOrRegister(hubUrl, options));

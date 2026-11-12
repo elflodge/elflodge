@@ -193,6 +193,11 @@ export interface JobEnvironments {
   /** What the agent is told about its commands' network, unless they run without a sandbox. */
   networkNote: string | undefined;
   /**
+   * sandbox-runtime's HTTP proxy, with its credentials, for requests the Runner makes for jobs
+   * from outside their sandboxes, which it then holds to jobs' network; only with a sandbox.
+   */
+  jobsProxy: string | undefined;
+  /**
    * Opens the environment of the job `jobId`, whose files are in `workspace` and `temp`: nothing
    * starts until its first operation, and a daemon lost, as when it ran out of memory, starts
    * again.
@@ -248,6 +253,7 @@ export function prepareJobEnvironments(
     }
     const uncappedBecause = yield* tryMemoryCap(settings.jobMemoryLimit);
     return {
+      jobsProxy: unsandboxedBecause === undefined ? yield* jobsProxy : undefined,
       unsandboxedBecause,
       uncappedBecause,
       networkNote: unsandboxedBecause === undefined ? describeNetwork(network) : undefined,
@@ -263,6 +269,18 @@ export function prepareJobEnvironments(
     };
   }).pipe(Effect.provide(NodeServices));
 }
+
+/**
+ * The URL of the HTTP proxy sandbox-runtime started, which listens on the host's loopback and asks
+ * for its token as the password; any user name will do. It is up once a sandbox has started.
+ */
+const jobsProxy = Effect.suspend(() => {
+  const port = SandboxManager.getProxyPort();
+  const token = SandboxManager.getProxyAuthToken();
+  return port === undefined || token === undefined
+    ? Effect.die(new Error("sandbox-runtime's proxy is not running"))
+    : Effect.succeed(`http://runner:${token}@127.0.0.1:${port}`);
+});
 
 /** Node's implementations of the process and file-system services the Runner's checks use. */
 export const NodeServices = NodeChildProcessSpawner.layer.pipe(

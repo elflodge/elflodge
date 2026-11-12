@@ -70,7 +70,9 @@ RUN vp run --no-cache -t runner#build && vp run --no-cache runner#notices \
 
 # --- the Runner's runtime: Debian's current stable, slim, as the hub's distroless base is, with the
 # programs each job's sandbox needs (ADR 0027), poppler-utils for jobs that read PDFs, with the
-# encoding data libpoppler recommends for CJK and Cyrillic text (poppler-data), and libatomic1,
+# encoding data libpoppler recommends for CJK and Cyrillic text (poppler-data), curl, through which
+# pi-web-access sends its requests to jobs' proxy (ADR 0041), with the CA certificates curl
+# recommends, and libatomic1,
 # which Node's official Linux builds link from Node 25 on (nodejs/node#60790,
 # voidzero-dev/vite-plus#3219). It runs as a named user with a home and the data directory, as
 # Node's official image runs as its `node` user, uid 1000; `nobody` has neither. The container needs
@@ -78,7 +80,7 @@ RUN vp run --no-cache -t runner#build && vp run --no-cache runner#notices \
 # `apparmor=unconfined` where the host has AppArmor, as BuildKit's rootless image does ---
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runner
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bubblewrap socat ripgrep poppler-utils poppler-data libatomic1 \
+  && apt-get install -y --no-install-recommends bubblewrap socat ripgrep poppler-utils poppler-data curl ca-certificates libatomic1 \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --uid 1000 --create-home runner \
   && install -d -o runner -g runner /data
@@ -99,7 +101,7 @@ WORKDIR /app
 # Healthy once the Runner has finished starting: its model's authentication resolved, registered,
 # and synced with the hub. `--healthcheck` opens a listener on the container's 127.0.0.1:8790 at that
 # point, owned by the process, so a restarted Runner is unhealthy until it starts again. Docker checks
-# each second for the first minute, as for the hub, and the image has no curl, so Node connects.
+# each second for the first minute, as for the hub, with Node connecting, as the hub's image does.
 HEALTHCHECK --timeout=2s --start-period=60s --start-interval=1s \
   CMD ["node", "-e", "require('node:net').connect(8790, '127.0.0.1').on('connect', function () { this.end(); }).on('error', () => process.exit(1))"]
 CMD ["node", "dist/main.mjs", "--healthcheck"]
