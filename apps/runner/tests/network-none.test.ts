@@ -7,7 +7,7 @@ import {
   run,
   withHostServer,
   withJob,
-} from "./jobs.ts";
+} from "./job-environments.ts";
 
 // RUNNER_NETWORK=none gives jobs' commands no network at all (ADR 0041).
 

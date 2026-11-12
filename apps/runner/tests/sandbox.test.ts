@@ -17,7 +17,7 @@ import {
   run,
   withHostServer,
   withJob as withJobIn,
-} from "./jobs.ts";
+} from "./job-environments.ts";
 
 // pi-durable's tools reach a job's files and commands only through this environment: pi-env's
 // daemon in the job's sandbox (ADR 0027). So it is held to the cases pi-durable defines for every
@@ -125,19 +125,22 @@ it("a job reads and writes its own folders, and nothing of another job, its jour
     }
   }));
 
-// A job reaches the network through sandbox-runtime's proxies, named in `HTTPS_PROXY` and
-// `ALL_PROXY`, which refuse the Runner's host and local and private addresses. `NO_PROXY` sends
-// `localhost` and `127.0.0.1` past them, into the sandbox's own network, so these requests name the
-// proxy themselves.
+// A job reaches the network through sandbox-runtime's proxies, its HTTP proxy named in `HTTPS_PROXY`
+// and `ALL_PROXY` and its SOCKS proxy in `FTP_PROXY`, which refuse the Runner's host and local and
+// private addresses. `NO_PROXY` sends `localhost` and `127.0.0.1` past them, into the sandbox's own
+// network, so these requests name the proxy themselves.
 
-/** Asks the proxy for `http://<host>:<port>/` from `job`, as a URL and as a tunnel, and what it answered. */
+/**
+ * Asks the HTTP proxy for `http://<host>:<port>/` from `job`, as a URL and as a tunnel, and what it
+ * answered, ending with the status of the request (`status=`) and of the tunnel (`connect=`).
+ */
 async function throughProxy(job: JobEnvironment, host: string, port: number) {
   const answers = [];
   // Without `--proxytunnel` curl asks the proxy for the URL; with it, for a tunnel.
   for (const tunnel of ["", "--proxytunnel -v"]) {
     const { output } = await run(
       job,
-      `curl -sS --max-time 5 --noproxy '' ${tunnel} --proxy "$HTTPS_PROXY" -w ' %{http_code} %{http_connect}' http://${host}:${port}/ 2>&1`,
+      `curl -sS --max-time 5 --noproxy '' ${tunnel} --proxy "$HTTPS_PROXY" -w ' status=%{http_code} connect=%{http_connect}' http://${host}:${port}/ 2>&1`,
     );
     answers.push(output);
   }
@@ -152,9 +155,16 @@ it("a job's commands cannot reach the Runner's host by its loopback, however it 
       for (const host of ["127.0.0.1", "127.1", "2130706433", "[::ffff:127.0.0.1]", "localhost"]) {
         for (const answer of await throughProxy(job, host, port)) {
           expect(answer, host).not.toContain(HOST_SERVER_ANSWER);
-          expect(answer, host).toContain("403");
+          expect(answer, host).toMatch(/status=403|connect=403/);
         }
       }
+      const socks = await run(
+        job,
+        `curl -sS --max-time 5 --noproxy '' --proxy "$FTP_PROXY" http://127.0.0.1:${port}/`,
+      );
+      expect(socks.output).not.toContain(HOST_SERVER_ANSWER);
+      // Refused by the SOCKS proxy, rather than missing it.
+      expect(socks.output).toMatch(/SOCKS5.*\(2\)/);
     }),
   ));
 
@@ -207,7 +217,7 @@ it("a server one of a job's commands starts is reached at localhost by its later
       )
       .toBe("200");
   });
-});
+}, 20_000);
 
 it("a job's processes see none of the Runner's variables, nor its processes or another job's", async () => {
   vi.stubEnv("ELFLODGE_TEST_RUNNER_VARIABLE", "runner-only");

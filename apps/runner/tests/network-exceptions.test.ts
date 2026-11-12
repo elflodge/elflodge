@@ -7,7 +7,7 @@ import {
   run,
   withHostServer,
   withJob,
-} from "./jobs.ts";
+} from "./job-environments.ts";
 
 // An operator opens local and private ranges with RUNNER_NETWORK_EXCEPTIONS (ADR 0041). The Runner's
 // own addresses stay refused, so the server here listens on another loopback address, which Linux
