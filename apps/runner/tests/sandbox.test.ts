@@ -1,5 +1,14 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -47,7 +56,7 @@ async function withJob(
     dirs: { dir: string; workspace: string; temp: string },
   ) => Promise<void>,
 ) {
-  const dir = await mkdtemp(path.join(tmpdir(), "job-"));
+  const dir = await mkdtemp(path.join(await realpath(tmpdir()), "job-"));
   const dirs = { dir, workspace: path.join(dir, "workspace"), temp: path.join(dir, "tmp") };
   await mkdir(dirs.workspace);
   const job = environments.open(path.basename(dir), dirs);
