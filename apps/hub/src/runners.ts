@@ -51,9 +51,9 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
 }
 
 /**
- * Lists every Runner the hub has recorded, as its API returns them. A record of capabilities this hub cannot read, as
- * one a newer Runner reported to a newer hub before this one replaced it, is null rather than
- * failing the list.
+ * Lists every Runner the hub has recorded, as its API returns them. Capabilities this hub cannot
+ * read, as a newer Runner may have reported to a newer hub before this one replaced it, are null
+ * rather than failing the list.
  */
 export const listRunners = Db.use((database) =>
   database.query(async (db): Promise<Runner[]> => {

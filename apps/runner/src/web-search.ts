@@ -69,25 +69,13 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
         ? ` The ChatGPT subscription the model runs on can also search: add ${OPENAI_SEARCH} to RUNNER_WEB_SEARCH.`
         : "";
     return Result.succeed({
-      settings: withSearch(settings, providers, subscription),
-      capability: {
-        enabled: true,
-        allowedProviders: [...providers],
-        ...(providers.includes(OPENAI_SEARCH)
-          ? { openai: { mayUseApiKey: subscription === undefined } }
-          : {}),
-      },
+      ...searchThrough(settings, providers, subscription),
       message: `Web search is on through ${providers.join(", ")}.${also}`,
     });
   }
   if (!chosen && subscription !== undefined && !isOn(settings)) {
     return Result.succeed({
-      settings: withSearch(settings, [OPENAI_SEARCH], subscription),
-      capability: {
-        enabled: true,
-        allowedProviders: [OPENAI_SEARCH],
-        openai: { mayUseApiKey: false },
-      },
+      ...searchThrough(settings, [OPENAI_SEARCH], subscription),
       message: `Web search is on through the ChatGPT subscription the model runs on, and uses its limits. RUNNER_WEB_SEARCH names other providers instead; include ${OPENAI_SEARCH} to keep it.`,
     });
   }
@@ -162,14 +150,36 @@ const flag = (value: unknown) =>
   Option.getOrUndefined(Schema.decodeUnknownOption(Schema.Boolean)(value));
 
 /**
- * `settings` with search on through exactly `providers`, tried in that order. pi-web-access's
- * automatic choice skips the providers it calls explicit-only even when they are allowed, so the
- * list is its routing as well as its allowlist; a single default provider would override the
- * routing, so none is kept.
+ * `settings` with search on through exactly `providers`, and what the Runner reports of them. The
+ * report says no key pays exactly when these settings pin OpenAI searches to the subscription, so
+ * both come from one decision.
  */
-function withSearch(settings: Settings, providers: readonly string[], subscription?: string) {
+function searchThrough(
+  settings: Settings,
+  providers: readonly string[],
+  subscription: string | undefined,
+): { settings: Settings; capability: WebSearchCapability } {
+  const openai = providers.includes(OPENAI_SEARCH);
+  const pinned = openai && subscription !== undefined;
+  return {
+    settings: withSearch(settings, providers, pinned ? subscription : undefined),
+    capability: {
+      enabled: true,
+      allowedProviders: [...providers],
+      ...(openai ? { openai: { mayUseApiKey: !pinned } } : {}),
+    },
+  };
+}
+
+/**
+ * `settings` with search on through exactly `providers`, tried in that order, and OpenAI searches
+ * pinned to `pinnedTo`'s sign-in when given. pi-web-access's automatic choice skips the providers
+ * it calls explicit-only even when they are allowed, so the list is its routing as well as its
+ * allowlist; a single default provider would override the routing, so none is kept.
+ */
+function withSearch(settings: Settings, providers: readonly string[], pinnedTo?: string) {
   const tools = fieldsOf(settings["tools"]);
-  const pinned = subscription !== undefined && providers.includes(OPENAI_SEARCH);
+  const pinned = pinnedTo !== undefined;
   const kept = Struct.omit(
     settings,
     pinned ? ["provider", "searchProvider", "openaiResponsesUrl"] : ["provider", "searchProvider"],
@@ -192,6 +202,6 @@ function withSearch(settings: Settings, providers: readonly string[], subscripti
     // Only the subscription's sign-in, never a key: with provider URL reuse, pi-web-access refuses
     // to search when that sign-in fails rather than fall back to `openaiApiKey` or `OPENAI_API_KEY`.
     // An explicit Responses URL turns that reuse off, so none is kept.
-    ...(pinned ? { openaiSearchProviders: [subscription], openaiUseProviderBaseUrl: true } : {}),
+    ...(pinned ? { openaiSearchProviders: [pinnedTo], openaiUseProviderBaseUrl: true } : {}),
   };
 }

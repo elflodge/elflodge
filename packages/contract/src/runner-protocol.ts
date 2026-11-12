@@ -439,9 +439,9 @@ export const runnerRequests = {
     params: z.object({
       name: z.string(),
       /**
-       * What the Runner reports about itself, as `runnerCapabilitiesSchema` describes it. Unchecked here: the
-       * hub keeps none in place of a record it cannot read rather than refuse the hello, which the
-       * Runner would retry forever.
+       * What jobs on the Runner can do, as `runnerCapabilitiesSchema` describes it. Unchecked here:
+       * the hub keeps none in place of a record it cannot read rather than refuse the hello, which
+       * the Runner would retry forever.
        */
       capabilities: z.optional(z.unknown()),
     }),

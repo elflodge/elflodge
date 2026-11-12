@@ -751,9 +751,9 @@ function start(version: string, flags: StartFlags) {
 
 /**
  * Signs in as the owner, which makes a new session, and reads what the stack's Runner reported it
- * can do in its hello, which the hub keeps: the Runner whose name is the container's hostname, which it reports
- * as its name, the latest seen if several are. Null when it reported nothing the hub can read, as an
- * older image reports nothing, and undefined when the hub lists no such Runner.
+ * can do in its hello, which the hub keeps: the Runner whose name is the container's hostname,
+ * which it reports as its name, the latest seen if several are. Null when it reported nothing the
+ * hub can read, as an older image reports nothing, and undefined when the hub lists no such Runner.
  */
 function signInAndReadRunnerCapabilities(state: State) {
   return Effect.gen(function* () {
