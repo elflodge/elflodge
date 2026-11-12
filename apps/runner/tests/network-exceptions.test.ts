@@ -53,18 +53,27 @@ it("an exception on a port opens that port alone, however the address and its ot
           expect(answer, host).toMatch(/status=403|connect=403/);
         }
       }
-      // curl writes 127.0.0.1 for 2130706433 before it asks; a client that asks as written is
-      // refused too.
-      const asWritten = await run(
-        job,
-        `bash <<'EOF'
-        p=\${HTTPS_PROXY#http://}; auth=$(printf %s "\${p%@*}" | base64 | tr -d '\\n')
-        proxy=\${p#*@}; proxy=\${proxy%/}; exec 3<>/dev/tcp/\${proxy%:*}/\${proxy##*:}
-        printf 'CONNECT 2130706433:${otherPort} HTTP/1.1\\r\\nProxy-Authorization: Basic %s\\r\\n\\r\\n' "$auth" >&3
-        head -1 <&3
+      // curl rewrites some of these hosts before it asks, such as 2130706433 to 127.0.0.1, and
+      // refuses others; a client that asks as written is refused too, or finds no such name (502).
+      for (const host of [
+        "2130706433",
+        "127.0.0.1..",
+        "localhost.",
+        "localhost..",
+        "job.localhost.",
+        "job.localhost..",
+      ]) {
+        const asWritten = await run(
+          job,
+          `bash <<'EOF'
+          p=\${HTTPS_PROXY#http://}; auth=$(printf %s "\${p%@*}" | base64 | tr -d '\\n')
+          proxy=\${p#*@}; proxy=\${proxy%/}; exec 3<>/dev/tcp/\${proxy%:*}/\${proxy##*:}
+          printf 'CONNECT ${host}:${otherPort} HTTP/1.1\\r\\nProxy-Authorization: Basic %s\\r\\n\\r\\n' "$auth" >&3
+          head -1 <&3
 EOF`,
-      );
-      expect(asWritten.output).toMatch(/^HTTP\/1.1 403 /);
+        );
+        expect(asWritten.output, host).toMatch(/^HTTP\/1.1 (403|502) /);
+      }
       const socks = await run(
         job,
         `curl -sS --max-time 5 --noproxy '' --proxy "$FTP_PROXY" http://127.0.0.1:${otherPort}/`,

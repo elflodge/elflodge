@@ -131,7 +131,6 @@ test("pi-web-access fetches no page when jobs have no network, and reaches the o
     githubClone: { enabled: false },
     githubPrIssue: { enabled: false },
   });
-  const own = { ssrf: { allowRanges: ["198.18.0.0/15"] } };
   // A range opened on one port is left out where pi-web-access would reach it without jobs' proxy,
   // which holds it to the port.
   const exceptions = [
@@ -139,14 +138,22 @@ test("pi-web-access fetches no page when jobs have no network, and reaches the o
     { range: "10.30.0.0/16", port: 8080 },
     { range: "127.0.0.1/32", port: 8080 },
   ];
-  expect(held(own, { mode: "open", exceptions })).toMatchObject({
-    ssrf: { allowRanges: ["198.18.0.0/15", "10.20.0.0/16", "10.30.0.0/16"] },
+  expect(held(defaults, { mode: "open", exceptions })).toMatchObject({
+    ssrf: { allowRanges: ["10.20.0.0/16", "10.30.0.0/16"] },
   });
 });
 
-test("an operator's own proxy for pi-web-access is refused, as jobs' proxy would replace it", () => {
-  const own = { proxy: "http://proxy.example:3128" };
-  expect(
-    Result.isFailure(withNetwork(own, { settings: DEFAULT_NETWORK_SETTINGS, proxy: PROXY })),
-  ).toBe(true);
+test("an operator's own proxy or allowed ranges for pi-web-access are refused while jobs' network is open", () => {
+  for (const own of [
+    { proxy: "http://proxy.example:3128" },
+    { ssrf: { allowRanges: ["127.0.0.1/32"] } },
+  ]) {
+    expect(
+      Result.isFailure(withNetwork(own, { settings: DEFAULT_NETWORK_SETTINGS, proxy: PROXY })),
+      JSON.stringify(own),
+    ).toBe(true);
+  }
+  // With no network, every page fetch is refused before its address is checked.
+  const own = { ssrf: { allowRanges: ["127.0.0.1/32"] } };
+  expect(held(own, { mode: "none", exceptions: [] })).toMatchObject(own);
 });

@@ -258,11 +258,11 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  * replaced, so it is refused; the Runner's `HTTPS_PROXY` reaches sandbox-runtime's proxy as its
  * upstream, which then resolves names itself, so the address checks on names no longer apply.
  *
- * The exception ranges are added to `ssrf.allowRanges`, the ranges pi-web-access's own guard
- * lets through; the ranges already there stay, and `parseException` refused the `/0` that
- * pi-web-access refuses. `allowRanges` has no ports, so jobs' proxy holds pi-web-access to an
- * exception's port, and a range opened on one port leaves out the addresses pi-web-access reaches
- * without it.
+ * The exception ranges are `ssrf.allowRanges`, the ranges pi-web-access's own guard lets through,
+ * and `parseException` refused the `/0` that pi-web-access refuses. `allowRanges` has no ports, so
+ * jobs' proxy holds pi-web-access to an exception's port, and a range opened on one port leaves out
+ * the addresses pi-web-access reaches without it. An operator's own `allowRanges` is refused, as
+ * pi-web-access would reach some of them, such as `127.0.0.1`, without jobs' proxy.
  */
 export function withNetwork(
   settings: Settings,
@@ -294,18 +294,18 @@ export function withNetwork(
       `${WEB_SEARCH_SETTINGS} sets proxy, which the Runner replaces to hold pi-web-access to jobs' network; give the Runner HTTPS_PROXY instead, which jobs' proxy sends requests on to, and which then resolves names itself, so neither jobs' commands nor pi-web-access have their names checked against the refused addresses`,
     );
   const ssrf = fieldsOf(settings["ssrf"]);
-  const listed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(ssrf["allowRanges"]);
+  if (Predicate.isNotNullish(ssrf["allowRanges"]))
+    return Result.fail(
+      `${WEB_SEARCH_SETTINGS} sets ssrf.allowRanges, which would let pi-web-access past its own address checks, and reach some addresses, such as 127.0.0.1, without jobs' proxy; open ranges with RUNNER_NETWORK_EXCEPTIONS instead, which the Runner gives pi-web-access too`,
+    );
   const opened = exceptions.flatMap(({ range, port }) =>
     port === undefined ? [range] : excludeCidr([range], PROXY_BYPASSED),
   );
-  const allowRanges =
-    opened.length === 0
-      ? {}
-      : { allowRanges: Array.dedupe([...Option.getOrElse(listed, () => []), ...opened]) };
-  const curl =
-    fetchContent["curl"] === undefined
-      ? { curl: ["curl"], userAgent: fetchContent["userAgent"] ?? PI_WEB_ACCESS_USER_AGENT }
-      : {};
+  const allowRanges = opened.length === 0 ? {} : { allowRanges: opened };
+  // pi-web-access reads a `null` as unset.
+  const curl = Predicate.isNullish(fetchContent["curl"])
+    ? { curl: ["curl"], userAgent: fetchContent["userAgent"] ?? PI_WEB_ACCESS_USER_AGENT }
+    : {};
   return Result.succeed({
     ...withoutGitHub,
     proxy: network.proxy,

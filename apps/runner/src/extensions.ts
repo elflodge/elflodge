@@ -437,11 +437,11 @@ export function startRunnerExtensions(dataDir: string, prepared: PreparedExtensi
       startExtensionHost({
         prepared,
         // Extensions are the operator's code, as trusted as the Runner: they see its environment,
-        // but for `NO_PROXY`, whose hosts pi-web-access would reach directly, past jobs' proxy
-        // (`withNetwork`).
+        // but for `NO_PROXY` and `GCE_METADATA_HOST`, whose hosts pi-web-access would reach
+        // directly, past jobs' proxy (`withNetwork`).
         workerOptions: {
           env: {
-            ...Struct.omit(process.env, ["NO_PROXY", "no_proxy"]),
+            ...Struct.omit(process.env, ["NO_PROXY", "no_proxy", "GCE_METADATA_HOST"]),
             PI_CODING_AGENT_DIR: agentDir,
           },
         },

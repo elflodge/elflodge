@@ -2,6 +2,10 @@ import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+// How sandbox-runtime itself reads a destination before matching and dialing it. It is not on the
+// package's main entry, which has no `exports` map to stop this import; should a release move it,
+// the build fails rather than the callback reading hosts differently.
+import { canonicalizeHost } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect } from "effect";
 
@@ -167,8 +171,9 @@ export function hostAddresses(): string[] {
 
 /**
  * sandbox-runtime's process-wide network configuration for `settings`, and the ask callback to
- * initialize it with. Open, it refuses `localhost`, `host`'s addresses and the default classes,
- * the addresses less the exception ranges, and asks the callback about every other destination.
+ * initialize it with. Open, it refuses `host`'s addresses and the default classes, the addresses
+ * less the exception ranges, and asks the callback about every other destination, which refuses
+ * `localhost`.
  * sandbox-runtime checks the deny list before the allow list, and its resolved-address guard holds
  * names to the same lists, so each exception is allowed too, on its port if it names one: the
  * guard's own loopback, link-local and host-address refusals give way only to an allowed range. An
@@ -199,14 +204,7 @@ export function sandboxNetwork(
     };
   }
   const opening = ` The Runner's operator can open a range with ${EXCEPTIONS_SETTING}.`;
-  const localhost =
-    "localhost through the proxy is the Runner's host, which jobs cannot reach. A server this job started is reached at localhost without the proxy.";
-  // Names under `.localhost` too: the guard lets them resolve to any loopback address that the
-  // deny list leaves out, other ports of one opened on a port included.
-  const reasons = new Map([
-    ["localhost", localhost],
-    ["*.localhost", localhost],
-  ]);
+  const reasons = new Map<string, string>();
   const opened = settings.exceptions.map(({ range }) => range);
   const refused: string[] = [];
   const deny = (entries: readonly string[], reason: string) => {
@@ -232,6 +230,11 @@ export function sandboxNetwork(
     allow: false as const,
     reason: `This address is open to jobs only on the ports that ${EXCEPTIONS_SETTING} names for it.`,
   };
+  const localhost = {
+    allow: false as const,
+    reason:
+      "localhost through the proxy is the Runner's host, which jobs cannot reach. A server this job started is reached at localhost without the proxy.",
+  };
   return {
     network: {
       allowedDomains: settings.exceptions.map(formatException),
@@ -239,31 +242,22 @@ export function sandboxNetwork(
       deniedDomainReasons: Object.fromEntries(reasons),
       ...(portLimited.length === 0 ? {} : { deniedResolvedAddresses: portLimited }),
     },
+    // sandbox-runtime matches its lists on the host as it dials it, but asks the callback with the
+    // host as the job wrote it, where `[::ffff:10.0.0.5]` and `167772165` are also 10.0.0.5.
     askCallback: async (destination) => {
-      const address = literalAddress(destination.host);
-      return address === undefined || !limited.check(address, isIP(address) === 6 ? "ipv6" : "ipv4")
-        ? true
-        : otherPort;
+      const dialed = canonicalizeHost(destination.host) ?? destination.host;
+      // `localhost` and names under it, however many trailing dots they carry, here rather than in
+      // the deny list: that matches with one dot removed, and the resolved-address guard, removing
+      // another, lets such a name resolve to any loopback address the deny list leaves out, other
+      // ports of one opened on a port included.
+      if (/(?:^|\.)localhost\.*$/i.test(dialed)) return localhost;
+      const family = isIP(dialed);
+      // `BlockList` matches an IPv4-mapped address against IPv4 ranges.
+      return family !== 0 && limited.check(dialed, family === 6 ? "ipv6" : "ipv4")
+        ? otherPort
+        : true;
     },
   };
-}
-
-/**
- * The address a destination host spells, as sandbox-runtime dials it, or `undefined` for a name.
- * sandbox-runtime matches its lists on that address but asks the callback with the host as the job
- * wrote it, where `[::ffff:10.0.0.5]` and `167772165` are also 10.0.0.5. WHATWG URL parsing reads
- * them as sandbox-runtime does (`canonicalizeHost`, not exported); `BlockList` matches an
- * IPv4-mapped address against IPv4 ranges.
- */
-function literalAddress(host: string): string | undefined {
-  const bare = host.replace(/^\[(.*)\]$/, "$1");
-  try {
-    const { hostname } = new URL(`http://${isIP(bare) === 6 ? `[${bare}]` : bare}/`);
-    const address = hostname.replace(/^\[(.*)\]$/, "$1");
-    return isIP(address) === 0 ? undefined : address;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
