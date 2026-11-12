@@ -1,3 +1,4 @@
+import { excludeCidr } from "cidr-tools";
 import type { RunnerCapabilities } from "contract";
 import { Array, Option, Predicate, Result, Schema, Struct } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
@@ -224,6 +225,12 @@ export interface JobsNetwork {
 const PI_WEB_ACCESS_USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0";
 
 /**
+ * The addresses pi-web-access fetches without its proxy, as `isProxyBypassedUrl` in its `utils.ts`
+ * (0.47.0) lists them, `metadata.google.internal` resolving to the last.
+ */
+const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
+
+/**
  * `settings` held to jobs' network (ADR 0041), or `undefined` when that changes nothing, or why
  * they cannot be. pi-web-access runs in the Runner's process, outside every sandbox.
  *
@@ -253,7 +260,9 @@ const PI_WEB_ACCESS_USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0";
  *
  * The exception ranges are added to `ssrf.allowRanges`, the ranges pi-web-access's own guard
  * lets through; the ranges already there stay, and `parseException` refused the `/0` that
- * pi-web-access refuses.
+ * pi-web-access refuses. `allowRanges` has no ports, so jobs' proxy holds pi-web-access to an
+ * exception's port, and a range opened on one port leaves out the addresses pi-web-access reaches
+ * without it.
  */
 export function withNetwork(
   settings: Settings,
@@ -286,10 +295,13 @@ export function withNetwork(
     );
   const ssrf = fieldsOf(settings["ssrf"]);
   const listed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(ssrf["allowRanges"]);
+  const opened = exceptions.flatMap(({ range, port }) =>
+    port === undefined ? [range] : excludeCidr([range], PROXY_BYPASSED),
+  );
   const allowRanges =
-    exceptions.length === 0
+    opened.length === 0
       ? {}
-      : { allowRanges: Array.dedupe([...Option.getOrElse(listed, () => []), ...exceptions]) };
+      : { allowRanges: Array.dedupe([...Option.getOrElse(listed, () => []), ...opened]) };
   const curl =
     fetchContent["curl"] === undefined
       ? { curl: ["curl"], userAgent: fetchContent["userAgent"] ?? PI_WEB_ACCESS_USER_AGENT }

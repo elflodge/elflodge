@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { lookup } from "node:dns/promises";
 import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +14,7 @@ import {
   HOST_SERVER_ANSWER,
   prepareTestEnvironments,
   run,
+  throughProxy,
   withHostServer,
   withJob as withJobIn,
 } from "./job-environments.ts";
@@ -130,29 +130,19 @@ it("a job reads and writes its own folders, and nothing of another job, its jour
 // private addresses. `NO_PROXY` sends `localhost` and `127.0.0.1` past them, into the sandbox's own
 // network, so these requests name the proxy themselves.
 
-/**
- * Asks the HTTP proxy for `http://<host>:<port>/` from `job`, as a URL and as a tunnel, and what it
- * answered, ending with the status of the request (`status=`) and of the tunnel (`connect=`).
- */
-async function throughProxy(job: JobEnvironment, host: string, port: number) {
-  const answers = [];
-  // Without `--proxytunnel` curl asks the proxy for the URL; with it, for a tunnel.
-  for (const tunnel of ["", "--proxytunnel -v"]) {
-    const { output } = await run(
-      job,
-      `curl -sS --max-time 5 --noproxy '' ${tunnel} --proxy "$HTTPS_PROXY" -w ' status=%{http_code} connect=%{http_connect}' http://${host}:${port}/ 2>&1`,
-    );
-    answers.push(output);
-  }
-  return answers;
-}
-
 it("a job's commands cannot reach the Runner's host by its loopback, however it is spelled", () =>
   withHostServer("127.0.0.1", (port) =>
     withJob(async (job) => {
       const direct = await run(job, `bash -c 'exec 3<>/dev/tcp/127.0.0.1/${port}'`);
       expect(direct.exitCode).not.toBe(0);
-      for (const host of ["127.0.0.1", "127.1", "2130706433", "[::ffff:127.0.0.1]", "localhost"]) {
+      for (const host of [
+        "127.0.0.1",
+        "127.1",
+        "2130706433",
+        "[::ffff:127.0.0.1]",
+        "localhost",
+        "job.localhost",
+      ]) {
         for (const answer of await throughProxy(job, host, port)) {
           expect(answer, host).not.toContain(HOST_SERVER_ANSWER);
           expect(answer, host).toMatch(/status=403|connect=403/);
@@ -167,24 +157,6 @@ it("a job's commands cannot reach the Runner's host by its loopback, however it 
       expect(socks.output).toMatch(/SOCKS5.*\(2\)/);
     }),
   ));
-
-it("a job's commands cannot reach the Runner's host by a name that resolves to its loopback", async (test) => {
-  // A name under `.localhost` resolves to loopback where the host's resolver synthesizes it, as
-  // systemd-resolved does; no name is sure to resolve without one.
-  const name = "job.localhost";
-  const resolved = await lookup(name, { all: true }).catch(() => []);
-  if (!resolved.some(({ address }) => address === "127.0.0.1"))
-    test.skip(`${name} does not resolve to 127.0.0.1 here`);
-  await withHostServer("127.0.0.1", (port) =>
-    withJob(async (job) => {
-      for (const answer of await throughProxy(job, name, port)) {
-        expect(answer).not.toContain(HOST_SERVER_ANSWER);
-        // Refused for where the name resolves, as no list names it.
-        expect(answer).toContain("deny-listed address");
-      }
-    }),
-  );
-});
 
 it("a refused request tells the agent what is refused and which setting opens it", () =>
   withJob(async (job) => {

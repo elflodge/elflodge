@@ -132,8 +132,15 @@ test("pi-web-access fetches no page when jobs have no network, and reaches the o
     githubPrIssue: { enabled: false },
   });
   const own = { ssrf: { allowRanges: ["198.18.0.0/15"] } };
-  expect(held(own, { mode: "open", exceptions: ["10.20.0.0/16"] })).toMatchObject({
-    ssrf: { allowRanges: ["198.18.0.0/15", "10.20.0.0/16"] },
+  // A range opened on one port is left out where pi-web-access would reach it without jobs' proxy,
+  // which holds it to the port.
+  const exceptions = [
+    { range: "10.20.0.0/16" },
+    { range: "10.30.0.0/16", port: 8080 },
+    { range: "127.0.0.1/32", port: 8080 },
+  ];
+  expect(held(own, { mode: "open", exceptions })).toMatchObject({
+    ssrf: { allowRanges: ["198.18.0.0/15", "10.20.0.0/16", "10.30.0.0/16"] },
   });
 });
 

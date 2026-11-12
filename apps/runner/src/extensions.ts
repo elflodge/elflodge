@@ -203,10 +203,12 @@ export function prepareRunnerExtensions(
     // Given jobs' proxy, pi-web-access sends every request through curl (`withNetwork`), and
     // without it each would fail in the job.
     if (names.includes(WEB_SEARCH_EXTENSION) && network.proxy && network.settings.mode === "open") {
+      // `curl --version` fails only when curl is missing, which its error says less plainly.
       const { failure } = yield* runCommand(ChildProcess.make("curl", ["--version"]));
       if (failure !== undefined)
         return yield* new ExtensionsUnavailable({
-          message: `pi-web-access sends its requests through curl, which cannot run: ${failure}. Install curl (see the runner's README)`,
+          message:
+            "pi-web-access sends its requests through curl, which is not installed. Install curl (see the runner's README)",
         });
     }
     if (names.length === 0) return NO_EXTENSIONS;

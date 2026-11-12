@@ -1,6 +1,7 @@
+import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 
-import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect } from "effect";
 
@@ -18,8 +19,16 @@ export type NetworkMode = (typeof NETWORK_MODES)[number];
 export interface NetworkSettings {
   /** `open`: the public internet, local and private addresses refused; `none`: no network. */
   readonly mode: NetworkMode;
-  /** Ranges opened despite the refusal, as `mergeCidr` writes them (`10.0.0.0/8`, `fd00::1/128`). */
-  readonly exceptions: readonly string[];
+  /** Ranges opened despite the refusal. */
+  readonly exceptions: readonly NetworkException[];
+}
+
+/** An address range opened despite the refusal, on one port or on all. */
+export interface NetworkException {
+  /** As `mergeCidr` writes it (`10.0.0.0/8`, `fd00::1/128`). */
+  readonly range: string;
+  /** The one port opened; every port when absent. */
+  readonly port?: number;
 }
 
 export const DEFAULT_NETWORK_SETTINGS: NetworkSettings = { mode: "open", exceptions: [] };
@@ -33,19 +42,23 @@ export class InvalidException extends Data.TaggedError("InvalidException")<{
 }> {}
 
 /**
- * Writes an exception as `NetworkSettings` keeps it, or fails saying what is wrong with it. Every
- * address (`/0`) is refused: it would open everything, the default's refusals included, and
- * pi-web-access refuses it. So is an IPv4-mapped IPv6 range: sandbox-runtime judges such a
- * destination by its IPv4 address, which the exception would not subtract from the refused IPv4
- * ranges.
+ * Reads an exception written as sandbox-runtime writes a destination, a port optional (`10.0.0.5`,
+ * `10.0.0.0/8:8080`, `[fd00::5]:8080`; an IPv6 range takes its port in brackets), into what
+ * `NetworkSettings` keeps, or fails saying what is wrong with it. Every address (`/0`) is refused:
+ * it would open everything, the default's refusals included, and pi-web-access refuses it. So is an
+ * IPv4-mapped IPv6 range: sandbox-runtime judges such a destination by its IPv4 address, which the
+ * exception would not subtract from the refused IPv4 ranges.
  */
-export function parseException(entry: string): Effect.Effect<string, InvalidException> {
+export function parseException(entry: string): Effect.Effect<NetworkException, InvalidException> {
   return Effect.gen(function* () {
+    const bracketed = /^\[([^\]]*)\](?::(.*))?$/.exec(entry);
+    const withPort = /^([^:[\]]*):([^:]*)$/.exec(entry);
+    const [address = entry, port] = bracketed?.slice(1) ?? withPort?.slice(1) ?? [];
     const notARange = new InvalidException({
       message: `${JSON.stringify(entry)} is not an IP address or CIDR range`,
     });
     // cidr-tools' error says no more than `notARange`.
-    const range = yield* Effect.try({ try: () => mergeCidr([entry])[0], catch: () => notARange });
+    const range = yield* Effect.try({ try: () => mergeCidr([address])[0], catch: () => notARange });
     if (range === undefined) return yield* notARange;
     if (range.endsWith("/0"))
       return yield* new InvalidException({ message: `${range} opens every address` });
@@ -53,8 +66,20 @@ export function parseException(entry: string): Effect.Effect<string, InvalidExce
       return yield* new InvalidException({
         message: `${entry} is an IPv4-mapped address: write the IPv4 address or range`,
       });
-    return range;
+    if (port === undefined) return { range };
+    // sandbox-runtime's own reading of a port.
+    if (!/^[1-9]\d{0,4}$/.test(port) || Number(port) > 65535)
+      return yield* new InvalidException({
+        message: `${JSON.stringify(entry)} has no port from 1 to 65535 after its address`,
+      });
+    return { range, port: Number(port) };
   });
+}
+
+/** An exception as sandbox-runtime and the agent read a destination, as `parseException` reads it. */
+export function formatException({ range, port }: NetworkException): string {
+  if (port === undefined) return range;
+  return range.includes(":") ? `[${range}]:${port}` : `${range}:${port}`;
 }
 
 /**
@@ -143,20 +168,25 @@ export function hostAddresses(): string[] {
 /**
  * sandbox-runtime's process-wide network configuration for `settings`, and the ask callback to
  * initialize it with. Open, it refuses `localhost`, `host`'s addresses and the default classes,
- * the addresses less the exception ranges, and asks the callback, which allows, about every other
- * destination. sandbox-runtime checks the deny list before the allow list, and its resolved-address
- * guard holds names to the same lists, so each exception range is allowed too: the guard's own
- * loopback, link-local and host-address refusals give way only to an allowed range. An exception
- * so opens exactly what it covers, the host's addresses included, as sandbox-runtime itself
- * would. Every entry is a range, single addresses included, as an entry without `/` is compared as
- * text.
+ * the addresses less the exception ranges, and asks the callback about every other destination.
+ * sandbox-runtime checks the deny list before the allow list, and its resolved-address guard holds
+ * names to the same lists, so each exception is allowed too, on its port if it names one: the
+ * guard's own loopback, link-local and host-address refusals give way only to an allowed range. An
+ * exception so opens exactly what it covers, the host's addresses included, as sandbox-runtime
+ * itself would. Every entry is a range, single addresses included, as an entry without `/` is
+ * compared as text.
+ *
+ * The deny list cannot except a port, so an exception's range leaves it whole, and the other ports
+ * of a range opened on one port are refused separately: an address literal by the callback, which
+ * allows everything else; a name by the guard, which refuses resolving into the range unless the
+ * allow list opens the address and port.
  */
 export function sandboxNetwork(
   settings: NetworkSettings,
   host: readonly string[],
 ): {
   network: SandboxRuntimeConfig["network"];
-  askCallback?: () => Promise<boolean>;
+  askCallback?: SandboxAskCallback;
 } {
   if (settings.mode === "none") {
     return {
@@ -169,28 +199,71 @@ export function sandboxNetwork(
     };
   }
   const opening = ` The Runner's operator can open a range with ${EXCEPTIONS_SETTING}.`;
-  const reasons = new Map<string, string>([
-    [
-      "localhost",
-      "localhost through the proxy is the Runner's host, which jobs cannot reach. A server this job started is reached at localhost without the proxy.",
-    ],
+  const localhost =
+    "localhost through the proxy is the Runner's host, which jobs cannot reach. A server this job started is reached at localhost without the proxy.";
+  // Names under `.localhost` too: the guard lets them resolve to any loopback address that the
+  // deny list leaves out, other ports of one opened on a port included.
+  const reasons = new Map([
+    ["localhost", localhost],
+    ["*.localhost", localhost],
   ]);
+  const opened = settings.exceptions.map(({ range }) => range);
+  const refused: string[] = [];
   const deny = (entries: readonly string[], reason: string) => {
-    for (const entry of excludeCidr(entries, settings.exceptions))
+    refused.push(...entries);
+    for (const entry of excludeCidr(entries, opened))
       if (!reasons.has(entry)) reasons.set(entry, reason);
   };
   deny(host, `Addresses of the Runner's own host are blocked for jobs.${opening}`);
   for (const { name, ranges, reachable = [] } of REFUSED_CLASSES) {
     deny(excludeCidr(ranges, reachable), `${name} are blocked for jobs.${opening}`);
   }
+  const onOnePort = settings.exceptions.flatMap(({ range, port }) =>
+    port === undefined ? [] : [range],
+  );
+  // Only the refused part of them: an exception on a port of a public address closes no other.
+  const portLimited = excludeCidr(onOnePort, excludeCidr(onOnePort, refused));
+  const limited = new BlockList();
+  for (const range of portLimited) {
+    const [address = "", prefix] = range.split("/");
+    limited.addSubnet(address, Number(prefix), isIP(address) === 6 ? "ipv6" : "ipv4");
+  }
+  const otherPort = {
+    allow: false as const,
+    reason: `This address is open to jobs only on the ports that ${EXCEPTIONS_SETTING} names for it.`,
+  };
   return {
     network: {
-      allowedDomains: [...settings.exceptions],
+      allowedDomains: settings.exceptions.map(formatException),
       deniedDomains: [...reasons.keys()],
       deniedDomainReasons: Object.fromEntries(reasons),
+      ...(portLimited.length === 0 ? {} : { deniedResolvedAddresses: portLimited }),
     },
-    askCallback: async () => true,
+    askCallback: async (destination) => {
+      const address = literalAddress(destination.host);
+      return address === undefined || !limited.check(address, isIP(address) === 6 ? "ipv6" : "ipv4")
+        ? true
+        : otherPort;
+    },
   };
+}
+
+/**
+ * The address a destination host spells, as sandbox-runtime dials it, or `undefined` for a name.
+ * sandbox-runtime matches its lists on that address but asks the callback with the host as the job
+ * wrote it, where `[::ffff:10.0.0.5]` and `167772165` are also 10.0.0.5. WHATWG URL parsing reads
+ * them as sandbox-runtime does (`canonicalizeHost`, not exported); `BlockList` matches an
+ * IPv4-mapped address against IPv4 ranges.
+ */
+function literalAddress(host: string): string | undefined {
+  const bare = host.replace(/^\[(.*)\]$/, "$1");
+  try {
+    const { hostname } = new URL(`http://${isIP(bare) === 6 ? `[${bare}]` : bare}/`);
+    const address = hostname.replace(/^\[(.*)\]$/, "$1");
+    return isIP(address) === 0 ? undefined : address;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -201,5 +274,5 @@ export function describeNetwork(settings: NetworkSettings): string {
   if (settings.mode === "none") return "Commands have no network access.";
   return settings.exceptions.length === 0
     ? "Local and private network addresses are blocked."
-    : `Local and private network addresses are blocked, except ${settings.exceptions.join(", ")}.`;
+    : `Local and private network addresses are blocked, except ${settings.exceptions.map(formatException).join(", ")}.`;
 }
