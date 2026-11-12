@@ -93,12 +93,7 @@ jobs:
         with:
           cache: true
       - run: brew install ripgrep
-      # Leaves out the cases that still fail under Seatbelt: four of pi-durable's watch cases report
-      # no change, and a job's background process outlives the job's close.
-      - run: >-
-          vp test tests/sandbox.test.ts -t '^(?!.*(watch reports a missing file.s creation|watch follows
-          directories created together|watch keeps watching a path whose parent|watch follows a
-          directory replaced|closing a job stops what it left running))'
+      - run: vp test tests/sandbox.test.ts
         working-directory: apps/runner
 
   hub-image:
