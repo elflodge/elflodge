@@ -146,11 +146,11 @@ export class JobRunner {
    *
    * A failure goes only with a report that reaches the end of the journal, so the hub never ends a
    * job without an entry its journal holds. It goes alone for a job whose journal was known not to
-   * exist before it failed to open, and for one whose journal is lost, which holds no history the hub
-   * has after its position. A job whose events cannot be read, as when its storage fails, reports nothing: the hub
-   * keeps what it last had. pi fails a journal for good on its first storage error, so only the
-   * Runner's restart, which opens it again, tries again. An activity or usage that cannot be read is
-   * left out.
+   * exist before it failed to open, and for one whose journal is lost, as nothing a lost journal
+   * holds continues the history the hub has. A job whose events cannot be read, as when its storage
+   * fails, reports nothing: the hub keeps what it last had. pi fails a journal for good on its first
+   * storage error, so only the Runner's restart, which opens it again, tries again. An activity or
+   * usage that cannot be read is left out.
    *
    * It records when it first saw each part of a job's activity, and the activity and usage it
    * reports, so that only a change reports again. They are recorded before the hub answers, which

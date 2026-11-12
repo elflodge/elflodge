@@ -375,7 +375,7 @@ export const jobReportSchema = z
      * Runner faulted. Sent until the hub drops the run, but only with a report that reaches the end of
      * what the journal holds, so the hub never ends a job without an entry its journal holds. It goes
      * with no events when the job's journal never held any, and when it is lost (`journalLost`): it
-     * lacks the hub's last record, so it holds no history the hub has after its position.
+     * lacks the hub's last record, so nothing it holds continues the history the hub has.
      */
     failure: z.optional(jobFailureSchema),
   })
