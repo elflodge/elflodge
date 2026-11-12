@@ -4,7 +4,7 @@
 # Base images are pinned by digest for reproducible builds; Dependabot keeps them current.
 
 # --- build stage: the official Vite+ toolchain image ---
-FROM ghcr.io/voidzero-dev/vite-plus:1.5.0@sha256:cce163cdf4cf3fff928925e03a815910be14d34c355fe40b4e79e766fe368f63 AS build
+FROM ghcr.io/voidzero-dev/vite-plus:1.6.0@sha256:eefe84f6bf32756307fe1452b49c81e6b3af98edb328a838ac1e90d6faaa7acc AS build
 WORKDIR /app
 
 # Install dependencies first so this layer is cached across source changes. Every workspace manifest
@@ -34,7 +34,7 @@ RUN vp run --no-cache hub#build && vp run --no-cache hub#notices
 # --- the hub's runtime: distroless's Node image, which brings the libraries Node needs, libatomic1
 # among them, which the guide's `distroless/cc` tip lacks (voidzero-dev/vite-plus#3219). The hub runs
 # distroless's Node, which Dependabot keeps current, rather than the workspace's exact one ---
-FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:9b945e92c1b5463a4b75f11e8417515e4bea7355f6adfd79ec220fbbe905dda8 AS hub
+FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:33c86a63859efc2ebd88ea0a355863582ec6f1220d048de62baffb2584e709b3 AS hub
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -76,7 +76,7 @@ RUN vp run --no-cache -t runner#build && vp run --no-cache runner#notices \
 # Node's official image runs as its `node` user, uid 1000; `nobody` has neither. The container needs
 # `--security-opt seccomp=unconfined --security-opt systempaths=unconfined`, and
 # `apparmor=unconfined` where the host has AppArmor, as BuildKit's rootless image does ---
-FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS runner
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runner
 RUN apt-get update \
   && apt-get install -y --no-install-recommends bubblewrap socat ripgrep poppler-utils poppler-data libatomic1 \
   && rm -rf /var/lib/apt/lists/* \
