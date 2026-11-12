@@ -1,8 +1,8 @@
 {
   "name": "elflodge",
   "displayName": "Elflodge Agent Batches",
-  "version": "0.8.0",
-  "description": "Run batches of work with parallel agents: document extraction, classification, enrichment and structured results.",
+  "version": "0.9.0",
+  "description": "Run batches of work with parallel agents: document extraction, classification, enrichment and structured outputs.",
   "author": {
     "name": "Elflodge",
     "url": "https://elflodge.com"
@@ -15,11 +15,14 @@
     "batch-processing",
     "automation",
     "document-extraction",
+    "classification",
+    "data-enrichment",
     "structured-output",
     "self-hosted"
   ],
   "skills": ["./elflodge-agent-batches"],
   "icon": "./.claude-plugin/icon.png",
   "documentationUrl": "https://github.com/elflodge/elflodge/tree/main/skills",
-  "supportUrl": "https://github.com/elflodge/elflodge/issues"
+  "supportUrl": "https://github.com/elflodge/elflodge/issues",
+  "privacyPolicyUrl": "https://github.com/elflodge/elflodge/blob/main/skills/PRIVACY.md"
 }

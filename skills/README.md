@@ -1,6 +1,6 @@
 # Elflodge Agent Batches
 
-Run batches of work with parallel agents on your own machine or an Elflodge deployment you control. This skill helps Claude prepare document extraction, classification and enrichment tasks, try representative inputs, submit the batch, inspect structured results and recover interrupted waiting.
+Run batches of work with parallel agents on your own machine or an Elflodge deployment you control. This skill helps Claude prepare document extraction, classification and enrichment tasks, try representative inputs, submit the batch, inspect structured outputs and recover interrupted waiting.
 
 ## Requirements
 
@@ -16,17 +16,17 @@ Ask Claude:
 - "Prepare an Elflodge classification pilot for these documents. Use my categories, allow an uncertain result, and show me the instructions and schema before submitting."
 - "My Elflodge batch stopped waiting. Inspect its status and collect the results without duplicating completed jobs."
 
-Start with synthetic or non-sensitive inputs. The skill checks output structure and guides inspection; schema-valid results can still be factually wrong. Running jobs can incur model-provider and hosting costs.
+Start with synthetic or non-sensitive inputs. The skill checks output structure and guides inspection; schema-valid outputs can still be factually wrong. Running jobs can incur model-provider and hosting costs.
 
 ## What runs and where data goes
 
 When following the skill, Claude can download and run the `elflodge` CLI from npm, fetch the released invoice example from GitHub, and start Docker services using Elflodge's published images. These happen while carrying out your request, not on plugin installation.
 
-Submitted instructions and input files go to your configured Elflodge hub and Runner. The Runner sends model requests, which can include input content and tool results, to its configured model provider. Job records, events and results are stored by your deployment; collected results are also written to the output directory you choose. Stopping the local stack preserves its data. Provider retention and processing depend on the provider you choose.
+Submitted instructions and input files go to your configured Elflodge hub and Runner. The Runner sends model requests, which can include input content and tool results, to its configured model provider. Job records, events and results are stored by your deployment; collected results are also written to the output directory you choose. Stopping the local stack preserves its data. Provider retention and processing depend on the provider you choose. Enabled web tools can also send requests to search providers and websites; see the [privacy notice](PRIVACY.md) for the data flow.
 
 The CLI uses your configured hub credentials; provider authentication belongs to the Runner setup. Do not paste secrets into prompts or output files. Review the deployment and provider before submitting private data. The plugin adds no MCP server, hooks or telemetry code.
 
-[CLI reference](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) · [Report a problem](https://github.com/elflodge/elflodge/issues) · [MIT license](LICENSE)
+[Privacy notice](PRIVACY.md) · [CLI reference](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) · [Report a problem](https://github.com/elflodge/elflodge/issues) · [MIT license](LICENSE)
 
 ## Maintainer checks
 
