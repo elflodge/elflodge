@@ -30,4 +30,4 @@ The plugin is a single skill: instructions that teach Claude to use Elflodge. Wh
 
 Your instructions and input files go to the Elflodge deployment you use, which sends what each job needs to its model provider. Jobs with web tools enabled can also send search queries and fetch websites. Collected results are saved on your machine. Model usage and hosting can cost money, depending on the provider and models you choose. The [privacy notice](PRIVACY.md) covers data handling and retention.
 
-[About Elflodge](https://github.com/elflodge/elflodge#readme) · [CLI reference](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) · [Report a problem](https://github.com/elflodge/elflodge/issues) · [MIT license](LICENSE)
+[Website](https://elflodge.com) · [GitHub](https://github.com/elflodge/elflodge) · [CLI reference](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) · [Report a problem](https://github.com/elflodge/elflodge/issues) · [MIT license](LICENSE)
