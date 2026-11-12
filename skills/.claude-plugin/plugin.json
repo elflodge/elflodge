@@ -1,0 +1,29 @@
+{
+  "name": "elflodge",
+  "displayName": "Elflodge Agent Batches",
+  "version": "0.9.0",
+  "description": "Too much repetitive work for one conversation? Let Claude hand it off to hundreds of sandboxed Pi agents working in parallel on your own machine. They run unattended and return structured results your code can use.",
+  "author": {
+    "name": "Elflodge",
+    "url": "https://elflodge.com"
+  },
+  "homepage": "https://elflodge.com",
+  "repository": "https://github.com/elflodge/elflodge",
+  "license": "MIT",
+  "keywords": [
+    "ai-agents",
+    "automation",
+    "batch-processing",
+    "data-extraction",
+    "classification",
+    "data-enrichment",
+    "structured-output"
+  ],
+  "skills": [
+    "./elflodge-agent-batches"
+  ],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/elflodge/elflodge/tree/main/skills",
+  "supportUrl": "https://github.com/elflodge/elflodge/issues",
+  "privacyPolicyUrl": "https://github.com/elflodge/elflodge/blob/main/skills/PRIVACY.md"
+}

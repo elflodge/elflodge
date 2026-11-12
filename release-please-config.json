@@ -15,6 +15,7 @@
           "path": "packages/pi-durable-extension-adapter/package.json",
           "jsonpath": "$.version"
         },
+        { "type": "json", "path": "skills/.claude-plugin/plugin.json", "jsonpath": "$.version" },
         { "type": "generic", "path": "compose.yaml" },
         { "type": "generic", "path": "docs/deploy.md" }
       ]
