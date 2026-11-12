@@ -80,13 +80,13 @@ async function run(job: JobEnvironment, command: string) {
 }
 
 /**
- * Leaves a `sleep` running in the job's background, for a duration no other process uses, and
- * returns whether it is still running, as seen from outside the sandbox.
+ * Leaves a `sleep` running in the job's background, for a random duration, and returns whether it
+ * is still running, as seen from outside the sandbox.
  */
 async function leaveSleepRunning(job: JobEnvironment) {
   const seconds = String(1000 + Math.floor(Math.random() * 9000));
   await run(job, `nohup sleep ${seconds} >/dev/null 2>&1 &`);
-  // The whole command line, matched exactly, as no other process sleeps for this duration.
+  // The whole command line, matched exactly; the random duration makes another match unlikely.
   const args = ["-x", "-f", `sleep ${seconds}`];
   const sleeping = () => execFileAsync("pgrep", args).then(() => true, noneMatched);
   // Where closing the job leaves it running (macOS), so it does not outlive the test.
@@ -218,9 +218,8 @@ it("a job's processes see none of the Runner's variables, nor its processes or a
 it("a job's temporary files go to its temp directory", () =>
   withJob(async (job, { temp }) => {
     expect((await run(job, 'echo "$TMPDIR"')).output).toBe(`${temp}\n`);
-    expect((await run(job, 'mktemp "$TMPDIR/tmp.XXXXXX"')).output.startsWith(`${temp}/`)).toBe(
-      true,
-    );
+    expect((await run(job, 'echo job > "$TMPDIR/file"')).exitCode).toBe(0);
+    expect(await readFile(path.join(temp, "file"), "utf8")).toBe("job\n");
   }));
 
 it("aborting or timing out a command stops it without touching another job's", () =>
