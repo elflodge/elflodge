@@ -27,8 +27,12 @@ allowBuilds:
   ssh2: false
   # The Runner's dependencies. pi-ai's Google SDK has a no-op install script.
   "@google/genai": false
+# sandbox-runtime's Windows backend, about 170 MB with the native modules it brings: the Runner does
+# not run on native Windows, so neither installing nor building it serves anything.
+ignoredOptionalDependencies:
+  - "@microsoft/mxc-sdk"
 catalog:
-  "@anthropic-ai/sandbox-runtime": ^0.0.81
+  "@anthropic-ai/sandbox-runtime": ^0.0.82
   "@better-auth/api-key": 1.7.18
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
@@ -107,6 +111,7 @@ catalog:
   # `pnpm deploy` cannot build the Runner's image, whose extension adapter takes pi-ai as a peer.
   ws: 8.21.0
   zod: ^4.6.7
+  cidr-tools: ^13.0.4
 catalogs:
   # pi-durable-extension-adapter relies on the coding agent's internal files (its loader, its
   # extension view of pi-ai, the modules whose import registers providers, its path helpers), which
@@ -115,6 +120,12 @@ catalogs:
     "@earendil-works/pi-coding-agent": 1.5.2
 
 patchedDependencies:
-  "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
+  # Upstream changes not yet released, applied to the published dist; drop each part once a release
+  # contains it: anthropics/sandbox-runtime#551 (an absolute shell path skips the `which` spawn, see
+  # JOB_SHELL in apps/runner/src/sandbox.ts), #807 (IP literals and CIDR ranges in
+  # allowedDomains and deniedDomains), #769 (NO_PROXY lists loopback only, so private addresses
+  # reach the proxy) and #597 (a refusal's reason in the body of a plain-HTTP 403, and
+  # network.allowlistDenyReason).
+  "@anthropic-ai/sandbox-runtime@0.0.82": patches/@anthropic-ai__sandbox-runtime@0.0.82.patch
   "@types/folder-hash@4.0.4": patches/@types__folder-hash@4.0.4.patch
   generate-license-file: patches/generate-license-file.patch

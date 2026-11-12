@@ -229,12 +229,11 @@ export function openAndCheckJournal(
  * Nothing that names the job, such as its Workspace's path, comes before its input, so every job of a
  * Batch is told the same instructions, which a model provider can cache with the tools before them. On
  * Linux the sandbox's `/tmp` is the job's own but held in memory, which counts against the job's memory
- * limit.
+ * limit. The note on the network, from the Runner's settings, is the same for all of a Runner's jobs too.
  */
-function instructions(job: JobContent) {
-  return job.instructions === null
-    ? RUNNER_INSTRUCTIONS
-    : `${RUNNER_INSTRUCTIONS}\n\n${job.instructions}`;
+function instructions(job: JobContent, networkNote: string | undefined) {
+  const runner = runnerInstructions(networkNote);
+  return job.instructions === null ? runner : `${runner}\n\n${job.instructions}`;
 }
 
 /**
@@ -251,7 +250,8 @@ const MKTEMP_ON_MACOS =
  * What the Runner tells every job's agent about running unattended. The Workspace is the current
  * directory, where commands run and relative paths resolve, rather than its path, which names the job.
  */
-const RUNNER_INSTRUCTIONS = `You are running a job unattended; nobody will answer questions. Your Workspace, where your files are and your commands run, is the current directory; the job's Input files, if any, are in its \`inputs\` folder. For temporary files, use the directory in $TMPDIR, not /tmp${MKTEMP_ON_MACOS}. To read a PDF, \`pdftotext\` extracts its text and \`pdftoppm\` renders its pages as images.
+const runnerInstructions = (networkNote: string | undefined) =>
+  `You are running a job unattended; nobody will answer questions. Your Workspace, where your files are and your commands run, is the current directory; the job's Input files, if any, are in its \`inputs\` folder. For temporary files, use the directory in $TMPDIR, not /tmp${MKTEMP_ON_MACOS}. To read a PDF, \`pdftotext\` extracts its text and \`pdftoppm\` renders its pages as images.${networkNote === undefined ? "" : ` ${networkNote}`}
 When the work is complete, call submit_output once with the complete output: as \`value\`, or, for a large output or one a script produced, as the \`path\` of a JSON file in the Workspace. The output is checked against the job's Output contract; if it is rejected, correct it and submit again. A reply in prose does not complete the job.`;
 
 function submitOutputTool(schema: Record<string, unknown>) {
@@ -454,7 +454,7 @@ export function openJob(
         agent: {
           model: { provider: options.model.provider, modelId: options.model.modelId },
           thinkingLevel: options.model.thinkingLevel,
-          instructions: instructions(job),
+          instructions: instructions(job, options.environments.networkNote),
           cwd: paths.workspace,
         },
         // The commit that creates the job's conversation, so the start is recorded exactly once.

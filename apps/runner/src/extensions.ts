@@ -14,6 +14,7 @@ import { ChildProcess } from "effect/process";
 import ensureError from "ensure-error";
 import { hashElement } from "folder-hash";
 
+import type { NetworkSettings } from "./network.ts";
 import { NodeServices, runCommand } from "./sandbox.ts";
 import {
   CHATGPT_PROVIDER,
@@ -22,6 +23,7 @@ import {
   WEB_SEARCH_EXTENSION,
   WEB_SEARCH_SETTINGS,
   type WebSearchCapability,
+  withNetwork,
 } from "./web-search.ts";
 
 // Pi coding-agent extensions in jobs, through `@elflodge/pi-durable-extension-adapter` (ADR 0038):
@@ -106,12 +108,17 @@ export interface ExtensionFolders {
   readonly settings?: string;
 }
 
-/** Where jobs may search, and on what the jobs' model runs, which `planWebSearch` decides from. */
+/**
+ * Where jobs may search, and on what the jobs' model runs, which `planWebSearch` decides from, and
+ * the jobs' network, which `withNetwork` applies.
+ */
 export interface WebSearchSetting {
   /** The providers `RUNNER_WEB_SEARCH` names, if it is set. */
   readonly providers?: NonEmptyReadonlyArray<string>;
   /** The jobs' model's Pi provider. */
   readonly modelProvider: string;
+  /** The network jobs have. */
+  readonly network: NetworkSettings;
 }
 
 /** The extensions the Runner prepared, and what it reports about them. */
@@ -130,7 +137,7 @@ const NO_EXTENSIONS: RunnerExtensions = { packages: [], webSearch: { enabled: fa
 /**
  * Installs and bundles the extensions in `folders.extensions` as the Runner starts, and gives them
  * their settings: the set's defaults, each replaced by the operator's file of the same name, with
- * web search as `planWebSearch` decides.
+ * web search as `planWebSearch` decides and pi-web-access held to the jobs' network.
  *
  * npm installs the set once, with `npm ci`, which installs exactly the lockfile's versions and
  * checks each package's hash, into a folder of the data directory named after the set, so a Runner
@@ -246,9 +253,10 @@ const InstalledPackage = Schema.fromJsonString(
 );
 
 /**
- * Applies `planWebSearch` to pi-web-access's settings in the agent directory, logs what web search
- * does and returns what it comes to. Without its settings file there is nothing to apply, unless
- * `RUNNER_WEB_SEARCH` asks for search, which then has no extension to go through.
+ * Applies `planWebSearch` and the jobs' network to pi-web-access's settings in the agent directory,
+ * logs what web search does and returns what it comes to. Without its settings file there is no
+ * search to plan, and `RUNNER_WEB_SEARCH` then has no extension to go through; the network is
+ * applied to a file of its own, which pi-web-access completes with its defaults.
  */
 function configureWebSearch(
   agentDir: string,
@@ -259,11 +267,13 @@ function configureWebSearch(
     const fs = yield* FileSystem.FileSystem;
     const file = path.join(agentDir, WEB_SEARCH_SETTINGS);
     if (!(yield* fs.exists(file))) {
-      return yield* search.providers === undefined
-        ? Effect.succeed(undefined)
-        : new ExtensionsUnavailable({
-            message: `RUNNER_WEB_SEARCH is set, but the extensions have no ${WEB_SEARCH_SETTINGS} to search with`,
-          });
+      if (search.providers !== undefined)
+        return yield* new ExtensionsUnavailable({
+          message: `RUNNER_WEB_SEARCH is set, but the extensions have no ${WEB_SEARCH_SETTINGS} to search with`,
+        });
+      const held = withNetwork({}, search.network);
+      if (held) yield* fs.writeFileString(file, JSON.stringify(held, undefined, 2));
+      return undefined;
     }
     const settings = yield* fs.readFileString(file).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(SettingsFile)),
@@ -280,7 +290,8 @@ function configureWebSearch(
       subscription: search.modelProvider === CHATGPT_PROVIDER ? search.modelProvider : undefined,
     });
     if (Result.isFailure(plan)) return yield* new ExtensionsUnavailable({ message: plan.failure });
-    const { settings: written, capability, message, warning } = plan.success;
+    const { settings: planned, capability, message, warning } = plan.success;
+    const written = withNetwork(planned ?? settings, search.network) ?? planned;
     if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
     yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
     return capability;

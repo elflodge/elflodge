@@ -100,13 +100,13 @@ Now change the input: put your own text in `input`, change the schema to whateve
 
 ## Why 500 fit in 4 GB
 
-An agent job is mostly an `await`: the loop sends a prompt, waits on the model, runs a command, waits again. You would not give every `fetch` in a Node program its own virtual machine, yet agents are often run in parallel by giving each one its own sandbox. A container or VM per agent costs memory and seconds of CPU before the agent does anything: about 100 MiB even for a container running nothing but a Pi agent, and whatever you provision for a hosted sandbox, commonly 1 GB or more. Then it sits there while the agent waits on the model. An agent loop that is mostly `await` needs a few MiB. So in a Runner, the loops (the agent is [Pi](https://github.com/earendil-works/pi)) run many to a process, and each job's shell commands and file access go into a lightweight per-job sandbox (Anthropic's [sandbox-runtime](https://github.com/anthropics/sandbox-runtime): bubblewrap on Linux, Seatbelt on macOS), with no network for job commands by default.
+An agent job is mostly an `await`: the loop sends a prompt, waits on the model, runs a command, waits again. You would not give every `fetch` in a Node program its own virtual machine, yet agents are often run in parallel by giving each one its own sandbox. A container or VM per agent costs memory and seconds of CPU before the agent does anything: about 100 MiB even for a container running nothing but a Pi agent, and whatever you provision for a hosted sandbox, commonly 1 GB or more. Then it sits there while the agent waits on the model. An agent loop that is mostly `await` needs a few MiB. So in a Runner, the loops (the agent is [Pi](https://github.com/earendil-works/pi)) run many to a process, and each job's shell commands and file access go into a lightweight per-job sandbox (Anthropic's [sandbox-runtime](https://github.com/anthropics/sandbox-runtime): bubblewrap on Linux, Seatbelt on macOS), whose commands reach the public internet but, by default, not the Runner's host or local and private networks.
 
 ```text
 one Runner process (Node, on your machine)
 ├─ job 1    agent loop · waiting on the model
 ├─ job 2    agent loop · waiting on the model
-├─ job 3    agent loop · running `wc -l inputs/notes.txt` ──► its own OS sandbox, no network
+├─ job 3    agent loop · running `wc -l inputs/notes.txt` ──► its own OS sandbox
 ├─ ...
 └─ job 500  agent loop · waiting on the model
 ```
@@ -204,22 +204,22 @@ curl -sS -H "x-api-key: $ELFLODGE_API_KEY" "$ELFLODGE_URL/jobs?status=succeeded"
 
 ### Job commands never see your model key
 
-Model-provider credentials live in the Runner, outside every job sandbox. The Runner calls the model; the job's commands run in bubblewrap or Seatbelt with no network, and the provider key is not in their environment. Ask an agent to look:
+Model-provider credentials live in the Runner, outside every job sandbox. The Runner calls the model; the job's commands run in bubblewrap or Seatbelt, and the provider key is not in their environment. Ask an agent to look:
 
 ```sh
 cat > look.json <<'EOF'
 {
   "customId": "look-1",
-  "agent": { "outputContract": { "schema": { "type": "object", "required": ["names", "networkWorks"],
-    "properties": { "names": { "type": "array", "items": { "type": "string" } }, "networkWorks": { "type": "boolean" } } } } },
-  "input": "Run `env` and submit the names of the environment variables you see, names only. Then run `node -e \"fetch('https://example.com').then(r => console.log(r.status))\"` and submit whether it printed a status."
+  "agent": { "outputContract": { "schema": { "type": "object", "required": ["names"],
+    "properties": { "names": { "type": "array", "items": { "type": "string" } } } } } },
+  "input": "Run `env` and submit the names of the environment variables you see, names only."
 }
 EOF
 ID=$(npx elflodge jobs submit --input look.json | jq -er .id)
-npx elflodge jobs wait --id "$ID" | jq -c '.output | {networkWorks, keys: [.names[] | select(test("KEY|TOKEN|SECRET"))]}'
+npx elflodge jobs wait --id "$ID" | jq -c '.output | {keys: [.names[] | select(test("KEY|TOKEN|SECRET"))]}'
 ```
 
-A run whose Runner held an OpenAI key printed `{"networkWorks":false,"keys":[]}`; the same `fetch` run in the Runner's own container printed `200`.
+A run whose Runner held an OpenAI key printed `{"keys":[]}`.
 
 The model is per Runner. `stack start --provider anthropic --model claude-sonnet-5-5` picks any provider and model Pi supports; `stack login --provider P` adds a provider's sign-in (`--with-api-key` reads a key from stdin); `--env NAME` forwards a host variable, such as a provider key, to the Runner. For several models, run several Runners.
 
@@ -227,7 +227,6 @@ The model is per Runner. `stack start --provider anthropic --model claude-sonnet
 
 - You want to talk to the agent. Jobs run unattended and end; there is no chat.
 - You want one answer to one request, right now. Submitting and reading are separate steps, and there is no push or callback.
-- The job needs the web. Job commands have no network.
 - People who must not see each other's work share the machine. The sandbox is around each job's commands; Elflodge is for one organization, not hostile multi-tenant use.
 - Every job wants a different model. The model is per Runner; run a Runner per model.
 - Your jobs must move between hosts. A job's journal and Workspace stay with the Runner that took it, and each data directory takes one Runner process.

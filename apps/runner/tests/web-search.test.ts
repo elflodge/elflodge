@@ -1,7 +1,12 @@
 import { Result } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { describeWebSearch, planWebSearch, type WebSearchInput } from "../src/web-search.ts";
+import {
+  describeWebSearch,
+  planWebSearch,
+  type WebSearchInput,
+  withNetwork,
+} from "../src/web-search.ts";
 
 // Web search may spend money and send jobs' queries elsewhere, so it goes only where the operator
 // said, once, and otherwise only through the ChatGPT subscription the jobs' model already runs on,
@@ -108,4 +113,18 @@ test("the operator's own settings may always bill a key, even confined as the Ru
 
 test("pi-web-access's own defaults are reported as open to any provider and to a key", () => {
   expect(describeWebSearch({})).toEqual({ enabled: true, openai: { mayUseApiKey: true } });
+});
+
+// pi-web-access's requests leave from the Runner, outside jobs' sandboxes, so the jobs' network
+// reaches them only through its settings.
+test("pi-web-access fetches nothing when jobs have no network, and reaches the operator's exception ranges otherwise", () => {
+  expect(withNetwork(defaults, { mode: "none", exceptions: [] })).toEqual({
+    ...defaults,
+    tools: { ...defaults.tools, fetchContent: { enabled: false } },
+  });
+  const own = { ssrf: { allowRanges: ["198.18.0.0/15"], trustEnvProxy: true } };
+  expect(withNetwork(own, { mode: "open", exceptions: ["10.20.0.0/16"] })).toEqual({
+    ssrf: { allowRanges: ["198.18.0.0/15", "10.20.0.0/16"], trustEnvProxy: true },
+  });
+  expect(withNetwork(own, { mode: "open", exceptions: [] })).toBeUndefined();
 });

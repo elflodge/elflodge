@@ -2,9 +2,11 @@ import type { RunnerCapabilities } from "contract";
 import { Array, Option, Predicate, Result, Schema, Struct } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 
+import type { NetworkSettings } from "./network.ts";
+
 // What the Runner reads and changes in pi-web-access's settings file, as of the version the image's
-// folder pins: whether web search is on, through which providers, and with which credentials.
-// Checked on each upgrade of that version (ADR 0039).
+// folder pins: whether web search is on, through which providers, and with which credentials, and
+// what its requests may reach. Checked on each upgrade of that version (ADR 0039).
 
 /** The extension package jobs search the web through. */
 export const WEB_SEARCH_EXTENSION = "pi-web-access";
@@ -203,5 +205,32 @@ function withSearch(settings: Settings, providers: readonly string[], pinnedTo?:
     // to search when that sign-in fails rather than fall back to `openaiApiKey` or `OPENAI_API_KEY`.
     // An explicit Responses URL turns that reuse off, so none is kept.
     ...(pinned ? { openaiSearchProviders: [pinnedTo], openaiUseProviderBaseUrl: true } : {}),
+  };
+}
+
+/**
+ * `settings` held to jobs' network (ADR 0041), or `undefined` when that changes nothing. With no
+ * network, `fetch_content` is off, as a job then reaches nothing. Open, the exception ranges are
+ * added to `ssrf.allowRanges`, the ranges pi-web-access's own guard against private addresses lets
+ * through, so its requests reach what jobs' commands may; the ranges already there stay, and
+ * `parseException` refused the `/0` that pi-web-access refuses.
+ */
+export function withNetwork(settings: Settings, network: NetworkSettings): Settings | undefined {
+  if (network.mode === "none") {
+    const tools = fieldsOf(settings["tools"]);
+    return {
+      ...settings,
+      tools: { ...tools, fetchContent: { ...fieldsOf(tools["fetchContent"]), enabled: false } },
+    };
+  }
+  if (network.exceptions.length === 0) return undefined;
+  const ssrf = fieldsOf(settings["ssrf"]);
+  const listed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(ssrf["allowRanges"]);
+  return {
+    ...settings,
+    ssrf: {
+      ...ssrf,
+      allowRanges: Array.dedupe([...Option.getOrElse(listed, () => []), ...network.exceptions]),
+    },
   };
 }
