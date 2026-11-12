@@ -117,7 +117,7 @@ test("pi-web-access's own defaults are reported as open to any provider and to a
 
 // pi-web-access's requests leave from the Runner, outside jobs' sandboxes, so the jobs' network
 // reaches them only through its settings.
-test("pi-web-access fetches nothing when jobs have no network, and reaches the operator's exception ranges otherwise", () => {
+test("pi-web-access has no fetch_content when jobs have no network, and reaches the operator's exception ranges otherwise", () => {
   expect(withNetwork(defaults, { mode: "none", exceptions: [] })).toEqual({
     ...defaults,
     tools: { ...defaults.tools, fetchContent: { enabled: false } },

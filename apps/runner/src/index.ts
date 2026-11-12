@@ -170,11 +170,15 @@ export function runRunner(
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
     const environments = yield* prepareEnvironments(options);
-    const extensions = yield* prepareRunnerExtensions(options.dataDir, options.extensions, {
-      providers: options.webSearch,
-      modelProvider: options.model.provider,
-      network: options.network ?? DEFAULT_NETWORK_SETTINGS,
-    });
+    const extensions = yield* prepareRunnerExtensions(
+      options.dataDir,
+      options.extensions,
+      {
+        providers: options.webSearch,
+        modelProvider: options.model.provider,
+      },
+      options.network ?? DEFAULT_NETWORK_SETTINGS,
+    );
     const registration = yield* loadOrRegister(hubUrl, options);
     return yield* runRegistered(hubUrl, registration, options, environments, extensions);
   });
@@ -188,11 +192,15 @@ export async function startRunner(options: StartRunnerOptions): Promise<Runner> 
   const hubUrl = new URL(options.hubUrl);
   const environments = await Effect.runPromise(prepareEnvironments(options));
   const extensions = await Effect.runPromise(
-    prepareRunnerExtensions(options.dataDir, options.extensions, {
-      providers: options.webSearch,
-      modelProvider: options.model.provider,
-      network: options.network ?? DEFAULT_NETWORK_SETTINGS,
-    }),
+    prepareRunnerExtensions(
+      options.dataDir,
+      options.extensions,
+      {
+        providers: options.webSearch,
+        modelProvider: options.model.provider,
+      },
+      options.network ?? DEFAULT_NETWORK_SETTINGS,
+    ),
   );
   const registration = await Effect.runPromise(loadOrRegister(hubUrl, options));
   const loop = Effect.runFork(

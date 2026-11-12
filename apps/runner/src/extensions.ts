@@ -108,17 +108,12 @@ export interface ExtensionFolders {
   readonly settings?: string;
 }
 
-/**
- * Where jobs may search, and on what the jobs' model runs, which `planWebSearch` decides from, and
- * the jobs' network, which `withNetwork` applies.
- */
+/** Where jobs may search, and on what the jobs' model runs, which `planWebSearch` decides from. */
 export interface WebSearchSetting {
   /** The providers `RUNNER_WEB_SEARCH` names, if it is set. */
   readonly providers?: NonEmptyReadonlyArray<string>;
   /** The jobs' model's Pi provider. */
   readonly modelProvider: string;
-  /** The network jobs have. */
-  readonly network: NetworkSettings;
 }
 
 /** The extensions the Runner prepared, and what it reports about them. */
@@ -137,7 +132,7 @@ const NO_EXTENSIONS: RunnerExtensions = { packages: [], webSearch: { enabled: fa
 /**
  * Installs and bundles the extensions in `folders.extensions` as the Runner starts, and gives them
  * their settings: the set's defaults, each replaced by the operator's file of the same name, with
- * web search as `planWebSearch` decides and pi-web-access held to the jobs' network.
+ * web search as `planWebSearch` decides and pi-web-access held to `network`, the jobs' network.
  *
  * npm installs the set once, with `npm ci`, which installs exactly the lockfile's versions and
  * checks each package's hash, into a folder of the data directory named after the set, so a Runner
@@ -152,6 +147,7 @@ export function prepareRunnerExtensions(
   dataDir: string,
   folders: ExtensionFolders | undefined,
   search: WebSearchSetting,
+  network: NetworkSettings,
 ): Effect.Effect<RunnerExtensions, ExtensionsUnavailable> {
   if (folders === undefined) {
     return search.providers === undefined
@@ -200,7 +196,10 @@ export function prepareRunnerExtensions(
     yield* replaceSettings(source, settings, agentDir).pipe(
       Effect.mapError((error) => unavailable("Their settings cannot be copied", error)),
     );
-    const webSearch = yield* configureWebSearch(agentDir, settings, search);
+    const webSearch = yield* configureWebSearch(agentDir, settings, search, {
+      network,
+      installed: names.includes(WEB_SEARCH_EXTENSION),
+    });
     if (names.length === 0) return NO_EXTENSIONS;
     const installed = yield* installReplacingOthers(source, path.resolve(dataDir, EXTENSIONS_DIR));
     const packageDir = (name: string) => path.join(installed, PROJECT_DIR, "node_modules", name);
@@ -253,15 +252,17 @@ const InstalledPackage = Schema.fromJsonString(
 );
 
 /**
- * Applies `planWebSearch` and the jobs' network to pi-web-access's settings in the agent directory,
+ * Applies `planWebSearch` and `access.network` to pi-web-access's settings in the agent directory,
  * logs what web search does and returns what it comes to. Without its settings file there is no
- * search to plan, and `RUNNER_WEB_SEARCH` then has no extension to go through; the network is
- * applied to a file of its own, which pi-web-access completes with its defaults.
+ * search to plan, and `RUNNER_WEB_SEARCH` then has no extension to go through; if the set
+ * installs pi-web-access (`access.installed`), the network goes in a file of its own, which
+ * pi-web-access completes with its defaults.
  */
 function configureWebSearch(
   agentDir: string,
   settingsDir: string | undefined,
   search: WebSearchSetting,
+  access: { readonly network: NetworkSettings; readonly installed: boolean },
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -271,7 +272,7 @@ function configureWebSearch(
         return yield* new ExtensionsUnavailable({
           message: `RUNNER_WEB_SEARCH is set, but the extensions have no ${WEB_SEARCH_SETTINGS} to search with`,
         });
-      const held = withNetwork({}, search.network);
+      const held = access.installed ? withNetwork({}, access.network) : undefined;
       if (held) yield* fs.writeFileString(file, JSON.stringify(held, undefined, 2));
       return undefined;
     }
@@ -291,7 +292,7 @@ function configureWebSearch(
     });
     if (Result.isFailure(plan)) return yield* new ExtensionsUnavailable({ message: plan.failure });
     const { settings: planned, capability, message, warning } = plan.success;
-    const written = withNetwork(planned ?? settings, search.network) ?? planned;
+    const written = withNetwork(planned ?? settings, access.network) ?? planned;
     if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
     yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
     return capability;

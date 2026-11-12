@@ -210,7 +210,8 @@ function withSearch(settings: Settings, providers: readonly string[], pinnedTo?:
 
 /**
  * `settings` held to jobs' network (ADR 0041), or `undefined` when that changes nothing. With no
- * network, `fetch_content` is off, as a job then reaches nothing. Open, the exception ranges are
+ * network, `fetch_content` is off; with search on, `web_search` asked for content and
+ * `source_check` still fetch pages. Open, the exception ranges are
  * added to `ssrf.allowRanges`, the ranges pi-web-access's own guard against private addresses lets
  * through, so its requests reach what jobs' commands may; the ranges already there stay, and
  * `parseException` refused the `/0` that pi-web-access refuses.
