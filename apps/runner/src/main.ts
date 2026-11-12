@@ -38,7 +38,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { createRunnerAuth, readApiKey } from "./auth.ts";
 import { fileCredentialStore } from "./credentials.ts";
 import { DEFAULT_NETWORK_SETTINGS, DEFAULT_SANDBOX_SETTINGS, runRunner } from "./index.ts";
-import { parseException } from "./network.ts";
+import { NETWORK_MODES, parseException } from "./network.ts";
 
 // Runs a Runner from the environment; `register` discards its own key and registers it again, and
 // `login` signs in to the model's provider. A stop signal interrupts
@@ -136,39 +136,36 @@ const readWebSearch = webSearchSetting.parse(
 );
 
 /**
+ * An entry of `RUNNER_NETWORK_EXCEPTIONS`, written as `parseException` writes it, or the issue
+ * naming what is wrong with it.
+ */
+const NetworkException = Schema.Trim.pipe(
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transformEffect((entry: string, options) =>
+      parseException(entry).pipe(
+        Effect.mapError(
+          (invalid) => new SchemaIssue.InvalidValue({ message: invalid.message }, entry, options),
+        ),
+      ),
+    ),
+    encode: SchemaGetter.passthrough(),
+  }),
+);
+
+/**
  * `RUNNER_NETWORK_EXCEPTIONS`: the address ranges jobs may reach although they are local or
  * private, separated by commas, such as `10.20.0.0/16,192.168.1.10`, a single address being a
- * `/32` or `/128`. Split as `RUNNER_WEB_SEARCH` is.
+ * `/32` or `/128`. Split as `RUNNER_WEB_SEARCH` is, for the same reason.
  */
 const networkExceptionsSetting = Config.schema(
   Schema.String.pipe(
-    Schema.decodeTo(
-      Schema.Array(
-        Schema.Trim.check(
-          Schema.makeFilter((entry) => {
-            const parsed = parseException(entry);
-            return "problem" in parsed ? parsed.problem : true;
-          }),
-        ),
-      ),
-      {
-        decode: SchemaGetter.split(),
-        encode: SchemaGetter.transform((ranges: readonly string[]) => ranges.join(",")),
-      },
-    ),
+    Schema.decodeTo(Schema.Array(NetworkException), {
+      decode: SchemaGetter.split(),
+      encode: SchemaGetter.transform((ranges: readonly string[]) => ranges.join(",")),
+    }),
   ),
   "RUNNER_NETWORK_EXCEPTIONS",
-).pipe(
-  Config.map((entries) =>
-    Array.dedupe(
-      Array.flatMap(entries, (entry) => {
-        const parsed = parseException(entry);
-        return "range" in parsed ? [parsed.range] : [];
-      }),
-    ),
-  ),
-  Config.withDefault(DEFAULT_NETWORK_SETTINGS.exceptions),
-);
+).pipe(Config.map(Array.dedupe), Config.withDefault(DEFAULT_NETWORK_SETTINGS.exceptions));
 
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
 const runnerSettings = Config.all({
@@ -195,7 +192,7 @@ const runnerSettings = Config.all({
   ),
   extensions: extensionsSetting,
   network: Config.all({
-    mode: Config.Literals(["open", "none"], "RUNNER_NETWORK").pipe(
+    mode: Config.Literals(NETWORK_MODES, "RUNNER_NETWORK").pipe(
       Config.withDefault(DEFAULT_NETWORK_SETTINGS.mode),
     ),
     exceptions: networkExceptionsSetting,

@@ -2,16 +2,22 @@ import { networkInterfaces } from "node:os";
 
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
+import { Data, Effect } from "effect";
 
 // The network a job's commands have (ADR 0041): the public internet through sandbox-runtime's
 // proxies, which refuse local and private destinations unless the operator opened their range, or
 // nothing at all. sandbox-runtime enforces it; this module only turns the Runner's settings into its
 // configuration, and into what the agent is told.
 
+/** The network a Runner can give jobs, as `RUNNER_NETWORK` names it. */
+export const NETWORK_MODES = ["open", "none"] as const;
+
+export type NetworkMode = (typeof NETWORK_MODES)[number];
+
 /** What the Runner's operator chose for jobs' network. */
 export interface NetworkSettings {
   /** `open`: the public internet, local and private addresses refused; `none`: no network. */
-  readonly mode: "open" | "none";
+  readonly mode: NetworkMode;
   /** Ranges opened despite the refusal, as `mergeCidr` writes them (`10.0.0.0/8`, `fd00::1/128`). */
   readonly exceptions: readonly string[];
 }
@@ -21,25 +27,34 @@ export const DEFAULT_NETWORK_SETTINGS: NetworkSettings = { mode: "open", excepti
 /** The setting that opens ranges, named in refusals so that the operator knows what to change. */
 const EXCEPTIONS_SETTING = "RUNNER_NETWORK_EXCEPTIONS";
 
+/** An entry of `RUNNER_NETWORK_EXCEPTIONS` that cannot be opened, and why. */
+export class InvalidException extends Data.TaggedError("InvalidException")<{
+  readonly message: string;
+}> {}
+
 /**
- * Checks and writes an exception as `NetworkSettings` keeps it, or says what is wrong with it.
- * Every address (`/0`) is refused: it would open the host's loopback to jobs, and pi-web-access
- * refuses it. So is an IPv4-mapped IPv6 range: sandbox-runtime judges such a destination by its
- * IPv4 address, which the exception would not subtract from the refused IPv4 ranges.
+ * Writes an exception as `NetworkSettings` keeps it, or fails saying what is wrong with it. Every
+ * address (`/0`) is refused: it would open everything, the default's refusals included, and
+ * pi-web-access refuses it. So is an IPv4-mapped IPv6 range: sandbox-runtime judges such a
+ * destination by its IPv4 address, which the exception would not subtract from the refused IPv4
+ * ranges.
  */
-export function parseException(entry: string): { range: string } | { problem: string } {
-  let range: string | undefined;
-  try {
-    range = mergeCidr([entry])[0];
-  } catch {
-    // Its error says no more than the problem below.
-  }
-  if (range === undefined)
-    return { problem: `${JSON.stringify(entry)} is not an IP address or CIDR range` };
-  if (range.endsWith("/0")) return { problem: `${range} opens every address` };
-  if (range.includes(":") && containsCidr("::ffff:0:0/96", range))
-    return { problem: `${entry} is an IPv4-mapped address: write the IPv4 address or range` };
-  return { range };
+export function parseException(entry: string): Effect.Effect<string, InvalidException> {
+  return Effect.gen(function* () {
+    const notARange = new InvalidException({
+      message: `${JSON.stringify(entry)} is not an IP address or CIDR range`,
+    });
+    // cidr-tools' error says no more than `notARange`.
+    const range = yield* Effect.try({ try: () => mergeCidr([entry])[0], catch: () => notARange });
+    if (range === undefined) return yield* notARange;
+    if (range.endsWith("/0"))
+      return yield* new InvalidException({ message: `${range} opens every address` });
+    if (range.includes(":") && containsCidr("::ffff:0:0/96", range))
+      return yield* new InvalidException({
+        message: `${entry} is an IPv4-mapped address: write the IPv4 address or range`,
+      });
+    return range;
+  });
 }
 
 /**
@@ -69,6 +84,7 @@ const CLOUD_METADATA = [
  * The first class listing a destination gives its reason, so the narrower classes come first.
  */
 const REFUSED_CLASSES: readonly {
+  /** What a refusal calls the class's addresses, the subject of "are blocked". */
   readonly name: string;
   readonly ranges: readonly string[];
   /** Rows inside `ranges` that the registry marks globally reachable, or N/A. */
@@ -84,7 +100,7 @@ const REFUSED_CLASSES: readonly {
   },
   { name: "Shared (carrier-grade NAT) addresses", ranges: ["100.64.0.0/10"] },
   { name: "Multicast addresses", ranges: ["224.0.0.0/4", "ff00::/8"] },
-  { name: "The broadcast address", ranges: ["255.255.255.255/32"] },
+  { name: "Broadcast addresses", ranges: ["255.255.255.255/32"] },
   {
     name: "Documentation addresses",
     ranges: ["192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32", "3fff::/20"],
@@ -126,12 +142,14 @@ export function hostAddresses(): string[] {
 
 /**
  * sandbox-runtime's process-wide network configuration for `settings`, and the ask callback to
- * initialize it with. Open, it refuses the default classes less the exception ranges, then
- * `localhost` and `host`'s addresses, which no exception opens, and asks the callback, which allows,
- * about every other destination. sandbox-runtime checks the deny list before the allow list, and
- * its resolved-address guard holds names to the same lists, so each exception range is allowed too:
- * the guard's own loopback, link-local and host-address refusals give way only to an allowed range.
- * Every entry is a range, single addresses included, as an entry without `/` is compared as text.
+ * initialize it with. Open, it refuses `localhost`, `host`'s addresses and the default classes,
+ * the addresses less the exception ranges, and asks the callback, which allows, about every other
+ * destination. sandbox-runtime checks the deny list before the allow list, and its resolved-address
+ * guard holds names to the same lists, so each exception range is allowed too: the guard's own
+ * loopback, link-local and host-address refusals give way only to an allowed range. An exception
+ * so opens exactly what it covers, the host's addresses included, as sandbox-runtime itself
+ * would. Every entry is a range, single addresses included, as an entry without `/` is compared as
+ * text.
  */
 export function sandboxNetwork(
   settings: NetworkSettings,
@@ -150,6 +168,7 @@ export function sandboxNetwork(
       },
     };
   }
+  const opening = ` The Runner's operator can open a range with ${EXCEPTIONS_SETTING}.`;
   const reasons = new Map<string, string>([
     [
       "localhost",
@@ -157,17 +176,12 @@ export function sandboxNetwork(
     ],
   ]);
   const deny = (entries: readonly string[], reason: string) => {
-    for (const entry of entries) if (!reasons.has(entry)) reasons.set(entry, reason);
+    for (const entry of excludeCidr(entries, settings.exceptions))
+      if (!reasons.has(entry)) reasons.set(entry, reason);
   };
-  deny(
-    host,
-    "Addresses of the Runner's own host are blocked for jobs, whatever the Runner's settings.",
-  );
+  deny(host, `Addresses of the Runner's own host are blocked for jobs.${opening}`);
   for (const { name, ranges, reachable = [] } of REFUSED_CLASSES) {
-    deny(
-      excludeCidr(excludeCidr(ranges, reachable), settings.exceptions),
-      `${name} are blocked for jobs; the Runner's operator can open a range with ${EXCEPTIONS_SETTING}.`,
-    );
+    deny(excludeCidr(ranges, reachable), `${name} are blocked for jobs.${opening}`);
   }
   return {
     network: {
