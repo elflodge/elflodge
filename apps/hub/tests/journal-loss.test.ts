@@ -33,21 +33,22 @@ async function submitRunningJob(client: ApiClient) {
   return id;
 }
 
-/** The job's journal on the Runner, with the files SQLite keeps beside it. */
-function journalFiles(id: string) {
-  const journal = path.join(path.dirname(system.workspace(id)), "journal.sqlite");
-  return [journal, `${journal}-wal`, `${journal}-shm`];
+/** The job's journal on the Runner. */
+function journalOf(id: string) {
+  return path.join(path.dirname(system.workspace(id)), "journal.sqlite");
 }
 
+/** Removes the job's journal, with the files SQLite keeps beside it. */
 async function removeJournal(id: string) {
-  for (const file of journalFiles(id)) await rm(file, { force: true });
+  const journal = journalOf(id);
+  for (const file of [journal, `${journal}-wal`, `${journal}-shm`]) await rm(file, { force: true });
 }
 
 test("a job whose journal is restored from an earlier copy fails with journalLost and runs nothing", async () => {
   const client = await system.clientWithNewJobsKey();
   const id = await submitRunningJob(client);
   await system.stopRunner();
-  const [journal = ""] = journalFiles(id);
+  const journal = journalOf(id);
   const copy = `${journal}.copy`;
   await copyFile(journal, copy);
   // Carried on from its journal, the job records its recovery, which the hub then holds.
@@ -66,7 +67,7 @@ test("a job whose journal is restored from an earlier copy fails with journalLos
   expect(await client.jobs.get({ id })).toMatchObject({
     failure: {
       reason: "journalLost",
-      message: expect.stringMatching(/^The Runner's journal does not hold record \d+/),
+      message: expect.stringMatching(/^The Runner's journal does not hold event \d+/),
     },
   });
   expect(system.model.state.callCount).toBe(calls);
@@ -74,6 +75,7 @@ test("a job whose journal is restored from an earlier copy fails with journalLos
   const { events, status } = await client.jobs.events({ id });
   expect(status).toBe("failed");
   expect(lifecycleOf(events)).toEqual(["elflodge.job.started", "elflodge.job.recovered"]);
+  await access(system.workspace(id));
 }, 60_000);
 
 test("a job whose journal is missing fails with journalLost on its cancel too, keeping its files", async () => {
@@ -93,7 +95,9 @@ test("a job whose journal is missing fails with journalLost on its cancel too, k
   expect(job).toMatchObject({
     failure: {
       reason: "journalLost",
-      message: expect.stringMatching(/^No journal on the Runner; the hub holds records up to \d+/),
+      message: expect.stringMatching(
+        /^No journal on the Runner; the hub holds the job's events up to \d+/,
+      ),
     },
   });
   expect(job).not.toHaveProperty("pendingControl");

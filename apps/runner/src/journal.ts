@@ -231,11 +231,12 @@ export function readEvents(
  * names the last record it stored; when it does not, also the journal's last record, 0 when it has
  * none, which says where it ends. Read in one commit; it writes nothing.
  */
-export function readRecordAt(
+export function holdsRecord(
   journal: Session,
   position: number,
 ): Promise<{ held: true } | { held: false; last: number }> {
   return journal.commit(async (tx) => {
+    // One number, branded as each kind of ID it may be: pi's brands of the two exclude each other.
     const entryId: number = position;
     const conversationId: number = position;
     if (!isEntryId(entryId) || !isConversationId(conversationId)) {

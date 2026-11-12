@@ -62,7 +62,7 @@ import {
   JobStarted,
   JobSucceeded,
   openingRequest,
-  readRecordAt,
+  holdsRecord,
   RUNNER_VERSION,
   submitClosing,
 } from "./journal.ts";
@@ -195,29 +195,29 @@ export function checkJournal(
     if (!(yield* settings.fileSystem.exists(paths.journal))) {
       if (position === 0) return false;
       return yield* new JournalLost({
-        message: `No journal on the Runner; the hub holds records up to ${position}.`,
+        message: `No journal on the Runner; the hub holds the job's events up to ${position}.`,
       });
     }
     // The hub holds none of the job's records, so any journal holds them all.
     if (position === 0) return true;
-    const found = yield* Effect.scoped(
-      Effect.acquireRelease(
-        Effect.promise(async () =>
-          Harness.open(
-            await openNodeSqliteStorage(paths.journal),
-            { models: settings.models, registry: createRegistry(), readOnly: true },
-            context,
-          ),
+    const found = yield* Effect.acquireUseRelease(
+      Effect.promise(async () =>
+        Harness.open(
+          await openNodeSqliteStorage(paths.journal),
+          { models: settings.models, registry: createRegistry(), readOnly: true },
+          context,
         ),
-        (opened) => Effect.promise(() => opened.close(context)),
-      ).pipe(Effect.flatMap((journal) => Effect.promise(() => readRecordAt(journal, position)))),
+      ),
+      (journal) => Effect.promise(() => holdsRecord(journal, position)),
+      (journal) => Effect.promise(() => journal.close(context)),
     );
     if (found.held) return true;
+    // In the words callers read: the journal's records are the job's events.
     return yield* new JournalLost({
       message:
         found.last === 0
-          ? `The Runner's journal holds no records; the hub holds records up to ${position}.`
-          : `The Runner's journal does not hold record ${position}, the last the hub holds; its last record is ${found.last}.`,
+          ? `The Runner's journal holds no events; the hub holds the job's events up to ${position}.`
+          : `The Runner's journal does not hold event ${position}, the last the hub holds; its last is ${found.last}.`,
     });
   });
 }

@@ -145,9 +145,9 @@ export class JobRunner {
    * JSON Lines; `more` says some were left for the next report.
    *
    * A failure goes only with a report that reaches the end of the journal, so the hub never ends a
-   * job without an entry its journal holds, or alone for a job whose journal was known not to exist
-   * before it failed to open, or was lost, as what a lost journal holds is not the job's history the
-   * hub has. A job whose events cannot be read, as when its storage fails, reports nothing: the hub
+   * job without an entry its journal holds. It goes alone for a job whose journal was known not to
+   * exist before it failed to open, and for one whose journal is lost, which holds no history the hub
+   * has after its position. A job whose events cannot be read, as when its storage fails, reports nothing: the hub
    * keeps what it last had. pi fails a journal for good on its first storage error, so only the
    * Runner's restart, which opens it again, tries again. An activity or usage that cannot be read is
    * left out.
@@ -195,8 +195,9 @@ export class JobRunner {
         const { failure, journal } = job;
         if (!journal) {
           // A journal that did not exist before holds nothing of the job until its start is
-          // written, which happens only once it has opened. A pause or cancel of a job without a
-          // journal records nothing, so the report alone says the job never started.
+          // written, which happens only once it has opened, and a lost one is never read. A pause
+          // or cancel of a job without a journal records nothing, so the report alone says the job
+          // never started.
           if (failure && job.journalFound !== undefined) {
             jobs.push({ ...report, events: [], failure });
           } else if (job.intent !== "run" && job.journalFound === "absent") {

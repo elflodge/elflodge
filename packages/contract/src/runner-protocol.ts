@@ -197,7 +197,7 @@ export const failureSchema = z.object({
     ])
     .check(
       z.describe(
-        "What failed the job: `noOutput` when its agent ended without an accepted output; `runTimedOut` when a run went past its `runTimeoutSeconds`; `modelBudgetExceeded` when its model calls' cost reached its `modelBudgetUsd`; `modelFailed` when generating the agent's next step failed, as when the model's provider refused the call; `runFaulted` when its run broke on its Runner; `runnerRemoved` when its Runner was removed before it ended; `journalLost` when its Runner's journal of it was missing or lacked the last record the hub holds, as after its files were lost or restored from an older backup, so it was not carried on, which would have repeated its work: resuming it carries on only once the journal is restored, and submitting it again under a new `customId` starts it over. New reasons may be added: treat one you do not know as a fault.",
+        "What failed the job: `noOutput` when its agent ended without an accepted output; `runTimedOut` when a run went past its `runTimeoutSeconds`; `modelBudgetExceeded` when its model calls' cost reached its `modelBudgetUsd`; `modelFailed` when generating the agent's next step failed, as when the model's provider refused the call; `runFaulted` when its run broke on its Runner; `runnerRemoved` when its Runner was removed before it ended; `journalLost` when its Runner's journal of it was missing or lacked the last of its events the hub holds, as after its files were lost or restored from an older backup, so it was not carried on, which would have repeated its work: resuming it carries on only once the journal is restored, and submitting it again under a new `customId` starts it over. New reasons may be added: treat one you do not know as a fault.",
       ),
     ),
   message: z.optional(
@@ -373,9 +373,9 @@ export const jobReportSchema = z
     /**
      * A failure its journal did not record, as when the journal could not be opened, was lost or the
      * Runner faulted. Sent until the hub drops the run, but only with a report that reaches the end of
-     * what the journal holds, so the hub never ends a job without an entry its journal holds, or with
-     * no events when the job's journal never held any, or was lost (`journalLost`): it lacks the
-     * hub's last record, so what it holds is not the history the hub has.
+     * what the journal holds, so the hub never ends a job without an entry its journal holds. It goes
+     * with no events when the job's journal never held any, and when it is lost (`journalLost`): it
+     * lacks the hub's last record, so it holds no history the hub has after its position.
      */
     failure: z.optional(jobFailureSchema),
   })
