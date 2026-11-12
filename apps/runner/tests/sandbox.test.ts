@@ -25,6 +25,14 @@ import {
 // set one, and on Linux processes the kernel kills before the Runner when the host runs out of
 // memory.
 
+const execFileAsync = promisify(execFile);
+
+/** pgrep's and pkill's exit status 1: no process matched, or (pkill) none could be signalled. */
+function noneMatched(error: { code?: unknown }) {
+  if (error.code === 1) return false;
+  throw error;
+}
+
 let environments: JobEnvironments;
 beforeAll(async () => {
   environments = await Effect.runPromise(
@@ -69,21 +77,13 @@ async function run(job: JobEnvironment, command: string) {
 async function leaveSleepRunning(job: JobEnvironment) {
   const seconds = String(1000 + Math.floor(Math.random() * 9000));
   await run(job, `nohup sleep ${seconds} >/dev/null 2>&1 &`);
-  // Matches the whole command line exactly, so no other process is taken for it. Exit status 1
-  // means no process matched.
-  const matching = (tool: "pgrep" | "pkill") =>
-    promisify(execFile)(tool, ["-x", "-f", `sleep ${seconds}`]).then(
-      () => true,
-      (error: { code?: unknown }) => {
-        if (error.code === 1) return false;
-        throw error;
-      },
-    );
+  // The whole command line, matched exactly, as no other process sleeps for this duration.
+  const args = ["-x", "-f", `sleep ${seconds}`];
+  const sleeping = () => execFileAsync("pgrep", args).then(() => true, noneMatched);
   // Where closing the job leaves it running (macOS), so it does not outlive the test.
   onTestFinished(async () => {
-    await matching("pkill");
+    await execFileAsync("pkill", args).catch(noneMatched);
   });
-  const sleeping = () => matching("pgrep");
   // Polled: while the background shell execs `nohup` and then `sleep`, its command line is briefly empty.
   await expect.poll(sleeping).toBe(true);
   return { seconds, sleeping };

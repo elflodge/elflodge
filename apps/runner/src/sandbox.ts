@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -221,7 +222,7 @@ export function prepareJobEnvironments(
         openJobEnvironment({
           jobId,
           daemon,
-          dirs,
+          dirs: { workspace: realFolder(dirs.workspace), temp: realFolder(dirs.temp) },
           readable,
           sandboxed: unsandboxedBecause === undefined,
           memoryLimit: uncappedBecause === undefined ? settings.jobMemoryLimit : undefined,
@@ -395,6 +396,16 @@ function keptEnvironment(): Record.ReadonlyRecord<string, string> {
     (value, name): value is string =>
       value !== undefined && (KEPT_VARIABLES.includes(name) || name.startsWith("LC_")),
   );
+}
+
+/**
+ * `dir` with the symbolic links in its parent resolved, as the parent exists while `dir` may not
+ * yet. sandbox-runtime grants a folder at its real path, and Seatbelt denies a job reading a
+ * symbolic link on the way to it, such as `/var` in macOS's temp folder, `/var/folders/…`, which is
+ * `/private/var/folders/…`: the job reaches its folders only by their real paths.
+ */
+function realFolder(dir: string) {
+  return path.join(realpathSync.native(path.dirname(dir)), path.basename(dir));
 }
 
 /**
