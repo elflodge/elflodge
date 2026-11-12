@@ -23,11 +23,17 @@ import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
-import { Data, Effect, FileSystem, Layer, Record, Stream } from "effect";
+import { Data, Effect, Equal, FileSystem, Layer, Record, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import ensureError from "ensure-error";
 
-import { describeNetwork, hostAddresses, type NetworkSettings, sandboxNetwork } from "./network.ts";
+import {
+  DEFAULT_NETWORK_SETTINGS,
+  describeNetwork,
+  hostAddresses,
+  type NetworkSettings,
+  sandboxNetwork,
+} from "./network.ts";
 
 // A job's Execution environment (ADR 0027): pi-env's daemon, started inside an OS sandbox of the
 // job's own by Anthropic's sandbox-runtime, carries out the job's file operations and runs its
@@ -145,8 +151,8 @@ function withJobOomScore(command: readonly string[]): string[] {
  * Runner's own around them, so any `/bin/sh` serves, dash in the Runner's Debian image included.
  * The daemon's start `exec`s it, and the daemon runs the agent's commands in a shell of its own
  * choosing, bash where the host has it. Given an absolute path, sandbox-runtime skips the spawn
- * only with the patch in `patches/`, which applies anthropics/sandbox-runtime#551 and goes once a
- * release includes it.
+ * only with the patch in `patches/`, which goes once a release includes
+ * anthropics/sandbox-runtime#594, whose lookup searches `PATH` without spawning.
  */
 const JOB_SHELL = "/bin/sh";
 
@@ -203,8 +209,9 @@ export class SandboxUnavailable extends Data.TaggedError("SandboxUnavailable")<{
  * Finds what the host offers jobs: starts a sandboxed command to prove the sandbox works, and a
  * systemd scope with the job's memory limit to prove memory can be capped. Without a sandbox it
  * fails with `SandboxUnavailable` naming what is missing, unless `settings.runWithoutSandbox` is
- * set. Every job's commands get the network `network` describes; the first call in a process
- * decides it for the process, as `initializeSandboxRuntime` explains.
+ * set and `network` is the default: the sandbox is what holds jobs to any other network. Every
+ * job's commands get the network `network` describes, which is the same for every call in a
+ * process, as `initializeSandboxRuntime` explains; a call with another one is a defect.
  */
 export function prepareJobEnvironments(
   settings: SandboxSettings,
@@ -218,10 +225,25 @@ export function prepareJobEnvironments(
       path.dirname(daemon),
       SECCOMP_HELPERS,
     ];
+    // Checked before the setup, whose failures read as the host lacking a sandbox, so that a
+    // Runner allowed to run without one would not take this for a reason to.
+    if (configuredNetwork !== undefined && !Equal.equals(configuredNetwork, network)) {
+      return yield* Effect.die(
+        new Error(
+          "Jobs' network is set once per process: another Runner in it started with other network settings",
+        ),
+      );
+    }
+    configuredNetwork = network;
     const unsandboxedBecause = yield* setUpSandboxRuntime(daemon, readable, network);
     if (unsandboxedBecause && !settings.runWithoutSandbox) {
       return yield* new SandboxUnavailable({
         message: `Jobs cannot run in a sandbox on this host: ${unsandboxedBecause}. Install what is missing (see the runner's README), or set RUNNER_RUN_WITHOUT_SANDBOX=true to run them without one.`,
+      });
+    }
+    if (unsandboxedBecause && !Equal.equals(network, DEFAULT_NETWORK_SETTINGS)) {
+      return yield* new SandboxUnavailable({
+        message: `Jobs cannot run in a sandbox on this host: ${unsandboxedBecause}. Without one, their commands reach every address, so RUNNER_NETWORK=none and RUNNER_NETWORK_EXCEPTIONS cannot apply: install what is missing (see the runner's README), or unset them to run jobs without a sandbox.`,
       });
     }
     const uncappedBecause = yield* tryMemoryCap(settings.jobMemoryLimit);
@@ -254,6 +276,9 @@ export const NodeServices = NodeChildProcessSpawner.layer.pipe(
  * the network only through the proxies.
  */
 const THROUGH_PROXIES = { allowedDomains: [], deniedDomains: [] };
+
+/** The network settings the process's jobs have, once a Runner in it has started. */
+let configuredNetwork: NetworkSettings | undefined;
 
 /**
  * Configures sandbox-runtime once per process: it keeps its configuration and network proxies in
