@@ -12,15 +12,16 @@
   "license": "MIT",
   "keywords": [
     "ai-agents",
-    "batch-processing",
     "automation",
-    "document-extraction",
+    "batch-processing",
+    "data-extraction",
     "classification",
     "data-enrichment",
-    "structured-output",
-    "self-hosted"
+    "structured-output"
   ],
-  "skills": ["./elflodge-agent-batches"],
+  "skills": [
+    "./elflodge-agent-batches"
+  ],
   "icon": "./.claude-plugin/icon.png",
   "documentationUrl": "https://github.com/elflodge/elflodge/tree/main/skills",
   "supportUrl": "https://github.com/elflodge/elflodge/issues",
