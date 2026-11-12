@@ -17,7 +17,7 @@ import ensureError from "ensure-error";
 
 import {
   type AgentSettings,
-  checkJournal,
+  openAndCheckJournal,
   openJob,
   recordStop,
   deleteJobFiles,
@@ -437,7 +437,7 @@ export class JobRunner {
               // every run, also one this process opened before: only the check keeps a job from
               // carrying on from a journal behind the hub.
               const openedBefore = opened.has(ref.jobId);
-              const exists = yield* checkJournal(settings, ref.jobId, held.position).pipe(
+              const exists = yield* openAndCheckJournal(settings, ref.jobId, held.position).pipe(
                 Effect.catchTags({
                   JournalLost: (lost) => journalLost(lost.message).pipe(Effect.as(undefined)),
                   // A journal that cannot be looked up may hold the job's work, so the run neither

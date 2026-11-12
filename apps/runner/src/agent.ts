@@ -177,13 +177,14 @@ export class JournalLost extends Data.TaggedError("JournalLost")<{ message: stri
  * gaps and are shared across pi's records, so a large enough last ID proves nothing. Fails too when
  * the journal cannot be looked up, as on a permission error.
  *
- * Checked before anything opens the journal to write: opening it recovers, which writes, and an
- * entry written then could take the ID of one the hub holds. So the check opens it read-only, which
- * recovers nothing, and closes it. Opening it applies pi's schema migrations, which keep every
- * record and its ID, and creates an empty journal if it vanished after the lookup, which then fails
- * the check, as it does again at every later check.
+ * Checked before anything opens the journal to write: opening its Harness recovers, which writes,
+ * and an entry written then could take the ID of one the hub holds. So the check opens the Harness
+ * read-only, which recovers nothing, and closes it. The SQLite file itself opens to write, as pi's
+ * storage cannot open read-only: it applies pi's schema migrations, which keep every record and its
+ * ID, checkpoints its write-ahead log on closing, and creates an empty journal if it vanished after
+ * the lookup, which then fails the check, as it does again at every later check.
  */
-export function checkJournal(
+export function openAndCheckJournal(
   settings: AgentSettings,
   jobId: string,
   position: number,
@@ -672,7 +673,7 @@ export type Stop = Extract<Intent, "pause" | "cancel">;
  * ends a run (ADR 0009); a run that has already closed keeps its closing. Gives back the
  * journal, open until the caller's scope closes, or nothing when the job has no journal on this
  * Runner and the hub's position in it is 0: a job its Runner never started has nothing to record.
- * A journal lost (`checkJournal`) records nothing.
+ * A journal lost (`openAndCheckJournal`) records nothing.
  */
 export function recordStop(
   jobId: string,
@@ -684,7 +685,7 @@ export function recordStop(
   const context = BACKGROUND_CONTEXT;
   const paths = jobPaths(settings.jobsDir, jobId);
   return Effect.gen(function* () {
-    if (!(yield* checkJournal(settings, jobId, position))) return undefined;
+    if (!(yield* openAndCheckJournal(settings, jobId, position))) return undefined;
     const journal = yield* Effect.acquireRelease(
       Effect.promise(async () =>
         Harness.open(
