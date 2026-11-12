@@ -353,7 +353,12 @@ export function startSystem(
      * since its data directory stays the same. Returns the Runner's ID.
      */
     async startRunner(
-      runnerOptions: { register?: boolean; onRemoved?: () => void; maxJobs?: number } = {},
+      runnerOptions: {
+        register?: boolean;
+        onRemoved?: () => void;
+        maxJobs?: number;
+        extensions?: Parameters<typeof startRunner>[0]["extensions"];
+      } = {},
     ): Promise<string> {
       runnerDataDir ??= await mkdtemp(path.join(tmpdir(), "runner-"));
       runner = await startRunner({

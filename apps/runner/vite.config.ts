@@ -1,6 +1,9 @@
-import { defineConfig } from "vite-plus";
+import { defaultServerConditions, defineConfig } from "vite-plus";
 
 export default defineConfig({
+  // The extension adapter's source, under the condition its exports give it in the workspace
+  // (ADR 0006); outside the workspace, Node loads its build.
+  ssr: { resolve: { conditions: ["@elflodge/source", ...defaultServerConditions] } },
   run: {
     tasks: {
       // Not cached: Vite Task traces a cached task's file reads by preloading a library into every

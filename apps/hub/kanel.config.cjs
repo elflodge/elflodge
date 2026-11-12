@@ -9,6 +9,7 @@ const JSON_COLUMN_TYPES = {
   batch: { outputContract: "OutputContract", labels: "Labels" },
   usageRecord: { labels: "Labels" },
   jobProgress: { usage: "JobUsage", activity: "JobActivity" },
+  runner: { capabilities: "RunnerCapabilities" },
 };
 
 /**

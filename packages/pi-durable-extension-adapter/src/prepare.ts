@@ -15,7 +15,9 @@ const processModule = fileURLToPath(
 export interface PrepareOptions {
   /**
    * The extension packages, as Pi's settings name them: `npm:pi-web-access@0.47.0`, a git URL or a
-   * local path. Pin npm versions: an unpinned one is installed at whatever version is latest.
+   * local path, relative to the working directory. Pin npm versions: an unpinned one is installed
+   * at whatever version is latest. A source with no extension, such as a path that does not exist,
+   * is a failure.
    */
   readonly sources: readonly string[];
   /**

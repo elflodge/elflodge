@@ -19,18 +19,18 @@ A named, revocable credential owned by the organization that a service uses to c
 One self-contained piece of agent work: its Batch's agent working on the job's own input and Input files. It succeeds at most once, unattended, possibly over several runs; a caller may pause, resume or cancel it. Its agent works in conversations, pi's records within the job. A running job is a running agent, so a count of running jobs may say agents; jobs in other statuses stay jobs.
 
 **Job status**:
-Where a job is in its life: queued, running, paused, succeeded, failed or cancelled. Succeeded, failed and cancelled are final; a paused, failed or cancelled job that started can be resumed while its journal exists, unless its Batch was cancelled. A running job whose Runner restarts stays running: it is recovered from its journal and carries on where it left off; it is not resumed. Where a status has more than one cause, the job's failure says which. Status is the one word for where a piece of work is in its life, so a job and each of its tool calls have one.
+Where a job is in its life: queued, running, paused, succeeded, failed or cancelled. Succeeded, failed and cancelled are final; a paused, failed or cancelled job that started can be resumed, unless its Batch was cancelled, and carries on only while its journal holds what the hub has of it. A running job whose Runner restarts stays running: it is recovered from its journal and carries on where it left off; it is not resumed. Where a status has more than one cause, the job's failure says which. Status is the one word for where a piece of work is in its life, so a job and each of its tool calls have one.
 _Avoid_: phase
 
 **Control**:
 What a caller asks of a job besides submitting and reading it: to pause, resume, cancel or delete it. A pause holds a job whose work is still owed, so a caller's wait stays open; a cancel withdraws it, though a cancelled job that started can still be resumed unless its Batch was cancelled. One its Runner must carry out waits for it, shown beside the job's status until the Runner confirms it or the job ends first.
 
 **Journal**:
-A job's durable record on its Runner, one file per job: the agent's entries and conversation records, which are copied to the hub as the job's events, and pi's own task records, documents and submissions. The job is recovered from it after a restart, and it is deleted with the job's files.
+A job's durable record on its Runner, one file per job: the agent's entries and conversation records, which are copied to the hub as the job's events, and pi's own task records, documents and submissions. The job is recovered from it after a restart, and it is deleted with the job's files. A journal that is missing, or lacks the last event the hub holds, is lost: the job is not carried on from it, but fails.
 _Avoid_: checkpoint
 
 **Recovery**:
-A running job carrying on from its journal after its Runner stopped and started again: it stays running, completed tool calls are not repeated, a tool call cut off mid-flight gets an interrupted result, and a model call in flight is made again. Not a resume, which is a control a caller gives a stopped job.
+A running job carrying on from its journal after its Runner stopped and started again: it stays running, completed tool calls are not repeated, a tool call cut off mid-flight gets an interrupted result, and a model call in flight is made again. A job whose journal is lost is not recovered. Not a resume, which is a control a caller gives a stopped job.
 
 **Usage record**:
 The small, lasting record of a job's outcome and cost (labels, Batch, model, status, tokens, cost, times), kept after the job's content is deleted. A job resumed after it ended has one for each end, each with what it used since the previous one.
@@ -110,6 +110,10 @@ _Avoid_: coordinator
 **Runner**:
 A process that runs many jobs' agents at once; there can be many, self-hosted on the organization's machines or in the cloud. What other systems call a worker; not a Cloudflare Worker, which the hub may run on, nor a job's agent, which it runs. A restart is a process, such as a Runner or the hub, stopping and starting again; a job is never restarted, reset, replayed or retried.
 _Avoid_: executor
+
+**Runner capabilities**:
+What jobs on a Runner can do, as the Runner reports it when it connects: its version, the model its jobs start on, its extensions, where its jobs may search the web and whether a search may be billed to an API key. A report of what the Runner runs, not configuration given to it, and not how healthy its parts are, which changes while it runs.
+_Avoid_: setup, runner config
 
 **Runner protocol**:
 The exchange between a Runner and the hub, over the Runner's socket and its two HTTP calls: registering, and downloading its jobs' Input files. It is versioned on its own, apart from the API.

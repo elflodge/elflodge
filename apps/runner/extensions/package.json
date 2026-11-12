@@ -1,0 +1,7 @@
+{
+  "name": "runner-extensions",
+  "private": true,
+  "dependencies": {
+    "pi-web-access": "0.47.0"
+  }
+}

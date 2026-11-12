@@ -63,6 +63,12 @@ const piAiView = path.join(
   "pi-ai-extension-view.js",
 );
 
+/**
+ * Pi's test of whether a source is a local path and its resolution of one, which its package
+ * manager uses and the coding agent does not export. Reached by its path beside the loader.
+ */
+const piPaths = path.join(path.dirname(codingAgentEntry), "utils", "paths.js");
+
 /** How an extension's entry is named beside its source. */
 const ENTRY_SUFFIX = ".pi-durable-extension-adapter.mjs";
 
@@ -116,7 +122,7 @@ function piLayout(): PiLayout {
   ];
   // The loader and pi-ai's extension view are resolved by their paths; a moved one would fail
   // each extension's build alone, and prepare would succeed without them.
-  for (const file of [piLoader, piAiView]) realPath(file, file);
+  for (const file of [piLoader, piAiView, piPaths]) realPath(file, file);
   return {
     initializers: new Set(initializers.map((file) => realPath(file, file))),
     leftInstalled: LEFT_INSTALLED.map(installedPackage),
@@ -146,6 +152,12 @@ function realPath(file: string | undefined, name: string): string {
   );
 }
 
+/** The functions of Pi's `utils/paths.js` this package uses. */
+interface PiPaths {
+  isLocalPath: (value: string) => boolean;
+  resolvePath: (input: string, baseDir: string, options: { trim: boolean }) => string;
+}
+
 interface Input {
   sources: string[];
   dir: string;
@@ -155,14 +167,40 @@ interface Input {
 async function prepare({ sources, dir, npmCommand }: Input): Promise<PreparedExtensions> {
   const settingsManager = SettingsManager.inMemory(npmCommand && { npmCommand });
   const packages = new DefaultPackageManager({ cwd: dir, agentDir: dir, settingsManager });
-  const resolved = await packages.resolveExtensionSources(sources);
+  // Pi resolves a relative local path against `dir`, its agent directory here, where the caller
+  // means its own working directory, so local paths are resolved here first with Pi's own
+  // functions. Pi's `--extension` resolves against the working directory with a temporary scope,
+  // which would also move installations and refresh unpinned sources on each start.
+  const { isLocalPath, resolvePath }: PiPaths = await import(
+    pathToFileURL(realPath(piPaths, piPaths)).href
+  );
+  const given = new Map(
+    sources.map(
+      (source) =>
+        [
+          isLocalPath(source) ? resolvePath(source, process.cwd(), { trim: true }) : source,
+          source,
+        ] as const,
+    ),
+  );
+  const resolved = await packages.resolveExtensionSources([...given.keys()]);
   const found: PreparedExtension[] = resolved.extensions
     .filter((each) => each.enabled)
-    .map((each) => ({ source: each.metadata.source, path: each.path }));
+    .map((each) => ({
+      source: given.get(each.metadata.source) ?? each.metadata.source,
+      path: each.path,
+    }));
   const failures = (resolved.installFailures ?? []).map(({ source, message }) => ({
-    source,
+    source: given.get(source) ?? source,
     message,
   }));
+  // Pi skips a local path that does not exist, and a package without extensions has none to run.
+  for (const [resolvedSource, source] of given) {
+    if (found.some((each) => each.source === source)) continue;
+    if (failures.some((each) => each.source === source)) continue;
+    const where = resolvedSource === source ? "there" : `at ${resolvedSource}`;
+    failures.push({ source, message: `No extension was found ${where}.` });
+  }
   const bundled = await bundle(found, dir, piLayout());
   return { ...bundled, failures: [...failures, ...bundled.failures] };
 }

@@ -193,17 +193,18 @@ export const failureSchema = z.object({
       "modelFailed",
       "runFaulted",
       "runnerRemoved",
+      "journalLost",
     ])
     .check(
       z.describe(
-        "What failed the job: `noOutput` when its agent ended without an accepted output; `runTimedOut` when a run went past its `runTimeoutSeconds`; `modelBudgetExceeded` when its model calls' cost reached its `modelBudgetUsd`; `modelFailed` when generating the agent's next step failed, as when the model's provider refused the call; `runFaulted` when its run broke on its Runner; `runnerRemoved` when its Runner was removed before it ended. New reasons may be added: treat one you do not know as a fault.",
+        "What failed the job: `noOutput` when its agent ended without an accepted output; `runTimedOut` when a run went past its `runTimeoutSeconds`; `modelBudgetExceeded` when its model calls' cost reached its `modelBudgetUsd`; `modelFailed` when generating the agent's next step failed, as when the model's provider refused the call; `runFaulted` when its run broke on its Runner; `runnerRemoved` when its Runner was removed before it ended; `journalLost` when its Runner's journal of it was missing or lacked the last of its events the hub holds, as after its files were lost or restored from an older backup, so it was not carried on, which would have repeated its work: resuming it carries on only once the journal is restored, and submitting it again under a new `customId` starts it over. New reasons may be added: treat one you do not know as a fault.",
       ),
     ),
   message: z.optional(
     textSchema.check(
       z.maxLength(FAILURE_MESSAGE_MAX_LENGTH),
       z.describe(
-        "What the cause said, where it gave text: the provider's error for `modelFailed`, and what broke for `runFaulted`. Cut to its first 4,096 characters.",
+        "What the cause said, where it gave text: the provider's error for `modelFailed`, what broke for `runFaulted`, and what the Runner found for `journalLost`. Cut to its first 4,096 characters.",
       ),
     ),
   ),
@@ -370,10 +371,11 @@ export const jobReportSchema = z
     /** What the job's conversations doing anything are doing; absent when it could not be read. */
     activity: z.optional(jobActivitySchema.check(storable)),
     /**
-     * A failure its journal did not record, as when the journal could not be opened or the Runner
-     * faulted. Sent until the hub drops the run, but only with a report that reaches the end of what
-     * the journal holds, or with no events when the job's journal never held any, so the hub never
-     * ends a job without an entry its journal holds.
+     * A failure its journal did not record, as when the journal could not be opened, was lost or the
+     * Runner faulted. Sent until the hub drops the run, but only with a report that reaches the end of
+     * what the journal holds, so the hub never ends a job without an entry its journal holds. It goes
+     * with no events when the job's journal never held any, and when it is lost (`journalLost`): it
+     * lacks the hub's last record, so nothing it holds continues the history the hub has.
      */
     failure: z.optional(jobFailureSchema),
   })
@@ -390,11 +392,61 @@ export type JobReport = z.infer<typeof jobReportSchema>;
 const refusedReportSchema = z.object({ ...runRefSchema.shape, reason: z.string() });
 export type RefusedReport = z.infer<typeof refusedReportSchema>;
 
+/**
+ * What jobs on a Runner can do, as the Runner reports it: what its settings come to as it starts,
+ * not the settings, which stay on the Runner, so readers need none of their rules. The hub keeps
+ * the latest and shows it. How much a Runner can take on, and whether its parts are healthy, are
+ * not capabilities: they change on their own and are reported apart.
+ */
+export const runnerCapabilitiesSchema = z
+  .object({
+    runnerVersion: z.string(),
+    /** The model every job starts on, by Pi's names. */
+    model: z.object({ provider: z.string(), modelId: z.string(), thinkingLevel: z.string() }),
+    /** The extension packages every job's agent runs with, at their installed versions. */
+    extensions: z.array(z.object({ name: z.string(), version: z.optional(z.string()) })),
+    /**
+     * Whether jobs may search the web, through pi-web-access. Absent when the Runner cannot tell, as
+     * when the operator's own extensions search without it. Each field is a bound, not a prediction
+     * of which provider or credential a search uses, which depends on each search.
+     */
+    webSearch: z.optional(
+      z.object({
+        enabled: z.boolean(),
+        /**
+         * The only providers searches may go to, in no particular order. Absent while search is on:
+         * any provider pi-web-access finds a key for, keyless ones included.
+         */
+        allowedProviders: z.optional(z.array(z.string())),
+        /** Present when searches may go to OpenAI. */
+        openai: z.optional(
+          z.object({
+            /**
+             * False only when the Runner confined OpenAI searches to a ChatGPT subscription's
+             * sign-in itself; true whenever an API key may pay, or the Runner cannot rule it out.
+             */
+            mayUseApiKey: z.boolean(),
+          }),
+        ),
+      }),
+    ),
+  })
+  .check(storable);
+export type RunnerCapabilities = z.infer<typeof runnerCapabilitiesSchema>;
+
 /** The requests a Runner makes of the hub. */
 export const runnerRequests = {
   /** The first request on a new socket: who the Runner is. The hub says how often to sync. */
   hello: {
-    params: z.object({ name: z.string() }),
+    params: z.object({
+      name: z.string(),
+      /**
+       * What jobs on the Runner can do, as `runnerCapabilitiesSchema` describes it. Unchecked here:
+       * the hub keeps none in place of a record it cannot read rather than refuse the hello, which
+       * the Runner would retry forever.
+       */
+      capabilities: z.optional(z.unknown()),
+    }),
     result: z.object({
       /** How often the Runner is to sync while nothing else prompts it; the hub's interval. */
       syncIntervalMs: z.int().check(z.nonnegative()),

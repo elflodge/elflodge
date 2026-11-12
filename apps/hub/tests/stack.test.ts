@@ -98,6 +98,38 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
     expect((await fetch(`${url}/healthz`)).ok).toBe(true);
     expect(await dockerIds("ps", "--filter", "status=running")).toHaveLength(3);
 
+    // Jobs search the web only through providers named here, which reach the settings the
+    // Runner's extensions read.
+    const webSearch = async () => {
+      const { stdout } = await run("docker", [
+        "compose",
+        "--project-name",
+        PROJECT,
+        "--file",
+        composeFile,
+        "exec",
+        "-T",
+        "runner",
+        "cat",
+        "/data/pi-agent/web-search.json",
+      ]);
+      const settings = z.parse(
+        z.object({ tools: z.unknown(), webSearch: z.optional(z.unknown()) }),
+        JSON.parse(stdout),
+      );
+      return { tools: settings.tools, webSearch: settings.webSearch };
+    };
+    const off = { webSearch: { enabled: false }, sourceCheck: { enabled: false } };
+    expect(await webSearch()).toEqual({ tools: off, webSearch: undefined });
+    const searching = await elflodge("stack", "start", "--search", "brave");
+    expect(searching.stderr).toContain("Web search is on through brave.");
+    expect(await webSearch()).toEqual({
+      tools: { webSearch: { enabled: true }, sourceCheck: { enabled: true } },
+      webSearch: { allowedProviders: ["brave"] },
+    });
+    await elflodge("stack", "start", "--reset-search");
+    expect(await webSearch()).toEqual({ tools: off, webSearch: undefined });
+
     await elflodge("stack", "logout", "--provider", "openrouter");
     await elflodge("stack", "start", "--env", "OPENROUTER_API_KEY");
     const containers = await dockerIds("ps", "--filter", "status=running");
