@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:
 import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { BACKGROUND_CONTEXT, withCancel } from "@earendil-works/chord/context";
 import { getOrThrow } from "@earendil-works/pi-durable/env";
@@ -68,16 +69,27 @@ async function run(job: JobEnvironment, command: string) {
 async function leaveSleepRunning(job: JobEnvironment) {
   const seconds = String(1000 + Math.floor(Math.random() * 9000));
   await run(job, `nohup sleep ${seconds} >/dev/null 2>&1 &`);
-  // Where closing the job leaves it running (macOS), so it does not outlive the test.
-  onTestFinished(() => void execFile("pkill", ["-f", `sleep ${seconds}`]));
-  const sleeping = () =>
-    new Promise<boolean>((resolve) =>
-      execFile("pgrep", ["-f", `sleep ${seconds}`], (error) => resolve(error === null)),
+  // Matches the whole command line exactly, so no other process is taken for it. Exit status 1
+  // means no process matched.
+  const matching = (tool: "pgrep" | "pkill") =>
+    promisify(execFile)(tool, ["-x", "-f", `sleep ${seconds}`]).then(
+      () => true,
+      (error: { code?: unknown }) => {
+        if (error.code === 1) return false;
+        throw error;
+      },
     );
+  // Where closing the job leaves it running (macOS), so it does not outlive the test.
+  onTestFinished(async () => {
+    await matching("pkill");
+  });
+  const sleeping = () => matching("pgrep");
   // Polled: while the background shell execs `nohup` and then `sleep`, its command line is briefly empty.
   await expect.poll(sleeping).toBe(true);
   return { seconds, sleeping };
 }
+
+const onMacOS = process.platform === "darwin";
 
 // Under Seatbelt these cases see no change reported, though the same cases pass under bubblewrap.
 const failingOnMacOS = new Set([
@@ -93,7 +105,7 @@ describe("pi-durable's environment cases", () => {
     withEnv: (use) => withJob((job) => use(job.env)),
   });
   for (const testCase of cases) {
-    const fails = process.platform === "darwin" && failingOnMacOS.has(testCase.name);
+    const fails = onMacOS && failingOnMacOS.has(testCase.name);
     it(testCase.name, { timeout: testCase.timeoutMs, fails }, () => testCase.run());
   }
 });
@@ -230,7 +242,7 @@ it("aborting or timing out a command stops it without touching another job's", (
   ));
 
 // Under Seatbelt the background process is still running after the job closes.
-it("closing a job stops what it left running", { fails: process.platform === "darwin" }, () =>
+it("closing a job stops what it left running", { fails: onMacOS }, () =>
   withJob(async (job) => {
     const { sleeping } = await leaveSleepRunning(job);
     await job.close();
