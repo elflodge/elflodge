@@ -99,8 +99,8 @@ catalog:
   typescript: ~7.0.2
   uuid: ^14.0.3
   valid-filename: ^5.0.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.5.0
-  vite-plus: 1.5.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
+  vite-plus: 1.6.0
   vitest: 5.1.0
   wrangler: ^4.158.0
   # The version Pi's chord takes as a peer, exactly: with any other, pi-ai resolves twice, and
