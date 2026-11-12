@@ -67,7 +67,9 @@ test("a job whose journal is restored from an earlier copy fails with journalLos
   expect(await client.jobs.get({ id })).toMatchObject({
     failure: {
       reason: "journalLost",
-      message: expect.stringMatching(/^The Runner's journal does not hold event \d+/),
+      message: expect.stringMatching(
+        /^The Runner's journal lacks the last event the hub holds, ID \d+/,
+      ),
     },
   });
   expect(system.model.state.callCount).toBe(calls);
@@ -96,7 +98,7 @@ test("a job whose journal is missing fails with journalLost on its cancel too, k
     failure: {
       reason: "journalLost",
       message: expect.stringMatching(
-        /^No journal on the Runner; the hub holds the job's events up to \d+/,
+        /^The Runner has no journal; the hub holds events up to ID \d+/,
       ),
     },
   });

@@ -196,7 +196,7 @@ export function openAndCheckJournal(
     if (!(yield* settings.fileSystem.exists(paths.journal))) {
       if (position === 0) return false;
       return yield* new JournalLost({
-        message: `No journal on the Runner; the hub holds the job's events up to ${position}.`,
+        message: `The Runner has no journal; the hub holds events up to ID ${position}.`,
       });
     }
     // The hub holds none of the job's records, so any journal holds them all.
@@ -213,12 +213,12 @@ export function openAndCheckJournal(
       (journal) => Effect.promise(() => journal.close(context)),
     );
     if (found.held) return true;
-    // In the words callers read: the journal's records are the job's events.
+    // In the words callers read: the journal's records are the job's events, known by their IDs.
     return yield* new JournalLost({
       message:
         found.last === 0
-          ? `The Runner's journal holds no events; the hub holds the job's events up to ${position}.`
-          : `The Runner's journal does not hold event ${position}, the last the hub holds; its last is ${found.last}.`,
+          ? `The Runner's journal holds no events; the hub holds events up to ID ${position}.`
+          : `The Runner's journal lacks the last event the hub holds, ID ${position}; its last is ID ${found.last}.`,
     });
   });
 }
