@@ -1,7 +1,25 @@
-# Elflodge Agent Batches privacy notice
+# Privacy
 
-The plugin provides instructions for using Elflodge with a deployment you operate or choose. Installing it does not submit jobs. When you ask Claude to run work, it reads your task and files, which may contain personal data. The CLI sends submitted inputs and instructions to your Elflodge hub; the Runner sends model requests, including relevant content and tool outputs, to its configured model provider. Enabled web tools can send queries to search providers and fetch websites. ChatGPT-subscription Runners can search through that subscription by default. Setup downloads software and examples from npm, GitHub and container registries. See the [Runner documentation](https://github.com/elflodge/elflodge/blob/main/apps/runner/README.md) for web access settings.
+Elflodge Agent Batches is a set of instructions for Claude. It adds no telemetry and no hosted service, and installing it does not give its maintainers access to your deployment.
 
-Your deployment stores inputs, job records, events and outputs; the CLI also saves collected outputs locally. Retention and deletion are controlled by the deployment and its operator. Stopping the stack preserves its data. Anthropic and the model, search and other services you use apply their own processing and retention policies.
+Claude reads the inputs and results it prepares or inspects for you. That is handled under the terms of your Claude plan or provider, as in any other session.
 
-The plugin adds no telemetry or hosted service, and installing it does not give its maintainers access to your deployment. Contact your deployment operator about data held there, or use the [project issue tracker](https://github.com/elflodge/elflodge/issues) for plugin support.
+## Where your data goes
+
+When you run a batch:
+
+- **The deployment you choose.** Your work goes to an Elflodge server run by you or another operator. It stores the inputs, job records, events and outputs. Outputs you collect are also saved on your machine.
+- **The model provider.** The deployment sends the inputs, instructions and tool outputs a job needs to the model provider configured for it.
+- **The web.** Jobs with web tools can send search queries and fetch websites. Where jobs run on a ChatGPT subscription, web search is available by default. See the [search settings](https://github.com/elflodge/elflodge/blob/main/apps/runner/README.md).
+
+Setup downloads software and examples from npm, GitHub and container registries.
+
+## Retention and deletion
+
+The deployment's operator decides how long its stored data is kept and how it is deleted. Stopping the deployment's services does not delete what is stored.
+
+Model providers, search providers, websites and download sources process and retain what they receive under their own terms.
+
+## Questions
+
+For data held in a deployment, ask its operator. For questions about the plugin, use the public [issue tracker](https://github.com/elflodge/elflodge/issues).
