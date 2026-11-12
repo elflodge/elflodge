@@ -220,9 +220,11 @@ function runRegistered(
       // Started before the jobs, so it stops after them.
       const extensionHost =
         extensions.prepared && (yield* startRunnerExtensions(options.dataDir, extensions.prepared));
+      const fileSystem = yield* FileSystem.FileSystem;
       const agent = {
-        jobsDir: path.join(options.dataDir, "jobs"),
-        fileSystem: yield* FileSystem.FileSystem,
+        // By its real path, which every part of a job then uses (`JobDirs`). Registering created it.
+        jobsDir: path.join(yield* fileSystem.realPath(options.dataDir).pipe(Effect.orDie), "jobs"),
+        fileSystem,
         hubHttp: createORPCClient<HubHttpClient>(
           createProblemDetailsLink(runnerHttpContract, {
             origin: hubUrl.origin,

@@ -61,7 +61,10 @@ const SYSTEM_READ_PATHS: Partial<Record.ReadonlyRecord<NodeJS.Platform, readonly
     // (Codex: the folder and two files in it) are readable in full; both hold Apple's system files,
     // not user data, and Gemini CLI's strict profile reads all of /System. Codex's metadata-only
     // rules are left out, as sandbox-runtime allows reading every folder's metadata when reads
-    // are denied.
+    // are denied. Two paths Codex's profile lacks are added, as jobs on macOS 15 need them:
+    // /private/var/select, the system's choice of shell, which /bin/sh reads before every command,
+    // and /System/Library/OpenSSL, the OpenSSL configuration, without which a job's `node` cannot
+    // start.
     "/bin",
     "/sbin",
     "/usr/bin",
@@ -78,6 +81,7 @@ const SYSTEM_READ_PATHS: Partial<Record.ReadonlyRecord<NodeJS.Platform, readonly
     "/Library/Preferences",
     "/private/var/db/timezone",
     "/private/var/db/DarwinDirectory/local/recordStore.data",
+    "/private/var/select",
     "/var/db",
     "/private/var/db",
     "/System/Library/Extensions",
@@ -85,6 +89,7 @@ const SYSTEM_READ_PATHS: Partial<Record.ReadonlyRecord<NodeJS.Platform, readonly
     "/System/Library/PrivateFrameworks",
     "/System/Library/SubFrameworks",
     "/System/Library/CoreServices",
+    "/System/Library/OpenSSL",
     "/System/iOSSupport/System/Library/Frameworks",
     "/System/iOSSupport/System/Library/PrivateFrameworks",
     "/System/iOSSupport/System/Library/SubFrameworks",
@@ -152,7 +157,11 @@ export interface SandboxSettings {
   runWithoutSandbox: boolean;
 }
 
-/** A job's own folders: its Workspace, and its temp directory, which may not exist yet. */
+/**
+ * A job's own folders, by their real paths: its Workspace, and its temp directory, which may not
+ * exist yet. sandbox-runtime grants them at their real paths, and its macOS profile denies a job
+ * reading a symbolic link on the way, such as `/var` in `/var/folders/…`, macOS's temp folder.
+ */
 export interface JobDirs {
   workspace: string;
   temp: string;
