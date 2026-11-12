@@ -8,6 +8,7 @@ type JobFailureReason =
   | "modelBudgetExceeded"
   | "modelFailed"
   | "runFaulted"
-  | "runnerRemoved";
+  | "runnerRemoved"
+  | "journalLost";
 
 export type { JobFailureReason as default };

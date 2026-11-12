@@ -143,6 +143,11 @@ function isEntryId(id: number): id is EntryId {
   return Number.isSafeInteger(id) && id > 0;
 }
 
+/** Whether `id` can be a conversation ID, as `isEntryId`. */
+function isConversationId(id: number): id is ConversationId {
+  return isEntryId(id);
+}
+
 /** A conversation of the journal and its latest entry, which a fork without its own inherits. */
 export interface ConversationHead {
   id: ConversationId;
@@ -218,6 +223,35 @@ export function readEvents(
     }
     const more = read.length < sorted.length || horizon < Number.POSITIVE_INFINITY;
     return { events: read, bytes, more, conversations: heads };
+  }, BACKGROUND_CONTEXT);
+}
+
+/**
+ * Whether `journal` holds the record `position`, a conversation or an entry, as the hub's position
+ * names the last record it stored; when it does not, also the journal's last record, 0 when it has
+ * none, which says where it ends. Read in one commit; it writes nothing.
+ */
+export function readRecordAt(
+  journal: Session,
+  position: number,
+): Promise<{ held: true } | { held: false; last: number }> {
+  return journal.commit(async (tx) => {
+    const entryId: number = position;
+    const conversationId: number = position;
+    if (!isEntryId(entryId) || !isConversationId(conversationId)) {
+      throw new RangeError(`${position} is not a journal ID`);
+    }
+    if ((await tx.entry(entryId)) ?? (await tx.conversation(conversationId))) return { held: true };
+    let last = 0;
+    let cursor;
+    do {
+      const page = await tx.scanConversations({ order: "ascending" }, PAGE_SIZE, cursor);
+      for (const conversation of page.items) {
+        last = Math.max(last, conversation.id, (await tx.latestEntryId(conversation.id)) ?? 0);
+      }
+      cursor = page.next;
+    } while (cursor !== undefined);
+    return { held: false, last };
   }, BACKGROUND_CONTEXT);
 }
 

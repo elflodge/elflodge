@@ -33,6 +33,7 @@ import {
   type runnerHttpContract,
 } from "contract";
 import {
+  Data,
   Deferred,
   Duration,
   Effect,
@@ -61,6 +62,7 @@ import {
   JobStarted,
   JobSucceeded,
   openingRequest,
+  readRecordAt,
   RUNNER_VERSION,
   submitClosing,
 } from "./journal.ts";
@@ -161,14 +163,63 @@ export function deleteJobFiles(
 }
 
 /**
- * Whether the job has a journal on this Runner, as a job that started here has. Fails when that
- * cannot be told, as on a permission error.
+ * A job's journal on this Runner that the job must not carry on from: missing, or without the last
+ * record the hub holds, as after the job's files were lost or restored from an older backup. Its
+ * entries since that record, completed tool calls among them, would run again. `message` says what
+ * the Runner found.
  */
-export function journalExists(
+export class JournalLost extends Data.TaggedError("JournalLost")<{ message: string }> {}
+
+/**
+ * Whether the job has a journal on this Runner, as a job that started here has, failing with
+ * `JournalLost` when the job must not carry on from it: there is none though the hub's `position` in
+ * it is above 0, or it does not hold the record at that position, the last the hub stored. IDs have
+ * gaps and are shared across pi's records, so a large enough last ID proves nothing. Fails too when
+ * the journal cannot be looked up, as on a permission error.
+ *
+ * Checked before anything opens the journal to write: opening it recovers, which writes, and an
+ * entry written then could take the ID of one the hub holds. So the check opens it read-only, which
+ * recovers nothing, and closes it. Opening it applies pi's schema migrations, which keep every
+ * record and its ID, and creates an empty journal if it vanished after the lookup, which then fails
+ * the check, as it does again at every later check.
+ */
+export function checkJournal(
   settings: AgentSettings,
   jobId: string,
-): Effect.Effect<boolean, PlatformError.PlatformError> {
-  return settings.fileSystem.exists(jobPaths(settings.jobsDir, jobId).journal);
+  position: number,
+): Effect.Effect<boolean, PlatformError.PlatformError | JournalLost> {
+  const context = BACKGROUND_CONTEXT;
+  const paths = jobPaths(settings.jobsDir, jobId);
+  return Effect.gen(function* () {
+    // Opening a journal that does not exist would create one.
+    if (!(yield* settings.fileSystem.exists(paths.journal))) {
+      if (position === 0) return false;
+      return yield* new JournalLost({
+        message: `No journal on the Runner; the hub holds records up to ${position}.`,
+      });
+    }
+    // The hub holds none of the job's records, so any journal holds them all.
+    if (position === 0) return true;
+    const found = yield* Effect.scoped(
+      Effect.acquireRelease(
+        Effect.promise(async () =>
+          Harness.open(
+            await openNodeSqliteStorage(paths.journal),
+            { models: settings.models, registry: createRegistry(), readOnly: true },
+            context,
+          ),
+        ),
+        (opened) => Effect.promise(() => opened.close(context)),
+      ).pipe(Effect.flatMap((journal) => Effect.promise(() => readRecordAt(journal, position)))),
+    );
+    if (found.held) return true;
+    return yield* new JournalLost({
+      message:
+        found.last === 0
+          ? `The Runner's journal holds no records; the hub holds records up to ${position}.`
+          : `The Runner's journal does not hold record ${position}, the last the hub holds; its last record is ${found.last}.`,
+    });
+  });
 }
 
 /**
@@ -620,19 +671,20 @@ export type Stop = Extract<Intent, "pause" | "cancel">;
  * accepted output the interrupted agent had not yet recorded as its end succeeded, since completion
  * ends a run (ADR 0009); a run that has already closed keeps its closing. Gives back the
  * journal, open until the caller's scope closes, or nothing when the job has no journal on this
- * Runner: a job its Runner never started has nothing to record.
+ * Runner and the hub's position in it is 0: a job its Runner never started has nothing to record.
+ * A journal lost (`checkJournal`) records nothing.
  */
 export function recordStop(
   jobId: string,
   runId: string,
   intent: Stop,
+  position: number,
   settings: AgentSettings,
-): Effect.Effect<Harness | undefined, PlatformError.PlatformError, Scope.Scope> {
+): Effect.Effect<Harness | undefined, PlatformError.PlatformError | JournalLost, Scope.Scope> {
   const context = BACKGROUND_CONTEXT;
   const paths = jobPaths(settings.jobsDir, jobId);
   return Effect.gen(function* () {
-    // Opening a journal that does not exist would create one.
-    if (!(yield* journalExists(settings, jobId))) return undefined;
+    if (!(yield* checkJournal(settings, jobId, position))) return undefined;
     const journal = yield* Effect.acquireRelease(
       Effect.promise(async () =>
         Harness.open(

@@ -17,7 +17,7 @@ import ensureError from "ensure-error";
 
 import {
   type AgentSettings,
-  journalExists,
+  checkJournal,
   openJob,
   recordStop,
   deleteJobFiles,
@@ -52,15 +52,16 @@ interface HeldJob {
   /** The job's journal, from when it opens until the hub drops the run. */
   journal?: Harness;
   /**
-   * Whether the job's journal was known not to exist when this run was about to open it. One that
-   * may have existed may hold entries the hub lacks, whether or not it opens. Only a run that knows
-   * it absent downloads the job's Input files, since an existing journal means the agent may have
-   * changed them.
+   * What this run found of the job's journal before opening it: `absent`, none, while the hub holds
+   * none of the job's records, or `lost` (`JournalLost`), which is never opened. Unset before the
+   * check and for a journal that is there, which may hold entries the hub lacks, whether or not it
+   * opens. Only a run that found it absent downloads the job's Input files, since an existing journal
+   * means the agent may have changed them.
    */
-  journalKnownAbsent: boolean;
+  journalFound?: "absent" | "lost";
   /**
-   * The job's failure its journal did not record: its journal did not open, or the Runner faulted
-   * while it ran. The journal records every other start and end itself.
+   * The job's failure its journal did not record: its journal did not open or was lost, or the
+   * Runner faulted while it ran. The journal records every other start and end itself.
    */
   failure?: JobFailure;
   /** When the Runner first saw each part of the job's activity as it is now (`readActivity`). */
@@ -96,8 +97,7 @@ export class JobRunner {
   readonly #fibers = new Map<string, Fiber.Fiber<void>>();
   /**
    * The jobs whose journals this process has opened, by job ID: one opened again is not recovered
-   * from a restart. A job whose run stopped before its journal opened, as while its Input files
-   * downloaded, has none, so its next run downloads them.
+   * from a restart.
    */
   readonly #opened = new Set<string>();
   /** The deletions the hub lists, by job ID, until it stops listing them. */
@@ -144,12 +144,13 @@ export class JobRunner {
    * drops it, and `all` sends every job's again. The events of all jobs come to about `maxBytes` of
    * JSON Lines; `more` says some were left for the next report.
    *
-   * A failure goes only with a report that reaches the end of the journal, or alone for a job whose
-   * journal was known not to exist before it failed to open, so the hub never ends a job without an
-   * entry its journal holds. A job whose events cannot be read, as when its storage fails, reports
-   * nothing: the hub keeps what it last had. pi fails a journal for good on its first storage error,
-   * so only the Runner's restart, which opens it again, tries again. An activity or usage that cannot
-   * be read is left out.
+   * A failure goes only with a report that reaches the end of the journal, so the hub never ends a
+   * job without an entry its journal holds, or alone for a job whose journal was known not to exist
+   * before it failed to open, or was lost, as what a lost journal holds is not the job's history the
+   * hub has. A job whose events cannot be read, as when its storage fails, reports nothing: the hub
+   * keeps what it last had. pi fails a journal for good on its first storage error, so only the
+   * Runner's restart, which opens it again, tries again. An activity or usage that cannot be read is
+   * left out.
    *
    * It records when it first saw each part of a job's activity, and the activity and usage it
    * reports, so that only a change reports again. They are recorded before the hub answers, which
@@ -196,8 +197,9 @@ export class JobRunner {
           // A journal that did not exist before holds nothing of the job until its start is
           // written, which happens only once it has opened. A pause or cancel of a job without a
           // journal records nothing, so the report alone says the job never started.
-          if (failure && job.journalKnownAbsent) jobs.push({ ...report, events: [], failure });
-          else if (job.intent !== "run" && job.journalKnownAbsent) {
+          if (failure && job.journalFound !== undefined) {
+            jobs.push({ ...report, events: [], failure });
+          } else if (job.intent !== "run" && job.journalFound === "absent") {
             jobs.push({ ...report, events: [] });
           }
           continue;
@@ -371,7 +373,6 @@ export class JobRunner {
       run: ref,
       intent: "run",
       position: run.position,
-      journalKnownAbsent: false,
       seen: new Map(),
       lastRead: 0,
       // A run given without its job is only to have its pause or cancel recorded: it takes no
@@ -407,28 +408,61 @@ export class JobRunner {
         };
       });
 
+    /**
+     * Fails the job for its lost journal, which is neither carried on from nor reported from, and
+     * whose files stay for inspection (`JournalLost`).
+     */
+    const journalLost = (message: string) =>
+      Effect.logError("A job's journal is lost", message).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            held.journalFound = "lost";
+            held.failure = {
+              timestamp: Date.now(),
+              reason: "journalLost",
+              message: failureMessage(message),
+            };
+          }),
+        ),
+      );
+
     /** Runs the job, keeping its journal open after it ends, until interrupted. */
     const working = (content: JobContent) =>
       Effect.scoped(
         promptCache
           .run(content, ({ ready, modelResponded }) =>
             Effect.gen(function* () {
-              // Looked up once the earlier run is done, since it may have opened the journal. A
-              // journal that cannot be looked up may be there.
+              // Checked once the earlier run is done, since it may have opened the journal, and on
+              // every run, also one this process opened before: only the check keeps a job from
+              // carrying on from a journal behind the hub.
               const openedBefore = opened.has(ref.jobId);
-              held.journalKnownAbsent =
-                !openedBefore &&
-                !(yield* journalExists(settings, ref.jobId).pipe(
-                  Effect.tapError((error) =>
-                    Effect.logError("A job's journal could not be looked up", error),
-                  ),
-                  Effect.orElseSucceed(() => true),
-                ));
+              const exists = yield* checkJournal(settings, ref.jobId, held.position).pipe(
+                Effect.catchTags({
+                  JournalLost: (lost) => journalLost(lost.message).pipe(Effect.as(undefined)),
+                  // A journal that cannot be looked up may hold the job's work, so the run neither
+                  // starts it afresh nor fails it: it is dropped, as a pause or cancel that cannot be
+                  // recorded is, and the hub's next answer, which lists it again, tries again.
+                  // Opening `dropped` ends this run, which the next one waits for.
+                  PlatformError: (error) =>
+                    Effect.logError("A job's journal could not be looked up", error).pipe(
+                      Effect.andThen(
+                        Effect.sync(() => {
+                          held.ended = true;
+                          forget();
+                          held.dropped.openUnsafe();
+                        }),
+                      ),
+                      Effect.as(undefined),
+                    ),
+                }),
+              );
+              if (exists === undefined) return;
               // A job's Input files are downloaded on its first run, before its journal exists: a
               // journal that exists means they were, and the agent may have changed them since.
               // The job holds its slot meanwhile. A download that fails fails the job, as a journal
               // that does not open does, and ends it, so jobs waiting behind it are released.
-              if (held.journalKnownAbsent) {
+              if (!exists) {
+                held.journalFound = "absent";
                 const downloaded = yield* downloadInputFiles(
                   settings,
                   ref.jobId,
@@ -494,14 +528,21 @@ export class JobRunner {
     const recording = (stop: Stop) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const journal = yield* recordStop(ref.jobId, ref.runId, stop, settings);
-          // A job without a journal never started, and the hub forgets which Runner held it once
-          // told so; but its Input files' download may have written files already, so they go
-          // first. A deletion that fails is tried again with the rest.
-          if (journal === undefined) yield* deleteJobFiles(settings, ref.jobId);
-          held.journal = journal;
-          held.journalKnownAbsent = journal === undefined;
-          held.intent = stop;
+          yield* recordStop(ref.jobId, ref.runId, stop, held.position, settings).pipe(
+            Effect.flatMap((journal) =>
+              Effect.gen(function* () {
+                // A job without a journal never started, and the hub forgets which Runner held it
+                // once told so; but its Input files' download may have written files already, so
+                // they go first. A deletion that fails is tried again with the rest.
+                if (journal === undefined) yield* deleteJobFiles(settings, ref.jobId);
+                held.journal = journal;
+                if (journal === undefined) held.journalFound = "absent";
+                held.intent = stop;
+              }),
+            ),
+            // A lost journal records no pause or cancel, and its job's files stay: the job fails.
+            Effect.catchTag("JournalLost", (lost) => journalLost(lost.message)),
+          );
           held.ended = true;
           changed();
           yield* held.dropped.await;
