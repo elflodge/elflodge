@@ -2,49 +2,32 @@
 
 Too much repetitive work for one conversation? Let Claude hand it off to hundreds of sandboxed Pi agents working in parallel on your own machine. They run unattended and return structured results your code can use.
 
-A batch applies the same instructions and output schema to independent inputs, such as invoices to extract, documents to classify or records to enrich. Claude helps prepare the batch, inspect representative outputs, submit the work and collect the results.
+It suits work where every item gets the same treatment but each one needs judgment: invoices to extract, documents to classify, records to enrich. You describe one unit of work and what a good answer looks like. Claude helps you write the instructions and an output schema, and try them on a few items before you run the rest.
 
-By default, Elflodge runs the first five jobs before releasing the rest and pauses the batch if any of those five fails. After that, it pauses if more than 10% of completed jobs have failed. You can inspect the failures and resume the batch. If the CLI stops waiting, Claude can reconnect to the existing batch and collect its results.
+Each item becomes one job, with its files and a shell in its own sandbox. Successful outputs are collected as JSON records. For an invoice task, a record might look like this:
 
-The agents share a Runner while each job gets its own sandbox for files and shell commands, so you can run them without a fleet of hosted sandboxes or a container per job. See the [project README](https://github.com/elflodge/elflodge#readme) for the architecture and measurements.
-
-## Requirements
-
-Use Claude Code with a terminal, Node.js 22.19 or later, and access to an authenticated Elflodge hub. To start a local hub and Runner, you also need Docker and model-provider authentication. See the [deployment guide](https://github.com/elflodge/elflodge/blob/main/docs/deploy.md) for host requirements.
-
-The plugin contains the [Agent Batches skill](elflodge-agent-batches/SKILL.md), not the Elflodge service. Installing it does not start services or submit work. Claude web chat does not gain access to your machine or Docker by installing this plugin. Other Claude environments need the same terminal and hub access before they can run jobs.
-
-## Try it
-
-Ask Claude:
-
-- "Use Elflodge to run the released invoice example as a pilot. Check the document types and arithmetic before proposing a larger batch."
-- "Prepare an Elflodge classification pilot for these documents. Use my categories, allow an uncertain result, and show me the instructions and schema before submitting."
-- "My Elflodge batch stopped waiting. Inspect its status and collect the results without duplicating completed jobs."
-
-Start with synthetic or non-sensitive inputs. The skill checks output structure and guides inspection; schema-valid outputs can still be factually wrong. Running jobs can incur model-provider and hosting costs.
-
-## What runs and where data goes
-
-When following the skill, Claude can download and run the `elflodge` CLI from npm, fetch the released invoice example from GitHub, and start Docker services using Elflodge's published images. These happen while carrying out your request, not on plugin installation.
-
-Submitted instructions and input files go to your configured Elflodge hub and Runner. The Runner sends model requests, which can include input content and tool results, to its configured model provider. Job records, events and results are stored by your deployment; collected results are also written to the output directory you choose. Stopping the local stack preserves its data. Provider retention and processing depend on the provider you choose. Enabled web tools can also send requests to search providers and websites; see the [privacy notice](PRIVACY.md) for the data flow.
-
-The CLI uses your configured hub credentials; provider authentication belongs to the Runner setup. Do not paste secrets into prompts or output files. Review the deployment and provider before submitting private data. The plugin adds no MCP server, hooks or telemetry code.
-
-[Privacy notice](PRIVACY.md) · [CLI reference](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) · [Report a problem](https://github.com/elflodge/elflodge/issues) · [MIT license](LICENSE)
-
-## Maintainer checks
-
-The plugin root is this `skills/` directory. Its manifest points to the canonical skill directly, so Claude, Codex, Pi and skills.sh use the same instructions. Submit this subfolder rather than the application repository root. Release Please updates the plugin version with the software release.
-
-From the repository root, validate and load it locally:
-
-```sh
-claude plugin validate --profile directory --strict ./skills
-claude --plugin-dir ./skills
+```json
+{"customId": "invoice-0042.pdf", "status": "succeeded", "output": {"invoice_number": "INV-2291", "total": 1840.5, "due_date": null}}
 ```
 
-Invoke `/elflodge:elflodge-agent-batches` in that session. Local validation checks packaging; run the directory portal's validation separately for its policy scan before submission. See [Anthropic's checklist](https://claude.com/docs/plugins/pre-submission-checklist).
+The fields inside `output` are whatever your schema defines. Successful records are collected in `output.jsonl`, and failures, with their reasons, in `error.jsonl`.
 
-The 512-pixel PNG icon is a raster export of the [website favicon](https://github.com/elflodge/site/blob/main/public/favicon.svg).
+A batch starts with a few jobs and pauses if they fail, catching execution problems before they affect the whole run. It keeps running after the conversation ends, and Claude can reconnect later to collect the results. A local deployment runs eight jobs at a time by default; raise that as your machine and your model provider's rate limits allow.
+
+## Get started
+
+You need Claude Code with terminal access and Node.js 22.19 or later. Connect to an Elflodge deployment you already have, or let Claude set one up on your machine with Docker and a model-provider sign-in. The [deployment guide](https://github.com/elflodge/elflodge/blob/main/docs/deploy.md) covers host requirements.
+
+Once the plugin is installed, ask Claude:
+
+> Use Elflodge to try the invoice extraction example. Help me set it up and show me the results before we run a larger batch.
+
+Then describe your own task and inputs the same way. Every output is checked against your schema, which catches malformed answers but not wrong ones, so compare a few with their sources before you scale up.
+
+## What it uses and where your data goes
+
+The plugin is a single skill: instructions that teach Claude to use Elflodge. When you ask for a batch, Claude runs the `elflodge` CLI from npm. If you set up a local deployment, it starts Docker services from Elflodge's published images, and if you try the invoice example, it downloads it from GitHub.
+
+Your instructions and input files go to the Elflodge deployment you use, which sends what each job needs to its model provider. Jobs with web tools enabled can also send search queries and fetch websites. Collected results are saved on your machine. Model usage and hosting can cost money, depending on the provider and models you choose. The [privacy notice](PRIVACY.md) covers data handling and retention.
+
+[About Elflodge](https://github.com/elflodge/elflodge#readme) · [CLI reference](https://github.com/elflodge/elflodge/blob/main/docs/cli.md) · [Report a problem](https://github.com/elflodge/elflodge/issues) · [MIT license](LICENSE)
