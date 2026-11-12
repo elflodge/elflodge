@@ -1,9 +1,13 @@
-import { Option, Predicate, Result, Schema, Struct } from "effect";
+import type { RunnerCapabilities } from "contract";
+import { Array, Option, Predicate, Result, Schema, Struct } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 
 // What the Runner reads and changes in pi-web-access's settings file, as of the version the image's
 // folder pins: whether web search is on, through which providers, and with which credentials.
 // Checked on each upgrade of that version (ADR 0039).
+
+/** The extension package jobs search the web through. */
+export const WEB_SEARCH_EXTENSION = "pi-web-access";
 
 /** pi-web-access's settings file in the extensions' agent directory. */
 export const WEB_SEARCH_SETTINGS = "web-search.json";
@@ -37,6 +41,8 @@ export interface WebSearchInput {
 export interface WebSearchPlan {
   /** Settings to write in place of the defaults, when the Runner turns search on. */
   readonly settings?: Settings;
+  /** What the Runner reports jobs can do with these settings. */
+  readonly capability: WebSearchCapability;
   /** What the operator is told as the Runner starts. */
   readonly message: string;
   /** Whether the operator is warned rather than told. */
@@ -63,44 +69,77 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
         ? ` The ChatGPT subscription the model runs on can also search: add ${OPENAI_SEARCH} to RUNNER_WEB_SEARCH.`
         : "";
     return Result.succeed({
-      settings: withSearch(settings, providers, subscription),
+      ...searchThrough(settings, providers, subscription),
       message: `Web search is on through ${providers.join(", ")}.${also}`,
     });
   }
   if (!chosen && subscription !== undefined && !isOn(settings)) {
     return Result.succeed({
-      settings: withSearch(settings, [OPENAI_SEARCH], subscription),
+      ...searchThrough(settings, [OPENAI_SEARCH], subscription),
       message: `Web search is on through the ChatGPT subscription the model runs on, and uses its limits. RUNNER_WEB_SEARCH names other providers instead; include ${OPENAI_SEARCH} to keep it.`,
     });
   }
   const source = chosen ? " web-search.json in RUNNER_EXTENSION_SETTINGS_DIR chooses it." : "";
-  if (!isOn(settings)) {
-    return Result.succeed({ message: `Web search is off.${chosen ? source : ` ${TURN_ON}`}` });
+  const capability = describeWebSearch(settings);
+  if (!capability.enabled) {
+    return Result.succeed({
+      capability,
+      message: `Web search is off.${chosen ? source : ` ${TURN_ON}`}`,
+    });
   }
-  const allowed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(
-    fieldsOf(settings["webSearch"])["allowedProviders"],
-  );
+  const allowed = capability.allowedProviders;
   return Result.succeed(
-    Option.match(allowed, {
-      onNone: () => ({
-        warning: true,
-        message:
-          "Web search may use any provider pi-web-access finds a key for, keyless ones included: name the providers jobs may use in webSearch.allowedProviders in web-search.json.",
-      }),
-      onSome: (names) => ({ message: `Web search is on through ${names.join(", ")}.${source}` }),
-    }),
+    allowed === undefined
+      ? {
+          capability,
+          warning: true,
+          message:
+            "Web search may use any provider pi-web-access finds a key for, keyless ones included: name the providers jobs may use in webSearch.allowedProviders in web-search.json.",
+        }
+      : { capability, message: `Web search is on through ${allowed.join(", ")}.${source}` },
   );
 }
 
+/** What the Runner reports about web search. */
+export type WebSearchCapability = NonNullable<RunnerCapabilities["webSearch"]>;
+
 /**
- * Whether search is on, as pi-web-access decides: the tool's own switch, else the older one, else
- * on. A value that is not a boolean counts as unset, as it does there.
+ * The bounds of web search under settings the Runner did not write: whether jobs can search, and
+ * the only providers they may reach. Which provider or credential a search uses depends on each
+ * search (the job's model may name providers, defaults and routing fall back on failures), so none
+ * is predicted. An OpenAI search is reported as possibly billed to a key: only the Runner's own
+ * confinement to a ChatGPT subscription rules that out (`planWebSearch`).
+ */
+export function describeWebSearch(settings: Settings): WebSearchCapability {
+  if (!isOn(settings)) return { enabled: false };
+  const allowedProviders = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
+  if (allowedProviders === undefined) return { enabled: true, openai: { mayUseApiKey: true } };
+  return {
+    enabled: true,
+    allowedProviders,
+    ...(allowedProviders.includes(OPENAI_SEARCH) ? { openai: { mayUseApiKey: true } } : {}),
+  };
+}
+
+/** Search providers as pi-web-access reads a list of them: trimmed and lowercased. */
+const providerList = (value: unknown) =>
+  Option.getOrUndefined(
+    Schema.decodeUnknownOption(Schema.Array(Schema.String))(value).pipe(
+      Option.map((names) => Array.dedupe(names.map((name) => name.trim().toLowerCase()))),
+    ),
+  );
+
+/**
+ * Whether jobs can search, as pi-web-access decides for each of its two searching tools,
+ * `web_search` and `source_check`: the tool's own switch, else the shared one, else on. A value
+ * that is not a boolean counts as unset, as it does there.
  */
 function isOn(settings: Settings) {
-  return (
-    flag(fieldsOf(fieldsOf(settings["tools"])["webSearch"])["enabled"]) ??
-    flag(fieldsOf(settings["webSearch"])["enabled"]) ??
-    true
+  return (["webSearch", "sourceCheck"] as const).some(
+    (tool) =>
+      flag(fieldsOf(fieldsOf(settings["tools"])[tool])["enabled"]) ??
+      flag(fieldsOf(settings["webSearch"])["enabled"]) ??
+      true,
   );
 }
 
@@ -111,14 +150,36 @@ const flag = (value: unknown) =>
   Option.getOrUndefined(Schema.decodeUnknownOption(Schema.Boolean)(value));
 
 /**
- * `settings` with search on through exactly `providers`, tried in that order. pi-web-access's
- * automatic choice skips the providers it calls explicit-only even when they are allowed, so the
- * list is its routing as well as its allowlist; a single default provider would override the
- * routing, so none is kept.
+ * `settings` with search on through exactly `providers`, and what the Runner reports of them. The
+ * report says no key pays exactly when these settings pin OpenAI searches to the subscription, so
+ * both come from one decision.
  */
-function withSearch(settings: Settings, providers: readonly string[], subscription?: string) {
+function searchThrough(
+  settings: Settings,
+  providers: readonly string[],
+  subscription: string | undefined,
+): { settings: Settings; capability: WebSearchCapability } {
+  const openai = providers.includes(OPENAI_SEARCH);
+  const pinned = openai && subscription !== undefined;
+  return {
+    settings: withSearch(settings, providers, pinned ? subscription : undefined),
+    capability: {
+      enabled: true,
+      allowedProviders: [...providers],
+      ...(openai ? { openai: { mayUseApiKey: !pinned } } : {}),
+    },
+  };
+}
+
+/**
+ * `settings` with search on through exactly `providers`, tried in that order, and OpenAI searches
+ * pinned to `pinnedTo`'s sign-in when given. pi-web-access's automatic choice skips the providers
+ * it calls explicit-only even when they are allowed, so the list is its routing as well as its
+ * allowlist; a single default provider would override the routing, so none is kept.
+ */
+function withSearch(settings: Settings, providers: readonly string[], pinnedTo?: string) {
   const tools = fieldsOf(settings["tools"]);
-  const pinned = subscription !== undefined && providers.includes(OPENAI_SEARCH);
+  const pinned = pinnedTo !== undefined;
   const kept = Struct.omit(
     settings,
     pinned ? ["provider", "searchProvider", "openaiResponsesUrl"] : ["provider", "searchProvider"],
@@ -141,6 +202,6 @@ function withSearch(settings: Settings, providers: readonly string[], subscripti
     // Only the subscription's sign-in, never a key: with provider URL reuse, pi-web-access refuses
     // to search when that sign-in fails rather than fall back to `openaiApiKey` or `OPENAI_API_KEY`.
     // An explicit Responses URL turns that reuse off, so none is kept.
-    ...(pinned ? { openaiSearchProviders: [subscription], openaiUseProviderBaseUrl: true } : {}),
+    ...(pinned ? { openaiSearchProviders: [pinnedTo], openaiUseProviderBaseUrl: true } : {}),
   };
 }

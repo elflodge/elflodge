@@ -9,8 +9,26 @@ import * as NodeRuntime from "@effect/platform-node-shared/NodeRuntime";
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { writeFile } from "atomically";
-import { apiContract, createProblemDetailsLink } from "contract";
-import { Cause, Config, Effect, Exit, FileSystem, Layer, Path, Runtime, Stream } from "effect";
+import {
+  apiContract,
+  createProblemDetailsLink,
+  type Runner,
+  type RunnerCapabilities,
+} from "contract";
+import {
+  Array,
+  Cause,
+  Config,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Order,
+  Path,
+  Result,
+  Runtime,
+  Stream,
+} from "effect";
 import { Cookies } from "effect/http";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import ensureError from "ensure-error";
@@ -717,7 +735,9 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
-    yield* say(yield* runnerSearchStatus);
+    yield* say(
+      webSearchStatus(state, yield* Effect.result(signInAndReadRunnerCapabilities(state))),
+    );
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -730,34 +750,78 @@ function start(version: string, flags: StartFlags) {
 }
 
 /**
- * What web search does, as the Runner logged it when it started: `stack start` does not show the
- * Runner's log, and the Runner alone decides it (`planWebSearch` in apps/runner/src/web-search.ts).
- * Matches Effect's default log line; with another log format, the stack points to the log instead.
+ * Signs in as the owner, which makes a new session, and reads what the stack's Runner reported it
+ * can do in its hello, which the hub keeps: the Runner whose name is the container's hostname,
+ * which it reports as its name, the latest seen if several are. Null when it reported nothing the
+ * hub can read, as an older image reports nothing, and undefined when the hub lists no such Runner.
  */
-const runnerSearchStatus = dockerOutput([
-  "compose",
-  "--project-name",
-  PROJECT,
-  "--file",
-  COMPOSE_FILE,
-  "logs",
-  "--no-log-prefix",
-  "runner",
-]).pipe(
-  Effect.map((log) =>
-    log
-      .split("\n")
-      .map((line) => / (?:INFO|WARN) \(#\d+\): (Web search .*)$/.exec(line)?.[1])
-      .findLast(Boolean),
-  ),
-  Effect.orElseSucceed(() => undefined),
-  Effect.map((status) =>
-    [
-      status ?? "The Runner's log does not say what web search does: see elflodge stack logs.",
-      "elflodge stack start --search <provider> sets RUNNER_WEB_SEARCH, with its key forwarded by --env; --reset-search unsets it.",
-    ].join("\n"),
-  ),
-);
+function signInAndReadRunnerCapabilities(state: State) {
+  return Effect.gen(function* () {
+    const name = (yield* dockerOutput([
+      "compose",
+      "--project-name",
+      PROJECT,
+      "--file",
+      COMPOSE_FILE,
+      "exec",
+      "-T",
+      "runner",
+      "hostname",
+    ])).trim();
+    const client = yield* signIn(state);
+    const runners = yield* Effect.tryPromise({
+      try: (signal) => client.runners.list(undefined, { signal }),
+      catch: ensureError,
+    });
+    const ours = runners.filter((runner) => runner.name === name);
+    return Array.isReadonlyArrayNonEmpty(ours)
+      ? Array.max(
+          ours,
+          Order.mapInput(Order.Date, (runner: Runner) => runner.lastSeenAt),
+        ).capabilities
+      : undefined;
+  });
+}
+
+/** What web search does on the stack's Runner, from what it reported, and how to change it. */
+function webSearchStatus(
+  state: State,
+  reported: Result.Result<RunnerCapabilities | null | undefined, Error>,
+) {
+  const search = Result.isSuccess(reported) ? reported.success?.webSearch : undefined;
+  const status = Result.isFailure(reported)
+    ? `The hub could not be asked what web search does (${reported.failure.message}): see elflodge stack logs.`
+    : search === undefined
+      ? "The Runner did not report what web search does: see elflodge stack logs."
+      : !search.enabled
+        ? "Web search is off."
+        : [
+            search.allowedProviders === undefined
+              ? "Web search may use any provider the Runner finds a key for, keyless ones included."
+              : `Web search is on through ${search.allowedProviders.join(", ")}.`,
+            ...(search.openai === undefined
+              ? []
+              : [
+                  search.openai.mayUseApiKey
+                    ? "OpenAI searches may be billed to an API key."
+                    : "OpenAI searches go only through the ChatGPT subscription, within its limits.",
+                ]),
+            // The Runner searches through a ChatGPT subscription the model runs on, Pi's
+            // `openai-codex`, unless --search names providers without it.
+            ...(state.model.provider === "openai-codex" &&
+            search.allowedProviders !== undefined &&
+            !search.allowedProviders.includes("openai")
+              ? [
+                  // --search replaces the list, so the hint gives all of it.
+                  `The ChatGPT subscription the model runs on can also search: ${CommandLine.display(["elflodge", "stack", "start", ...[...state.search, "openai"].flatMap((name) => ["--search", name])])}.`,
+                ]
+              : []),
+          ].join(" ");
+  return [
+    status,
+    "elflodge stack start --search <provider> sets RUNNER_WEB_SEARCH, with its key forwarded by --env; --reset-search unsets it.",
+  ].join("\n");
+}
 
 function runCredentialCommand(
   version: string,

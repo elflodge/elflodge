@@ -24,6 +24,7 @@ export type { default as JobStatus } from "./generated/elflodge/JobStatus.ts";
 export type { default as JobControl } from "./generated/elflodge/JobControl.ts";
 export type { default as JobFailureReason } from "./generated/elflodge/JobFailureReason.ts";
 export type { JobDeletion as JobDeletionRow } from "./generated/elflodge/JobDeletion.ts";
+export type { RunnerUpdate } from "./generated/elflodge/Runner.ts";
 export type { OrganizationId, UsageRecordId };
 export type { NewUploadChunk } from "./generated/elflodge/UploadChunk.ts";
 

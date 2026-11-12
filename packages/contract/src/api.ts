@@ -24,7 +24,12 @@ import {
   strictOutputContractSchema,
 } from "./job.ts";
 import { api, byKey, byKeyOrMember, byMember, forOrganization, NotFound } from "./procedure.ts";
-import { failureSchema, jobActivitySchema, jobEventSchema } from "./runner-protocol.ts";
+import {
+  failureSchema,
+  jobActivitySchema,
+  jobEventSchema,
+  runnerCapabilitiesSchema,
+} from "./runner-protocol.ts";
 
 /** A Runner as the hub reports it. */
 export const runnerSchema = z
@@ -36,6 +41,11 @@ export const runnerSchema = z
      * recorded. A connected Runner's is at most one sync interval old.
      */
     lastSeenAt: z.date(),
+    /**
+     * What the Runner reported about itself in its latest hello: what jobs on it can do. Null when
+     * it reported nothing this hub can read, as an older Runner reports nothing.
+     */
+    capabilities: z.nullable(runnerCapabilitiesSchema),
   })
   .register(z.globalRegistry, { id: "Runner" });
 export type Runner = z.infer<typeof runnerSchema>;

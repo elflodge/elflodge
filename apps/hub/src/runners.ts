@@ -1,20 +1,34 @@
-import type { Runner } from "contract";
+import { type Runner, type RunnerCapabilities, runnerCapabilitiesSchema } from "contract";
 import { Effect } from "effect";
+import * as z from "zod/mini";
 
 import { Db } from "./db/database.ts";
-import type { RunnerId } from "./db/types.ts";
+import type { RunnerId, RunnerUpdate } from "./db/types.ts";
 import { RunnerConnections } from "./platform.ts";
 
-// Runners are recorded only by when the hub last heard from them. These writes may arrive late or out
-// of order, so each one moves `lastSeenAt` forward or does nothing, and their order never matters.
+// Runners are recorded by when the hub last heard from them and what their latest hello reported.
+// These writes may arrive late or out of order, so each one moves `lastSeenAt` forward or does
+// nothing, and their order never matters.
 
-/** Records that the Runner said hello under `name` at `seenAt`. */
-export function recordRunnerHello(runnerId: RunnerId, name: string, seenAt: Date) {
+/**
+ * Records that the Runner said hello under `name` at `seenAt`, with what it reported about itself,
+ * which replaces what an earlier hello reported, so a Runner that reports nothing shows nothing.
+ */
+export function recordRunnerHello(
+  runnerId: RunnerId,
+  name: string,
+  capabilities: RunnerCapabilities | undefined,
+  seenAt: Date,
+) {
   return Db.use((database) =>
     database.query((db) =>
       db
         .updateTable("runner")
-        .set({ name, lastSeenAt: seenAt })
+        .set({
+          name,
+          lastSeenAt: seenAt,
+          capabilities: capabilities ?? null,
+        } satisfies RunnerUpdate)
         .where("id", "=", runnerId)
         .where("lastSeenAt", "<", seenAt)
         .execute(),
@@ -36,11 +50,22 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
   ).pipe(Effect.asVoid);
 }
 
-/** Lists every Runner the hub has recorded, as its API returns them. */
+/**
+ * Lists every Runner the hub has recorded, as its API returns them. Capabilities this hub cannot
+ * read, as a newer Runner may have reported to a newer hub before this one replaced it, are null
+ * rather than failing the list.
+ */
 export const listRunners = Db.use((database) =>
-  database.query((db): Promise<Runner[]> =>
-    db.selectFrom("runner").select(["id", "name", "lastSeenAt"]).execute(),
-  ),
+  database.query(async (db): Promise<Runner[]> => {
+    const rows = await db
+      .selectFrom("runner")
+      .select(["id", "name", "lastSeenAt", "capabilities"])
+      .execute();
+    return rows.map((runner) => ({
+      ...runner,
+      capabilities: z.safeParse(runnerCapabilitiesSchema, runner.capabilities).data ?? null,
+    }));
+  }),
 );
 
 /**

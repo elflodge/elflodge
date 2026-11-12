@@ -18,6 +18,7 @@ import {
   jobSuccessSchema,
   notification,
   runnerRequests,
+  runnerCapabilitiesSchema,
   type DesiredState,
   type JobReport,
   type JobActivity,
@@ -827,8 +828,23 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
 export const handleRunnerMessage = createJsonRpcServer<typeof runnerRequests, RunnerMessageContext>(
   runnerRequests,
   {
-    hello: async ({ name }, context) => {
-      await runWithServices(context, recordRunnerHello(context.runnerId, name, new Date()));
+    hello: async ({ name, capabilities }, context) => {
+      // A record the hub cannot read is dropped with a warning, not refused: the Runner would retry
+      // a refused hello forever.
+      const parsed =
+        capabilities === undefined
+          ? undefined
+          : z.safeParse(runnerCapabilitiesSchema, capabilities);
+      if (parsed?.success === false) {
+        await runWithServices(
+          context,
+          Effect.logWarning("A Runner's capabilities were not kept", z.prettifyError(parsed.error)),
+        );
+      }
+      await runWithServices(
+        context,
+        recordRunnerHello(context.runnerId, name, parsed?.data, new Date()),
+      );
       return { syncIntervalMs: SYNC_INTERVAL_MS, reportIntervalMs: context.reportIntervalMs };
     },
     sync: async (load, context) => {

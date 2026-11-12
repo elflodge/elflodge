@@ -4,7 +4,6 @@ import { text } from "node:stream/consumers";
 
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import type { PreparedExtensions } from "@elflodge/pi-durable-extension-adapter";
 import { createORPCClient } from "@orpc/client";
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -21,6 +20,7 @@ import {
   runnerHttpContract,
   runnerRequests,
   type RegisteredRunner,
+  type RunnerCapabilities,
   registeredRunnerSchema,
   socketRefusalSchema,
   type SocketRefusal,
@@ -37,6 +37,7 @@ import {
   Result,
   Schedule,
   Scope,
+  Struct,
 } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import * as Socket from "effect/socket/Socket";
@@ -49,9 +50,11 @@ import {
   ExtensionsUnavailable,
   type ExtensionFolders,
   prepareRunnerExtensions,
+  type RunnerExtensions,
   startRunnerExtensions,
 } from "./extensions.ts";
 import { JobRunner } from "./jobs.ts";
+import { RUNNER_VERSION } from "./journal.ts";
 import { makePromptCacheWarmup } from "./prompt-cache.ts";
 import {
   type JobEnvironments,
@@ -209,14 +212,14 @@ function runRegistered(
   registration: RegisteredRunner,
   options: RunnerOptions,
   environments: JobEnvironments,
-  extensions: PreparedExtensions | undefined,
+  extensions: RunnerExtensions,
 ): Effect.Effect<never, Removed> {
   return Effect.scoped(
     Effect.gen(function* () {
       const syncNow = yield* Latch.make(false);
       // Started before the jobs, so it stops after them.
       const extensionHost =
-        extensions && (yield* startRunnerExtensions(options.dataDir, extensions));
+        extensions.prepared && (yield* startRunnerExtensions(options.dataDir, extensions.prepared));
       const agent = {
         jobsDir: path.join(options.dataDir, "jobs"),
         fileSystem: yield* FileSystem.FileSystem,
@@ -245,6 +248,12 @@ function runRegistered(
         jobs,
         syncNow,
         onReady: options.onReady ?? Effect.void,
+        capabilities: {
+          runnerVersion: RUNNER_VERSION,
+          model: Struct.pick(options.model, ["provider", "modelId", "thinkingLevel"]),
+          extensions: extensions.packages,
+          ...(extensions.webSearch === undefined ? {} : { webSearch: extensions.webSearch }),
+        },
       });
     }),
   ).pipe(Effect.provide(NodeFileSystem.layer));
@@ -320,6 +329,8 @@ interface ConnectionContext {
   /** Opened when the hub asks for a sync or a job starts or ends, so the next pass goes at once. */
   syncNow: Latch.Latch;
   onReady: Effect.Effect<void>;
+  /** What the Runner reports about itself in each hello. */
+  capabilities: RunnerCapabilities;
 }
 
 /** The hub no longer knows this Runner: it was removed, or the hub was reset. Nothing retries it. */
@@ -444,7 +455,10 @@ function connectAndSync(
      * holds rather than sending again.
      */
     const syncing = Effect.gen(function* () {
-      const { syncIntervalMs, reportIntervalMs } = yield* request("hello", { name: hostname() });
+      const { syncIntervalMs, reportIntervalMs } = yield* request("hello", {
+        name: hostname(),
+        capabilities: context.capabilities,
+      });
       const nextSyncAt = Effect.map(
         Random.nextBetween(1 - SYNC_JITTER, 1 + SYNC_JITTER),
         (jitter) => Date.now() + syncIntervalMs * jitter,

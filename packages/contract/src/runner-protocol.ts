@@ -390,11 +390,61 @@ export type JobReport = z.infer<typeof jobReportSchema>;
 const refusedReportSchema = z.object({ ...runRefSchema.shape, reason: z.string() });
 export type RefusedReport = z.infer<typeof refusedReportSchema>;
 
+/**
+ * What jobs on a Runner can do, as the Runner reports it: what its settings come to as it starts,
+ * not the settings, which stay on the Runner, so readers need none of their rules. The hub keeps
+ * the latest and shows it. How much a Runner can take on, and whether its parts are healthy, are
+ * not capabilities: they change on their own and are reported apart.
+ */
+export const runnerCapabilitiesSchema = z
+  .object({
+    runnerVersion: z.string(),
+    /** The model every job starts on, by Pi's names. */
+    model: z.object({ provider: z.string(), modelId: z.string(), thinkingLevel: z.string() }),
+    /** The extension packages every job's agent runs with, at their installed versions. */
+    extensions: z.array(z.object({ name: z.string(), version: z.optional(z.string()) })),
+    /**
+     * Whether jobs may search the web, through pi-web-access. Absent when the Runner cannot tell, as
+     * when the operator's own extensions search without it. Each field is a bound, not a prediction
+     * of which provider or credential a search uses, which depends on each search.
+     */
+    webSearch: z.optional(
+      z.object({
+        enabled: z.boolean(),
+        /**
+         * The only providers searches may go to, in no particular order. Absent while search is on:
+         * any provider pi-web-access finds a key for, keyless ones included.
+         */
+        allowedProviders: z.optional(z.array(z.string())),
+        /** Present when searches may go to OpenAI. */
+        openai: z.optional(
+          z.object({
+            /**
+             * False only when the Runner confined OpenAI searches to a ChatGPT subscription's
+             * sign-in itself; true whenever an API key may pay, or the Runner cannot rule it out.
+             */
+            mayUseApiKey: z.boolean(),
+          }),
+        ),
+      }),
+    ),
+  })
+  .check(storable);
+export type RunnerCapabilities = z.infer<typeof runnerCapabilitiesSchema>;
+
 /** The requests a Runner makes of the hub. */
 export const runnerRequests = {
   /** The first request on a new socket: who the Runner is. The hub says how often to sync. */
   hello: {
-    params: z.object({ name: z.string() }),
+    params: z.object({
+      name: z.string(),
+      /**
+       * What jobs on the Runner can do, as `runnerCapabilitiesSchema` describes it. Unchecked here:
+       * the hub keeps none in place of a record it cannot read rather than refuse the hello, which
+       * the Runner would retry forever.
+       */
+      capabilities: z.optional(z.unknown()),
+    }),
     result: z.object({
       /** How often the Runner is to sync while nothing else prompts it; the hub's interval. */
       syncIntervalMs: z.int().check(z.nonnegative()),
