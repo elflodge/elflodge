@@ -1,6 +1,12 @@
 # Elflodge Agent Batches
 
-Run batches of work with parallel agents on your own machine or an Elflodge deployment you control. This skill helps Claude prepare document extraction, classification and enrichment tasks, try representative inputs, submit the batch, inspect structured outputs and recover interrupted waiting.
+Too much repetitive work for one conversation? Let Claude hand it off to hundreds of sandboxed Pi agents working in parallel on your own machine. They run unattended and return structured results your code can use.
+
+A batch applies the same instructions and output schema to independent inputs, such as invoices to extract, documents to classify or records to enrich. Claude helps prepare the batch, inspect representative outputs, submit the work and collect the results.
+
+By default, Elflodge runs the first five jobs before releasing the rest and pauses the batch if any of those five fails. After that, it pauses if more than 10% of completed jobs have failed. You can inspect the failures and resume the batch. If the CLI stops waiting, Claude can reconnect to the existing batch and collect its results.
+
+The agents share a Runner while each job gets its own sandbox for files and shell commands, so you can run them without a fleet of hosted sandboxes or a container per job. See the [project README](https://github.com/elflodge/elflodge#readme) for the architecture and measurements.
 
 ## Requirements
 
