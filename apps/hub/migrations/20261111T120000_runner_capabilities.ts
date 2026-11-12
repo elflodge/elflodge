@@ -4,9 +4,13 @@ import type { Kysely } from "kysely";
 // reports something the hub can read: a Runner older than the field reports nothing, and a record
 // that fails the contract is not kept.
 export async function up(db: Kysely<unknown>): Promise<void> {
-  await db.schema.withSchema("elflodge").alterTable("runner").addColumn("setup", "jsonb").execute();
+  await db.schema
+    .withSchema("elflodge")
+    .alterTable("runner")
+    .addColumn("capabilities", "jsonb")
+    .execute();
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-  await db.schema.withSchema("elflodge").alterTable("runner").dropColumn("setup").execute();
+  await db.schema.withSchema("elflodge").alterTable("runner").dropColumn("capabilities").execute();
 }

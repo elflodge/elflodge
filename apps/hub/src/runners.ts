@@ -1,4 +1,4 @@
-import { type Runner, type RunnerSetup, runnerSetupSchema } from "contract";
+import { type Runner, type RunnerCapabilities, runnerCapabilitiesSchema } from "contract";
 import { Effect } from "effect";
 import * as z from "zod/mini";
 
@@ -17,14 +17,18 @@ import { RunnerConnections } from "./platform.ts";
 export function recordRunnerHello(
   runnerId: RunnerId,
   name: string,
-  setup: RunnerSetup | undefined,
+  capabilities: RunnerCapabilities | undefined,
   seenAt: Date,
 ) {
   return Db.use((database) =>
     database.query((db) =>
       db
         .updateTable("runner")
-        .set({ name, lastSeenAt: seenAt, setup: setup ?? null } satisfies RunnerUpdate)
+        .set({
+          name,
+          lastSeenAt: seenAt,
+          capabilities: capabilities ?? null,
+        } satisfies RunnerUpdate)
         .where("id", "=", runnerId)
         .where("lastSeenAt", "<", seenAt)
         .execute(),
@@ -47,7 +51,7 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
 }
 
 /**
- * Lists every Runner the hub has recorded, as its API returns them. A setup this hub cannot read, as
+ * Lists every Runner the hub has recorded, as its API returns them. A record of capabilities this hub cannot read, as
  * one a newer Runner reported to a newer hub before this one replaced it, is null rather than
  * failing the list.
  */
@@ -55,11 +59,11 @@ export const listRunners = Db.use((database) =>
   database.query(async (db): Promise<Runner[]> => {
     const rows = await db
       .selectFrom("runner")
-      .select(["id", "name", "lastSeenAt", "setup"])
+      .select(["id", "name", "lastSeenAt", "capabilities"])
       .execute();
     return rows.map((runner) => ({
       ...runner,
-      setup: z.safeParse(runnerSetupSchema, runner.setup).data ?? null,
+      capabilities: z.safeParse(runnerCapabilitiesSchema, runner.capabilities).data ?? null,
     }));
   }),
 );

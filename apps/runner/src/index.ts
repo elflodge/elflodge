@@ -20,7 +20,7 @@ import {
   runnerHttpContract,
   runnerRequests,
   type RegisteredRunner,
-  type RunnerSetup,
+  type RunnerCapabilities,
   registeredRunnerSchema,
   socketRefusalSchema,
   type SocketRefusal,
@@ -248,7 +248,7 @@ function runRegistered(
         jobs,
         syncNow,
         onReady: options.onReady ?? Effect.void,
-        setup: {
+        capabilities: {
           runnerVersion: RUNNER_VERSION,
           model: Struct.pick(options.model, ["provider", "modelId", "thinkingLevel"]),
           extensions: extensions.packages,
@@ -330,7 +330,7 @@ interface ConnectionContext {
   syncNow: Latch.Latch;
   onReady: Effect.Effect<void>;
   /** What the Runner reports about itself in each hello. */
-  setup: RunnerSetup;
+  capabilities: RunnerCapabilities;
 }
 
 /** The hub no longer knows this Runner: it was removed, or the hub was reset. Nothing retries it. */
@@ -457,7 +457,7 @@ function connectAndSync(
     const syncing = Effect.gen(function* () {
       const { syncIntervalMs, reportIntervalMs } = yield* request("hello", {
         name: hostname(),
-        setup: context.setup,
+        capabilities: context.capabilities,
       });
       const nextSyncAt = Effect.map(
         Random.nextBetween(1 - SYNC_JITTER, 1 + SYNC_JITTER),

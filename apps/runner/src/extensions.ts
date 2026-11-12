@@ -7,7 +7,7 @@ import {
   prepareExtensions,
   startExtensionHost,
 } from "@elflodge/pi-durable-extension-adapter";
-import type { RunnerSetup } from "contract";
+import type { RunnerCapabilities } from "contract";
 import { Data, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { ChildProcess } from "effect/process";
@@ -21,7 +21,7 @@ import {
   planWebSearch,
   WEB_SEARCH_EXTENSION,
   WEB_SEARCH_SETTINGS,
-  type WebSearchSetup,
+  type WebSearchCapability,
 } from "./web-search.ts";
 
 // Pi coding-agent extensions in jobs, through `@elflodge/pi-durable-extension-adapter` (ADR 0038):
@@ -119,9 +119,9 @@ export interface RunnerExtensions {
   /** The bundled extensions for the host, unless there are none. */
   readonly prepared?: PreparedExtensions;
   /** The packages installed, at their installed versions. */
-  readonly packages: RunnerSetup["extensions"];
+  readonly packages: RunnerCapabilities["extensions"];
   /** What web search comes to, unless the Runner cannot tell: pi-web-access is not among them. */
-  readonly webSearch?: WebSearchSetup;
+  readonly webSearch?: WebSearchCapability;
 }
 
 /** No extensions, so no search. */
@@ -231,7 +231,7 @@ export function prepareRunnerExtensions(
     );
     // Without its settings file, pi-web-access runs on its own defaults.
     const searching = names.includes(WEB_SEARCH_EXTENSION)
-      ? (webSearch ?? describeWebSearch({}, process.env, search.modelProvider))
+      ? (webSearch ?? describeWebSearch({}))
       : undefined;
     return {
       prepared,
@@ -280,11 +280,10 @@ function configureWebSearch(
       subscription: search.modelProvider === CHATGPT_PROVIDER ? search.modelProvider : undefined,
     });
     if (Result.isFailure(plan)) return yield* new ExtensionsUnavailable({ message: plan.failure });
-    const { settings: written, message, warning } = plan.success;
+    const { settings: written, capability, message, warning } = plan.success;
     if (written) yield* fs.writeFileString(file, JSON.stringify(written, undefined, 2));
     yield* warning ? Effect.logWarning(message) : Effect.logInfo(message);
-    // pi-web-access reads its keys from the workers' environment, the process's.
-    return describeWebSearch(written ?? settings, process.env, search.modelProvider);
+    return capability;
   }).pipe(
     Effect.catchTag("PlatformError", (error) =>
       Effect.fail(unavailable(`${WEB_SEARCH_SETTINGS} cannot be applied`, error)),

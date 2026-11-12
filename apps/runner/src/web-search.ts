@@ -1,5 +1,5 @@
-import type { RunnerSetup } from "contract";
-import { Option, Predicate, Result, Schema, Struct } from "effect";
+import type { RunnerCapabilities } from "contract";
+import { Array, Option, Predicate, Result, Schema, Struct } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 
 // What the Runner reads and changes in pi-web-access's settings file, as of the version the image's
@@ -41,6 +41,8 @@ export interface WebSearchInput {
 export interface WebSearchPlan {
   /** Settings to write in place of the defaults, when the Runner turns search on. */
   readonly settings?: Settings;
+  /** What the Runner reports jobs can do with these settings. */
+  readonly capability: WebSearchCapability;
   /** What the operator is told as the Runner starts. */
   readonly message: string;
   /** Whether the operator is warned rather than told. */
@@ -68,80 +70,66 @@ export function planWebSearch(input: WebSearchInput): Result.Result<WebSearchPla
         : "";
     return Result.succeed({
       settings: withSearch(settings, providers, subscription),
+      capability: {
+        enabled: true,
+        allowedProviders: [...providers],
+        ...(providers.includes(OPENAI_SEARCH)
+          ? { openai: { mayUseApiKey: subscription === undefined } }
+          : {}),
+      },
       message: `Web search is on through ${providers.join(", ")}.${also}`,
     });
   }
   if (!chosen && subscription !== undefined && !isOn(settings)) {
     return Result.succeed({
       settings: withSearch(settings, [OPENAI_SEARCH], subscription),
+      capability: {
+        enabled: true,
+        allowedProviders: [OPENAI_SEARCH],
+        openai: { mayUseApiKey: false },
+      },
       message: `Web search is on through the ChatGPT subscription the model runs on, and uses its limits. RUNNER_WEB_SEARCH names other providers instead; include ${OPENAI_SEARCH} to keep it.`,
     });
   }
   const source = chosen ? " web-search.json in RUNNER_EXTENSION_SETTINGS_DIR chooses it." : "";
-  if (!isOn(settings)) {
-    return Result.succeed({ message: `Web search is off.${chosen ? source : ` ${TURN_ON}`}` });
+  const capability = describeWebSearch(settings);
+  if (!capability.enabled) {
+    return Result.succeed({
+      capability,
+      message: `Web search is off.${chosen ? source : ` ${TURN_ON}`}`,
+    });
   }
-  const allowed = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
+  const allowed = capability.allowedProviders;
   return Result.succeed(
     allowed === undefined
       ? {
+          capability,
           warning: true,
           message:
             "Web search may use any provider pi-web-access finds a key for, keyless ones included: name the providers jobs may use in webSearch.allowedProviders in web-search.json.",
         }
-      : { message: `Web search is on through ${allowed.join(", ")}.${source}` },
+      : { capability, message: `Web search is on through ${allowed.join(", ")}.${source}` },
   );
 }
 
-/** What the Runner reports about web search: what pi-web-access's settings come to. */
-export type WebSearchSetup = NonNullable<RunnerSetup["webSearch"]>;
+/** What the Runner reports about web search. */
+export type WebSearchCapability = NonNullable<RunnerCapabilities["webSearch"]>;
 
 /**
- * The Pi providers whose login pi-web-access's OpenAI searches use when its settings name none, in
- * order (`openai-search.ts`).
+ * The bounds of web search under settings the Runner did not write: whether jobs can search, and
+ * the only providers they may reach. Which provider or credential a search uses depends on each
+ * search (the job's model may name providers, defaults and routing fall back on failures), so none
+ * is predicted. An OpenAI search is reported as possibly billed to a key: only the Runner's own
+ * confinement to a ChatGPT subscription rules that out (`planWebSearch`).
  */
-const DEFAULT_OPENAI_LOGINS = [CHATGPT_PROVIDER, "openai"];
-
-/**
- * What pi-web-access does with `settings`, the Runner's environment `env` and the jobs' model's
- * provider `modelProvider`, as of the version the image's folder pins: whether jobs can search,
- * through which providers in the order searches try them, and for OpenAI, which logins pay for its
- * searches and whether an API key can. Only a search confined to a ChatGPT subscription's sign-in
- * is reported as never billed to a key: any other login, a gateway's included, may hold one.
- */
-export function describeWebSearch(
-  settings: Settings,
-  env: { readonly [name: string]: string | undefined },
-  modelProvider: string,
-): WebSearchSetup {
+export function describeWebSearch(settings: Settings): WebSearchCapability {
   if (!isOn(settings)) return { enabled: false };
-  // A configured provider, under either name and even `auto`, turns the routing off.
-  const routing = ["provider", "searchProvider"].some((key) => Object.hasOwn(settings, key))
-    ? {}
-    : fieldsOf(settings["searchRouting"]);
-  const routed = providerList(routing["providers"]);
-  const allowed = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
-  // Routing tries its providers in order; the other allowed ones serve only a search that names them.
-  const allowedProviders = allowed && [...new Set([...(routed ?? []), ...allowed])];
-  if (allowedProviders !== undefined && !allowedProviders.includes(OPENAI_SEARCH))
-    return { enabled: true, allowedProviders };
-  const configured = Option.match(
-    Schema.decodeUnknownOption(Schema.Array(Schema.String))(settings["openaiSearchProviders"]),
-    { onNone: () => DEFAULT_OPENAI_LOGINS, onSome: (logins) => logins.map((id) => id.trim()) },
-  );
-  // Routed OpenAI searches go through the jobs' own model instead.
-  const throughModel = routing["useCurrentModel"] === true && routed?.includes(OPENAI_SEARCH);
-  const logins = [...new Set(throughModel ? [modelProvider, ...configured] : configured)];
-  const keyFallback =
-    settings["openaiResponsesUrl"] !== undefined || settings["openaiUseProviderBaseUrl"] !== true;
-  const keySet = [env["OPENAI_API_KEY"], settings["openaiApiKey"]].some(
-    (key) => typeof key === "string" && key !== "",
-  );
-  const subscriptionOnly = logins.length > 0 && logins.every((login) => login === CHATGPT_PROVIDER);
+  const allowedProviders = providerList(fieldsOf(settings["webSearch"])["allowedProviders"]);
+  if (allowedProviders === undefined) return { enabled: true, openai: { mayUseApiKey: true } };
   return {
     enabled: true,
-    ...(allowedProviders === undefined ? {} : { allowedProviders }),
-    openai: { logins, mayUseApiKey: (keyFallback && keySet) || !subscriptionOnly },
+    allowedProviders,
+    ...(allowedProviders.includes(OPENAI_SEARCH) ? { openai: { mayUseApiKey: true } } : {}),
   };
 }
 
@@ -149,7 +137,7 @@ export function describeWebSearch(
 const providerList = (value: unknown) =>
   Option.getOrUndefined(
     Schema.decodeUnknownOption(Schema.Array(Schema.String))(value).pipe(
-      Option.map((names) => names.map((name) => name.trim().toLowerCase())),
+      Option.map((names) => Array.dedupe(names.map((name) => name.trim().toLowerCase()))),
     ),
   );
 

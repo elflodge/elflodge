@@ -9,7 +9,12 @@ import * as NodeRuntime from "@effect/platform-node-shared/NodeRuntime";
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { writeFile } from "atomically";
-import { apiContract, createProblemDetailsLink, type Runner, type RunnerSetup } from "contract";
+import {
+  apiContract,
+  createProblemDetailsLink,
+  type Runner,
+  type RunnerCapabilities,
+} from "contract";
 import {
   Array,
   Cause,
@@ -730,7 +735,9 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
-    yield* say(webSearchStatus(state, yield* Effect.result(stackRunnerSetup(state))));
+    yield* say(
+      webSearchStatus(state, yield* Effect.result(signInAndReadRunnerCapabilities(state))),
+    );
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -743,12 +750,12 @@ function start(version: string, flags: StartFlags) {
 }
 
 /**
- * What the stack's Runner reported about itself in its hello, which the hub keeps, asked as the
- * owner, which signs in anew: the Runner whose name is the container's hostname, which it reports
+ * Signs in as the owner, which makes a new session, and reads what the stack's Runner reported it
+ * can do in its hello, which the hub keeps: the Runner whose name is the container's hostname, which it reports
  * as its name, the latest seen if several are. Null when it reported nothing the hub can read, as an
  * older image reports nothing, and undefined when the hub lists no such Runner.
  */
-function stackRunnerSetup(state: State) {
+function signInAndReadRunnerCapabilities(state: State) {
   return Effect.gen(function* () {
     const name = (yield* dockerOutput([
       "compose",
@@ -771,7 +778,7 @@ function stackRunnerSetup(state: State) {
       ? Array.max(
           ours,
           Order.mapInput(Order.Date, (runner: Runner) => runner.lastSeenAt),
-        ).setup
+        ).capabilities
       : undefined;
   });
 }
@@ -779,7 +786,7 @@ function stackRunnerSetup(state: State) {
 /** What web search does on the stack's Runner, from what it reported, and how to change it. */
 function webSearchStatus(
   state: State,
-  reported: Result.Result<RunnerSetup | null | undefined, Error>,
+  reported: Result.Result<RunnerCapabilities | null | undefined, Error>,
 ) {
   const search = Result.isSuccess(reported) ? reported.success?.webSearch : undefined;
   const status = Result.isFailure(reported)

@@ -14,7 +14,7 @@ test("the hub lists no runners before any connect", async () => {
   expect(await system.owner().runners.list()).toEqual([]);
 });
 
-test("a runner that connects is listed under its host's name with its setup, seen when it said hello", async () => {
+test("a runner that connects is listed under its host's name with its capabilities, seen when it said hello", async () => {
   const before = Date.now();
   const runnerId = await system.startRunner();
 
@@ -24,7 +24,7 @@ test("a runner that connects is listed under its host's name with its setup, see
       id: runnerId,
       name: hostname(),
       lastSeenAt: expect.any(Date),
-      setup: {
+      capabilities: {
         runnerVersion: expect.any(String),
         model: { provider: expect.any(String), modelId: expect.any(String), thinkingLevel: "off" },
         extensions: [],
@@ -47,7 +47,7 @@ test("a runner that restarts keeps its identity, listed once and seen again", as
   ]);
 });
 
-test("a runner whose setup the hub cannot read still connects, listed without it", async () => {
+test("a runner whose capabilities the hub cannot read still connects, listed without it", async () => {
   const { runnerId, socket } = await system.connectRunner();
   const runner = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
     socket.send(text),
@@ -56,13 +56,17 @@ test("a runner whose setup the hub cannot read still connects, listed without it
     if (typeof event.data === "string") runner.receive(event.data);
   });
 
-  await runner.request("hello", { name: "newer runner", setup: { runnerVersion: 2 } }, 10_000);
+  await runner.request(
+    "hello",
+    { name: "newer runner", capabilities: { runnerVersion: 2 } },
+    10_000,
+  );
 
   expect(await system.findRunner(runnerId)).toEqual({
     id: runnerId,
     name: "newer runner",
     lastSeenAt: expect.any(Date),
-    setup: null,
+    capabilities: null,
   });
   socket.close();
 });

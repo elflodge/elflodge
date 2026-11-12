@@ -391,11 +391,12 @@ const refusedReportSchema = z.object({ ...runRefSchema.shape, reason: z.string()
 export type RefusedReport = z.infer<typeof refusedReportSchema>;
 
 /**
- * What a Runner reports about itself: what its settings come to as it starts, not the settings,
- * which stay on the Runner, so readers need none of their rules. It says what jobs on the Runner
- * can do; the hub keeps the latest and shows it.
+ * What jobs on a Runner can do, as the Runner reports it: what its settings come to as it starts,
+ * not the settings, which stay on the Runner, so readers need none of their rules. The hub keeps
+ * the latest and shows it. How much a Runner can take on, and whether its parts are healthy, are
+ * not capabilities: they change on their own and are reported apart.
  */
-export const runnerSetupSchema = z
+export const runnerCapabilitiesSchema = z
   .object({
     runnerVersion: z.string(),
     /** The model every job starts on, by Pi's names. */
@@ -403,28 +404,24 @@ export const runnerSetupSchema = z
     /** The extension packages every job's agent runs with, at their installed versions. */
     extensions: z.array(z.object({ name: z.string(), version: z.optional(z.string()) })),
     /**
-     * Where jobs may search the web, through pi-web-access. Absent when the Runner cannot tell, as
-     * when the operator's own extensions search without it.
+     * Whether jobs may search the web, through pi-web-access. Absent when the Runner cannot tell, as
+     * when the operator's own extensions search without it. Each field is a bound, not a prediction
+     * of which provider or credential a search uses, which depends on each search.
      */
     webSearch: z.optional(
       z.object({
         enabled: z.boolean(),
         /**
-         * The providers searches may go through, those tried in turn first, in that order, then
-         * those only a search naming them reaches. Absent while search is on: any provider
-         * pi-web-access finds a key for, keyless ones included, as an allowlist does when left empty
-         * on OpenRouter.
+         * The only providers searches may go to, in no particular order. Absent while search is on:
+         * any provider pi-web-access finds a key for, keyless ones included.
          */
         allowedProviders: z.optional(z.array(z.string())),
-        /** How OpenAI searches are paid for, when they may happen. */
+        /** Present when searches may go to OpenAI. */
         openai: z.optional(
           z.object({
-            /** The Pi providers whose login OpenAI searches use, in order; `openai-codex` is ChatGPT. */
-            logins: z.array(z.string()),
             /**
-             * Whether a search may be billed to an API key: one is set for pi-web-access to fall
-             * back to, or a login other than a ChatGPT subscription's, which can hold one, is among
-             * the logins.
+             * False only when the Runner confined OpenAI searches to a ChatGPT subscription's
+             * sign-in itself; true whenever an API key may pay, or the Runner cannot rule it out.
              */
             mayUseApiKey: z.boolean(),
           }),
@@ -433,7 +430,7 @@ export const runnerSetupSchema = z
     ),
   })
   .check(storable);
-export type RunnerSetup = z.infer<typeof runnerSetupSchema>;
+export type RunnerCapabilities = z.infer<typeof runnerCapabilitiesSchema>;
 
 /** The requests a Runner makes of the hub. */
 export const runnerRequests = {
@@ -442,11 +439,11 @@ export const runnerRequests = {
     params: z.object({
       name: z.string(),
       /**
-       * What the Runner reports about itself, as `runnerSetupSchema` describes it. Unchecked here: the
+       * What the Runner reports about itself, as `runnerCapabilitiesSchema` describes it. Unchecked here: the
        * hub keeps none in place of a record it cannot read rather than refuse the hello, which the
        * Runner would retry forever.
        */
-      setup: z.optional(z.unknown()),
+      capabilities: z.optional(z.unknown()),
     }),
     result: z.object({
       /** How often the Runner is to sync while nothing else prompts it; the hub's interval. */

@@ -28,7 +28,7 @@ import {
   failureSchema,
   jobActivitySchema,
   jobEventSchema,
-  runnerSetupSchema,
+  runnerCapabilitiesSchema,
 } from "./runner-protocol.ts";
 
 /** A Runner as the hub reports it. */
@@ -45,7 +45,7 @@ export const runnerSchema = z
      * What the Runner reported about itself in its latest hello: what jobs on it can do. Null when
      * it reported nothing this hub can read, as an older Runner reports nothing.
      */
-    setup: z.nullable(runnerSetupSchema),
+    capabilities: z.nullable(runnerCapabilitiesSchema),
   })
   .register(z.globalRegistry, { id: "Runner" });
 export type Runner = z.infer<typeof runnerSchema>;
