@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import * as z from "zod/mini";
 
 import { Db } from "./db/database.ts";
-import type { RunnerId } from "./db/types.ts";
+import type { RunnerId, RunnerUpdate } from "./db/types.ts";
 import { RunnerConnections } from "./platform.ts";
 
 // Runners are recorded by when the hub last heard from them and what their latest hello reported.
@@ -24,7 +24,7 @@ export function recordRunnerHello(
     database.query((db) =>
       db
         .updateTable("runner")
-        .set({ name, lastSeenAt: seenAt, setup: setup ?? null })
+        .set({ name, lastSeenAt: seenAt, setup: setup ?? null } satisfies RunnerUpdate)
         .where("id", "=", runnerId)
         .where("lastSeenAt", "<", seenAt)
         .execute(),
