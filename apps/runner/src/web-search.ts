@@ -216,8 +216,21 @@ export interface JobsNetwork {
 }
 
 /**
+ * pi-web-access's own User-Agent for pages, `DEFAULT_FETCH_CONTENT_USER_AGENT` in its
+ * `ssrf-protection.ts` (0.47.0), which it does not export: through `fetchContent.curl` it sends only
+ * a configured one, so that curl-impersonate keeps its browser's, and pages would otherwise see
+ * curl's.
+ */
+const PI_WEB_ACCESS_USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0";
+
+/**
  * `settings` held to jobs' network (ADR 0041), or `undefined` when that changes nothing, or why
  * they cannot be. pi-web-access runs in the Runner's process, outside every sandbox.
+ *
+ * In either mode, GitHub cloning and the `gh` lookups of issues and pull requests are off: `git`
+ * and `gh` reach GitHub themselves, past any proxy and past the checks below, even for a URL whose
+ * scheme pi-web-access does not fetch, such as `ftp://github.com/…`; pages on GitHub are fetched as
+ * other pages are.
  *
  * With no network, pi-web-access fetches no page, while search, through providers the operator
  * chose, keeps working, with the page text a provider returns beside its results. `fetch_content`
@@ -233,10 +246,10 @@ export interface JobsNetwork {
  * pi-web-access's narrower check of its own resolution. IP literals and `localhost` are still
  * checked by pi-web-access first. With a proxy, pi-web-access sends every request through curl;
  * `fetchContent.curl` names it for pages too, so that curl stops at the PDF size limit
- * (`--max-filesize`) rather than download a page whole before Node rejects it. GitHub cloning and
- * the `gh` lookups of issues and pull requests are off: `git` and `gh` ignore the proxy, so pages
- * on GitHub are fetched as other pages are. An operator's own `proxy` would be replaced, so it is
- * refused; the Runner's `HTTPS_PROXY` reaches sandbox-runtime's proxy as its upstream.
+ * (`--max-filesize`) rather than download a page whole before Node rejects it, with
+ * pi-web-access's own User-Agent unless the operator set one. An operator's own `proxy` would be
+ * replaced, so it is refused; the Runner's `HTTPS_PROXY` reaches sandbox-runtime's proxy as its
+ * upstream, which then resolves names itself, so the address checks on names no longer apply.
  *
  * The exception ranges are added to `ssrf.allowRanges`, the ranges pi-web-access's own guard
  * lets through; the ranges already there stay, and `parseException` refused the `/0` that
@@ -247,11 +260,19 @@ export function withNetwork(
   network: JobsNetwork,
 ): Result.Result<Settings | undefined, string> {
   const { mode, exceptions } = network.settings;
+  // Without a sandbox, jobs' commands reach every address, and the Runner refuses to start with
+  // either network setting, so there is nothing to hold pi-web-access to.
+  if (network.proxy === undefined) return Result.succeed(undefined);
+  const withoutGitHub = {
+    ...settings,
+    githubClone: { ...fieldsOf(settings["githubClone"]), enabled: false },
+    githubPrIssue: { ...fieldsOf(settings["githubPrIssue"]), enabled: false },
+  };
+  const fetchContent = fieldsOf(settings["fetchContent"]);
   if (mode === "none") {
     const tools = fieldsOf(settings["tools"]);
-    const fetchContent = fieldsOf(settings["fetchContent"]);
     return Result.succeed({
-      ...settings,
+      ...withoutGitHub,
       tools: { ...tools, fetchContent: { ...fieldsOf(tools["fetchContent"]), enabled: false } },
       fetchContent: {
         ...fetchContent,
@@ -259,12 +280,9 @@ export function withNetwork(
       },
     });
   }
-  // Without a sandbox, jobs' commands reach every address, and the Runner refuses to start with
-  // exceptions, so there is nothing to hold pi-web-access to.
-  if (network.proxy === undefined) return Result.succeed(undefined);
   if (settings["proxy"] !== undefined)
     return Result.fail(
-      `${WEB_SEARCH_SETTINGS} sets proxy, which the Runner replaces to hold pi-web-access to jobs' network; give the Runner HTTPS_PROXY instead`,
+      `${WEB_SEARCH_SETTINGS} sets proxy, which the Runner replaces to hold pi-web-access to jobs' network; give the Runner HTTPS_PROXY instead, which jobs' proxy sends requests on to, and which then resolves names itself, so neither jobs' commands nor pi-web-access have their names checked against the refused addresses`,
     );
   const ssrf = fieldsOf(settings["ssrf"]);
   const listed = Schema.decodeUnknownOption(Schema.Array(Schema.String))(ssrf["allowRanges"]);
@@ -272,14 +290,15 @@ export function withNetwork(
     exceptions.length === 0
       ? {}
       : { allowRanges: Array.dedupe([...Option.getOrElse(listed, () => []), ...exceptions]) };
-  const fetchContent = fieldsOf(settings["fetchContent"]);
+  const curl =
+    fetchContent["curl"] === undefined
+      ? { curl: ["curl"], userAgent: fetchContent["userAgent"] ?? PI_WEB_ACCESS_USER_AGENT }
+      : {};
   return Result.succeed({
-    ...settings,
+    ...withoutGitHub,
     proxy: network.proxy,
     lockProxy: true,
     ssrf: { ...ssrf, ...allowRanges, trustEnvProxy: true },
-    fetchContent: { ...fetchContent, curl: fetchContent["curl"] ?? ["curl"] },
-    githubClone: { ...fieldsOf(settings["githubClone"]), enabled: false },
-    githubPrIssue: { ...fieldsOf(settings["githubPrIssue"]), enabled: false },
+    fetchContent: { ...fetchContent, ...curl },
   });
 }
