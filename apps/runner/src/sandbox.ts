@@ -313,7 +313,7 @@ let configuredNetwork: NetworkSettings | undefined;
 let initialized: Promise<void> | undefined;
 function initializeSandboxRuntime(network: NetworkSettings): Promise<void> {
   if (initialized) return initialized;
-  const policy = sandboxNetwork(network, hostAddresses());
+  const policy = sandboxNetwork(network, hostAddresses);
   initialized = SandboxManager.initialize(
     {
       network: policy.network,
