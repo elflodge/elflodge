@@ -4,8 +4,10 @@ export default defineConfig({
   fmt: {
     // Off by default in Oxfmt; on, so import order is the formatter's, not a review point.
     sortImports: true,
-    // release-please writes the changelog in its own Markdown style, and its release PR must pass checks.
-    ignorePatterns: ["CHANGELOG.md"],
+    // release-please writes these in its own style, and its release PR must pass checks: the changelog
+    // in its Markdown, and the plugin manifest, whose version it bumps, rewritten as JSON.stringify
+    // writes it, one array item per line.
+    ignorePatterns: ["CHANGELOG.md", "skills/.claude-plugin/plugin.json"],
   },
   staged: {
     "*": "vp check --fix",
