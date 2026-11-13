@@ -13,7 +13,7 @@ A Node process that connects out to the hub and runs many jobs' agents at once. 
 - `RUNNER_JOB_READ_PATHS`: folders jobs may read besides the system's, separated by `:` as in `PATH`, such as where mise, nvm or Homebrew keep the tools jobs should use.
 - `RUNNER_RUN_WITHOUT_SANDBOX`: `true` runs jobs without a sandbox where none can start, instead of refusing to start; only for jobs whose inputs you trust.
 - `RUNNER_NETWORK`: `open`, the default, lets jobs' commands and pi-web-access's page fetches reach the public internet but not local or private addresses; `none` gives them no network, leaving only search through the providers you name. See [Network](#network).
-- `RUNNER_NETWORK_EXCEPTIONS`: local or private address ranges jobs may reach all the same, on every port or on one, separated by commas, such as `10.20.0.0/16,192.168.1.10:8080`; none by default. See [Network](#network).
+- `RUNNER_NETWORK_EXCEPTIONS`: local or private address ranges jobs may reach all the same, each on every port, or a single address on one, separated by commas, such as `10.20.0.0/16,192.168.1.10:8080`; none by default. See [Network](#network).
 - `RUNNER_EXTENSIONS_DIR`: the folder of the Pi extensions every job runs with; none by default. The image's, `/app/extensions`, which Compose and `elflodge stack` name, has pi-web-access, which reads web pages and searches where allowed. See [Extensions](#extensions).
 - `RUNNER_EXTENSION_SETTINGS_DIR`: a folder of your own settings files for those extensions, each used in place of the default of the same name; none by default. See [Extensions](#extensions).
 - `RUNNER_WEB_SEARCH`: the providers jobs may search the web through, separated by commas, such as `brave,exa`. Unset, search is off, except through a ChatGPT subscription the model runs on. See [Web search](#web-search).
@@ -91,7 +91,7 @@ Jobs' commands reach the public internet, so jobs can install packages, call pub
 
 Everything on the public internet. Refused:
 
-- the Runner's host: `localhost`, and every address of its network interfaces as the Runner starts;
+- the Runner's host: `localhost`, and every address of its network interfaces;
 - loopback, link-local and cloud metadata addresses, such as `127.0.0.1`, `169.254.169.254` and Azure's `168.63.129.16`;
 - private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) and shared address space (`100.64.0.0/10`);
 - the other address ranges that IANA's special-purpose registries mark as not globally reachable, such as documentation, benchmarking and reserved addresses, and multicast and broadcast.
@@ -104,7 +104,7 @@ A job's own `localhost` is its own: on Linux, a server one of its commands start
 
 `RUNNER_NETWORK_EXCEPTIONS` opens address ranges to every job of the Runner, separated by commas: `10.20.0.0/16,192.168.1.10:8080`. A range opens every port; a single address can name one port instead, keeping its other ports refused. An IPv6 address takes its port after brackets, `[fd00::5]:8080`. A name alone opens nothing, nor does `0.0.0.0/0`, and an invalid entry stops the Runner from starting.
 
-A loopback, link-local or cloud metadata address opens only when an exception names that address alone, not through a range covering it, so opening `100.64.0.0/10` for Tailscale does not open a cloud's metadata service at `100.100.100.200`.
+A loopback, link-local or cloud metadata address opens only when an exception names that address alone, not through a range covering it, so opening `100.64.0.0/10` for Tailscale does not open a cloud's metadata service at `100.100.100.200`. The same goes for multicast, broadcast and unspecified addresses, and for the Runner's own loopback and link-local addresses.
 
 Otherwise a range opens every address it covers, the Runner's own included, so write narrower ranges if you don't mean to open the host. A job reaches a service on the Runner's host as a container would: at one of the host's other addresses, such as Docker's bridge gateway `172.17.0.1` or a LAN address, where the service must listen and an exception must open it. `localhost` through the proxy stays refused.
 
