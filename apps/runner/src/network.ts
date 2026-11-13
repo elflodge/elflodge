@@ -180,8 +180,9 @@ export function hostAddresses(): string[] {
  * every port) and its own classes: loopback, link-local, cloud metadata and `host`'s addresses. An
  * address and port in `allowedDomains` overrides both, but that list takes single addresses only
  * (ranges need anthropics/sandbox-runtime#807), so it holds each exception that is one, and
- * `host`'s addresses in each range opened. The guard's own classes in an opened range so open only
- * at an address named alone, and the callback holds literals to that rule too.
+ * `host`'s addresses in each range opened, less those in the guard's own classes. Those classes in
+ * an opened range so open only at an address named alone, and the callback holds literals to that
+ * rule too.
  *
  * Off, everything is refused before the callback, with one reason.
  */
@@ -215,10 +216,19 @@ export function sandboxNetwork(
     ...exception,
     addresses: blockList([exception.range]),
   }));
+  // The host's addresses a range covers, less those in the guard's own classes, such as its
+  // loopback and link-local addresses: a range opens the host where a container would reach it,
+  // while those open only when named alone, as elsewhere. A guard with no allow list sorts them, so
+  // that a single address opened on one port does not let a range open it on every port.
+  const plain = createResolvedAddressGuard({ localAddresses: () => [] });
   const allowed = settings.exceptions.flatMap(({ range, port }) =>
-    (isSingleAddress(range) ? [range] : host.filter((address) => containsCidr(range, address))).map(
-      (address) => formatAllowed(address, port),
-    ),
+    (isSingleAddress(range)
+      ? [range]
+      : host.filter(
+          (address) =>
+            containsCidr(range, address) && plain.permits(PROBE_NAME, bareAddress(address), 1),
+        )
+    ).map((address) => formatAllowed(address, port)),
   );
   const onEveryPort = settings.exceptions.flatMap(({ range, port }) =>
     port === undefined ? [range] : [],
@@ -238,7 +248,7 @@ export function sandboxNetwork(
   };
   const notAlone = {
     allow: false as const,
-    reason: `Loopback, link-local and cloud metadata addresses are open to jobs only when ${EXCEPTIONS_SETTING} names the address itself, not a range covering it.`,
+    reason: `Loopback, link-local, cloud metadata, multicast, broadcast and unspecified addresses are open to jobs only when ${EXCEPTIONS_SETTING} names the address itself, not a range covering it.`,
   };
   // The guard refuses names its own classes (loopback, link-local, cloud metadata and the rest) in an
   // opened range unless `allowedDomains` holds the address itself, as only the operator who names
@@ -282,12 +292,11 @@ export function sandboxNetwork(
       if (refused === undefined) return true;
       const covering = exceptions.filter(({ addresses }) => addressInSet(addresses, dialed));
       if (covering.length === 0) return refused.refusal;
-      if (!covering.some(({ port }) => port === undefined || port === destination.port))
-        return otherPort;
-      // A name for `permits`, which judges only names; `invalid` never resolves (RFC 6761). The
-      // proxies always give a port; without one, the guard could not judge it.
-      return destination.port !== undefined &&
-        builtIn.permits("address.invalid", dialed, destination.port)
+      // A single address on its port is in `allowedDomains`, which sandbox-runtime matches, reading
+      // the address as above, before it asks.
+      if (!covering.some(({ port }) => port === undefined)) return otherPort;
+      // The proxies always give a port; without one, the guard could not judge it.
+      return destination.port !== undefined && builtIn.permits(PROBE_NAME, dialed, destination.port)
         ? true
         : notAlone;
     },
@@ -300,13 +309,21 @@ function blockList(ranges: readonly string[]): BlockList {
   return list;
 }
 
-function isSingleAddress(range: string): boolean {
+// A name for the guard's `permits`, which judges only names, asked about an address; `invalid`
+// never resolves (RFC 6761).
+const PROBE_NAME = "address.invalid";
+
+function bareAddress(range: string): string {
+  return range.slice(0, range.indexOf("/"));
+}
+
+export function isSingleAddress(range: string): boolean {
   return range.endsWith(range.includes(":") ? "/128" : "/32");
 }
 
 /** A single-address range as sandbox-runtime's allow list takes an address: bare, IPv6 bracketed. */
 function formatAllowed(range: string, port: number | undefined): string {
-  const address = range.slice(0, range.indexOf("/"));
+  const address = bareAddress(range);
   const host = address.includes(":") ? `[${address}]` : address;
   return port === undefined ? host : `${host}:${port}`;
 }
