@@ -171,7 +171,9 @@ const REFUSED_CLASSES: readonly {
 
 /**
  * The addresses on this host's network interfaces now, each as a single-address range, as
- * sandbox-runtime's guard reads them for names, none where they cannot be listed.
+ * sandbox-runtime's guard reads them for names. None where they cannot be listed, so that then a
+ * host address in public space is refused neither to names nor to typed addresses, as the guard
+ * accepts for names.
  */
 export function hostAddresses(): string[] {
   return localInterfaceAddresses().flatMap((address) => mergeCidr([address]));
