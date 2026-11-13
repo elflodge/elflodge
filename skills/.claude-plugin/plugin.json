@@ -19,9 +19,7 @@
     "data-enrichment",
     "structured-output"
   ],
-  "skills": [
-    "./elflodge-agent-batches"
-  ],
+  "skills": ["./elflodge-agent-batches"],
   "icon": "./.claude-plugin/icon.png",
   "documentationUrl": "https://github.com/elflodge/elflodge/tree/main/skills",
   "supportUrl": "https://github.com/elflodge/elflodge/issues",
