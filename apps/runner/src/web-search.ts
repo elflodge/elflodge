@@ -268,8 +268,9 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  * addresses without jobs' proxy, so an exception opens them only as the proxy would and as
  * `allowRanges` can say: named alone, on every port. A range covering them leaves them out, as
  * they open to jobs only when named alone, and so does an address opened on one port, as
- * `allowRanges` has no ports; elsewhere jobs' proxy holds pi-web-access to an exception's port. An operator's own `allowRanges` is refused, as
- * pi-web-access would reach some of them, such as `127.0.0.1`, without jobs' proxy.
+ * `allowRanges` has no ports; elsewhere jobs' proxy holds pi-web-access to an exception's port. An
+ * operator's own `allowRanges` is refused, as pi-web-access would reach some of them, such as
+ * `127.0.0.1`, without jobs' proxy.
  */
 export function withNetwork(
   settings: Settings,

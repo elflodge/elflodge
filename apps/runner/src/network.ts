@@ -226,6 +226,7 @@ export function sandboxNetwork(
       ? [range]
       : host.filter(
           (address) =>
+            // Any port: a guard with no allow list has no rules by port.
             containsCidr(range, address) && plain.permits(PROBE_NAME, bareAddress(address), 1),
         )
     ).map((address) => formatAllowed(address, port)),
@@ -336,5 +337,5 @@ export function describeNetwork(settings: NetworkSettings): string {
   if (settings.mode === "none") return "Commands have no network access.";
   return settings.exceptions.length === 0
     ? "Local and private network addresses are blocked."
-    : `Local and private network addresses are blocked, except ${settings.exceptions.map(formatException).join(", ")}.`;
+    : `Local and private network addresses are blocked, except ${settings.exceptions.map(formatException).join(", ")}; inside a range, loopback, link-local and cloud metadata addresses stay blocked unless listed alone.`;
 }
