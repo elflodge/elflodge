@@ -20,7 +20,7 @@ On Ubuntu 24.04, let the Runner's job sandboxes create user namespaces before st
 
 ## Several machines: Docker Compose
 
-The hub and a Runner from their published images on one machine, as a deployment that other machines' Runners and callers can reach once the hub's address is opened to them (see `compose.yaml`). It needs Docker Engine 29 or later and Compose 5 or later, `curl`, `jq` and `openssl`, and on Ubuntu 24.04 the host setting in [Host requirements](#host-requirements). Use current patch releases of [Docker Engine](https://docs.docker.com/engine/install/) and [Compose](https://docs.docker.com/compose/install/).
+The hub and a Runner from their published images on one machine, as a deployment that other machines' Runners and callers can reach once the hub is opened to them (step 5). It needs Docker Engine 29 or later and Compose 5 or later, `curl`, `jq` and `openssl`, and on Ubuntu 24.04 the host setting in [Host requirements](#host-requirements). Use current patch releases of [Docker Engine](https://docs.docker.com/engine/install/) and [Compose](https://docs.docker.com/compose/install/).
 
 1. **Start the hub.** It creates its owner from these settings on its first start and serves the API at `http://localhost:8787`. To upgrade later, rerun only the `curl` line from the current version of this page, then `docker compose up -d`, and after it upgrade Runners on other machines to the same release: before 1.0 a release may change how Runners talk to the hub, and a Runner newer than its hub is not supported, as a Kubernetes kubelet must not be newer than its API server.
 
@@ -72,6 +72,64 @@ The hub and a Runner from their published images on one machine, as a deployment
    Jobs read web pages and PDFs with pi-web-access, from the image's folder of extensions. Web search is off, except through a ChatGPT subscription the model runs on. To let jobs search through a provider, set `RUNNER_WEB_SEARCH`, such as `brave`, as the comment in `compose.yaml` shows, and add its key. To change the extensions, copy that folder out of the image you run with `docker compose cp runner:/app/extensions ./extensions`, edit the copy, mount it with `./extensions:/extensions:ro` in the runner's `volumes` and set `RUNNER_EXTENSIONS_DIR: /extensions`. When you upgrade the image, compare your own settings files, if any, with its defaults, and copy its folder to a new path, such as `./extensions-0.9.0`, and carry your edits over: its lockfile may pin newer extensions, and `docker compose cp` into an existing folder nests the copy inside it. The Runner's README covers [extensions](../apps/runner/README.md#extensions).
 
 4. **Submit jobs** as in [the README's first job](../README.md#an-everyday-chore-done-by-an-agent), from writing `job.json` on, with `export ELFLODGE_URL=http://localhost:8787`; `docker compose logs runner` shows any error that keeps the Runner from connecting.
+
+5. **Open the hub to other machines.** The hub speaks plain HTTP, so across a network its password, session cookies and API keys would cross unencrypted. Open it in one of two ways:
+
+   - **Over HTTPS.** On a VPS or a machine of your own, put a reverse proxy in front of the hub. Caddy gets and renews a certificate by itself: point a domain at this machine, open ports 80 and 443, and add Caddy beside the hub in `compose.override.yaml`, which Compose merges into `compose.yaml`:
+
+     ```yaml
+     services:
+       caddy:
+         image: caddy:2
+         ports:
+           - "80:80"
+           - "443:443"
+           - "443:443/udp"
+         volumes:
+           - ./Caddyfile:/etc/caddy/Caddyfile:ro
+           - caddy-data:/data
+           - caddy-config:/config
+         restart: unless-stopped
+     volumes:
+       caddy-data:
+       caddy-config:
+     ```
+
+     with a `Caddyfile` naming your domain:
+
+     ```
+     hub.example.com {
+     	reverse_proxy hub:8787
+     }
+     ```
+
+     Then set `HUB_URL=https://hub.example.com` in `.env` and run `docker compose up -d`. Leave `HUB_PUBLISH` unset, so the hub's plain HTTP port stays closed to other machines. Where the hub runs on a platform that serves HTTPS itself, such as Railway, Fly.io, Kubernetes behind an ingress, or behind a Cloudflare Tunnel, skip Caddy and set `HUB_URL` to the address it gives.
+
+   - **Over a private network.** Tailscale and WireGuard encrypt traffic between their machines, so plain HTTP is safe there. Set `HUB_PUBLISH` in `.env` to this machine's address on that network, such as `100.101.102.103:8787`, and `HUB_URL` to `http://100.101.102.103:8787`, then run `docker compose up -d`.
+
+   Callers on other machines then use that URL as `ELFLODGE_URL`, and as `HUB` for step 2's commands.
+
+6. **Start a Runner on another machine** with Docker, the hub's URL and the registration key from this machine's `.env`. The other machine needs the same [host requirements](#host-requirements).
+
+   <!-- x-release-please-start-version -->
+
+   ```sh
+   cat > runner.env <<EOF
+   HUB_URL=https://hub.example.com
+   RUNNER_REGISTRATION_KEY=<RUNNER_REGISTRATION_KEY from the hub's .env>
+   RUNNER_MODEL_PROVIDER=openrouter
+   RUNNER_MODEL_ID=openrouter/free
+   OPENROUTER_API_KEY=<your key>
+   EOF
+   docker run -d --name elflodge-runner --security-opt seccomp=unconfined \
+     --security-opt systempaths=unconfined --security-opt apparmor=unconfined --memory 8g \
+     --restart unless-stopped --volume runner-data:/data --env-file runner.env \
+     ghcr.io/elflodge/elflodge-runner:0.10.0
+   ```
+
+   <!-- x-release-please-end -->
+
+   `docker logs elflodge-runner` shows any error that keeps it from connecting. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
 
 ## Calling the API directly
 
