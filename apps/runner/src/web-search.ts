@@ -4,7 +4,7 @@ import { Array, Option, Predicate, Result, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { apply as applyMergePatch } from "tiny-merge-patch";
 
-import type { NetworkSettings } from "./network.ts";
+import { isSingleAddress, type NetworkSettings } from "./network.ts";
 
 // What the Runner reads and changes in pi-web-access's settings file, as of the version the image's
 // folder pins: whether web search is on, through which providers, and with which credentials, and
@@ -264,9 +264,11 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  * upstream, which then resolves names itself, so the address checks on names no longer apply.
  *
  * The exception ranges are `ssrf.allowRanges`, the ranges pi-web-access's own guard lets through,
- * and `parseException` refused the `/0` that pi-web-access refuses. `allowRanges` has no ports, so
- * jobs' proxy holds pi-web-access to an exception's port, and an address opened on one port is left
- * out where pi-web-access reaches it without that proxy. An operator's own `allowRanges` is refused, as
+ * and `parseException` refused the `/0` that pi-web-access refuses. pi-web-access reaches some
+ * addresses without jobs' proxy, so an exception opens them only as the proxy would and as
+ * `allowRanges` can say: named alone, on every port. A range covering them leaves them out, as
+ * they open to jobs only when named alone, and so does an address opened on one port, as
+ * `allowRanges` has no ports; elsewhere jobs' proxy holds pi-web-access to an exception's port. An operator's own `allowRanges` is refused, as
  * pi-web-access would reach some of them, such as `127.0.0.1`, without jobs' proxy.
  */
 export function withNetwork(
@@ -297,7 +299,7 @@ export function withNetwork(
       `${WEB_SEARCH_SETTINGS} sets ssrf.allowRanges, which would let pi-web-access past its own address checks, and reach some addresses, such as 127.0.0.1, without jobs' proxy; open ranges with RUNNER_NETWORK_EXCEPTIONS instead, which the Runner gives pi-web-access too`,
     );
   const opened = exceptions.flatMap(({ range, port }) =>
-    port === undefined ? [range] : excludeCidr([range], PROXY_BYPASSED),
+    port === undefined && isSingleAddress(range) ? [range] : excludeCidr([range], PROXY_BYPASSED),
   );
   const allowRanges = opened.length === 0 ? {} : { allowRanges: opened };
   const fetchContent = fieldsOf(settings["fetchContent"]);

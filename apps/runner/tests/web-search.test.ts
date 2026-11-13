@@ -1,4 +1,5 @@
-import { Result } from "effect";
+import { containsCidr } from "cidr-tools";
+import { Result, Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
 import { DEFAULT_NETWORK_SETTINGS, type NetworkSettings } from "../src/network.ts";
@@ -131,16 +132,23 @@ test("pi-web-access fetches no page when jobs have no network, and reaches the o
     githubClone: { enabled: false },
     githubPrIssue: { enabled: false },
   });
-  // An address opened on one port is left out where pi-web-access would reach it without jobs'
-  // proxy, which holds it to the port.
+  // pi-web-access reaches 127.0.0.1, ::1 and 169.254.169.254 without jobs' proxy, so they open
+  // only as the proxy would open them, named alone, and only on every port, as the port is the
+  // proxy's to hold pi-web-access to.
   const exceptions = [
     { range: "10.20.0.0/16" },
     { range: "10.30.0.5/32", port: 8080 },
     { range: "127.0.0.1/32", port: 8080 },
+    { range: "::1/128" },
   ];
   expect(held(defaults, { mode: "open", exceptions })).toMatchObject({
-    ssrf: { allowRanges: ["10.20.0.0/16", "10.30.0.5/32"] },
+    ssrf: { allowRanges: ["10.20.0.0/16", "10.30.0.5/32", "::1/128"] },
   });
+  const { ssrf } = Schema.decodeUnknownSync(
+    Schema.Struct({ ssrf: Schema.Struct({ allowRanges: Schema.Array(Schema.String) }) }),
+  )(held(defaults, { mode: "open", exceptions: [{ range: "169.254.0.0/16" }] }));
+  expect(ssrf.allowRanges.some((range) => containsCidr(range, "169.254.169.253"))).toBe(true);
+  expect(ssrf.allowRanges.some((range) => containsCidr(range, "169.254.169.254"))).toBe(false);
 });
 
 test("an operator's own proxy or allowed ranges for pi-web-access are refused while jobs' network is open", () => {
