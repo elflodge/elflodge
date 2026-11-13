@@ -270,7 +270,7 @@ function runRegistered(
 
 /**
  * Finds what the host offers jobs, and tells the operator what they run without: a sandbox, where
- * the operator allowed that, or a memory cap. Fails with `SandboxUnavailable` when jobs cannot run
+ * the operator allowed that, a memory cap, or checks on the names they reach. Fails with `SandboxUnavailable` when jobs cannot run
  * in a sandbox and the operator has not allowed running without one.
  */
 function prepareEnvironments(
@@ -289,6 +289,9 @@ function prepareEnvironments(
         }
         if (environments.uncappedBecause) {
           console.error(`Jobs run without a memory limit: ${environments.uncappedBecause}`);
+        }
+        if (environments.namesUncheckedBecause) {
+          console.error(`Jobs' names are not checked: ${environments.namesUncheckedBecause}`);
         }
       }),
     ),

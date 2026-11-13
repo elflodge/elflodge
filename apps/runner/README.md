@@ -123,7 +123,7 @@ To search with SearXNG or Firecrawl you run yourself, make it reachable at the R
 ### Before you rely on it
 
 - Run the Runner on a machine without sensitive services. The refusals go by address, so a way to the host that is not one of its own addresses, such as a cloud instance's public address under 1:1 NAT or a router's port forward, is not refused.
-- Behind a proxy of your own, given to the Runner in `HTTP_PROXY` or `HTTPS_PROXY`, jobs' requests go on to that proxy, which resolves names itself, so names are no longer checked against the refused addresses. That proxy must refuse local and private addresses itself. IP addresses are still refused.
+- Behind a proxy of your own, given to the Runner in `HTTP_PROXY` or `HTTPS_PROXY`, jobs' requests go on to that proxy, which resolves names itself, so names are no longer checked against the refused addresses, and the Runner says so as it starts. That proxy must refuse local and private addresses itself. IP addresses are still refused. Names in the Runner's `NO_PROXY` skip that proxy and are checked again, so list your internal domains there, such as `NO_PROXY=corp.example`. `NO_PROXY` also decides how an exception is reached: `RUNNER_NETWORK_EXCEPTIONS=10.0.0.5:8080` opens that service, which is then reached through your proxy unless `NO_PROXY` lists it too, as in `NO_PROXY=corp.example,10.0.0.5`.
 - The sandbox enforces these settings, so a Runner that would run jobs without one (`RUNNER_RUN_WITHOUT_SANDBOX=true`) refuses to start with `RUNNER_NETWORK=none` or `RUNNER_NETWORK_EXCEPTIONS` set.
 
 ## What a host needs
