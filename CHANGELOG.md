@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/elflodge/elflodge/compare/v0.10.0...v0.11.0) (2026-11-13)
+
+
+### Features
+
+* **runner:** say at start when the Runner's own proxy leaves names unchecked ([#154](https://github.com/elflodge/elflodge/issues/154)) ([8b59a77](https://github.com/elflodge/elflodge/commit/8b59a7729c87048ea27ec2d00f614dd569f5aed3))
+
+
+### Bug Fixes
+
+* **cli:** show a Runner image's first pull in place on Compose before 5.7 ([#159](https://github.com/elflodge/elflodge/issues/159)) ([3c3853f](https://github.com/elflodge/elflodge/commit/3c3853f415e02407d5c6e9ea4fe4383a05eaa0ce)), closes [#158](https://github.com/elflodge/elflodge/issues/158)
+* **runner:** refuse IP destinations at the host's addresses as they are now ([#156](https://github.com/elflodge/elflodge/issues/156)) ([dac9deb](https://github.com/elflodge/elflodge/commit/dac9debd1221709bccbca51bdaf687fa0a5513f3))
+
 ## [0.10.0](https://github.com/elflodge/elflodge/compare/v0.9.0...v0.10.0) (2026-11-13)
 
 
