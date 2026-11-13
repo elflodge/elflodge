@@ -2,7 +2,6 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { text } from "node:stream/consumers";
 
-import { resolveParentProxy } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import { createORPCClient } from "@orpc/client";
@@ -56,7 +55,12 @@ import {
 } from "./extensions.ts";
 import { JobRunner } from "./jobs.ts";
 import { RUNNER_VERSION } from "./journal.ts";
-import { DEFAULT_NETWORK_SETTINGS, namesUnchecked, type NetworkSettings } from "./network.ts";
+import {
+  DEFAULT_NETWORK_SETTINGS,
+  namesUnchecked,
+  type NetworkSettings,
+  parentProxy,
+} from "./network.ts";
 import { makePromptCacheWarmup } from "./prompt-cache.ts";
 import {
   type JobEnvironments,
@@ -290,11 +294,10 @@ function prepareEnvironments(
         if (environments.uncappedBecause) {
           console.error(`Jobs run without a memory limit: ${environments.uncappedBecause}`);
         }
-        // Without a sandbox, jobs' commands reach every address anyway. The Runner gives
-        // sandbox-runtime no `parentProxy`, so both read the proxy from the environment.
+        // Without a sandbox, jobs' commands reach every address anyway.
         const unchecked =
           environments.unsandboxedBecause === undefined
-            ? namesUnchecked(network, resolveParentProxy(undefined))
+            ? namesUnchecked(network, parentProxy())
             : undefined;
         if (unchecked) console.error(`Jobs' names are not checked: ${unchecked}`);
       }),

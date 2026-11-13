@@ -334,10 +334,18 @@ function formatAllowed(range: string, port: number | undefined): string {
 }
 
 /**
+ * The Runner's own proxy as sandbox-runtime finds it: the Runner gives it no `parentProxy`, so both
+ * read the environment.
+ */
+export function parentProxy(): ReturnType<typeof resolveParentProxy> {
+  return resolveParentProxy(undefined);
+}
+
+/**
  * Why names jobs reach are not checked against the refused addresses, when they are not: open,
  * sandbox-runtime sends destinations outside `NO_PROXY` on to a proxy the Runner's own environment
- * names (`HTTPS_PROXY`, `HTTP_PROXY`), by name, and the proxy resolves them, so only the proxy can
- * refuse where they lead (ADR 0041). `parent` is that proxy as sandbox-runtime reads it, so that
+ * names (`HTTPS_PROXY`, `HTTP_PROXY` or their lowercase forms), by name, and the proxy resolves
+ * them, so only the proxy can refuse where they lead (ADR 0041). `parent` is that proxy as sandbox-runtime reads it, so that
  * one it ignores, such as an invalid URL, or one `NO_PROXY=*` bypasses, is not reported. The agent
  * is not told: the Runner does not know what that proxy refuses.
  */

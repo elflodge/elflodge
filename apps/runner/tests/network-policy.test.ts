@@ -98,7 +98,8 @@ it("a name is refused where it resolves into a refused range, unless an exceptio
 });
 
 it("the operator is told that names go unchecked when the Runner's own proxy resolves them", () => {
-  const parent = resolveParentProxy({ https: "http://proxy.example:3128" });
+  // `noProxy` given, so that the developer's own NO_PROXY is not read.
+  const parent = resolveParentProxy({ https: "http://proxy.example:3128", noProxy: "" });
   expect(namesUnchecked({ mode: "open", exceptions: [] }, parent)).toMatch("NO_PROXY");
   // Under none, every destination is refused before it could reach that proxy.
   expect(namesUnchecked({ mode: "none", exceptions: [] }, parent)).toBeUndefined();
