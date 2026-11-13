@@ -19,7 +19,7 @@ import { splitDomainPatternPort } from "@anthropic-ai/sandbox-runtime/dist/sandb
 import { canonicalizeHost } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
 import { createResolvedAddressGuard } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 // The network a job's commands have (ADR 0041): the public internet through sandbox-runtime's
 // proxies, which refuse local and private destinations unless the operator opened their range, or
@@ -40,12 +40,14 @@ export interface NetworkSettings {
 }
 
 /** An address range opened despite the refusal, on every port, or a single address on one. */
-export interface NetworkException {
+export const NetworkException = Schema.Struct({
   /** As `mergeCidr` writes it (`10.0.0.0/8`, `fd00::1/128`). */
-  readonly range: string;
+  range: Schema.String,
   /** The one port opened, only on a single address; every port when absent. */
-  readonly port?: number;
-}
+  port: Schema.optionalKey(Schema.Number),
+});
+
+export type NetworkException = typeof NetworkException.Type;
 
 export const DEFAULT_NETWORK_SETTINGS: NetworkSettings = { mode: "open", exceptions: [] };
 

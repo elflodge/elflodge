@@ -169,18 +169,23 @@ export function runRunner(
 ): Effect.Effect<never, Removed | SandboxUnavailable | ExtensionsUnavailable> {
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
+    const { environments, extensions } = yield* prepareJobs(options);
+    const registration = yield* loadOrRegister(hubUrl, options);
+    return yield* runRegistered(hubUrl, registration, options, environments, extensions);
+  });
+}
+
+/** Jobs' environments, and the extensions held to the network they give jobs. */
+function prepareJobs(options: RunnerOptions) {
+  return Effect.gen(function* () {
     const environments = yield* prepareEnvironments(options);
     const extensions = yield* prepareRunnerExtensions(
       options.dataDir,
       options.extensions,
-      {
-        providers: options.webSearch,
-        modelProvider: options.model.provider,
-      },
+      { providers: options.webSearch, modelProvider: options.model.provider },
       { settings: options.network ?? DEFAULT_NETWORK_SETTINGS, proxy: environments.jobsProxy },
     );
-    const registration = yield* loadOrRegister(hubUrl, options);
-    return yield* runRegistered(hubUrl, registration, options, environments, extensions);
+    return { environments, extensions };
   });
 }
 
@@ -190,18 +195,7 @@ export function runRunner(
  */
 export async function startRunner(options: StartRunnerOptions): Promise<Runner> {
   const hubUrl = new URL(options.hubUrl);
-  const environments = await Effect.runPromise(prepareEnvironments(options));
-  const extensions = await Effect.runPromise(
-    prepareRunnerExtensions(
-      options.dataDir,
-      options.extensions,
-      {
-        providers: options.webSearch,
-        modelProvider: options.model.provider,
-      },
-      { settings: options.network ?? DEFAULT_NETWORK_SETTINGS, proxy: environments.jobsProxy },
-    ),
-  );
+  const { environments, extensions } = await Effect.runPromise(prepareJobs(options));
   const registration = await Effect.runPromise(loadOrRegister(hubUrl, options));
   const loop = Effect.runFork(
     runRegistered(hubUrl, registration, options, environments, extensions).pipe(

@@ -38,7 +38,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { createRunnerAuth, readApiKey } from "./auth.ts";
 import { fileCredentialStore } from "./credentials.ts";
 import { DEFAULT_NETWORK_SETTINGS, DEFAULT_SANDBOX_SETTINGS, runRunner } from "./index.ts";
-import { formatException, NETWORK_MODES, parseException } from "./network.ts";
+import { formatException, NETWORK_MODES, NetworkException, parseException } from "./network.ts";
 
 // Runs a Runner from the environment; `register` discards its own key and registers it again, and
 // `login` signs in to the model's provider. A stop signal interrupts
@@ -139,31 +139,28 @@ const readWebSearch = webSearchSetting.parse(
  * An entry of `RUNNER_NETWORK_EXCEPTIONS`, read as `parseException` reads it, or the issue naming
  * what is wrong with it.
  */
-const NetworkException = Schema.Trim.pipe(
-  Schema.decodeTo(
-    Schema.Struct({ range: Schema.String, port: Schema.optionalKey(Schema.Number) }),
-    {
-      decode: SchemaGetter.transformEffect((entry: string, options) =>
-        parseException(entry).pipe(
-          Effect.mapError(
-            (invalid) => new SchemaIssue.InvalidValue({ message: invalid.message }, entry, options),
-          ),
+const NetworkExceptionEntry = Schema.Trim.pipe(
+  Schema.decodeTo(NetworkException, {
+    decode: SchemaGetter.transformEffect((entry: string, options) =>
+      parseException(entry).pipe(
+        Effect.mapError(
+          (invalid) => new SchemaIssue.InvalidValue({ message: invalid.message }, entry, options),
         ),
       ),
-      encode: SchemaGetter.transform(formatException),
-    },
-  ),
+    ),
+    encode: SchemaGetter.transform(formatException),
+  }),
 );
 
 /**
  * `RUNNER_NETWORK_EXCEPTIONS`: the address ranges jobs may reach although they are local or
- * private, each on every port or on the one it names, separated by commas, such as
- * `10.20.0.0/16,192.168.1.10:8080`, a single address being a `/32` or `/128`. Split as
+ * private, separated by commas, such as `10.20.0.0/16,192.168.1.10:8080`, a range on every port
+ * and a single address, a `/32` or `/128`, on every port or the one it names. Split as
  * `RUNNER_WEB_SEARCH` is, for the same reason.
  */
 const networkExceptionsSetting = Config.schema(
   Schema.String.pipe(
-    Schema.decodeTo(Schema.Array(NetworkException), {
+    Schema.decodeTo(Schema.Array(NetworkExceptionEntry), {
       decode: SchemaGetter.split(),
       encode: SchemaGetter.transform((ranges: readonly string[]) => ranges.join(",")),
     }),
