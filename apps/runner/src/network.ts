@@ -164,8 +164,8 @@ export function hostAddresses(): string[] {
  * itself, however it is spelled, and leaves a name to sandbox-runtime's resolved-address guard,
  * which judges where the name resolves.
  *
- * The guard refuses `deniedResolvedAddresses` (here `host`'s addresses and the default classes,
- * less the ranges opened on every port) and its own classes: loopback, link-local, cloud metadata
+ * The guard refuses `deniedResolvedAddresses` (here the default classes, less the ranges opened on
+ * every port) and its own classes: loopback, link-local, cloud metadata
  * and `host`'s addresses. An address and port in `allowedDomains` overrides both, but that list
  * takes single addresses only (ranges need anthropics/sandbox-runtime#807), so it holds each
  * exception that is one, and `host`'s addresses in each range opened, with the exception's port.
@@ -188,12 +188,13 @@ export function sandboxNetwork(
     };
   }
   const opening = ` The Runner's operator can open a range with ${EXCEPTIONS_SETTING}.`;
+  const refusedRanges = REFUSED_CLASSES.map(({ name, ranges, reachable = [] }) => ({
+    name,
+    ranges: excludeCidr(ranges, reachable),
+  }));
   const classes = [
     { name: "Addresses of the Runner's own host", ranges: host },
-    ...REFUSED_CLASSES.map(({ name, ranges, reachable = [] }) => ({
-      name,
-      ranges: excludeCidr(ranges, reachable),
-    })),
+    ...refusedRanges,
   ].map(({ name, ranges }) => ({
     ranges,
     addresses: blockList(ranges),
@@ -228,8 +229,10 @@ export function sandboxNetwork(
     network: {
       allowedDomains: [...new Set(allowed)],
       deniedDomains: [],
+      // Not `host`'s addresses: the guard refuses those itself, as they are now rather than as the
+      // Runner started, and says so.
       deniedResolvedAddresses: excludeCidr(
-        classes.flatMap(({ ranges }) => ranges),
+        refusedRanges.flatMap(({ ranges }) => ranges),
         onEveryPort,
       ),
     },

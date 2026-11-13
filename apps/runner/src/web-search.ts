@@ -247,7 +247,8 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  * With no network, pi-web-access fetches no page, while search, through providers the operator
  * chose, keeps working, with the page text a provider returns beside its results. `fetch_content`
  * is off, and `fetchContent.domainPolicy` allows only `invalid`, a name reserved never to resolve
- * (RFC 6761), which refuses every page before it is looked up or fetched, by pi-web-access or
+ * (RFC 6761), and denies it too, as the allow list also matches names under it and the deny list
+ * wins. That refuses every page before it is looked up or fetched, by pi-web-access or
  * through a fetching service: the pages `web_search` adds to what a provider returned
  * (`includeContent`), `source_check`'s, and those of `mode: "raw"`. It gets no proxy, which would
  * carry the providers' requests too, and refuse them.
@@ -283,7 +284,7 @@ export function withNetwork(
       patched(settings, {
         ...withoutGitHub,
         tools: { fetchContent: { enabled: false } },
-        fetchContent: { domainPolicy: { allow: ["invalid"] } },
+        fetchContent: { domainPolicy: { allow: ["invalid"], deny: ["invalid"] } },
       }),
     );
   }

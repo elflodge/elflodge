@@ -110,7 +110,7 @@ A range opens every address it covers, the Runner's own included, so write narro
 
 ### Turning the network off
 
-`RUNNER_NETWORK=none` gives jobs' commands no network. Web search through the providers `RUNNER_WEB_SEARCH` names still works, with the page text a provider returns beside its results, but `fetch_content` is off and no page is fetched.
+`RUNNER_NETWORK=none` gives jobs' commands no network. Web search still works, through the providers `RUNNER_WEB_SEARCH` names, the ChatGPT default or your own `web-search.json`, with the page text a provider returns beside its results, but `fetch_content` is off and no page is fetched.
 
 ### Web access
 

@@ -127,7 +127,7 @@ test("pi-web-access fetches no page when jobs have no network, and reaches the o
   expect(held(defaults, { mode: "none", exceptions: [] })).toEqual({
     ...defaults,
     tools: { ...defaults.tools, fetchContent: { enabled: false } },
-    fetchContent: { domainPolicy: { allow: ["invalid"] } },
+    fetchContent: { domainPolicy: { allow: ["invalid"], deny: ["invalid"] } },
     githubClone: { enabled: false },
     githubPrIssue: { enabled: false },
   });
