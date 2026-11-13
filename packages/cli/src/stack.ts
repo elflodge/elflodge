@@ -293,6 +293,9 @@ function runRunnerCommand(
       },
       volumes: { "runner-data": {} },
     });
+    // Before Compose 5.7, `compose run` printed each line of a first pull's progress anew
+    // (docker/compose@72f134f); `compose pull` redraws it in place. Remove once 5.7 is the minimum.
+    yield* compose(["pull", "--policy", "missing", "runner"], { file });
     yield* compose(
       [
         "run",
