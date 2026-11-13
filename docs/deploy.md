@@ -1,6 +1,6 @@
 # Deploying Elflodge
 
-The README starts one machine with `npx elflodge stack start`. This page has what running it for longer needs: host requirements, operating the local stack, a Compose deployment that Runners on other machines connect to, and how to call the hub's API directly.
+The README starts one machine with `npx elflodge stack start`. This page has what running it for longer needs: host requirements, operating the local stack, a Compose deployment, opening the hub to Runners and callers on other machines, and how to call the hub's API directly.
 
 ## Host requirements
 
@@ -22,7 +22,7 @@ On Ubuntu 24.04, let the Runner's job sandboxes create user namespaces before st
 
 The hub and a Runner from their published images on one machine, as a deployment that other machines' Runners and callers can reach once the hub is opened to them, as [Runners on other machines](#runners-on-other-machines) shows. It needs Docker Engine 29 or later and Compose 5 or later, `curl`, `jq` and `openssl`, and on Ubuntu 24.04 the host setting in [Host requirements](#host-requirements). Use current patch releases of [Docker Engine](https://docs.docker.com/engine/install/) and [Compose](https://docs.docker.com/compose/install/).
 
-1. **Start the hub.** It creates its owner from these settings on its first start and serves the API at `http://localhost:8787`. To upgrade later, rerun only the `curl` line from the current version of this page, then `docker compose up -d`, and after it upgrade Runners on other machines to the same release: before 1.0 a release may change how Runners talk to the hub, and a Runner newer than its hub is not supported, as a Kubernetes kubelet must not be newer than its API server.
+1. **Start the hub.** It creates its owner from these settings on its first start and serves the API at `http://localhost:8787`. To upgrade later, rerun only the `curl` line from the current version of this page, then `docker compose up -d`, and after it upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release: before 1.0 a release may change how Runners talk to the hub, and a Runner newer than its hub is not supported, as a Kubernetes kubelet must not be newer than its API server.
 
    <!-- x-release-please-start-version -->
 
@@ -77,7 +77,7 @@ The hub and a Runner from their published images on one machine, as a deployment
 
 A Runner on another machine connects out to the hub at `HUB_URL`, and callers there use the same URL as `ELFLODGE_URL`. The hub speaks plain HTTP, so across a network members' passwords, session cookies and API keys would cross unencrypted. Reach it in one of three ways.
 
-**A platform's HTTPS.** Where the hub runs on Cloudflare Workers, Railway, Fly.io, Render or Kubernetes behind an ingress, or behind a Cloudflare Tunnel, the platform serves HTTPS: set `HUB_URL` to the `https://` address it gives. Behind a platform's proxy, the hub may need to be told where to find the client's address for its rate limits, with `CLIENT_IP_HEADER` or `TRUSTED_PROXIES` ([the hub's settings](../apps/hub/README.md#settings)).
+**A platform's HTTPS.** Where the hub runs on Cloudflare Workers, Railway, Fly.io, Render or Kubernetes behind an ingress, or behind a Cloudflare Tunnel, the platform serves HTTPS: set `HUB_URL` to the `https://` address it gives. Behind a platform's proxy, the hub may need to be told where to find the client's address for its rate limits, with `CLIENT_IP_HEADER` or `TRUSTED_PROXIES` ([the hub's settings](../apps/hub/README.md#settings)); in Compose, set them under the hub's `environment` in `compose.override.yaml`.
 
 **Caddy, for the Compose deployment on a VPS or a machine of your own.** Caddy gets and renews a certificate by itself. Point a domain at this machine, open TCP ports 80 and 443 and UDP port 443, the last for HTTP/3, and add Caddy beside the hub in `compose.override.yaml`, which Compose merges into `compose.yaml`:
 
@@ -102,7 +102,7 @@ volumes:
   caddy-config:
 ```
 
-Put the `Caddyfile`, naming your domain, in a folder `caddy` beside it; Caddy's image mounts the folder rather than the file, so that an edited file reaches the container:
+Put the `Caddyfile`, naming your domain, in a folder `caddy` beside it; Caddy's image documentation mounts the folder rather than the file, so that an edited file reaches the container:
 
 ```
 hub.example.com {
@@ -137,7 +137,7 @@ docker run -d --name elflodge-runner --security-opt seccomp=unconfined \
 
 <!-- x-release-please-end -->
 
-`RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker rm -f elflodge-runner`, then the `docker run` line with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
+`RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then the `docker run` line with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
 
 ## Calling the API directly
 
