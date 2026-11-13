@@ -1,7 +1,8 @@
+import { resolveParentProxy } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
 import { createResolvedAddressGuard } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { expect, it } from "vite-plus/test";
 
-import { type NetworkException, sandboxNetwork } from "../src/network.ts";
+import { namesUnchecked, type NetworkException, sandboxNetwork } from "../src/network.ts";
 
 // The ask callback is the only check on an IP destination, and names are left to sandbox-runtime's
 // resolved-address guard (ADR 0041), so these ask both directly, as sandbox-runtime's proxies do.
@@ -94,4 +95,15 @@ it("a name is refused where it resolves into a refused range, unless an exceptio
   expect(permits([{ range: "10.0.0.5/32", port: 8080 }], "10.0.0.5", 8080)).toBe(true);
   expect(permits([{ range: "10.0.0.5/32", port: 8080 }], "10.0.0.5", 22)).toBe(false);
   expect(permits([{ range: "192.168.0.0/16" }], "192.168.7.20")).toBe(true);
+});
+
+it("the operator is told that names go unchecked when the Runner's own proxy resolves them", () => {
+  // `noProxy` given, so that the developer's own NO_PROXY is not read.
+  const parent = resolveParentProxy({ https: "http://proxy.example:3128", noProxy: "" });
+  expect(namesUnchecked({ mode: "open", exceptions: [] }, parent)).toMatch("NO_PROXY");
+  // Under none, every destination is refused before it could reach that proxy.
+  expect(namesUnchecked({ mode: "none", exceptions: [] }, parent)).toBeUndefined();
+  expect(namesUnchecked({ mode: "open", exceptions: [] }, undefined)).toBeUndefined();
+  const bypassed = resolveParentProxy({ https: "http://proxy.example:3128", noProxy: "*" });
+  expect(namesUnchecked({ mode: "open", exceptions: [] }, bypassed)).toBeUndefined();
 });
