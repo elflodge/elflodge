@@ -69,8 +69,8 @@ export interface RunnerMessageContext {
   services: Context.Context<Db>;
   /**
    * Whether to record this message as when the Runner was last seen. The connection's holder says
-   * so at most once per sync interval, so a busy Runner's reports do not write on every message; a
-   * hello is always recorded.
+   * so once `SEEN_WRITE_INTERVAL_MS` has passed since it last did, so a busy Runner's reports do not
+   * write on every message; a hello is always recorded.
    */
   recordSeen: boolean;
   /** How often Runners report their jobs' new events, as the hub's deployment sets it. */
@@ -433,10 +433,8 @@ function applyReportsStatement(
             activity: eb.ref("c.nextActivity"),
             // Any report of the current run counts, one behind the hub's position or partway
             // through a backlog included: the job is reporting, so its state is not unknown.
-            lastReportedAt: eb.fn.coalesce(
-              eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]),
-              eb.val(now),
-            ),
+            // `greatest` skips a null.
+            lastReportedAt: eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]),
           }))
           .whereRef("p.jobId", "=", "c.jobId")
           // A report that changes nothing leaves the row as it is, unless the time of its last

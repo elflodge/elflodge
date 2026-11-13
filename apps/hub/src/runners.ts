@@ -89,10 +89,11 @@ export const SYNC_INTERVAL_MS = 180_000;
 export const GONE_AFTER_MS = 2 * SYNC_INTERVAL_MS + 60_000;
 
 /**
- * How long a socket's sighting of its Runner goes unwritten: a third of the sync interval, so a
- * Runner that syncs on time is never recorded as more than about one interval old. Equal to the
- * interval, a sync arriving a little early would skip its write, and the next one's could find
- * `lastSeenAt` nearly two intervals old.
+ * How long a socket's sighting of its Runner, or a report's of its job, goes unwritten when nothing
+ * else changes: a third of the sync interval, so a Runner that syncs on time is never recorded as
+ * more than about one interval old. Equal to the interval, a sync arriving a little early would
+ * skip its write, and the next one's could find `lastSeenAt` nearly two intervals old. Kubernetes'
+ * kubelet likewise renews its node's lease every quarter of the lease's duration.
  */
 export const SEEN_WRITE_INTERVAL_MS = SYNC_INTERVAL_MS / 3;
 
@@ -113,7 +114,7 @@ export function connectedOf(lastSeenAt: Expression<Date>, now: Date): AliasableE
  * Tells every connected Runner (`connectedOf`) to sync now, as for a new job. A
  * Runner that is not connected after all misses nothing: its next sync finds the same jobs.
  */
-export const hintLiveRunners = Effect.gen(function* () {
+export const hintConnectedRunners = Effect.gen(function* () {
   const database = yield* Db;
   const connections = yield* RunnerConnections;
   const now = new Date();

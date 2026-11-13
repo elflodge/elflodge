@@ -57,7 +57,7 @@ import { generateOpenAPIDocument, sessionCookieName } from "./openapi.ts";
 import { RunnerConnections, type HubServices } from "./platform.ts";
 import { toProblemDetails } from "./problem-details.ts";
 import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registration.ts";
-import { hintLiveRunners, listRunners } from "./runners.ts";
+import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
 
 interface ApiContext extends WithEffectContext<HubServices> {
@@ -98,7 +98,7 @@ function hintRunners(hint: RunnerId | "live" | undefined) {
   if (hint === undefined) return Effect.void;
   return (
     hint === "live"
-      ? hintLiveRunners
+      ? hintConnectedRunners
       : RunnerConnections.use((connections) => connections.hint(hint))
   ).pipe(
     Effect.catchCause((cause) =>

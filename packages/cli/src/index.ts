@@ -467,7 +467,7 @@ function waitCommand() {
             // waiters end on one: an error that waiting does not fix, such as a hub not set up,
             // would otherwise keep the wait running without a word.
             Effect.retry(retryTransient),
-            Effect.tap((read) => unknown.of(read.statusUnknown?.reason)),
+            Effect.tap((read) => unknown.announceChange(read.statusUnknown?.reason)),
             Effect.repeat({
               schedule: pollSchedule,
               until: (read) => FINAL_JOB_STATUSES.includes(read.status),
@@ -489,7 +489,7 @@ function waitCommand() {
 function statusUnknownNotice() {
   let shown: StatusUnknownReason | undefined;
   return {
-    of: (reason: StatusUnknownReason | undefined) =>
+    announceChange: (reason: StatusUnknownReason | undefined) =>
       Effect.sync(() => {
         if (reason === shown) return;
         if (reason === undefined) {

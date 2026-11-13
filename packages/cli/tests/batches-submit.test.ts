@@ -68,7 +68,6 @@ function jobOf(id: string, customId: string, status: Record<string, unknown>) {
     startedAt: null,
     endedAt: null,
     usage: { totalTokens: 0, cost: { totalUsd: 0 } },
-    runner: null,
     lastReportedAt: null,
     ...status,
   };

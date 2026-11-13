@@ -1,11 +1,8 @@
-import { createJsonRpcClient, hubNotifications, runnerRequests } from "contract";
-import { sql } from "kysely";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
-import type WebSocket from "ws";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId, RunnerId } from "../src/db/types.ts";
-import { type OneJob, startSystem, submitJob } from "./harness.ts";
+import { type OneJob, protocolClient, startSystem, submitJob } from "./harness.ts";
 
 // A job sent to a Runner keeps the last status its Runner confirmed, and shows `statusUnknown` once
 // the hub has heard nothing of it for seven minutes: from its Runner at all, or about this job. The
@@ -23,22 +20,11 @@ const SUBMISSION = {
   outputContract: { schema: { type: "integer" } },
 } satisfies OneJob;
 
-/** A Runner's side of the protocol over `socket`. */
-function protocolClient(socket: WebSocket) {
-  const client = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
-    socket.send(text),
-  );
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data === "string") client.receive(event.data);
-  });
-  return client;
-}
-
 /** Moves what the hub recorded of the Runner `runnerId`, or of the job `jobId`, eight minutes back. */
 async function eightMinutesPass(which: { runnerId: string } | { jobId: string }) {
   await using database = openDatabase(inject("databaseUrl"));
   const db = database.withSchema(DB_SCHEMA);
-  const back = sql<Date>`now() - interval '8 minutes'`;
+  const back = new Date(Date.now() - 8 * 60_000);
   if ("runnerId" in which) {
     await db
       .updateTable("runner")

@@ -44,7 +44,8 @@ export const runnerSchema = z
     lastSeenAt: z.date(),
     /**
      * Whether the hub has heard from the Runner within the last seven minutes, as `lastSeenAt` tells:
-     * recent protocol traffic, not an open socket. A disconnected Runner's jobs show `statusUnknown`.
+     * recent protocol traffic, not an open socket. A disconnected Runner's queued and running jobs
+     * show `statusUnknown`.
      */
     connected: z.boolean(),
     /**
@@ -164,16 +165,16 @@ const jobBaseSchema = z.object({
    */
   blockedBy: z.optional(z.enum(["batchPausedByCaller", "batchPausedByBreaker", "batchCanary"])),
   /**
-   * The Runner the job was last sent to, as the hub knows it now: null before it is first sent, once
-   * that Runner is removed, and once the job is deleted.
+   * The Runner the job was last sent to, as the hub knows it now: absent before the job is first
+   * sent, once that Runner is removed, and once the job is deleted.
    */
-  runner: z.nullable(
+  runner: z.optional(
     z.pick(runnerSchema, { id: true, name: true, lastSeenAt: true, connected: true }),
   ),
   /**
-   * When the job's Runner last reported its current run, to within a minute: null until it first
-   * does, and once the job is deleted. Its `usage` and `activity` are as of then
-   * or earlier, as a report may leave out one it cannot read.
+   * When the job's Runner last reported its current run, to within a minute: null until the run
+   * first reports, as after a resume, which starts a new run, and once the job is deleted. Its
+   * `usage` and `activity` are as of then or earlier, as a report may leave out one it cannot read.
    */
   lastReportedAt: z.nullable(z.date()),
   /**

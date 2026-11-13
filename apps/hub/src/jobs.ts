@@ -28,7 +28,7 @@ import {
   sql,
   type Transaction,
 } from "kysely";
-import { jsonArrayFrom } from "kysely/helpers/postgres";
+import { jsonArrayFrom, jsonObjectFrom } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
 import { keyMetadataSchema } from "./auth/auth.ts";
@@ -106,11 +106,11 @@ const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"
  */
 function toApiJob(
   job: Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
-    Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> &
-    RunnerOfJob & {
+    Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
       batchId: string;
       blockedBy: BlockedBy | null;
       statusUnknown: StatusUnknownReason | null;
+      runner: RunnerOfJob | null;
     },
 ): Job {
   const {
@@ -125,22 +125,12 @@ function toApiJob(
     pendingControlRequestedAt,
     blockedBy,
     statusUnknown,
-    runnerId,
-    runnerName,
-    runnerLastSeenAt,
-    runnerConnected,
+    runner,
     ...rest
   } = job;
-  const runner: JobRunner | null =
-    runnerId !== null &&
-    runnerName !== null &&
-    runnerLastSeenAt !== null &&
-    runnerConnected !== null
-      ? { id: runnerId, name: runnerName, lastSeenAt: runnerLastSeenAt, connected: runnerConnected }
-      : null;
   const summary = {
     usage: { totalTokens, cost: { totalUsd: costUsd } },
-    runner,
+    ...(runner === null ? {} : { runner: { ...runner, lastSeenAt: new Date(runner.lastSeenAt) } }),
     ...(statusUnknown === null ? {} : { statusUnknown: { reason: statusUnknown } }),
     ...(job.status === "running" && activity !== null ? { activity } : {}),
     // The migration keeps the two set together.
@@ -202,40 +192,36 @@ export function blockedByOf(job: {
     .end();
 }
 
-/** What a job read shows of the Runner the job was last sent to: nulls once its row is gone. */
-interface RunnerOfJob {
-  runnerId: RunnerId | null;
-  runnerName: string | null;
-  runnerLastSeenAt: Date | null;
-  runnerConnected: boolean | null;
-}
+/** A job's Runner as a job read gives it: inside JSON, pg gives `lastSeenAt` as an ISO string. */
+type RunnerOfJob = Omit<JobRunner, "lastSeenAt"> & { lastSeenAt: string };
 
 /**
- * The columns of a job read that show its Runner `runnerId` as it is at `now` (`RunnerOfJob`), each
- * read from the Runner's row by its key.
+ * The job's Runner `runnerId` as it is at `now` (`Job["runner"]`), or null before the job is first
+ * sent and once that Runner is removed.
  */
-export function runnerColumnsOf(runnerId: Expression<RunnerId | null>, now: Date) {
+export function runnerOf(runnerId: Expression<RunnerId | null>, now: Date) {
   const eb = expressionBuilder<Database>();
-  const ofRunner = () =>
-    eb.selectFrom("runner as jobRunner").where((where) => where("jobRunner.id", "=", runnerId));
-  return [
-    ofRunner().select("jobRunner.name").$asScalar().as("runnerName"),
-    ofRunner().select("jobRunner.lastSeenAt").$asScalar().as("runnerLastSeenAt"),
-    ofRunner()
-      .select((select) => connectedOf(select.ref("jobRunner.lastSeenAt"), now).as("connected"))
-      .$asScalar()
-      .as("runnerConnected"),
-  ] as const;
+  return jsonObjectFrom(
+    eb
+      .selectFrom("runner as jobRunner")
+      .select((select) => [
+        "jobRunner.id",
+        "jobRunner.name",
+        "jobRunner.lastSeenAt",
+        connectedOf(select.ref("jobRunner.lastSeenAt"), now).as("connected"),
+      ])
+      .where((where) => where("jobRunner.id", "=", runnerId)),
+  ).$castTo<RunnerOfJob | null>();
 }
 
 /**
  * Why the hub cannot confirm the job's status at `now`, or null when it can (`Job["statusUnknown"]`).
  * Only a job sent to a Runner and not yet ended or paused waits on that Runner's reports. Its
- * Runner unheard from within `GONE_AFTER_MS` is `runnerDisconnected`; otherwise the job's own last
- * report, or its run's placement before the first, older than that is `notReported`, as when the
- * job's journal cannot be read. Worked out where it is read, from times that only move forward, so
- * no disconnection is recorded, nothing must clear it, and a Runner's reconnection leaves a job it
- * still does not report as it was.
+ * Runner not connected (`connectedOf`) is `runnerDisconnected`; otherwise its current run's last
+ * report, or the run's placement before the first, older than `GONE_AFTER_MS` is `notReported`, as
+ * when the job's journal cannot be read. Worked out where it is read, so no disconnection is
+ * recorded, nothing must clear it, and a Runner's reconnection leaves a job it still does not
+ * report as it was.
  */
 export function statusUnknownOf(
   job: {
@@ -253,18 +239,21 @@ export function statusUnknownOf(
     .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
     .then(eb.lit(null))
     .when(
-      eb(
-        eb
-          .selectFrom("runner as silentRunner")
-          .select("silentRunner.lastSeenAt")
-          .where((where) => where("silentRunner.id", "=", job.runnerId))
-          .$asScalar(),
-        "<=",
-        before,
+      eb.not(
+        connectedOf(
+          eb
+            .selectFrom("runner as silentRunner")
+            .select("silentRunner.lastSeenAt")
+            .where((where) => where("silentRunner.id", "=", job.runnerId))
+            .$asScalar()
+            // A removed Runner's job has ended.
+            .$notNull(),
+          now,
+        ),
       ),
     )
     .then(eb.val<StatusUnknownReason>("runnerDisconnected"))
-    .when(eb(eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]), "<=", before))
+    .when(eb(eb.fn.coalesce(job.lastReportedAt, job.placedAt), "<=", before))
     .then(eb.val<StatusUnknownReason>("notReported"))
     .else(eb.lit(null))
     .end();
@@ -301,8 +290,7 @@ export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Pro
         inCanary: eb.ref("j.inCanary"),
       }).as("blockedBy"),
       batchIdOf(eb.ref("j.batchUid")).as("batchId"),
-      "j.runnerId",
-      ...runnerColumnsOf(eb.ref("j.runnerId"), now),
+      runnerOf(eb.ref("j.runnerId"), now).as("runner"),
       statusUnknownOf(
         {
           status: eb.ref("j.status"),
@@ -656,7 +644,7 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
             "job.batchUid",
             "job.runnerId",
             "job.placedAt",
-            ...runnerColumnsOf(eb.ref("job.runnerId"), now),
+            runnerOf(eb.ref("job.runnerId"), now).as("runner"),
             statusUnknownOf(
               {
                 status: eb.ref("job.status"),
@@ -730,14 +718,25 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
             "batchId",
             "blockedBy",
             "statusUnknown",
-            "runnerId",
-            "runnerName",
-            "runnerLastSeenAt",
-            "runnerConnected",
+            "runner",
           ]);
           return { decision, job: toApiJob(shown) };
         }
-        // The job as the control left it; a control changes nothing of its progress.
+        // A resume starts a new run, which has not reported yet; a control changes nothing else of
+        // the job's progress. A resumed job held before it started keeps its run ID until it is
+        // placed, but no Runner holds that run.
+        const progress = {
+          ...Struct.pick(job, PROGRESS_COLUMNS),
+          ...(control === "resume" ? { lastReportedAt: null } : {}),
+        };
+        if (control === "resume") {
+          await trx
+            .updateTable("jobProgress")
+            .set({ lastReportedAt: null })
+            .where("jobId", "=", jobId)
+            .execute();
+        }
+        // The job as the control left it.
         const changed = await trx
           .updateTable("job")
           .set(decision.set)
@@ -751,14 +750,13 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
               inCanary: eb.ref("job.inCanary"),
             }).as("blockedBy"),
             batchIdOf(eb.ref("job.batchUid")).as("batchId"),
-            "job.runnerId",
-            ...runnerColumnsOf(eb.ref("job.runnerId"), now),
+            runnerOf(eb.ref("job.runnerId"), now).as("runner"),
             statusUnknownOf(
               {
                 status: eb.ref("job.status"),
                 placedAt: eb.ref("job.placedAt"),
                 runnerId: eb.ref("job.runnerId"),
-                lastReportedAt: eb.val(job.lastReportedAt),
+                lastReportedAt: eb.val(progress.lastReportedAt),
               },
               now,
             ).as("statusUnknown"),
@@ -770,7 +768,7 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
         }
         return {
           decision,
-          job: toApiJob({ ...changed, ...Struct.pick(job, PROGRESS_COLUMNS) }),
+          job: toApiJob({ ...changed, ...progress }),
         };
       }),
     );
@@ -1206,8 +1204,7 @@ function toDeletedJob(
       startedAt: snapshot.startedAt,
       endedAt: snapshot.endedAt,
       usage: { totalTokens: snapshot.totalTokens, cost: { totalUsd: snapshot.costUsd } },
-      // A deleted job's Runner and reports went with its content.
-      runner: null,
+      // A deleted job's reports went with its content, and it shows no Runner.
       lastReportedAt: null,
       deletedAt,
       ...(deletionRequestedAt !== null
@@ -1283,8 +1280,7 @@ export function listJobs(query: JobListQuery) {
             inCanary: eb.ref("j.inCanary"),
           }).as("blockedBy"),
           batchIdOf(eb.ref("j.batchUid")).as("batchId"),
-          "j.runnerId",
-          ...runnerColumnsOf(eb.ref("j.runnerId"), now),
+          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
           unknownOf(eb).as("statusUnknown"),
         ]);
       if (statusUnknown !== undefined) {

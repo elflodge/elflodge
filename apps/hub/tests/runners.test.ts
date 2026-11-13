@@ -1,9 +1,8 @@
 import { hostname } from "node:os";
 
-import { createJsonRpcClient, hubNotifications, runnerRequests } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { startSystem } from "./harness.ts";
+import { protocolClient, startSystem } from "./harness.ts";
 
 const system = startSystem();
 
@@ -50,12 +49,7 @@ test("a runner that restarts keeps its identity, listed once and seen again", as
 
 test("a runner whose capabilities the hub cannot read still connects, listed without it", async () => {
   const { runnerId, socket } = await system.connectRunner();
-  const runner = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
-    socket.send(text),
-  );
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data === "string") runner.receive(event.data);
-  });
+  const runner = protocolClient(socket);
 
   await runner.request(
     "hello",
