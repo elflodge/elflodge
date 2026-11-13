@@ -1,7 +1,8 @@
 import { excludeCidr } from "cidr-tools";
 import type { RunnerCapabilities } from "contract";
-import { Array, Option, Predicate, Result, Schema, Struct } from "effect";
+import { Array, Option, Predicate, Result, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
+import { apply as applyMergePatch } from "json-merge-patch";
 
 import type { NetworkSettings } from "./network.ts";
 
@@ -153,6 +154,14 @@ const flag = (value: unknown) =>
   Option.getOrUndefined(Schema.decodeUnknownOption(Schema.Boolean)(value));
 
 /**
+ * `settings` changed by `patch`, a JSON Merge Patch (RFC 7396): objects merge, other values replace,
+ * `null` removes a setting, and one that is not an object where the patch has one, as a mistyped
+ * setting may be, becomes one. The library changes its target, so it gets a copy.
+ */
+const patched = (settings: Settings, patch: Settings): Settings =>
+  applyMergePatch(structuredClone(settings), patch);
+
+/**
  * `settings` with search on through exactly `providers`, and what the Runner reports of them. The
  * report says no key pays exactly when these settings pin OpenAI searches to the subscription, so
  * both come from one decision.
@@ -181,22 +190,12 @@ function searchThrough(
  * allowlist; a single default provider would override the routing, so none is kept.
  */
 function withSearch(settings: Settings, providers: readonly string[], pinnedTo?: string) {
-  const tools = fieldsOf(settings["tools"]);
-  const pinned = pinnedTo !== undefined;
-  const kept = Struct.omit(
-    settings,
-    pinned ? ["provider", "searchProvider", "openaiResponsesUrl"] : ["provider", "searchProvider"],
-  );
-  return {
-    ...kept,
-    tools: {
-      ...tools,
-      webSearch: { ...fieldsOf(tools["webSearch"]), enabled: true },
-      sourceCheck: { ...fieldsOf(tools["sourceCheck"]), enabled: true },
-    },
-    webSearch: { ...fieldsOf(settings["webSearch"]), allowedProviders: providers },
+  return patched(settings, {
+    provider: null,
+    searchProvider: null,
+    tools: { webSearch: { enabled: true }, sourceCheck: { enabled: true } },
+    webSearch: { allowedProviders: providers },
     searchRouting: {
-      ...fieldsOf(settings["searchRouting"]),
       providers,
       // As pi-web-access's own routing example: on to the next provider when one is down, out of
       // quota, unreachable, answers badly or cannot serve the request, such as a domain filter.
@@ -205,8 +204,14 @@ function withSearch(settings: Settings, providers: readonly string[], pinnedTo?:
     // Only the subscription's sign-in, never a key: with provider URL reuse, pi-web-access refuses
     // to search when that sign-in fails rather than fall back to `openaiApiKey` or `OPENAI_API_KEY`.
     // An explicit Responses URL turns that reuse off, so none is kept.
-    ...(pinned ? { openaiSearchProviders: [pinnedTo], openaiUseProviderBaseUrl: true } : {}),
-  };
+    ...(pinnedTo === undefined
+      ? {}
+      : {
+          openaiResponsesUrl: null,
+          openaiSearchProviders: [pinnedTo],
+          openaiUseProviderBaseUrl: true,
+        }),
+  });
 }
 
 /** Jobs' network, as the Runner holds pi-web-access to it. */
@@ -272,22 +277,15 @@ export function withNetwork(
   // Without a sandbox, jobs' commands reach every address, and the Runner refuses to start with
   // either network setting, so there is nothing to hold pi-web-access to.
   if (network.proxy === undefined) return Result.succeed(undefined);
-  const withoutGitHub = {
-    ...settings,
-    githubClone: { ...fieldsOf(settings["githubClone"]), enabled: false },
-    githubPrIssue: { ...fieldsOf(settings["githubPrIssue"]), enabled: false },
-  };
-  const fetchContent = fieldsOf(settings["fetchContent"]);
+  const withoutGitHub = { githubClone: { enabled: false }, githubPrIssue: { enabled: false } };
   if (mode === "none") {
-    const tools = fieldsOf(settings["tools"]);
-    return Result.succeed({
-      ...withoutGitHub,
-      tools: { ...tools, fetchContent: { ...fieldsOf(tools["fetchContent"]), enabled: false } },
-      fetchContent: {
-        ...fetchContent,
-        domainPolicy: { ...fieldsOf(fetchContent["domainPolicy"]), allow: ["invalid"] },
-      },
-    });
+    return Result.succeed(
+      patched(settings, {
+        ...withoutGitHub,
+        tools: { fetchContent: { enabled: false } },
+        fetchContent: { domainPolicy: { allow: ["invalid"] } },
+      }),
+    );
   }
   if (Predicate.isNotNullish(settings["proxy"]))
     return Result.fail(
@@ -302,15 +300,18 @@ export function withNetwork(
     port === undefined ? [range] : excludeCidr([range], PROXY_BYPASSED),
   );
   const allowRanges = opened.length === 0 ? {} : { allowRanges: opened };
+  const fetchContent = fieldsOf(settings["fetchContent"]);
   // pi-web-access reads a `null` as unset.
   const curl = Predicate.isNullish(fetchContent["curl"])
     ? { curl: ["curl"], userAgent: fetchContent["userAgent"] ?? PI_WEB_ACCESS_USER_AGENT }
     : {};
-  return Result.succeed({
-    ...withoutGitHub,
-    proxy: network.proxy,
-    lockProxy: true,
-    ssrf: { ...ssrf, ...allowRanges, trustEnvProxy: true },
-    fetchContent: { ...fetchContent, ...curl },
-  });
+  return Result.succeed(
+    patched(settings, {
+      ...withoutGitHub,
+      proxy: network.proxy,
+      lockProxy: true,
+      ssrf: { ...allowRanges, trustEnvProxy: true },
+      fetchContent: curl,
+    }),
+  );
 }
