@@ -103,4 +103,6 @@ it("the operator is told that names go unchecked when the Runner's own proxy res
   // Under none, every destination is refused before it could reach that proxy.
   expect(namesUnchecked({ mode: "none", exceptions: [] }, parent)).toBeUndefined();
   expect(namesUnchecked({ mode: "open", exceptions: [] }, undefined)).toBeUndefined();
+  const bypassed = resolveParentProxy({ https: "http://proxy.example:3128", noProxy: "*" });
+  expect(namesUnchecked({ mode: "open", exceptions: [] }, bypassed)).toBeUndefined();
 });

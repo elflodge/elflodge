@@ -30,7 +30,6 @@ import ensureError from "ensure-error";
 import {
   DEFAULT_NETWORK_SETTINGS,
   describeNetwork,
-  namesUnchecked,
   hostAddresses,
   type NetworkSettings,
   sandboxNetwork,
@@ -193,8 +192,6 @@ export interface JobEnvironments {
   uncappedBecause: string | undefined;
   /** What the agent is told about its commands' network, unless they run without a sandbox. */
   networkNote: string | undefined;
-  /** Why names jobs reach are not checked against the refused addresses, if they are not. */
-  namesUncheckedBecause: string | undefined;
   /**
    * sandbox-runtime's HTTP proxy, with its credentials, for requests the Runner makes for jobs
    * from outside their sandboxes, which it then holds to jobs' network; only with a sandbox.
@@ -260,7 +257,6 @@ export function prepareJobEnvironments(
       unsandboxedBecause,
       uncappedBecause,
       networkNote: unsandboxedBecause === undefined ? describeNetwork(network) : undefined,
-      namesUncheckedBecause: unsandboxedBecause === undefined ? namesUnchecked(network) : undefined,
       open: (jobId: string, dirs: JobDirs) =>
         openJobEnvironment({
           jobId,

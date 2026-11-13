@@ -335,18 +335,18 @@ function formatAllowed(range: string, port: number | undefined): string {
 
 /**
  * Why names jobs reach are not checked against the refused addresses, when they are not: open,
- * sandbox-runtime sends every destination outside `NO_PROXY` on to a proxy the Runner's own
- * environment names (`HTTPS_PROXY`, `HTTP_PROXY`), by name, and the proxy resolves it, so only the
- * proxy can refuse where it leads (ADR 0041). `parent` is that proxy as sandbox-runtime reads it,
- * so that one it ignores, such as an invalid URL, is not reported. The agent is not told: the
- * Runner does not know what that proxy refuses.
+ * sandbox-runtime sends destinations outside `NO_PROXY` on to a proxy the Runner's own environment
+ * names (`HTTPS_PROXY`, `HTTP_PROXY`), by name, and the proxy resolves them, so only the proxy can
+ * refuse where they lead (ADR 0041). `parent` is that proxy as sandbox-runtime reads it, so that
+ * one it ignores, such as an invalid URL, or one `NO_PROXY=*` bypasses, is not reported. The agent
+ * is not told: the Runner does not know what that proxy refuses.
  */
 export function namesUnchecked(
   settings: NetworkSettings,
-  parent: ReturnType<typeof resolveParentProxy> = resolveParentProxy(undefined),
+  parent: ReturnType<typeof resolveParentProxy>,
 ): string | undefined {
-  if (settings.mode === "none" || parent === undefined) return undefined;
-  return "jobs' requests, and pi-web-access's, go on to the proxy in the Runner's HTTPS_PROXY or HTTP_PROXY, which resolves names itself, so a name leading to a local or private address is refused only if that proxy refuses it. Names in the Runner's NO_PROXY are still checked. See the Runner's README, Network.";
+  if (settings.mode === "none" || parent === undefined || parent.noProxy.all) return undefined;
+  return "requests from jobs and pi-web-access that go on to the proxy in the Runner's HTTPS_PROXY or HTTP_PROXY (or their lowercase forms) have their names resolved by that proxy, so a name leading to a local or private address is refused only if the proxy refuses it. Names in the Runner's NO_PROXY are still checked. See the Runner's README, Network.";
 }
 
 /**

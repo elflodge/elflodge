@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { text } from "node:stream/consumers";
 
+import { resolveParentProxy } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import { createORPCClient } from "@orpc/client";
@@ -55,7 +56,7 @@ import {
 } from "./extensions.ts";
 import { JobRunner } from "./jobs.ts";
 import { RUNNER_VERSION } from "./journal.ts";
-import { DEFAULT_NETWORK_SETTINGS, type NetworkSettings } from "./network.ts";
+import { DEFAULT_NETWORK_SETTINGS, namesUnchecked, type NetworkSettings } from "./network.ts";
 import { makePromptCacheWarmup } from "./prompt-cache.ts";
 import {
   type JobEnvironments,
@@ -270,16 +271,15 @@ function runRegistered(
 
 /**
  * Finds what the host offers jobs, and tells the operator what they run without: a sandbox, where
- * the operator allowed that, a memory cap, or checks on the names they reach. Fails with `SandboxUnavailable` when jobs cannot run
- * in a sandbox and the operator has not allowed running without one.
+ * the operator allowed that, a memory cap, or checks on the names they reach. Fails with
+ * `SandboxUnavailable` when jobs cannot run in a sandbox and the operator has not allowed running
+ * without one.
  */
 function prepareEnvironments(
   options: RunnerOptions,
 ): Effect.Effect<JobEnvironments, SandboxUnavailable> {
-  return prepareJobEnvironments(
-    options.sandbox ?? DEFAULT_SANDBOX_SETTINGS,
-    options.network ?? DEFAULT_NETWORK_SETTINGS,
-  ).pipe(
+  const network = options.network ?? DEFAULT_NETWORK_SETTINGS;
+  return prepareJobEnvironments(options.sandbox ?? DEFAULT_SANDBOX_SETTINGS, network).pipe(
     Effect.tap((environments) =>
       Effect.sync(() => {
         if (environments.unsandboxedBecause) {
@@ -290,9 +290,13 @@ function prepareEnvironments(
         if (environments.uncappedBecause) {
           console.error(`Jobs run without a memory limit: ${environments.uncappedBecause}`);
         }
-        if (environments.namesUncheckedBecause) {
-          console.error(`Jobs' names are not checked: ${environments.namesUncheckedBecause}`);
-        }
+        // Without a sandbox, jobs' commands reach every address anyway. The Runner gives
+        // sandbox-runtime no `parentProxy`, so both read the proxy from the environment.
+        const unchecked =
+          environments.unsandboxedBecause === undefined
+            ? namesUnchecked(network, resolveParentProxy(undefined))
+            : undefined;
+        if (unchecked) console.error(`Jobs' names are not checked: ${unchecked}`);
       }),
     ),
   );
