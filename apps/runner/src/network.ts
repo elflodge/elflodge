@@ -17,6 +17,7 @@ import { splitDomainPatternPort } from "@anthropic-ai/sandbox-runtime/dist/sandb
 // stop this import; should a release move it, the typecheck and the Runner's start fail rather than
 // the callback reading hosts differently, as the Runner's build leaves dependencies external.
 import { canonicalizeHost } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
+import { createResolvedAddressGuard } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect } from "effect";
 
@@ -109,7 +110,7 @@ const REFUSED_CLASSES: readonly {
   readonly reachable?: readonly string[];
 }[] = [
   // Azure's WireServer, in public address space. The other cloud metadata endpoints are in ranges
-  // refused below, and sandbox-runtime's resolved-address guard refuses names resolving to any.
+  // refused below, and an exception's range does not open them (`sandboxNetwork`).
   { name: "Cloud metadata addresses", ranges: ["168.63.129.16/32"] },
   { name: "Loopback addresses", ranges: ["127.0.0.0/8", "::1/128"] },
   { name: "Unspecified addresses", ranges: ["0.0.0.0/8", "::/128"] },
@@ -167,12 +168,13 @@ export function hostAddresses(): string[] {
  * which judges where the name resolves.
  *
  * The guard refuses `deniedResolvedAddresses` (here the default classes, less the ranges opened on
- * every port) and its own classes: loopback, link-local, cloud metadata
- * and `host`'s addresses. An address and port in `allowedDomains` overrides both, but that list
- * takes single addresses only (ranges need anthropics/sandbox-runtime#807), so it holds each
- * exception that is one, and `host`'s addresses in each range opened, with the exception's port.
- * A name so reaches a range opened on one port only at those addresses, and the guard's own classes
- * in an opened range likewise: such names are refused, never let through.
+ * every port) and its own classes: loopback, link-local, cloud metadata and `host`'s addresses. An
+ * address and port in `allowedDomains` overrides both, but that list takes single addresses only
+ * (ranges need anthropics/sandbox-runtime#807), so it holds each exception that is one, and
+ * `host`'s addresses in each range opened, with the exception's port. A name so reaches a range
+ * opened on one port only at those addresses: such names are refused, never let through. The
+ * guard's own classes in an opened range open only at an address named alone, and the callback
+ * holds literals to that rule too.
  *
  * Off, everything is refused before the callback, with one reason.
  */
@@ -227,6 +229,17 @@ export function sandboxNetwork(
     allow: false as const,
     reason: `This address is open to jobs only on the ports that ${EXCEPTIONS_SETTING} names for it.`,
   };
+  const notAlone = {
+    allow: false as const,
+    reason: `Loopback, link-local and cloud metadata addresses are open to jobs only when ${EXCEPTIONS_SETTING} names the address itself, not a range covering it.`,
+  };
+  // The guard refuses names its own classes (loopback, link-local, cloud metadata and the rest) in an
+  // opened range unless `allowedDomains` holds the address itself, as only the operator who names
+  // that address means it; an operator opening shared space for Tailscale has not chosen a cloud's
+  // metadata service. A guard with those classes alone holds an opened literal to the same rule,
+  // with sandbox-runtime's own list. The host's addresses are left out: `allowedDomains` holds those
+  // a range opens.
+  const builtIn = createResolvedAddressGuard({ allowedDomains: allowed, localAddresses: () => [] });
   return {
     network: {
       allowedDomains: [...new Set(allowed)],
@@ -262,9 +275,14 @@ export function sandboxNetwork(
       if (refused === undefined) return true;
       const covering = exceptions.filter(({ addresses }) => addressInSet(addresses, dialed));
       if (covering.length === 0) return refused.refusal;
-      return covering.some(({ port }) => port === undefined || port === destination.port)
+      if (!covering.some(({ port }) => port === undefined || port === destination.port))
+        return otherPort;
+      // A name for `permits`, which judges only names; `invalid` never resolves (RFC 6761). The
+      // proxies always give a port; without one, the guard could not judge it.
+      return destination.port !== undefined &&
+        builtIn.permits("address.invalid", dialed, destination.port)
         ? true
-        : otherPort;
+        : notAlone;
     },
   };
 }

@@ -13,9 +13,10 @@ import {
   withJob,
 } from "./job-environments.ts";
 
-// An operator opens local and private ranges with RUNNER_NETWORK_EXCEPTIONS (ADR 0041). A range
-// opens every address it covers, the Runner's own included, such as its loopback addresses here,
-// which the default refuses (`sandbox.test.ts`), on every port or on the one it names.
+// An operator opens local and private addresses with RUNNER_NETWORK_EXCEPTIONS (ADR 0041), the
+// Runner's own included, such as its loopback addresses here, which the default refuses
+// (`sandbox.test.ts`), on every port or on the one it names. Loopback opens only at an address
+// named alone; `network-policy.test.ts` asks about ranges.
 
 let environments: JobEnvironments;
 // A server on the Runner's loopback address, whose port alone the exception for it opens.
@@ -24,12 +25,12 @@ beforeAll(async () => {
   opened = await startHostServer("127.0.0.1");
   environments = await prepareTestEnvironments({
     mode: "open",
-    exceptions: [{ range: "127.0.0.2/31" }, { range: "127.0.0.1/32", port: opened.port }],
+    exceptions: [{ range: "127.0.0.3/32" }, { range: "127.0.0.1/32", port: opened.port }],
   });
 });
 afterAll(() => opened.close());
 
-it("an exception range opens the servers in it to jobs' commands, on the Runner's own address too", async (test) => {
+it("an exception opens a server at its address to jobs' commands, on the Runner's own loopback too", async (test) => {
   if (process.platform !== "linux") test.skip("only Linux routes all of 127.0.0.0/8 to loopback");
   await withHostServer("127.0.0.3", (port) =>
     withJob(environments, async (job) => {

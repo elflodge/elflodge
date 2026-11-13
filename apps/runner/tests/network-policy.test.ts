@@ -57,6 +57,21 @@ it("an exception opens an IP destination on its port, the Runner's own addresses
   expect(await ask([{ range: "192.168.0.0/16" }], "192.168.7.20")).toBe("allowed");
 });
 
+it("a loopback, link-local or cloud metadata address opens only when an exception names it alone", async () => {
+  for (const [range, destination] of [
+    ["100.64.0.0/10", "100.100.100.200"],
+    ["fd00::/8", "fd00:ec2::254"],
+    ["169.254.0.0/16", "169.254.169.254"],
+    ["127.0.0.0/8", "127.0.0.2"],
+  ] as const) {
+    expect(await ask([{ range }], destination), destination).toMatch("names the address itself");
+    expect(
+      await ask([{ range: `${destination}/${destination.includes(":") ? 128 : 32}` }], destination),
+    ).toBe("allowed");
+  }
+  expect(await ask([{ range: "100.64.0.0/10" }], "100.64.0.1")).toBe("allowed");
+});
+
 it("a name is refused where it resolves into a refused range, unless an exception opens it there", () => {
   expect(permits([], "10.0.0.5")).toBe(false);
   expect(permits([], "93.184.0.10")).toBe(false);
