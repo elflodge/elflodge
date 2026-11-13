@@ -1,4 +1,4 @@
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Option } from "effect";
 import { expect, it, vi } from "vite-plus/test";
 
 import type { NetworkSettings } from "../src/network.ts";
@@ -23,9 +23,11 @@ it("a Runner allowed to run jobs without a sandbox refuses to start with a netwo
     { mode: "none", exceptions: [] },
     { mode: "open", exceptions: [{ range: "10.0.0.0/8" }] },
   ] satisfies NetworkSettings[]) {
-    const started = await startWithoutSandbox(network);
-    expect(Exit.isFailure(started), JSON.stringify(network)).toBe(true);
-    expect(JSON.stringify(started), JSON.stringify(network)).toContain("cannot apply");
+    const refusal = Option.getOrUndefined(Exit.findErrorOption(await startWithoutSandbox(network)));
+    expect(refusal, JSON.stringify(network)).toMatchObject({
+      _tag: "SandboxUnavailable",
+      message: expect.stringContaining("cannot apply"),
+    });
   }
   // With the default network, it starts.
   expect(Exit.isSuccess(await startWithoutSandbox({ mode: "open", exceptions: [] }))).toBe(true);

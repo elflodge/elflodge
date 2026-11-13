@@ -301,8 +301,8 @@ let configuredNetwork: NetworkSettings | undefined;
 /**
  * Configures sandbox-runtime once per process: it keeps its configuration and network proxies in
  * module state. Every job's sandbox gets its own filesystem policy, so the one given here applies
- * to none of them; its network policy, made from `network` with the host's addresses at this
- * start, applies to all of them, as do its proxies.
+ * to none of them; its network policy, made from `network`, applies to all of them, as do its
+ * proxies.
  *
  * Initializing also adds sandbox-runtime's one-time `SIGINT` and `SIGTERM` listeners, which reset
  * the sandbox but do not exit, and a listener on a signal turns off Node's exit on it. So the

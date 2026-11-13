@@ -1,5 +1,4 @@
 import { BlockList, isIP } from "node:net";
-import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 // sandbox-runtime's own reading of a destination's port, of an address range into a BlockList, and
@@ -21,7 +20,10 @@ import {
   canonicalizeHost,
   resolveParentProxy,
 } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
-import { createResolvedAddressGuard } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
+import {
+  createResolvedAddressGuard,
+  localInterfaceAddresses,
+} from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect, Schema } from "effect";
 
@@ -167,11 +169,12 @@ const REFUSED_CLASSES: readonly {
   },
 ];
 
-/** The unicast addresses on this host's network interfaces now, each as a single-address range. */
+/**
+ * The addresses on this host's network interfaces now, each as a single-address range, as
+ * sandbox-runtime's guard reads them for names, none where they cannot be listed.
+ */
 export function hostAddresses(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .flatMap((address) => (address ? mergeCidr([address.address]) : []));
+  return localInterfaceAddresses().flatMap((address) => mergeCidr([address]));
 }
 
 /**
