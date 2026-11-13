@@ -35,6 +35,10 @@ it("an IP destination in a refused range is refused with its class, however it i
     ["100.64.0.1", "Shared (carrier-grade NAT) addresses"],
     ["2001:db8::1", "Documentation addresses"],
     ["93.184.0.10", "Addresses of the Runner's own host"],
+    // NAT64, 6to4 and IPv4-compatible forms of 10.0.0.5.
+    ["64:ff9b::a00:5", "Private network addresses"],
+    ["2002:a00:5::", "Private network addresses"],
+    ["::a00:5", "Private network addresses"],
   ] as const) {
     expect(await ask([], destination), destination).toMatch(`${refused} are blocked`);
   }

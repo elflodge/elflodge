@@ -2,11 +2,13 @@ import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-// sandbox-runtime's own reading of a destination's port, and of an address range into a BlockList,
-// from the same unexported modules, so that exceptions are read and matched as it reads its lists.
+// sandbox-runtime's own reading of a destination's port, of an address range into a BlockList, and
+// of the IPv4 address an IPv6 address carries, from the same unexported modules, so that exceptions
+// and destinations are read and matched as it reads its lists.
 import {
   addRange,
   addressInSet,
+  embeddedIPv4,
   isLoopbackName,
 } from "@anthropic-ai/sandbox-runtime/dist/sandbox/address.js";
 import { splitDomainPatternPort } from "@anthropic-ai/sandbox-runtime/dist/sandbox/domain-pattern.js";
@@ -248,7 +250,15 @@ export function sandboxNetwork(
       if (isLoopbackName(dialed.replace(/\.+$/, ""))) return localhost;
       // A name: the guard judges where it resolves.
       if (isIP(dialed) === 0) return true;
-      const refused = classes.find(({ addresses }) => addressInSet(addresses, dialed));
+      // An IPv6 address that carries an IPv4 one, such as NAT64's `64:ff9b::a00:5`, is delivered to
+      // it, so it is refused as that address is too, as the guard refuses names. Only the address
+      // itself is matched against exceptions, as in the guard, so an exception opens no such form.
+      const carried = embeddedIPv4(dialed);
+      const refused = classes.find(
+        ({ addresses }) =>
+          addressInSet(addresses, dialed) ||
+          (carried !== undefined && addressInSet(addresses, carried)),
+      );
       if (refused === undefined) return true;
       const covering = exceptions.filter(({ addresses }) => addressInSet(addresses, dialed));
       if (covering.length === 0) return refused.refusal;
