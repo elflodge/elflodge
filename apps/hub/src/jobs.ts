@@ -211,7 +211,7 @@ export function runnerOf(runnerId: Expression<RunnerId | null>, now: Date) {
         connectedOf(select.ref("jobRunner.lastSeenAt"), now).as("connected"),
       ])
       .where((where) => where("jobRunner.id", "=", runnerId)),
-  ).$castTo<RunnerOfJob | null>();
+  );
 }
 
 /**
@@ -234,29 +234,33 @@ export function statusUnknownOf(
 ): AliasableExpression<StatusUnknownReason | null> {
   const eb = expressionBuilder<Database>();
   const before = eb.val(new Date(now.getTime() - GONE_AFTER_MS));
-  return eb
-    .case()
-    .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
-    .then(eb.lit(null))
-    .when(
-      eb.not(
-        connectedOf(
-          eb
-            .selectFrom("runner as silentRunner")
-            .select("silentRunner.lastSeenAt")
-            .where((where) => where("silentRunner.id", "=", job.runnerId))
-            .$asScalar()
-            // A removed Runner's job has ended.
-            .$notNull(),
-          now,
+  return (
+    eb
+      .case()
+      .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
+      .then(eb.lit(null))
+      .when(
+        eb.not(
+          connectedOf(
+            eb
+              .selectFrom("runner as silentRunner")
+              .select("silentRunner.lastSeenAt")
+              .where((where) => where("silentRunner.id", "=", job.runnerId))
+              .$asScalar()
+              // A removed Runner's job has ended.
+              .$notNull(),
+            now,
+          ),
         ),
-      ),
-    )
-    .then(eb.val<StatusUnknownReason>("runnerDisconnected"))
-    .when(eb(eb.fn.coalesce(job.lastReportedAt, job.placedAt), "<=", before))
-    .then(eb.val<StatusUnknownReason>("notReported"))
-    .else(eb.lit(null))
-    .end();
+      )
+      .then(eb.val<StatusUnknownReason>("runnerDisconnected"))
+      // The later of the two, `greatest` skipping a null: right also for a run placed again without a
+      // resume, which would keep its last run's time.
+      .when(eb(eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]), "<=", before))
+      .then(eb.val<StatusUnknownReason>("notReported"))
+      .else(eb.lit(null))
+      .end()
+  );
 }
 
 /** The ID the API shows of the Batch whose row is `batchUid`, a job's Batch's (ADR 0036). */
@@ -724,18 +728,18 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
         }
         // A resume starts a new run, which has not reported yet; a control changes nothing else of
         // the job's progress. A resumed job held before it started keeps its run ID until it is
-        // placed, but no Runner holds that run.
-        const progress = {
-          ...Struct.pick(job, PROGRESS_COLUMNS),
-          ...(control === "resume" ? { lastReportedAt: null } : {}),
-        };
-        if (control === "resume") {
-          await trx
-            .updateTable("jobProgress")
-            .set({ lastReportedAt: null })
-            .where("jobId", "=", jobId)
-            .execute();
-        }
+        // placed, but no Runner holds that run. A report of the old run already under way, which
+        // locks only this row, can still write its time after this; `statusUnknownOf` takes the
+        // later placement instead.
+        const progress =
+          control === "resume"
+            ? await trx
+                .updateTable("jobProgress")
+                .set({ lastReportedAt: null })
+                .where("jobId", "=", jobId)
+                .returning(PROGRESS_COLUMNS)
+                .executeTakeFirstOrThrow()
+            : Struct.pick(job, PROGRESS_COLUMNS);
         // The job as the control left it.
         const changed = await trx
           .updateTable("job")

@@ -44,8 +44,8 @@ export const runnerSchema = z
     lastSeenAt: z.date(),
     /**
      * Whether the hub has heard from the Runner within the last seven minutes, as `lastSeenAt` tells:
-     * recent protocol traffic, not an open socket. A disconnected Runner's queued and running jobs
-     * show `statusUnknown`.
+     * recent protocol traffic, not an open socket. The jobs placed on a disconnected Runner, and not
+     * yet ended or paused, show `statusUnknown`.
      */
     connected: z.boolean(),
     /**

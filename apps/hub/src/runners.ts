@@ -92,8 +92,9 @@ export const GONE_AFTER_MS = 2 * SYNC_INTERVAL_MS + 60_000;
  * How long a socket's sighting of its Runner, or a report's of its job, goes unwritten when nothing
  * else changes: a third of the sync interval, so a Runner that syncs on time is never recorded as
  * more than about one interval old. Equal to the interval, a sync arriving a little early would
- * skip its write, and the next one's could find `lastSeenAt` nearly two intervals old. Kubernetes'
- * kubelet likewise renews its node's lease every quarter of the lease's duration.
+ * skip its write, and the next one's could find `lastSeenAt` nearly two intervals old. The third is
+ * our own choice, with no precedent to follow: short enough to keep a recorded time well inside
+ * `GONE_AFTER_MS`, long enough that a busy Runner's reports write rarely.
  */
 export const SEEN_WRITE_INTERVAL_MS = SYNC_INTERVAL_MS / 3;
 

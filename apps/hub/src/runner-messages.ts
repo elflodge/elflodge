@@ -433,7 +433,7 @@ function applyReportsStatement(
             activity: eb.ref("c.nextActivity"),
             // Any report of the current run counts, one behind the hub's position or partway
             // through a backlog included: the job is reporting, so its state is not unknown.
-            // `greatest` skips a null.
+            // Never back: two reports can be applied out of order. `greatest` skips a null.
             lastReportedAt: eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]),
           }))
           .whereRef("p.jobId", "=", "c.jobId")
