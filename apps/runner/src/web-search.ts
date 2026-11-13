@@ -265,8 +265,8 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  *
  * The exception ranges are `ssrf.allowRanges`, the ranges pi-web-access's own guard lets through,
  * and `parseException` refused the `/0` that pi-web-access refuses. `allowRanges` has no ports, so
- * jobs' proxy holds pi-web-access to an exception's port, and a range opened on one port leaves out
- * the addresses pi-web-access reaches without it. An operator's own `allowRanges` is refused, as
+ * jobs' proxy holds pi-web-access to an exception's port, and an address opened on one port is left
+ * out where pi-web-access reaches it without that proxy. An operator's own `allowRanges` is refused, as
  * pi-web-access would reach some of them, such as `127.0.0.1`, without jobs' proxy.
  */
 export function withNetwork(

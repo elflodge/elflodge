@@ -39,11 +39,11 @@ export interface NetworkSettings {
   readonly exceptions: readonly NetworkException[];
 }
 
-/** An address range opened despite the refusal, on one port or on all. */
+/** An address range opened despite the refusal, on every port, or a single address on one. */
 export interface NetworkException {
   /** As `mergeCidr` writes it (`10.0.0.0/8`, `fd00::1/128`). */
   readonly range: string;
-  /** The one port opened; every port when absent. */
+  /** The one port opened, only on a single address; every port when absent. */
   readonly port?: number;
 }
 
@@ -58,9 +58,12 @@ export class InvalidException extends Data.TaggedError("InvalidException")<{
 }> {}
 
 /**
- * Reads an exception written as sandbox-runtime writes a destination, a port optional (`10.0.0.5`,
- * `10.0.0.0/8:8080`, `[fd00::5]:8080`; an IPv6 range takes its port in brackets), into what
- * `NetworkSettings` keeps, or fails saying what is wrong with it. Every address (`/0`) is refused:
+ * Reads an exception written as sandbox-runtime writes a destination (`10.0.0.0/8`, `10.0.0.5:8080`,
+ * `[fd00::5]:8080`; an IPv6 address takes its port in brackets), into what `NetworkSettings` keeps,
+ * or fails saying what is wrong with it. Only a single address takes a port: sandbox-runtime's
+ * allow list takes ports only with addresses (ranges need anthropics/sandbox-runtime#807), so a
+ * name resolving into a range on a port would be refused, which the operator would learn only from
+ * a job's refusal. Every address (`/0`) is refused:
  * it would open everything, the default's refusals included, and pi-web-access refuses it. So is an
  * IPv4-mapped IPv6 range: sandbox-runtime and the Runner judge such a destination by its IPv4
  * address, which the exception's range would not cover.
@@ -77,6 +80,10 @@ export function parseException(entry: string): Effect.Effect<NetworkException, I
     if (range === undefined) return yield* notARange;
     if (range.endsWith("/0"))
       return yield* new InvalidException({ message: `${range} opens every address` });
+    if (port !== undefined && !isSingleAddress(range))
+      return yield* new InvalidException({
+        message: `${entry} puts a port on a range: a port opens one address, so write each address with its port, such as 10.0.0.5:8080, or the range without one`,
+      });
     if (range.includes(":") && containsCidr("::ffff:0:0/96", range))
       return yield* new InvalidException({
         message: `${entry} is an IPv4-mapped address: write the IPv4 address or range`,
@@ -171,10 +178,8 @@ export function hostAddresses(): string[] {
  * every port) and its own classes: loopback, link-local, cloud metadata and `host`'s addresses. An
  * address and port in `allowedDomains` overrides both, but that list takes single addresses only
  * (ranges need anthropics/sandbox-runtime#807), so it holds each exception that is one, and
- * `host`'s addresses in each range opened, with the exception's port. A name so reaches a range
- * opened on one port only at those addresses: such names are refused, never let through. The
- * guard's own classes in an opened range open only at an address named alone, and the callback
- * holds literals to that rule too.
+ * `host`'s addresses in each range opened. The guard's own classes in an opened range so open only
+ * at an address named alone, and the callback holds literals to that rule too.
  *
  * Off, everything is refused before the callback, with one reason.
  */

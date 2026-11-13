@@ -86,11 +86,20 @@ EOF`,
 
 const read = (entry: string) => Effect.runSyncExit(parseException(entry));
 
-it("an exception names its port as sandbox-runtime names a destination's, and no other", () => {
-  expect(read("10.0.0.0/8:8080")).toEqual(Exit.succeed({ range: "10.0.0.0/8", port: 8080 }));
+it("an exception names its port as sandbox-runtime names a destination's, on a single address only", () => {
+  expect(read("10.0.0.5:8080")).toEqual(Exit.succeed({ range: "10.0.0.5/32", port: 8080 }));
+  expect(read("10.0.0.5/32:8080")).toEqual(Exit.succeed({ range: "10.0.0.5/32", port: 8080 }));
   expect(read("[fd00::5]:8080")).toEqual(Exit.succeed({ range: "fd00::5/128", port: 8080 }));
   // Unbracketed, the last group is the address's.
   expect(read("fd00::5:8080")).toEqual(Exit.succeed({ range: "fd00::5:8080/128" }));
-  for (const entry of ["10.0.0.5:0", "10.0.0.5:65536", "10.0.0.5:", "[fd00::5", "[fd00::5]x"])
+  for (const entry of [
+    "10.0.0.5:0",
+    "10.0.0.5:65536",
+    "10.0.0.5:",
+    "[fd00::5",
+    "[fd00::5]x",
+    "10.0.0.0/8:8080",
+    "[fd00::/64]:8080",
+  ])
     expect(Exit.isFailure(read(entry)), entry).toBe(true);
 });

@@ -50,9 +50,10 @@ it("an IP destination in a refused range is refused with its class, however it i
 });
 
 it("an exception opens an IP destination on its port, the Runner's own addresses too", async () => {
-  const exceptions = [{ range: "10.0.0.0/8", port: 8080 }, { range: "10.1.0.0/16" }];
-  expect(await ask(exceptions, "10.2.3.4", 8080)).toBe("allowed");
-  expect(await ask(exceptions, "10.2.3.4", 22)).toMatch("only on the ports");
+  const exceptions = [{ range: "10.0.0.5/32", port: 8080 }, { range: "10.1.0.0/16" }];
+  expect(await ask(exceptions, "10.0.0.5", 8080)).toBe("allowed");
+  expect(await ask(exceptions, "10.0.0.5", 22)).toMatch("only on the ports");
+  expect(await ask(exceptions, "10.2.3.4", 8080)).toMatch("Private network addresses");
   expect(await ask(exceptions, "10.1.2.3", 22)).toBe("allowed");
   expect(await ask([{ range: "192.168.0.0/16" }], "192.168.7.20")).toBe("allowed");
 });
