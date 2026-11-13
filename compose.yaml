@@ -54,7 +54,7 @@ services:
     # - `0.0.0.0:8787`, or a port alone such as `9000`: every network this machine is on. The hub
     #   speaks plain HTTP, and Docker's published ports bypass firewalls such as ufw.
     # Set `HUB_URL` to the address callers then use. To open the hub beyond a private network, leave
-    # this unset and put HTTPS in front of it, as docs/deploy.md shows.
+    # this unset and put HTTPS in front of it (docs/deploy.md#runners-on-other-machines).
     ports:
       - "${HUB_PUBLISH:-127.0.0.1:8787}:8787"
     restart: unless-stopped
