@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.0](https://github.com/elflodge/elflodge/compare/v0.9.0...v0.10.0) (2026-11-13)
+
+
+### Features
+
+* package Agent Batches as a Claude plugin ([#118](https://github.com/elflodge/elflodge/issues/118)) ([d1b79d2](https://github.com/elflodge/elflodge/commit/d1b79d292419c0f9faed53be123e7c73b555cf77))
+* **runner:** job commands reach the internet, with local and private addresses refused ([#147](https://github.com/elflodge/elflodge/issues/147)) ([5ea0ef7](https://github.com/elflodge/elflodge/commit/5ea0ef7a79839aff8fe73dd6b405660e92820eb4))
+* runners report their capabilities to the hub ([#143](https://github.com/elflodge/elflodge/issues/143)) ([f0e5c43](https://github.com/elflodge/elflodge/commit/f0e5c43f9b4c1cd6532a6e12360082bb15f0786c))
+
+
+### Bug Fixes
+
+* **deps:** update Pi to 1.5.2, whose Anthropic sign-in reports a current Claude Code version ([#141](https://github.com/elflodge/elflodge/issues/141)) ([443179d](https://github.com/elflodge/elflodge/commit/443179d495e6802b5406742406d5dc51f5cda84c))
+* **runner:** a job whose journal is lost fails as journalLost instead of starting over ([#145](https://github.com/elflodge/elflodge/issues/145)) ([98e97aa](https://github.com/elflodge/elflodge/commit/98e97aa8ded64631a8ccaa1bd97d7149df93e192))
+* **runner:** let macOS jobs start Node and sh, and test the sandbox on macOS in CI ([#146](https://github.com/elflodge/elflodge/issues/146)) ([2fcb6d0](https://github.com/elflodge/elflodge/commit/2fcb6d025584011ce450c5f8cb4d47559673b564))
+
 ## [0.9.0](https://github.com/elflodge/elflodge/compare/v0.8.0...v0.9.0) (2026-11-11)
 
 
