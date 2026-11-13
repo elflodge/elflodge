@@ -14,7 +14,7 @@ test("the hub lists no runners before any connect", async () => {
   expect(await system.owner().runners.list()).toEqual([]);
 });
 
-test("a runner that connects is listed under its host's name with its capabilities, seen when it said hello", async () => {
+test("a runner that connects is listed under its host's name with its capabilities, connected and seen when it said hello", async () => {
   const before = Date.now();
   const runnerId = await system.startRunner();
 
@@ -24,6 +24,7 @@ test("a runner that connects is listed under its host's name with its capabiliti
       id: runnerId,
       name: hostname(),
       lastSeenAt: expect.any(Date),
+      connected: true,
       capabilities: {
         runnerVersion: expect.any(String),
         model: { provider: expect.any(String), modelId: expect.any(String), thinkingLevel: "off" },
@@ -66,6 +67,7 @@ test("a runner whose capabilities the hub cannot read still connects, listed wit
     id: runnerId,
     name: "newer runner",
     lastSeenAt: expect.any(Date),
+    connected: true,
     capabilities: null,
   });
   socket.close();

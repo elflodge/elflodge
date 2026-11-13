@@ -1,9 +1,10 @@
 import { type Runner, type RunnerCapabilities, runnerCapabilitiesSchema } from "contract";
 import { Effect } from "effect";
+import { type AliasableExpression, type Expression, expressionBuilder } from "kysely";
 import * as z from "zod/mini";
 
 import { Db } from "./db/database.ts";
-import type { RunnerId, RunnerUpdate } from "./db/types.ts";
+import type { Database, RunnerId, RunnerUpdate } from "./db/types.ts";
 import { RunnerConnections } from "./platform.ts";
 
 // Runners are recorded by when the hub last heard from them and what their latest hello reported.
@@ -57,9 +58,16 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
  */
 export const listRunners = Db.use((database) =>
   database.query(async (db): Promise<Runner[]> => {
+    const now = new Date();
     const rows = await db
       .selectFrom("runner")
-      .select(["id", "name", "lastSeenAt", "capabilities"])
+      .select((eb) => [
+        "id",
+        "name",
+        "lastSeenAt",
+        "capabilities",
+        connectedOf(eb.ref("lastSeenAt"), now).as("connected"),
+      ])
       .execute();
     return rows.map((runner) => ({
       ...runner,
@@ -81,15 +89,40 @@ export const SYNC_INTERVAL_MS = 180_000;
 export const GONE_AFTER_MS = 2 * SYNC_INTERVAL_MS + 60_000;
 
 /**
- * Tells every Runner heard from within the last `GONE_AFTER_MS` to sync now, as for a new job. A
+ * How long a socket's sighting of its Runner goes unwritten: a third of the sync interval, so a
+ * Runner that syncs on time is never recorded as more than about one interval old. Equal to the
+ * interval, a sync arriving a little early would skip its write, and the next one's could find
+ * `lastSeenAt` nearly two intervals old.
+ */
+export const SEEN_WRITE_INTERVAL_MS = SYNC_INTERVAL_MS / 3;
+
+/**
+ * Whether a Runner last seen at `lastSeenAt` counts as connected at `now`: heard from within
+ * `GONE_AFTER_MS`. Recent protocol traffic, not an open socket: a socket that died without closing
+ * shows nothing, and on Workers the hub does not see a heartbeat. Worked out where it is read, so
+ * nothing records a disconnection, and no order of an old socket's close and a new one's hello can
+ * leave it wrong.
+ */
+export function connectedOf(lastSeenAt: Expression<Date>, now: Date): AliasableExpression<boolean> {
+  const eb = expressionBuilder<Database>();
+  // pg reads a boolean as one.
+  return eb(lastSeenAt, ">", eb.val(new Date(now.getTime() - GONE_AFTER_MS))).$castTo<boolean>();
+}
+
+/**
+ * Tells every connected Runner (`connectedOf`) to sync now, as for a new job. A
  * Runner that is not connected after all misses nothing: its next sync finds the same jobs.
  */
 export const hintLiveRunners = Effect.gen(function* () {
   const database = yield* Db;
   const connections = yield* RunnerConnections;
-  const since = new Date(Date.now() - GONE_AFTER_MS);
+  const now = new Date();
   const runners = yield* database.query((db) =>
-    db.selectFrom("runner").select("id").where("lastSeenAt", ">", since).execute(),
+    db
+      .selectFrom("runner")
+      .select("id")
+      .where((eb) => connectedOf(eb.ref("lastSeenAt"), now))
+      .execute(),
   );
   yield* Effect.forEach(runners, (runner) => connections.hint(runner.id), {
     concurrency: "unbounded",

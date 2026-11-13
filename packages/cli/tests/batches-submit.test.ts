@@ -54,6 +54,7 @@ function batchOf(id: string, jobCounts: Partial<Record<string, number>> = {}) {
       cancelled: 0,
       ...jobCounts,
     },
+    statusUnknownJobs: 0,
     usage: { totalTokens: 0, cost: { totalUsd: 0 } },
   };
 }
@@ -67,6 +68,8 @@ function jobOf(id: string, customId: string, status: Record<string, unknown>) {
     startedAt: null,
     endedAt: null,
     usage: { totalTokens: 0, cost: { totalUsd: 0 } },
+    runner: null,
+    lastReportedAt: null,
     ...status,
   };
 }
@@ -78,6 +81,7 @@ function jobOf(id: string, customId: string, status: Record<string, unknown>) {
  * each job's read with `ended(customId)`, or with 503 when `jobsUnreadable`, every job having ended
  * by the Batch's read numbered `endedByRead`, the first unless given; it never answers a read of
  * the Batch when `stalled`, and refuses with 422 the add numbered `refusedAdd`, if given.
+ * Before then, with `unknownBeforeEnd`, the hub cannot confirm any job's status.
  * `batchRead` resolves on the first read.
  */
 function fakeHub(
@@ -88,6 +92,7 @@ function fakeHub(
     stored = [] as string[],
     endedByRead = 1,
     refusedAdd = 0,
+    unknownBeforeEnd = false,
   } = {},
 ) {
   // The ID the first creation gave; the hub creates one Batch.
@@ -148,8 +153,12 @@ function fakeHub(
     if (request.method === "GET" && request.url === `/batches/${batchId}`) {
       readBatch();
       if (stalled) return;
-      if (++batchReads < endedByRead)
-        return answer(response, batchOf(batchId, { queued: ids.size }));
+      if (++batchReads < endedByRead) {
+        return answer(response, {
+          ...batchOf(batchId, { queued: ids.size }),
+          statusUnknownJobs: unknownBeforeEnd ? ids.size : 0,
+        });
+      }
       const counts: Record<string, number> = {};
       for (const each of ids.values()) {
         const status = String(ended(each)["status"]);
@@ -344,6 +353,20 @@ test("batches submit --wait --output-dir saves each job's line in order, those t
     { customId: "c.pdf", status: "succeeded", output: { total: "c.pdf" } },
   ]);
   expect(await lines("error.jsonl")).toEqual([{ customId: "b.pdf", status: "failed", failure }]);
+});
+
+test("batches submit --wait keeps waiting while its jobs' status is unknown, and says so on stderr", async () => {
+  const cwd = await folderWith({ "a.pdf": "a" });
+  const hub = fakeHub(() => ({ status: "succeeded", output: 1 }), {
+    endedByRead: 2,
+    unknownBeforeEnd: true,
+  });
+
+  const { exitCode, stderr } = await submit(hub.listener, cwd, ["--each", "a.pdf", "--wait"]);
+
+  expect(exitCode).toBe(0);
+  expect(stderr).toContain("The status of 1 of the Batch's jobs is unknown");
+  expect(stderr).toContain("Every job's status is known again.");
 });
 
 test("batches submit --wait --output-dir prints the Batch even when its jobs' lines cannot be saved, and exits 1", async () => {

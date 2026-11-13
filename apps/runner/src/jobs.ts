@@ -202,6 +202,10 @@ export class JobRunner {
             jobs.push({ ...report, events: [], failure });
           } else if (job.intent !== "run" && job.journalFound === "absent") {
             jobs.push({ ...report, events: [] });
+          } else if (all && failure === undefined) {
+            // A job still preparing, as while its Input files download, has nothing to report yet,
+            // but the hub shows a job it hears nothing of as `notReported`; this says it is held.
+            jobs.push({ ...report, events: [] });
           }
           continue;
         }

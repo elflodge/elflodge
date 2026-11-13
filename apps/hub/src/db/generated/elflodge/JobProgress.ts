@@ -19,6 +19,8 @@ export default interface JobProgressTable {
   costUsd: ColumnType<number, number | undefined, number>;
 
   activity: ColumnType<JobActivity | null, JobActivity | null, JobActivity | null>;
+
+  lastReportedAt: ColumnType<Date | null, Date | string | null, Date | string | null>;
 }
 
 export type JobProgress = Selectable<JobProgressTable>;

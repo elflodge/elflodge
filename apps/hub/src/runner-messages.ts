@@ -47,7 +47,12 @@ import {
   USAGE_COPIED_COLUMNS,
   blockedByOf,
 } from "./jobs.ts";
-import { recordRunnerHello, recordRunnerSeen, SYNC_INTERVAL_MS } from "./runners.ts";
+import {
+  recordRunnerHello,
+  recordRunnerSeen,
+  SEEN_WRITE_INTERVAL_MS,
+  SYNC_INTERVAL_MS,
+} from "./runners.ts";
 
 // The hub's side of the Runner protocol's socket (ADR 0026), shared by both hubs: each answers a
 // Runner's message by calling `handleRunnerMessage` with the Runner's identity and a database. A sync or a
@@ -278,7 +283,9 @@ function applyReports(runnerId: RunnerId, reports: JobReport[]) {
  * that says no more will come stays true, and a paused run's later reports change nothing but its
  * usage; the answer then gives the Runner the position to read after. An end clears the activity.
  * The job's progress row is locked while the statement reads it, so two reports of one job apply
- * one after the other.
+ * one after the other. Each report of the current run, applied or not, records when it came, at
+ * most once a minute when nothing else changes, so a job its Runner stops reporting shows it
+ * (`statusUnknownOf`).
  */
 function applyReportsStatement(
   db: Kysely<Database>,
@@ -424,14 +431,27 @@ function applyReportsStatement(
             totalTokens: eb.ref("c.nextTotalTokens"),
             costUsd: eb.ref("c.nextCostUsd"),
             activity: eb.ref("c.nextActivity"),
+            // Any report of the current run counts, one behind the hub's position or partway
+            // through a backlog included: the job is reporting, so its state is not unknown.
+            lastReportedAt: eb.fn.coalesce(
+              eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]),
+              eb.val(now),
+            ),
           }))
           .whereRef("p.jobId", "=", "c.jobId")
-          // A report that changes nothing leaves the row as it is. The totals change with the usage.
+          // A report that changes nothing leaves the row as it is, unless the time of its last
+          // report is due to be written. The totals change with the usage.
           .where((eb) =>
             eb.or([
               eb("c.nextPosition", "is distinct from", eb.ref("p.position")),
               eb("c.nextUsage", "is distinct from", eb.ref("p.usage")),
               eb("c.nextActivity", "is distinct from", eb.ref("p.activity")),
+              eb("p.lastReportedAt", "is", null),
+              eb(
+                "p.lastReportedAt",
+                "<=",
+                eb.val(new Date(now.getTime() - SEEN_WRITE_INTERVAL_MS)),
+              ),
             ]),
           ),
       )

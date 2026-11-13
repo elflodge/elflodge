@@ -60,6 +60,10 @@ _Avoid_: key, idempotency key (a key is an API key)
 Kept from being sent to a Runner by its Batch: a queued job whose Batch is paused, by a caller or by its failure breaker, or that waits for its Batch's Canary. It stays queued, so the reason is shown beside its status.
 _Avoid_: held, paused
 
+**Status unknown**:
+Said of a job sent to a Runner and not yet ended or paused whose current status the hub cannot confirm: it has heard nothing of the job for seven minutes, from its Runner at all or about this job. The job keeps the last status its Runner confirmed, with the reason shown beside it, as it may still be running and carries on once its Runner reports again.
+_Avoid_: stranded, unavailable, lost (a lost journal fails its job)
+
 **Label**:
 A key and value attached to a job when it is added, or to a Batch for every job it has, such as `customer = acme`, used to find jobs, group them, and attribute their cost.
 _Avoid_: tag
@@ -114,6 +118,10 @@ _Avoid_: executor
 **Runner capabilities**:
 What jobs on a Runner can do, as the Runner reports it when it connects: its version, the model its jobs start on, its extensions, where its jobs may search the web and whether a search may be billed to an API key. A report of what the Runner runs, not configuration given to it, and not how healthy its parts are, which changes while it runs.
 _Avoid_: setup, runner config
+
+**Connected**:
+Said of a Runner the hub has heard from within the last seven minutes: recent traffic from it, not an open socket. A Runner that is not connected makes its jobs' status unknown.
+_Avoid_: online, alive
 
 **Runner protocol**:
 The exchange between a Runner and the hub, over the Runner's socket and its two HTTP calls: registering, and downloading its jobs' Input files. It is versioned on its own, apart from the API.

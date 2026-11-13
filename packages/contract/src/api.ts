@@ -38,9 +38,15 @@ export const runnerSchema = z
     name: z.string(),
     /**
      * When the hub last heard from the Runner: its hello, or the latest sync or report the hub
-     * recorded. A connected Runner's is at most one sync interval old.
+     * recorded, to within a minute. A Runner that syncs on time is never more than about one sync
+     * interval, three minutes, behind.
      */
     lastSeenAt: z.date(),
+    /**
+     * Whether the hub has heard from the Runner within the last seven minutes, as `lastSeenAt` tells:
+     * recent protocol traffic, not an open socket. A disconnected Runner's jobs show `statusUnknown`.
+     */
+    connected: z.boolean(),
     /**
      * What the Runner reported about itself in its latest hello: what jobs on it can do. Null when
      * it reported nothing this hub can read, as an older Runner reports nothing.
@@ -157,6 +163,29 @@ const jobBaseSchema = z.object({
    * blocks it and a Runner has room. New values may be added.
    */
   blockedBy: z.optional(z.enum(["batchPausedByCaller", "batchPausedByBreaker", "batchCanary"])),
+  /**
+   * The Runner the job was last sent to, as the hub knows it now: null before it is first sent, once
+   * that Runner is removed, and once the job is deleted.
+   */
+  runner: z.nullable(
+    z.pick(runnerSchema, { id: true, name: true, lastSeenAt: true, connected: true }),
+  ),
+  /**
+   * When the job's Runner last reported its current run, to within a minute: null until it first
+   * does, and once the job is deleted. Its `usage` and `activity` are as of then
+   * or earlier, as a report may leave out one it cannot read.
+   */
+  lastReportedAt: z.nullable(z.date()),
+  /**
+   * Present while the hub cannot confirm the job's `status`, which is then the last its Runner
+   * confirmed: for a job sent to a Runner and not yet ended, paused or cancelled, when its Runner
+   * has not been heard from (`runnerDisconnected`), or has, but has not reported this job
+   * (`notReported`), within seven minutes. The job may still be running there, and its Runner
+   * carries on from where it was once it reports again; nothing ends it meanwhile. A Runner can
+   * stop reporting one job while it reports others, as when that job's journal cannot be read.
+   * New values may be added.
+   */
+  statusUnknown: z.optional(z.object({ reason: z.enum(["runnerDisconnected", "notReported"]) })),
 });
 
 /**
@@ -183,6 +212,12 @@ export type Job = z.infer<typeof jobSchema>;
 
 /** What keeps a queued job from being sent to a Runner (`Job["blockedBy"]`). */
 export type BlockedBy = NonNullable<Job["blockedBy"]>;
+
+/** Why the hub cannot confirm a job's status (`Job["statusUnknown"]`). */
+export type StatusUnknownReason = NonNullable<Job["statusUnknown"]>["reason"];
+
+/** A job's Runner as the job shows it (`Job["runner"]`). */
+export type JobRunner = NonNullable<Job["runner"]>;
 
 /**
  * An agent as a Batch's creation gives it: what every job of the Batch runs, each on its own input.
@@ -341,6 +376,11 @@ export const batchSchema = z
       failed: z.int(),
       cancelled: z.int(),
     }),
+    /**
+     * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, by the last
+     * status its Runner confirmed.
+     */
+    statusUnknownJobs: z.int(),
     /**
      * Its jobs' model usage, as each job reports its own; a deleted job's is not included, and stays
      * in its Usage records.
@@ -811,7 +851,7 @@ export const apiContract = {
           method: "GET",
           path: "/jobs",
           description:
-            "Lists jobs, newest first, in pages of at most `limit`. Filters combine: a job is listed when it has one of the `status` values given, every label in `labels`, and the `batchId` and `customId` given. Read the next page with the same filters and `after` set to the last job's `id`, while the page says `hasMore`. A listed job has no `output`, failure `message` or `activity`: read the job for those.",
+            "Lists jobs, newest first, in pages of at most `limit`. Filters combine: a job is listed when it has one of the `status` values given, every label in `labels`, the `batchId` and `customId` given, and `statusUnknown` present or absent as asked. Read the next page with the same filters and `after` set to the last job's `id`, while the page says `hasMore`. A listed job has no `output`, failure `message` or `activity`: read the job for those.",
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -842,6 +882,15 @@ export const apiContract = {
                 "The job's own `customId`, which is unique in its Batch, so without `batchId` it may match a job in each of several Batches.",
               ),
             ),
+          ),
+          statusUnknown: z.optional(
+            z
+              .boolean()
+              .check(
+                z.describe(
+                  "`true` for only the jobs whose status the hub cannot confirm now (`statusUnknown`), `false` for only the others; any job when absent.",
+                ),
+              ),
           ),
           after: z.optional(
             jobIdSchema.check(

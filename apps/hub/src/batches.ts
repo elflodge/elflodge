@@ -34,6 +34,7 @@ import {
   limitProblems,
   readJobs,
   outputContractProblems,
+  statusUnknownOf,
   type Submitter,
   UNFINISHED,
   USAGE_COPIED_COLUMNS,
@@ -75,6 +76,7 @@ export async function readBatch(
   db: Kysely<Database>,
   which: { uid: BatchUid } | { id: string },
 ): Promise<Batch | undefined> {
+  const now = new Date();
   const row = await db
     .selectFrom("batch as b")
     .innerJoinLateral(
@@ -93,6 +95,22 @@ export async function readBatch(
               count("succeeded"),
               count("failed"),
               count("cancelled"),
+              agg.fn
+                .countAll<number>()
+                .filterWhere(
+                  statusUnknownOf(
+                    {
+                      status: agg.ref("j.status"),
+                      placedAt: agg.ref("j.placedAt"),
+                      runnerId: agg.ref("j.runnerId"),
+                      lastReportedAt: agg.ref("p.lastReportedAt"),
+                    },
+                    now,
+                  ),
+                  "is not",
+                  null,
+                )
+                .as("statusUnknown"),
               // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.
               agg
                 .cast<number>(agg.fn.coalesce(agg.fn.sum("p.totalTokens"), agg.lit(0)), "bigint")
@@ -117,6 +135,7 @@ export async function readBatch(
       "j.succeeded",
       "j.failed",
       "j.cancelled",
+      "j.statusUnknown",
       "j.totalTokens",
       "j.costUsd",
     ])
@@ -155,6 +174,7 @@ export async function readBatch(
       failed: row.failed,
       cancelled: row.cancelled,
     },
+    statusUnknownJobs: row.statusUnknown,
     usage: { totalTokens: row.totalTokens, cost: { totalUsd: row.costUsd } },
   };
 }

@@ -11,7 +11,9 @@ import {
   type JobEvent,
   type JobEventsPage,
   type JobsPage,
+  type JobRunner,
   type Labels,
+  type StatusUnknownReason,
   jobEventSchema,
 } from "contract";
 import { Array, Effect, Order, Record, String, Struct } from "effect";
@@ -49,6 +51,7 @@ import {
   type UsageRecordId,
 } from "./db/types.ts";
 import { lockInputFileBlobs } from "./input-files.ts";
+import { connectedOf, GONE_AFTER_MS } from "./runners.ts";
 import type { HubSettings } from "./settings.ts";
 
 /** The statuses a job ends in (`FINAL_JOB_STATUSES`), as the hub's database types them. */
@@ -93,7 +96,7 @@ const JOB_COLUMNS = [
   "customId",
   "labels",
 ] as const;
-const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity"] as const;
+const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
 
 /**
  * A job as the API reports it: its output only once it has succeeded and its failure once it has
@@ -103,9 +106,11 @@ const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity"] as const;
  */
 function toApiJob(
   job: Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
-    Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
+    Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> &
+    RunnerOfJob & {
       batchId: string;
       blockedBy: BlockedBy | null;
+      statusUnknown: StatusUnknownReason | null;
     },
 ): Job {
   const {
@@ -119,10 +124,24 @@ function toApiJob(
     pendingControl,
     pendingControlRequestedAt,
     blockedBy,
+    statusUnknown,
+    runnerId,
+    runnerName,
+    runnerLastSeenAt,
+    runnerConnected,
     ...rest
   } = job;
+  const runner: JobRunner | null =
+    runnerId !== null &&
+    runnerName !== null &&
+    runnerLastSeenAt !== null &&
+    runnerConnected !== null
+      ? { id: runnerId, name: runnerName, lastSeenAt: runnerLastSeenAt, connected: runnerConnected }
+      : null;
   const summary = {
     usage: { totalTokens, cost: { totalUsd: costUsd } },
+    runner,
+    ...(statusUnknown === null ? {} : { statusUnknown: { reason: statusUnknown } }),
     ...(job.status === "running" && activity !== null ? { activity } : {}),
     // The migration keeps the two set together.
     ...(pendingControl !== null && pendingControlRequestedAt !== null
@@ -183,6 +202,74 @@ export function blockedByOf(job: {
     .end();
 }
 
+/** What a job read shows of the Runner the job was last sent to: nulls once its row is gone. */
+interface RunnerOfJob {
+  runnerId: RunnerId | null;
+  runnerName: string | null;
+  runnerLastSeenAt: Date | null;
+  runnerConnected: boolean | null;
+}
+
+/**
+ * The columns of a job read that show its Runner `runnerId` as it is at `now` (`RunnerOfJob`), each
+ * read from the Runner's row by its key.
+ */
+export function runnerColumnsOf(runnerId: Expression<RunnerId | null>, now: Date) {
+  const eb = expressionBuilder<Database>();
+  const ofRunner = () =>
+    eb.selectFrom("runner as jobRunner").where((where) => where("jobRunner.id", "=", runnerId));
+  return [
+    ofRunner().select("jobRunner.name").$asScalar().as("runnerName"),
+    ofRunner().select("jobRunner.lastSeenAt").$asScalar().as("runnerLastSeenAt"),
+    ofRunner()
+      .select((select) => connectedOf(select.ref("jobRunner.lastSeenAt"), now).as("connected"))
+      .$asScalar()
+      .as("runnerConnected"),
+  ] as const;
+}
+
+/**
+ * Why the hub cannot confirm the job's status at `now`, or null when it can (`Job["statusUnknown"]`).
+ * Only a job sent to a Runner and not yet ended or paused waits on that Runner's reports. Its
+ * Runner unheard from within `GONE_AFTER_MS` is `runnerDisconnected`; otherwise the job's own last
+ * report, or its run's placement before the first, older than that is `notReported`, as when the
+ * job's journal cannot be read. Worked out where it is read, from times that only move forward, so
+ * no disconnection is recorded, nothing must clear it, and a Runner's reconnection leaves a job it
+ * still does not report as it was.
+ */
+export function statusUnknownOf(
+  job: {
+    status: Expression<JobRow["status"]>;
+    placedAt: Expression<JobRow["placedAt"]>;
+    runnerId: Expression<JobRow["runnerId"]>;
+    lastReportedAt: Expression<JobProgressRow["lastReportedAt"]>;
+  },
+  now: Date,
+): AliasableExpression<StatusUnknownReason | null> {
+  const eb = expressionBuilder<Database>();
+  const before = eb.val(new Date(now.getTime() - GONE_AFTER_MS));
+  return eb
+    .case()
+    .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
+    .then(eb.lit(null))
+    .when(
+      eb(
+        eb
+          .selectFrom("runner as silentRunner")
+          .select("silentRunner.lastSeenAt")
+          .where((where) => where("silentRunner.id", "=", job.runnerId))
+          .$asScalar(),
+        "<=",
+        before,
+      ),
+    )
+    .then(eb.val<StatusUnknownReason>("runnerDisconnected"))
+    .when(eb(eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]), "<=", before))
+    .then(eb.val<StatusUnknownReason>("notReported"))
+    .else(eb.lit(null))
+    .end();
+}
+
 /** The ID the API shows of the Batch whose row is `batchUid`, a job's Batch's (ADR 0036). */
 export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<string> {
   const eb = expressionBuilder<Database>();
@@ -200,6 +287,7 @@ export const UNFINISHED: JobStatus[] = ["queued", "running", "paused"];
 /** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
 export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
   if (ids.length === 0) return [];
+  const now = new Date();
   const rows = await db
     .selectFrom("job as j")
     .innerJoin("jobProgress as p", "p.jobId", "j.id")
@@ -213,6 +301,17 @@ export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Pro
         inCanary: eb.ref("j.inCanary"),
       }).as("blockedBy"),
       batchIdOf(eb.ref("j.batchUid")).as("batchId"),
+      "j.runnerId",
+      ...runnerColumnsOf(eb.ref("j.runnerId"), now),
+      statusUnknownOf(
+        {
+          status: eb.ref("j.status"),
+          placedAt: eb.ref("j.placedAt"),
+          runnerId: eb.ref("j.runnerId"),
+          lastReportedAt: eb.ref("p.lastReportedAt"),
+        },
+        now,
+      ).as("statusUnknown"),
     ])
     .where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])))
     .execute();
@@ -557,6 +656,16 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
             "job.batchUid",
             "job.runnerId",
             "job.placedAt",
+            ...runnerColumnsOf(eb.ref("job.runnerId"), now),
+            statusUnknownOf(
+              {
+                status: eb.ref("job.status"),
+                placedAt: eb.ref("job.placedAt"),
+                runnerId: eb.ref("job.runnerId"),
+                lastReportedAt: eb.ref("jobProgress.lastReportedAt"),
+              },
+              now,
+            ).as("statusUnknown"),
             // The Runner's row is locked, so a removal of the Runner waits for this control and then
             // ends the job a resume queued on it, or comes first, and the resume is refused.
             eb
@@ -620,6 +729,11 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
             ...PROGRESS_COLUMNS,
             "batchId",
             "blockedBy",
+            "statusUnknown",
+            "runnerId",
+            "runnerName",
+            "runnerLastSeenAt",
+            "runnerConnected",
           ]);
           return { decision, job: toApiJob(shown) };
         }
@@ -637,6 +751,17 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
               inCanary: eb.ref("job.inCanary"),
             }).as("blockedBy"),
             batchIdOf(eb.ref("job.batchUid")).as("batchId"),
+            "job.runnerId",
+            ...runnerColumnsOf(eb.ref("job.runnerId"), now),
+            statusUnknownOf(
+              {
+                status: eb.ref("job.status"),
+                placedAt: eb.ref("job.placedAt"),
+                runnerId: eb.ref("job.runnerId"),
+                lastReportedAt: eb.val(job.lastReportedAt),
+              },
+              now,
+            ).as("statusUnknown"),
           ])
           .executeTakeFirstOrThrow();
         if (FINAL_STATUSES.includes(changed.status)) await recordUsageOfEnd(trx, jobId);
@@ -1081,6 +1206,9 @@ function toDeletedJob(
       startedAt: snapshot.startedAt,
       endedAt: snapshot.endedAt,
       usage: { totalTokens: snapshot.totalTokens, cost: { totalUsd: snapshot.costUsd } },
+      // A deleted job's Runner and reports went with its content.
+      runner: null,
+      lastReportedAt: null,
       deletedAt,
       ...(deletionRequestedAt !== null
         ? { pendingControl: { type: "delete", requestedAt: deletionRequestedAt } }
@@ -1112,6 +1240,8 @@ export interface JobListQuery {
   labels?: Labels;
   batchId?: string;
   customId?: string;
+  /** Whether the job's status must be unknown (`statusUnknownOf`), or known; either when absent. */
+  statusUnknown?: boolean;
   after?: JobId;
   limit: number;
 }
@@ -1123,14 +1253,29 @@ export interface JobListQuery {
 export function listJobs(query: JobListQuery) {
   return Db.use((database) =>
     database.query(async (db) => {
-      const { statuses, labels, batchId, customId, after, limit } = query;
+      const { statuses, labels, batchId, customId, statusUnknown, after, limit } = query;
+      const now = new Date();
+      const unknownOf = (
+        eb: ExpressionBuilder<Database & { j: JobRow; p: JobProgressRow }, "j" | "p">,
+      ) =>
+        statusUnknownOf(
+          {
+            status: eb.ref("j.status"),
+            placedAt: eb.ref("j.placedAt"),
+            runnerId: eb.ref("j.runnerId"),
+            lastReportedAt: eb.ref("p.lastReportedAt"),
+          },
+          now,
+        );
       let selection = db
         .selectFrom("job as j")
         .innerJoin("jobProgress as p", "p.jobId", "j.id")
         // Without the content a list leaves out.
         .select((eb) => [
           ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-          ...(["totalTokens", "costUsd"] as const).map((column) => `p.${column}` as const),
+          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
+            (column) => `p.${column}` as const,
+          ),
           blockedByOf({
             status: eb.ref("j.status"),
             placedAt: eb.ref("j.placedAt"),
@@ -1138,7 +1283,15 @@ export function listJobs(query: JobListQuery) {
             inCanary: eb.ref("j.inCanary"),
           }).as("blockedBy"),
           batchIdOf(eb.ref("j.batchUid")).as("batchId"),
+          "j.runnerId",
+          ...runnerColumnsOf(eb.ref("j.runnerId"), now),
+          unknownOf(eb).as("statusUnknown"),
         ]);
+      if (statusUnknown !== undefined) {
+        selection = selection.where((eb) =>
+          eb(unknownOf(eb), statusUnknown ? "is not" : "is", null),
+        );
+      }
       if (statuses.length > 0) {
         selection = selection.where("j.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
       }

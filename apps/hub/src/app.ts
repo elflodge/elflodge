@@ -265,6 +265,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
           labels: input.labels,
           batchId: input.batchId,
           customId: input.customId,
+          statusUnknown: input.statusUnknown,
           after: input.after === undefined ? undefined : JobId(input.after),
           limit: input.limit,
         });
