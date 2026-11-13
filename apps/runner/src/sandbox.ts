@@ -495,6 +495,15 @@ function asPath(dir: string) {
 }
 
 /**
+ * The destinations a job's commands reach without the proxies: its own loopback. sandbox-runtime's
+ * `NO_PROXY` also lists private and link-local ranges, which a client would then dial directly,
+ * into a sandbox with no route to them, rather than through the proxies, which refuse them with a
+ * reason or reach an exception (anthropics/sandbox-runtime#769). Set by the daemon's command, after
+ * sandbox-runtime sets its own; without a sandbox no proxy is set, so it changes nothing.
+ */
+const JOB_NO_PROXY = "localhost,127.0.0.1,::1";
+
+/**
  * The job's processes can read the daemon's environment, so it holds only the kept variables.
  * pi-env's `Connection` takes a command but no environment, so the command clears it: `env -i` sits
  * inside `systemd-run`, which needs the Runner's own variables to reach the user's systemd manager.
@@ -504,7 +513,7 @@ function asPath(dir: string) {
  * in as `$3`.
  */
 const START_DAEMON = `export PI_ENV_TOKEN="$3"; exec /bin/sh -c "$0"`;
-const DAEMON_IN_SANDBOX = `token="$PI_ENV_TOKEN"; daemon="$ELFLODGE_DAEMON"; export TMPDIR="$ELFLODGE_TEMP" HOME="$ELFLODGE_TEMP"; unset PI_ENV_TOKEN ELFLODGE_DAEMON ELFLODGE_TEMP; exec "$daemon" serve --token "$token"`;
+const DAEMON_IN_SANDBOX = `token="$PI_ENV_TOKEN"; daemon="$ELFLODGE_DAEMON"; export TMPDIR="$ELFLODGE_TEMP" HOME="$ELFLODGE_TEMP" NO_PROXY=${JOB_NO_PROXY} no_proxy=${JOB_NO_PROXY}; unset PI_ENV_TOKEN ELFLODGE_DAEMON ELFLODGE_TEMP; exec "$daemon" serve --token "$token"`;
 
 function openJobEnvironment(options: {
   jobId: string;

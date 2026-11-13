@@ -450,13 +450,13 @@ export function openJob(
       runnerVersion: RUNNER_VERSION,
     });
     let created = false;
-    const told = instructions(job, options.environments.networkNote);
+    const jobInstructions = instructions(job, options.environments.networkNote);
     const root = yield* Effect.promise(() =>
       harness.root(context, {
         agent: {
           model: { provider: options.model.provider, modelId: options.model.modelId },
           thinkingLevel: options.model.thinkingLevel,
-          instructions: told,
+          instructions: jobInstructions,
           cwd: paths.workspace,
         },
         // The commit that creates the job's conversation, so the start is recorded exactly once.
@@ -486,7 +486,7 @@ export function openJob(
           // `root()` sets the agent only as it creates the conversation. The instructions say
           // what this Runner's settings give the job, such as its network, which may have changed
           // since the job last ran; the rest of the agent stays as the job had it.
-          await configure(tx, root.id, { instructions: told });
+          await configure(tx, root.id, { instructions: jobInstructions });
           if (!opened) {
             await appendUnderRequest(tx, root.id, openingRequest(options.runId), () =>
               tx.appendEntry(JobResumed, root.id, { data: opening() }),

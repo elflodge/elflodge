@@ -2,9 +2,9 @@ import { excludeCidr } from "cidr-tools";
 import type { RunnerCapabilities } from "contract";
 import { Array, Option, Predicate, Result, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
-import { apply as applyMergePatch } from "json-merge-patch";
+import { apply as applyMergePatch } from "tiny-merge-patch";
 
-import type { NetworkSettings } from "./network.ts";
+import { isSingleAddress, type NetworkSettings } from "./network.ts";
 
 // What the Runner reads and changes in pi-web-access's settings file, as of the version the image's
 // folder pins: whether web search is on, through which providers, and with which credentials, and
@@ -156,10 +156,9 @@ const flag = (value: unknown) =>
 /**
  * `settings` changed by `patch`, a JSON Merge Patch (RFC 7396): objects merge, other values replace,
  * `null` removes a setting, and one that is not an object where the patch has one, as a mistyped
- * setting may be, becomes one. The library changes its target, so it gets a copy.
+ * setting may be, becomes one. The result shares the settings it leaves unchanged with `settings`.
  */
-const patched = (settings: Settings, patch: Settings): Settings =>
-  applyMergePatch(structuredClone(settings), patch);
+const patched = (settings: Settings, patch: Settings): Settings => applyMergePatch(settings, patch);
 
 /**
  * `settings` with search on through exactly `providers`, and what the Runner reports of them. The
@@ -247,7 +246,8 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  * With no network, pi-web-access fetches no page, while search, through providers the operator
  * chose, keeps working, with the page text a provider returns beside its results. `fetch_content`
  * is off, and `fetchContent.domainPolicy` allows only `invalid`, a name reserved never to resolve
- * (RFC 6761), which refuses every page before it is looked up or fetched, by pi-web-access or
+ * (RFC 6761), and denies it too, as the allow list also matches names under it and the deny list
+ * wins. That refuses every page before it is looked up or fetched, by pi-web-access or
  * through a fetching service: the pages `web_search` adds to what a provider returned
  * (`includeContent`), `source_check`'s, and those of `mode: "raw"`. It gets no proxy, which would
  * carry the providers' requests too, and refuse them.
@@ -264,10 +264,13 @@ const PROXY_BYPASSED = ["127.0.0.1/32", "::1/128", "169.254.169.254/32"];
  * upstream, which then resolves names itself, so the address checks on names no longer apply.
  *
  * The exception ranges are `ssrf.allowRanges`, the ranges pi-web-access's own guard lets through,
- * and `parseException` refused the `/0` that pi-web-access refuses. `allowRanges` has no ports, so
- * jobs' proxy holds pi-web-access to an exception's port, and a range opened on one port leaves out
- * the addresses pi-web-access reaches without it. An operator's own `allowRanges` is refused, as
- * pi-web-access would reach some of them, such as `127.0.0.1`, without jobs' proxy.
+ * and `parseException` refused the `/0` that pi-web-access refuses. pi-web-access reaches some
+ * addresses without jobs' proxy, so an exception opens them only as the proxy would and as
+ * `allowRanges` can say: named alone, on every port. A range covering them leaves them out, as
+ * they open to jobs only when named alone, and so does an address opened on one port, as
+ * `allowRanges` has no ports; elsewhere jobs' proxy holds pi-web-access to an exception's port. An
+ * operator's own `allowRanges` is refused, as pi-web-access would reach some of them, such as
+ * `127.0.0.1`, without jobs' proxy.
  */
 export function withNetwork(
   settings: Settings,
@@ -283,7 +286,7 @@ export function withNetwork(
       patched(settings, {
         ...withoutGitHub,
         tools: { fetchContent: { enabled: false } },
-        fetchContent: { domainPolicy: { allow: ["invalid"] } },
+        fetchContent: { domainPolicy: { allow: ["invalid"], deny: ["invalid"] } },
       }),
     );
   }
@@ -297,7 +300,7 @@ export function withNetwork(
       `${WEB_SEARCH_SETTINGS} sets ssrf.allowRanges, which would let pi-web-access past its own address checks, and reach some addresses, such as 127.0.0.1, without jobs' proxy; open ranges with RUNNER_NETWORK_EXCEPTIONS instead, which the Runner gives pi-web-access too`,
     );
   const opened = exceptions.flatMap(({ range, port }) =>
-    port === undefined ? [range] : excludeCidr([range], PROXY_BYPASSED),
+    port === undefined && isSingleAddress(range) ? [range] : excludeCidr([range], PROXY_BYPASSED),
   );
   const allowRanges = opened.length === 0 ? {} : { allowRanges: opened };
   const fetchContent = fieldsOf(settings["fetchContent"]);
