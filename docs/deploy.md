@@ -27,7 +27,7 @@ The hub and a Runner from their published images on one machine, as a deployment
    <!-- x-release-please-start-version -->
 
    ```sh
-   curl -fsSLO https://raw.githubusercontent.com/elflodge/elflodge/v0.10.0/compose.yaml
+   curl -fsSLO https://raw.githubusercontent.com/elflodge/elflodge/v0.11.0/compose.yaml
    cat > .env <<EOF
    BETTER_AUTH_SECRET=$(openssl rand -base64 32)
    POSTGRES_PASSWORD=$(openssl rand -hex 24)
@@ -132,7 +132,7 @@ EOF
 docker run -d --name elflodge-runner --security-opt seccomp=unconfined \
   --security-opt systempaths=unconfined --security-opt apparmor=unconfined --memory 8g \
   --restart unless-stopped --volume runner-data:/data --env-file runner.env \
-  ghcr.io/elflodge/elflodge-runner:0.10.0
+  ghcr.io/elflodge/elflodge-runner:0.11.0
 ```
 
 <!-- x-release-please-end -->
