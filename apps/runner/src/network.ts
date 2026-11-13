@@ -1,7 +1,11 @@
-import { BlockList, isIP } from "node:net";
+import { BlockList } from "node:net";
 import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+// sandbox-runtime's own reading of a destination's port, and of an address range into a BlockList,
+// from the same unexported modules, so that exceptions are read and matched as it reads its lists.
+import { addRange, addressInSet } from "@anthropic-ai/sandbox-runtime/dist/sandbox/address.js";
+import { splitDomainPatternPort } from "@anthropic-ai/sandbox-runtime/dist/sandbox/domain-pattern.js";
 // How sandbox-runtime itself reads a destination before matching and dialing it, an IPv4-mapped
 // address as its IPv4 address. It is not on the package's main entry, which has no `exports` map to
 // stop this import; should a release move it, the typecheck and the Runner's start fail rather than
@@ -56,9 +60,8 @@ export class InvalidException extends Data.TaggedError("InvalidException")<{
  */
 export function parseException(entry: string): Effect.Effect<NetworkException, InvalidException> {
   return Effect.gen(function* () {
-    const bracketed = /^\[([^\]]*)\](?::(.*))?$/.exec(entry);
-    const withPort = /^([^:[\]]*):([^:]*)$/.exec(entry);
-    const [address = entry, port] = bracketed?.slice(1) ?? withPort?.slice(1) ?? [];
+    // A port that is not one, such as `:0`, is left on the address, which then fails as a range.
+    const { hostPattern: address, port } = splitDomainPatternPort(entry);
     const notARange = new InvalidException({
       message: `${JSON.stringify(entry)} is not an IP address or CIDR range`,
     });
@@ -71,13 +74,7 @@ export function parseException(entry: string): Effect.Effect<NetworkException, I
       return yield* new InvalidException({
         message: `${entry} is an IPv4-mapped address: write the IPv4 address or range`,
       });
-    if (port === undefined) return { range };
-    // sandbox-runtime's own reading of a port.
-    if (!/^[1-9]\d{0,4}$/.test(port) || Number(port) > 65535)
-      return yield* new InvalidException({
-        message: `${JSON.stringify(entry)} has no port from 1 to 65535 after its address`,
-      });
-    return { range, port: Number(port) };
+    return port === undefined ? { range } : { range, port };
   });
 }
 
@@ -223,10 +220,7 @@ export function sandboxNetwork(
   // Only the refused part of them: an exception on a port of a public address closes no other.
   const portLimited = excludeCidr(onOnePort, excludeCidr(onOnePort, refused));
   const limited = new BlockList();
-  for (const range of portLimited) {
-    const [address = "", prefix] = range.split("/");
-    limited.addSubnet(address, Number(prefix), isIP(address) === 6 ? "ipv6" : "ipv4");
-  }
+  for (const range of portLimited) addRange(limited, range);
   const otherPort = {
     allow: false as const,
     reason: `This address is open to jobs only on the ports that ${EXCEPTIONS_SETTING} names for it.`,
@@ -252,10 +246,7 @@ export function sandboxNetwork(
       // another, lets such a name resolve to any loopback address the deny list leaves out, other
       // ports of one opened on a port included.
       if (/(?:^|\.)localhost\.*$/i.test(dialed)) return localhost;
-      const family = isIP(dialed);
-      return family !== 0 && limited.check(dialed, family === 6 ? "ipv6" : "ipv4")
-        ? otherPort
-        : true;
+      return addressInSet(limited, dialed) ? otherPort : true;
     },
   };
 }
