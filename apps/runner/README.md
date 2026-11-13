@@ -96,7 +96,7 @@ Everything on the public internet. Refused:
 - private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) and shared address space (`100.64.0.0/10`);
 - the other address ranges that IANA's special-purpose registries mark as not globally reachable, such as documentation, benchmarking and reserved addresses, and multicast and broadcast.
 
-These hold however an address is written, such as `127.1` or `[::ffff:127.0.0.1]`, and for names that resolve to them. A refused request gets a `403` from the proxy, which for an address says what is refused and which setting opens it, and the agent is told in its instructions what is blocked.
+These hold however an address is written, such as `127.1` or `[::ffff:127.0.0.1]`, and for names that resolve to them. A refused request gets a `403` from the proxy, which for an address says what is refused and which setting opens it, and for a name only that it resolved to a refused address; the agent is told in its instructions what is blocked.
 
 A job's own `localhost` is its own: on Linux, a server one of its commands starts is reached by its later commands at `localhost`. On macOS, jobs' commands cannot use loopback at all; for jobs that start servers of their own, run the Runner in Docker.
 
