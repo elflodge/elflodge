@@ -4,13 +4,19 @@ import { networkInterfaces } from "node:os";
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 // sandbox-runtime's own reading of a destination's port, and of an address range into a BlockList,
 // from the same unexported modules, so that exceptions are read and matched as it reads its lists.
-import { addRange, addressInSet } from "@anthropic-ai/sandbox-runtime/dist/sandbox/address.js";
+import {
+  addRange,
+  addressInSet,
+  isLoopbackName,
+} from "@anthropic-ai/sandbox-runtime/dist/sandbox/address.js";
 import { splitDomainPatternPort } from "@anthropic-ai/sandbox-runtime/dist/sandbox/domain-pattern.js";
 // How sandbox-runtime itself reads a destination before matching and dialing it, an IPv4-mapped
 // address as its IPv4 address. It is not on the package's main entry, which has no `exports` map to
 // stop this import; should a release move it, the typecheck and the Runner's start fail rather than
 // the callback reading hosts differently, as the Runner's build leaves dependencies external.
 import { canonicalizeHost } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
+// Exported by our patch of sandbox-runtime (see pnpm-workspace.yaml).
+import { CLOUD_METADATA_ADDRESSES } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect } from "effect";
 
@@ -85,22 +91,12 @@ export function formatException({ range, port }: NetworkException): string {
 }
 
 /**
- * Cloud instance-metadata and platform endpoints, as sandbox-runtime's resolved-address guard
- * lists them (`CLOUD_METADATA_ADDRESSES` in 0.0.82, not exported). The guard holds them only
- * against names; listed here, they are refused as literal destinations too, Azure's
- * `168.63.129.16` above all, which is in public address space.
+ * Cloud instance-metadata and platform endpoints, sandbox-runtime's own list. Its resolved-address
+ * guard holds them only against names; listed here, they are refused as literal destinations too,
+ * Azure's `168.63.129.16` above all, which is in public address space. Each as a range, as the deny
+ * list compares an entry without `/` as text.
  */
-const CLOUD_METADATA = [
-  "100.100.100.200/32",
-  "168.63.129.16/32",
-  "192.0.0.192/32",
-  "fd00:ec2::/32",
-  "fd20:ce::254/128",
-  "fd00:c1::a9fe:a9fe/128",
-  "fd00:42::42/128",
-  "fd00:a9fe:a9fe::1/128",
-  "fd00:100::100:200/128",
-];
+const CLOUD_METADATA = mergeCidr([...CLOUD_METADATA_ADDRESSES]);
 
 /**
  * The destinations refused by default, each class with the reason a refusal gives. They are the
@@ -109,6 +105,9 @@ const CLOUD_METADATA = [
  * neither registry, and cloud metadata. Not `::ffff:0:0/96` (IPv4-mapped): sandbox-runtime reads that
  * entry as every IPv4 address, and judges an IPv4-mapped destination by its IPv4 address anyway.
  * The first class listing a destination gives its reason, so the narrower classes come first.
+ * A copy, as sandbox-runtime takes refused addresses only as ranges and no package exports these
+ * registries as ranges: ipaddr.js classifies one address at a time, and @sdxc/ip's
+ * `SPECIAL_PURPOSE_RANGES` is not exported (sergiodxa/monorepo#83).
  */
 const REFUSED_CLASSES: readonly {
   /** What a refusal calls the class's addresses, the subject of "are blocked". */
@@ -244,8 +243,8 @@ export function sandboxNetwork(
       // `localhost` and names under it, however many trailing dots they carry, here rather than in
       // the deny list: that matches with one dot removed, and the resolved-address guard, removing
       // another, lets such a name resolve to any loopback address the deny list leaves out, other
-      // ports of one opened on a port included.
-      if (/(?:^|\.)localhost\.*$/i.test(dialed)) return localhost;
+      // ports of one opened on a port included. `isLoopbackName` removes one dot, so all go first.
+      if (isLoopbackName(dialed.replace(/\.+$/, ""))) return localhost;
       return addressInSet(limited, dialed) ? otherPort : true;
     },
   };

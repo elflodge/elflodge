@@ -390,7 +390,7 @@ overrides:
   vitest@*: 5.1.0
 
 patchedDependencies:
-  '@anthropic-ai/sandbox-runtime@0.0.82': e835d8cd1fddf094af2bfcca10ae7a2c4ed02f2515e0daf93abfa48c35d48f38
+  '@anthropic-ai/sandbox-runtime@0.0.82': 4db17c6e1aba7306bdb9f0dc58b1f9a79dbaeb1e9a02a050b2f0e7fcd9770931
   '@types/folder-hash@4.0.4': c272fda9d094b6c35e097b0b68f31400355d158c3c1eb33068c15e14c7a0d723
   generate-license-file: 39dc6d5bd5ec5e5ddd92d2ee76311082bf88278eee1c9107bdd223e80773ea08
 
@@ -557,7 +557,7 @@ importers:
     dependencies:
       '@anthropic-ai/sandbox-runtime':
         specifier: 'catalog:'
-        version: 0.0.82(patch_hash=e835d8cd1fddf094af2bfcca10ae7a2c4ed02f2515e0daf93abfa48c35d48f38)
+        version: 0.0.82(patch_hash=4db17c6e1aba7306bdb9f0dc58b1f9a79dbaeb1e9a02a050b2f0e7fcd9770931)
       '@earendil-works/chord':
         specifier: 'catalog:'
         version: 1.5.2(esbuild@0.28.2)(ws@8.21.0)
@@ -5666,7 +5666,7 @@ ignoredOptionalDependencies:
 
 snapshots:
 
-  '@anthropic-ai/sandbox-runtime@0.0.82(patch_hash=e835d8cd1fddf094af2bfcca10ae7a2c4ed02f2515e0daf93abfa48c35d48f38)':
+  '@anthropic-ai/sandbox-runtime@0.0.82(patch_hash=4db17c6e1aba7306bdb9f0dc58b1f9a79dbaeb1e9a02a050b2f0e7fcd9770931)':
     dependencies:
       '@pondwader/socks5-server': 1.0.10
       commander: 12.1.0

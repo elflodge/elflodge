@@ -153,6 +153,32 @@ index e2501e4c93f9ec035917d9450a85268b306c5115..1d6055c044271348b7c72fbc637d8d7c
                  return;
              }
              // Client may have disconnected while we awaited the filter; bail now
+diff --git a/dist/sandbox/resolved-address-guard.d.ts b/dist/sandbox/resolved-address-guard.d.ts
+index 8d1551df583cd23b61c72ed9e7beec45eec4a10c..84c85b55bea967413137b22c24370c56bd167c00 100644
+--- a/dist/sandbox/resolved-address-guard.d.ts
++++ b/dist/sandbox/resolved-address-guard.d.ts
+@@ -24,6 +24,8 @@
+  */
+ import type { LookupAddress, LookupAllOptions } from 'node:dns';
+ import type { LookupFunction } from 'node:net';
++/** Cloud instance-metadata and platform endpoints outside link-local space. */
++export declare const CLOUD_METADATA_ADDRESSES: readonly string[];
+ /** Unicast addresses currently assigned to this host's network interfaces. */
+ export declare function localInterfaceAddresses(): string[];
+ export declare class ResolvedAddressDeniedError extends Error {
+diff --git a/dist/sandbox/resolved-address-guard.js b/dist/sandbox/resolved-address-guard.js
+index 54970f754e71188fb6ab98971b39560b0b8f8724..f46cb8ce2dc81a38a5fb885d48472bc821ef6f60 100644
+--- a/dist/sandbox/resolved-address-guard.js
++++ b/dist/sandbox/resolved-address-guard.js
+@@ -33,7 +33,7 @@ import { addRange, addressInSet, embeddedIPv4, isLoopbackAddress, isLoopbackName
+  * space, so `169.254.0.0/16` / `fe80::/10` do not cover them. Single
+  * addresses (or a provider-reserved block), so nothing else is caught.
+  */
+-const CLOUD_METADATA_ADDRESSES = [
++export const CLOUD_METADATA_ADDRESSES = [
+     '100.100.100.200', // Alibaba Cloud
+     '168.63.129.16', // Azure WireServer / host agent endpoint
+     '192.0.0.192', // Oracle Cloud Infrastructure Classic
 diff --git a/dist/sandbox/sandbox-config.d.ts b/dist/sandbox/sandbox-config.d.ts
 index ce42ab4a7571757ccc6dc8a859de9f8e5832b499..55bbfe1d6497ce5d6405071d948533556de1540f 100644
 --- a/dist/sandbox/sandbox-config.d.ts

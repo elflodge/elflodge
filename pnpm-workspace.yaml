@@ -126,7 +126,9 @@ patchedDependencies:
   # only skips it for an absolute path, see JOB_SHELL in apps/runner/src/sandbox.ts), #807 (IP
   # literals and CIDR ranges in allowedDomains and deniedDomains), #769 (NO_PROXY lists loopback
   # only, so private addresses reach the proxy) and #597 (a refusal's reason in the body of a
-  # plain-HTTP 403, and network.allowlistDenyReason).
+  # plain-HTTP 403, and network.allowlistDenyReason). It also exports CLOUD_METADATA_ADDRESSES from
+  # dist/sandbox/resolved-address-guard.js, which the Runner refuses as literals too
+  # (apps/runner/src/network.ts), until sandbox-runtime exports it.
   "@anthropic-ai/sandbox-runtime@0.0.82": patches/@anthropic-ai__sandbox-runtime@0.0.82.patch
   "@types/folder-hash@4.0.4": patches/@types__folder-hash@4.0.4.patch
   generate-license-file: patches/generate-license-file.patch
