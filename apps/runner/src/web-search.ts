@@ -2,7 +2,7 @@ import { excludeCidr } from "cidr-tools";
 import type { RunnerCapabilities } from "contract";
 import { Array, Option, Predicate, Result, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
-import { apply as applyMergePatch } from "json-merge-patch";
+import { apply as applyMergePatch } from "tiny-merge-patch";
 
 import type { NetworkSettings } from "./network.ts";
 
@@ -156,10 +156,9 @@ const flag = (value: unknown) =>
 /**
  * `settings` changed by `patch`, a JSON Merge Patch (RFC 7396): objects merge, other values replace,
  * `null` removes a setting, and one that is not an object where the patch has one, as a mistyped
- * setting may be, becomes one. The library changes its target, so it gets a copy.
+ * setting may be, becomes one. The result shares the settings it leaves unchanged with `settings`.
  */
-const patched = (settings: Settings, patch: Settings): Settings =>
-  applyMergePatch(structuredClone(settings), patch);
+const patched = (settings: Settings, patch: Settings): Settings => applyMergePatch(settings, patch);
 
 /**
  * `settings` with search on through exactly `providers`, and what the Runner reports of them. The

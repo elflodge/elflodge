@@ -37,16 +37,15 @@
     "effect": "catalog:",
     "ensure-error": "catalog:",
     "folder-hash": "catalog:",
-    "json-merge-patch": "catalog:",
     "json-schema-library": "catalog:",
     "proper-lockfile": "catalog:",
+    "tiny-merge-patch": "catalog:",
     "ws": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/folder-hash": "catalog:",
-    "@types/json-merge-patch": "catalog:",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "catalog:",
     "@types/ws": "catalog:",
