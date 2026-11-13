@@ -1,4 +1,4 @@
-import { BlockList } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
@@ -15,15 +15,13 @@ import { splitDomainPatternPort } from "@anthropic-ai/sandbox-runtime/dist/sandb
 // stop this import; should a release move it, the typecheck and the Runner's start fail rather than
 // the callback reading hosts differently, as the Runner's build leaves dependencies external.
 import { canonicalizeHost } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
-// Exported by our patch of sandbox-runtime (see pnpm-workspace.yaml).
-import { CLOUD_METADATA_ADDRESSES } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect } from "effect";
 
 // The network a job's commands have (ADR 0041): the public internet through sandbox-runtime's
 // proxies, which refuse local and private destinations unless the operator opened their range, or
-// nothing at all. sandbox-runtime enforces it; this module only turns the Runner's settings into its
-// configuration, and into what the agent is told.
+// nothing at all. sandbox-runtime enforces it; this module turns the Runner's settings into its
+// configuration and the ask callback that judges IP destinations, and into what the agent is told.
 
 /** The network a Runner can give jobs, as `RUNNER_NETWORK` names it. */
 export const NETWORK_MODES = ["open", "none"] as const;
@@ -61,8 +59,8 @@ export class InvalidException extends Data.TaggedError("InvalidException")<{
  * `10.0.0.0/8:8080`, `[fd00::5]:8080`; an IPv6 range takes its port in brackets), into what
  * `NetworkSettings` keeps, or fails saying what is wrong with it. Every address (`/0`) is refused:
  * it would open everything, the default's refusals included, and pi-web-access refuses it. So is an
- * IPv4-mapped IPv6 range: sandbox-runtime judges such a destination by its IPv4 address, which the
- * exception would not subtract from the refused IPv4 ranges.
+ * IPv4-mapped IPv6 range: sandbox-runtime and the Runner judge such a destination by its IPv4
+ * address, which the exception's range would not cover.
  */
 export function parseException(entry: string): Effect.Effect<NetworkException, InvalidException> {
   return Effect.gen(function* () {
@@ -91,22 +89,14 @@ export function formatException({ range, port }: NetworkException): string {
 }
 
 /**
- * Cloud instance-metadata and platform endpoints, sandbox-runtime's own list. Its resolved-address
- * guard holds them only against names; listed here, they are refused as literal destinations too,
- * Azure's `168.63.129.16` above all, which is in public address space. Each as a range, as the deny
- * list compares an entry without `/` as text.
- */
-const CLOUD_METADATA = mergeCidr([...CLOUD_METADATA_ADDRESSES]);
-
-/**
  * The destinations refused by default, each class with the reason a refusal gives. They are the
  * rows of IANA's IPv4 and IPv6 Special-Purpose Address Registries whose "Globally Reachable" is
  * False, with the rows inside them that are True or N/A left open, plus multicast, which is in
- * neither registry, and cloud metadata. Not `::ffff:0:0/96` (IPv4-mapped): sandbox-runtime reads that
- * entry as every IPv4 address, and judges an IPv4-mapped destination by its IPv4 address anyway.
+ * neither registry, and cloud metadata. Not `::ffff:0:0/96` (IPv4-mapped): a `BlockList` reads that
+ * range as every IPv4 address, and an IPv4-mapped destination is judged by its IPv4 address anyway.
  * The first class listing a destination gives its reason, so the narrower classes come first.
- * A copy, as sandbox-runtime takes refused addresses only as ranges and no package exports these
- * registries as ranges: ipaddr.js classifies one address at a time, and @sdxc/ip's
+ * A copy, as sandbox-runtime's guard takes refused addresses only as ranges and no package exports
+ * these registries as ranges: ipaddr.js classifies one address at a time, and @sdxc/ip's
  * `SPECIAL_PURPOSE_RANGES` is not exported (sergiodxa/monorepo#83).
  */
 const REFUSED_CLASSES: readonly {
@@ -116,7 +106,9 @@ const REFUSED_CLASSES: readonly {
   /** Rows inside `ranges` that the registry marks globally reachable, or N/A. */
   readonly reachable?: readonly string[];
 }[] = [
-  { name: "Cloud metadata addresses", ranges: CLOUD_METADATA },
+  // Azure's WireServer, in public address space. The other cloud metadata endpoints are in ranges
+  // refused below, and sandbox-runtime's resolved-address guard refuses names resolving to any.
+  { name: "Cloud metadata addresses", ranges: ["168.63.129.16/32"] },
   { name: "Loopback addresses", ranges: ["127.0.0.0/8", "::1/128"] },
   { name: "Unspecified addresses", ranges: ["0.0.0.0/8", "::/128"] },
   { name: "Link-local addresses", ranges: ["169.254.0.0/16", "fe80::/10"] },
@@ -168,20 +160,19 @@ export function hostAddresses(): string[] {
 
 /**
  * sandbox-runtime's process-wide network configuration for `settings`, and the ask callback to
- * initialize it with. Open, it refuses `host`'s addresses and the default classes, the addresses
- * less the exception ranges, and asks the callback about every other destination, which refuses
- * `localhost`.
- * sandbox-runtime checks the deny list before the allow list, and its resolved-address guard holds
- * names to the same lists, so each exception is allowed too, on its port if it names one: the
- * guard's own loopback, link-local and host-address refusals give way only to an allowed range. An
- * exception so opens exactly what it covers, the host's addresses included, as sandbox-runtime
- * itself would. Every entry is a range, single addresses included, as an entry without `/` is
- * compared as text.
+ * initialize it with. Open, every destination reaches the callback, which judges an IP address
+ * itself, however it is spelled, and leaves a name to sandbox-runtime's resolved-address guard,
+ * which judges where the name resolves.
  *
- * The deny list cannot except a port, so an exception's range leaves it whole, and the other ports
- * of a range opened on one port are refused separately: an address literal by the callback, which
- * allows everything else; a name by the guard, which refuses resolving into the range unless the
- * allow list opens the address and port.
+ * The guard refuses `deniedResolvedAddresses` (here `host`'s addresses and the default classes,
+ * less the ranges opened on every port) and its own classes: loopback, link-local, cloud metadata
+ * and `host`'s addresses. An address and port in `allowedDomains` overrides both, but that list
+ * takes single addresses only (ranges need anthropics/sandbox-runtime#807), so it holds each
+ * exception that is one, and `host`'s addresses in each range opened, with the exception's port.
+ * A name so reaches a range opened on one port only at those addresses, and the guard's own classes
+ * in an opened range likewise: such names are refused, never let through.
+ *
+ * Off, everything is refused before the callback, with one reason.
  */
 export function sandboxNetwork(
   settings: NetworkSettings,
@@ -191,63 +182,95 @@ export function sandboxNetwork(
   askCallback?: SandboxAskCallback;
 } {
   if (settings.mode === "none") {
+    const reason = "This Runner gives jobs' commands no network access (RUNNER_NETWORK=none).";
     return {
-      network: {
-        allowedDomains: [],
-        deniedDomains: [],
-        allowlistDenyReason:
-          "This Runner gives jobs' commands no network access (RUNNER_NETWORK=none).",
-      },
+      network: { allowedDomains: [], deniedDomains: ["*"], deniedDomainReasons: { "*": reason } },
     };
   }
   const opening = ` The Runner's operator can open a range with ${EXCEPTIONS_SETTING}.`;
-  const reasons = new Map<string, string>();
-  const opened = settings.exceptions.map(({ range }) => range);
-  const refused: string[] = [];
-  const deny = (entries: readonly string[], reason: string) => {
-    refused.push(...entries);
-    for (const entry of excludeCidr(entries, opened))
-      if (!reasons.has(entry)) reasons.set(entry, reason);
-  };
-  deny(host, `Addresses of the Runner's own host are blocked for jobs.${opening}`);
-  for (const { name, ranges, reachable = [] } of REFUSED_CLASSES) {
-    deny(excludeCidr(ranges, reachable), `${name} are blocked for jobs.${opening}`);
-  }
-  const onOnePort = settings.exceptions.flatMap(({ range, port }) =>
-    port === undefined ? [] : [range],
+  const classes = [
+    { name: "Addresses of the Runner's own host", ranges: host },
+    ...REFUSED_CLASSES.map(({ name, ranges, reachable = [] }) => ({
+      name,
+      ranges: excludeCidr(ranges, reachable),
+    })),
+  ].map(({ name, ranges }) => ({
+    ranges,
+    addresses: blockList(ranges),
+    refusal: { allow: false as const, reason: `${name} are blocked for jobs.${opening}` },
+  }));
+  const exceptions = settings.exceptions.map((exception) => ({
+    ...exception,
+    addresses: blockList([exception.range]),
+  }));
+  const allowed = settings.exceptions.flatMap(({ range, port }) =>
+    (isSingleAddress(range) ? [range] : host.filter((address) => containsCidr(range, address))).map(
+      (address) => formatAllowed(address, port),
+    ),
   );
-  // Only the refused part of them: an exception on a port of a public address closes no other.
-  const portLimited = excludeCidr(onOnePort, excludeCidr(onOnePort, refused));
-  const limited = new BlockList();
-  for (const range of portLimited) addRange(limited, range);
-  const otherPort = {
+  const onEveryPort = settings.exceptions.flatMap(({ range, port }) =>
+    port === undefined ? [range] : [],
+  );
+  const unreadable = {
     allow: false as const,
-    reason: `This address is open to jobs only on the ports that ${EXCEPTIONS_SETTING} names for it.`,
+    reason: "This destination is not a host name or IP address that the Runner can check.",
   };
   const localhost = {
     allow: false as const,
     reason:
       "localhost through the proxy is the Runner's host, which jobs cannot reach. A server this job started is reached at localhost without the proxy.",
   };
+  const otherPort = {
+    allow: false as const,
+    reason: `This address is open to jobs only on the ports that ${EXCEPTIONS_SETTING} names for it.`,
+  };
   return {
     network: {
-      allowedDomains: settings.exceptions.map(formatException),
-      deniedDomains: [...reasons.keys()],
-      deniedDomainReasons: Object.fromEntries(reasons),
-      ...(portLimited.length === 0 ? {} : { deniedResolvedAddresses: portLimited }),
+      allowedDomains: [...new Set(allowed)],
+      deniedDomains: [],
+      deniedResolvedAddresses: excludeCidr(
+        classes.flatMap(({ ranges }) => ranges),
+        onEveryPort,
+      ),
     },
-    // sandbox-runtime matches its lists on the host as it dials it, but asks the callback with the
-    // host as the job wrote it, where `[::ffff:10.0.0.5]` and `167772165` are also 10.0.0.5.
+    // sandbox-runtime asks with the host as the job wrote it, where `[::ffff:10.0.0.5]` and
+    // `167772165` are also 10.0.0.5, so the callback reads it as sandbox-runtime does before it
+    // dials. What that cannot read is refused rather than judged as written.
     askCallback: async (destination) => {
-      const dialed = canonicalizeHost(destination.host) ?? destination.host;
-      // `localhost` and names under it, however many trailing dots they carry, here rather than in
-      // the deny list: that matches with one dot removed, and the resolved-address guard, removing
-      // another, lets such a name resolve to any loopback address the deny list leaves out, other
-      // ports of one opened on a port included. `isLoopbackName` removes one dot, so all go first.
+      const dialed = canonicalizeHost(destination.host);
+      if (dialed === undefined) return unreadable;
+      // `localhost` and names under it, however many trailing dots they carry: the guard, removing
+      // one, lets such a name resolve to any loopback address. `isLoopbackName` removes one dot, so
+      // all go first.
       if (isLoopbackName(dialed.replace(/\.+$/, ""))) return localhost;
-      return addressInSet(limited, dialed) ? otherPort : true;
+      // A name: the guard judges where it resolves.
+      if (isIP(dialed) === 0) return true;
+      const refused = classes.find(({ addresses }) => addressInSet(addresses, dialed));
+      if (refused === undefined) return true;
+      const covering = exceptions.filter(({ addresses }) => addressInSet(addresses, dialed));
+      if (covering.length === 0) return refused.refusal;
+      return covering.some(({ port }) => port === undefined || port === destination.port)
+        ? true
+        : otherPort;
     },
   };
+}
+
+function blockList(ranges: readonly string[]): BlockList {
+  const list = new BlockList();
+  for (const range of ranges) addRange(list, range);
+  return list;
+}
+
+function isSingleAddress(range: string): boolean {
+  return range.endsWith(range.includes(":") ? "/128" : "/32");
+}
+
+/** A single-address range as sandbox-runtime's allow list takes an address: bare, IPv6 bracketed. */
+function formatAllowed(range: string, port: number | undefined): string {
+  const address = range.slice(0, range.indexOf("/"));
+  const host = address.includes(":") ? `[${address}]` : address;
+  return port === undefined ? host : `${host}:${port}`;
 }
 
 /**

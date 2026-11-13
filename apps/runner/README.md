@@ -104,6 +104,8 @@ A job's own `localhost` is its own: on Linux, a server one of its commands start
 
 `RUNNER_NETWORK_EXCEPTIONS` opens address ranges to every job of the Runner, on every port or on one, separated by commas: `10.20.0.0/16,192.168.1.10:8080`. An IPv6 address takes its port after brackets, `[fd00::5]:8080`. A range opened on one port keeps its other ports refused. A name alone opens nothing, nor does `0.0.0.0/0`, and an invalid entry stops the Runner from starting.
 
+A name that resolves into a range opened on one port is refused, even on that port, so open the address itself with its port: `10.20.0.7:8080` rather than `10.20.0.0/16:8080`. Likewise a name reaches a loopback, link-local or cloud metadata address only when an exception opens that address alone, not through a range covering it.
+
 A range opens every address it covers, the Runner's own included, so write narrower ranges if you don't mean to open the host. A job reaches a service on the Runner's host as a container would: at one of the host's other addresses, such as Docker's bridge gateway `172.17.0.1` or a LAN address, where the service must listen and an exception must open it. `localhost` through the proxy stays refused.
 
 ### Turning the network off

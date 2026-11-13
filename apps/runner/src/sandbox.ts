@@ -503,8 +503,16 @@ function asPath(dir: string) {
  * job. pi-env's connection adds `serve --token <hex>` to the command, which the outer shell passes
  * in as `$3`.
  */
+/**
+ * The destinations a job's commands reach without the proxies: its own loopback. sandbox-runtime's
+ * `NO_PROXY` also lists private and link-local ranges, which a client would then dial directly, into
+ * a sandbox with no route to them, rather than through the proxies, which refuse them with a reason
+ * or reach an exception (anthropics/sandbox-runtime#769). Set inside the sandbox, after sandbox-runtime
+ * sets its own.
+ */
+const JOB_NO_PROXY = "localhost,127.0.0.1,::1";
 const START_DAEMON = `export PI_ENV_TOKEN="$3"; exec /bin/sh -c "$0"`;
-const DAEMON_IN_SANDBOX = `token="$PI_ENV_TOKEN"; daemon="$ELFLODGE_DAEMON"; export TMPDIR="$ELFLODGE_TEMP" HOME="$ELFLODGE_TEMP"; unset PI_ENV_TOKEN ELFLODGE_DAEMON ELFLODGE_TEMP; exec "$daemon" serve --token "$token"`;
+const DAEMON_IN_SANDBOX = `token="$PI_ENV_TOKEN"; daemon="$ELFLODGE_DAEMON"; export TMPDIR="$ELFLODGE_TEMP" HOME="$ELFLODGE_TEMP" NO_PROXY=${JOB_NO_PROXY} no_proxy=${JOB_NO_PROXY}; unset PI_ENV_TOKEN ELFLODGE_DAEMON ELFLODGE_TEMP; exec "$daemon" serve --token "$token"`;
 
 function openJobEnvironment(options: {
   jobId: string;
