@@ -6,7 +6,7 @@ It suits work where every item gets the same treatment but each one needs judgme
 
 Each item becomes one job, with its files and a shell in its own sandbox. Successful outputs are collected as JSON records. For an invoice task, a record might look like this:
 
-```json
+```jsonl
 {"customId": "invoice-0042.pdf", "status": "succeeded", "output": {"invoice_number": "INV-2291", "total": 1840.5, "due_date": null}}
 ```
 
