@@ -55,6 +55,7 @@ import {
 } from "./extensions.ts";
 import { JobRunner } from "./jobs.ts";
 import { RUNNER_VERSION } from "./journal.ts";
+import { DEFAULT_NETWORK_SETTINGS, type NetworkSettings } from "./network.ts";
 import { makePromptCacheWarmup } from "./prompt-cache.ts";
 import {
   type JobEnvironments,
@@ -63,7 +64,7 @@ import {
   SandboxUnavailable,
 } from "./sandbox.ts";
 
-export { ExtensionsUnavailable, SandboxUnavailable };
+export { DEFAULT_NETWORK_SETTINGS, ExtensionsUnavailable, SandboxUnavailable };
 
 // TODO: remove once `@types/ws` declares `closeTimeout`, added in `ws` 8.19.
 declare module "ws" {
@@ -110,6 +111,8 @@ export interface RunnerOptions {
   maxJobs?: number;
   /** How jobs' sandboxes are made; `DEFAULT_SANDBOX_SETTINGS` unless given. */
   sandbox?: SandboxSettings;
+  /** The network jobs' commands and web access have; `DEFAULT_NETWORK_SETTINGS` unless given. */
+  network?: NetworkSettings;
   /** Where the Pi extensions every job's agent runs with, and their settings, come from. None unless given. */
   extensions?: ExtensionFolders;
   /**
@@ -167,10 +170,15 @@ export function runRunner(
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
     const environments = yield* prepareEnvironments(options);
-    const extensions = yield* prepareRunnerExtensions(options.dataDir, options.extensions, {
-      providers: options.webSearch,
-      modelProvider: options.model.provider,
-    });
+    const extensions = yield* prepareRunnerExtensions(
+      options.dataDir,
+      options.extensions,
+      {
+        providers: options.webSearch,
+        modelProvider: options.model.provider,
+      },
+      { settings: options.network ?? DEFAULT_NETWORK_SETTINGS, proxy: environments.jobsProxy },
+    );
     const registration = yield* loadOrRegister(hubUrl, options);
     return yield* runRegistered(hubUrl, registration, options, environments, extensions);
   });
@@ -184,10 +192,15 @@ export async function startRunner(options: StartRunnerOptions): Promise<Runner> 
   const hubUrl = new URL(options.hubUrl);
   const environments = await Effect.runPromise(prepareEnvironments(options));
   const extensions = await Effect.runPromise(
-    prepareRunnerExtensions(options.dataDir, options.extensions, {
-      providers: options.webSearch,
-      modelProvider: options.model.provider,
-    }),
+    prepareRunnerExtensions(
+      options.dataDir,
+      options.extensions,
+      {
+        providers: options.webSearch,
+        modelProvider: options.model.provider,
+      },
+      { settings: options.network ?? DEFAULT_NETWORK_SETTINGS, proxy: environments.jobsProxy },
+    ),
   );
   const registration = await Effect.runPromise(loadOrRegister(hubUrl, options));
   const loop = Effect.runFork(
@@ -269,7 +282,10 @@ function runRegistered(
 function prepareEnvironments(
   options: RunnerOptions,
 ): Effect.Effect<JobEnvironments, SandboxUnavailable> {
-  return prepareJobEnvironments(options.sandbox ?? DEFAULT_SANDBOX_SETTINGS).pipe(
+  return prepareJobEnvironments(
+    options.sandbox ?? DEFAULT_SANDBOX_SETTINGS,
+    options.network ?? DEFAULT_NETWORK_SETTINGS,
+  ).pipe(
     Effect.tap((environments) =>
       Effect.sync(() => {
         if (environments.unsandboxedBecause) {

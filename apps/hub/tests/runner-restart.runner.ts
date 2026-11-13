@@ -1,5 +1,6 @@
 import { writeSync } from "node:fs";
 
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { startRunner } from "runner";
 
 import { callTool, scriptedModel, untilAborted } from "./scripted-model.ts";
@@ -8,7 +9,8 @@ import { callTool, scriptedModel, untilAborted } from "./scripted-model.ts";
 // the hub's URL, the key Runners register with, the data directory, and the phase, which sets what
 // its scripted model does: before the kill, the agent appends a line to a file, and the model call
 // after that tells the test, on file descriptor 3, that it is waiting; after the kill, the job is
-// recovered and the agent submits the file's line count as its output.
+// recovered and the agent submits the file's line count as its output. After the kill, the Runner
+// gives jobs no network, which the recovered job's agent must be told.
 
 const [hubUrl, registrationKey, dataDir, phase] = process.argv.slice(2);
 if (!hubUrl || !registrationKey || !dataDir) {
@@ -31,6 +33,11 @@ faux.setResponses(
           if (!context.messages.some((message) => message.role === "toolResult")) {
             throw new Error("The job started over instead of carrying on");
           }
+          if (
+            !getCurrentSystemPrompt(context.messages).includes("Commands have no network access.")
+          ) {
+            throw new Error("The job was not told the restarted Runner's network");
+          }
           return callTool("bash", {
             command: `printf '{"lines":%d}' "$(wc -l < marks.txt)" > output.json`,
           });
@@ -38,4 +45,11 @@ faux.setResponses(
         callTool("submit_output", { path: "output.json" }),
       ],
 );
-await startRunner({ hubUrl, registrationKey, dataDir, models, model });
+await startRunner({
+  hubUrl,
+  registrationKey,
+  dataDir,
+  models,
+  model,
+  network: phase === "before" ? undefined : { mode: "none", exceptions: [] },
+});

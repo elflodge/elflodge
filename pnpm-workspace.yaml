@@ -27,8 +27,13 @@ allowBuilds:
   ssh2: false
   # The Runner's dependencies. pi-ai's Google SDK has a no-op install script.
   "@google/genai": false
+# sandbox-runtime's Windows backend, about 170 MB with the native modules it brings: the Runner does
+# not run on native Windows, so neither installing nor building it serves anything. Drop this once
+# a sandbox-runtime release includes anthropics/sandbox-runtime#822, which makes it an optional peer.
+ignoredOptionalDependencies:
+  - "@microsoft/mxc-sdk"
 catalog:
-  "@anthropic-ai/sandbox-runtime": ^0.0.81
+  "@anthropic-ai/sandbox-runtime": ^0.0.82
   "@better-auth/api-key": 1.7.18
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
@@ -51,6 +56,7 @@ catalog:
   "@standard-schema/utils": ^0.3.0
   "@testcontainers/postgresql": ^12.2.1
   "@types/folder-hash": ^4.0.4
+  "@types/json-merge-patch": ^1.0.0
   "@types/node": ^22.20.5
   "@types/pg": ^8.23.1
   "@types/ms": ^2.1.0
@@ -62,6 +68,7 @@ catalog:
   better-auth: 1.7.18
   canonicalize: ^5.1.0
   chunk-data: ^0.1.0
+  cidr-tools: ^13.0.4
   content-type: ^3.1.1
   crossws: ^0.4.17
   effect: ^4.1.2
@@ -74,6 +81,7 @@ catalog:
   hono-problem-details: ^0.12.3
   is-network-error: ^1.3.2
   is-path-inside: ^4.0.0
+  json-merge-patch: ^1.0.2
   json-rpc-2.0: ^1.8.1
   json-schema-library: ^11.6.16
   kanel: ^4.0.4
@@ -115,6 +123,14 @@ catalogs:
     "@earendil-works/pi-coding-agent": 1.5.2
 
 patchedDependencies:
-  "@anthropic-ai/sandbox-runtime@0.0.81": patches/@anthropic-ai__sandbox-runtime@0.0.81.patch
+  # Upstream changes not yet released, applied to the published dist; drop each part once a release
+  # contains its change: anthropics/sandbox-runtime#594 (no `which` spawn for the shell; the patch
+  # only skips it for an absolute path, see JOB_SHELL in apps/runner/src/sandbox.ts), #807 (IP
+  # literals and CIDR ranges in allowedDomains and deniedDomains), #769 (NO_PROXY lists loopback
+  # only, so private addresses reach the proxy) and #597 (a refusal's reason in the body of a
+  # plain-HTTP 403, and network.allowlistDenyReason). It also exports CLOUD_METADATA_ADDRESSES from
+  # dist/sandbox/resolved-address-guard.js, which the Runner refuses as literals too
+  # (apps/runner/src/network.ts), until sandbox-runtime exports it.
+  "@anthropic-ai/sandbox-runtime@0.0.82": patches/@anthropic-ai__sandbox-runtime@0.0.82.patch
   "@types/folder-hash@4.0.4": patches/@types__folder-hash@4.0.4.patch
   generate-license-file: patches/generate-license-file.patch

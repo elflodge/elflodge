@@ -23,17 +23,26 @@ import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
-import { Data, Effect, FileSystem, Layer, Record, Stream } from "effect";
+import { Data, Effect, Equal, FileSystem, Layer, Record, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import ensureError from "ensure-error";
+
+import {
+  DEFAULT_NETWORK_SETTINGS,
+  describeNetwork,
+  hostAddresses,
+  type NetworkSettings,
+  sandboxNetwork,
+} from "./network.ts";
 
 // A job's Execution environment (ADR 0027): pi-env's daemon, started inside an OS sandbox of the
 // job's own by Anthropic's sandbox-runtime, carries out the job's file operations and runs its
 // commands, and the Runner reaches it through pi-env's `RemoteExecutionEnv`. So every file access
 // and every command of the job meets the same rules, enforced by the kernel: the job reads the
 // system's programs and libraries, any folders the operator adds, and its own Workspace and temp
-// directory, writes only the last two, and has no network. Where the host has a user systemd
-// manager, the sandbox runs in a systemd scope that caps the job's memory.
+// directory, writes only the last two, and reaches the network only through sandbox-runtime's
+// proxies, which hold it to the Runner's network policy (`network.ts`). Where the host has a user
+// systemd manager, the sandbox runs in a systemd scope that caps the job's memory.
 
 /**
  * What a job may read of the host besides its own folders: Codex CLI's "platform defaults", the
@@ -142,8 +151,8 @@ function withJobOomScore(command: readonly string[]): string[] {
  * Runner's own around them, so any `/bin/sh` serves, dash in the Runner's Debian image included.
  * The daemon's start `exec`s it, and the daemon runs the agent's commands in a shell of its own
  * choosing, bash where the host has it. Given an absolute path, sandbox-runtime skips the spawn
- * only with the patch in `patches/`, which applies anthropics/sandbox-runtime#551 and goes once a
- * release includes it.
+ * only with the patch in `patches/`, which goes once a release includes
+ * anthropics/sandbox-runtime#594, whose lookup searches `PATH` without spawning.
  */
 const JOB_SHELL = "/bin/sh";
 
@@ -181,6 +190,13 @@ export interface JobEnvironments {
   unsandboxedBecause: string | undefined;
   /** Why jobs run without a memory cap, if they do. */
   uncappedBecause: string | undefined;
+  /** What the agent is told about its commands' network, unless they run without a sandbox. */
+  networkNote: string | undefined;
+  /**
+   * sandbox-runtime's HTTP proxy, with its credentials, for requests the Runner makes for jobs
+   * from outside their sandboxes, which it then holds to jobs' network; only with a sandbox.
+   */
+  jobsProxy: string | undefined;
   /**
    * Opens the environment of the job `jobId`, whose files are in `workspace` and `temp`: nothing
    * starts until its first operation, and a daemon lost, as when it ran out of memory, starts
@@ -198,10 +214,13 @@ export class SandboxUnavailable extends Data.TaggedError("SandboxUnavailable")<{
  * Finds what the host offers jobs: starts a sandboxed command to prove the sandbox works, and a
  * systemd scope with the job's memory limit to prove memory can be capped. Without a sandbox it
  * fails with `SandboxUnavailable` naming what is missing, unless `settings.runWithoutSandbox` is
- * set.
+ * set and `network` is the default: the sandbox is what holds jobs to any other network. Every
+ * job's commands get the network `network` describes, which is the same for every call in a
+ * process, as `initializeSandboxRuntime` explains; a call with another one is a defect.
  */
 export function prepareJobEnvironments(
   settings: SandboxSettings,
+  network: NetworkSettings,
 ): Effect.Effect<JobEnvironments, SandboxUnavailable> {
   return Effect.gen(function* () {
     const daemon = localDaemon();
@@ -211,16 +230,33 @@ export function prepareJobEnvironments(
       path.dirname(daemon),
       SECCOMP_HELPERS,
     ];
-    const unsandboxedBecause = yield* setUpSandboxRuntime(daemon, readable);
+    // Checked before the setup, whose failures read as the host lacking a sandbox, so that a
+    // Runner allowed to run without one would not take this for a reason to.
+    if (configuredNetwork !== undefined && !Equal.equals(configuredNetwork, network)) {
+      return yield* Effect.die(
+        new Error(
+          "Jobs' network is set once per process: another Runner in it started with other network settings",
+        ),
+      );
+    }
+    configuredNetwork = network;
+    const unsandboxedBecause = yield* setUpSandboxRuntime(daemon, readable, network);
     if (unsandboxedBecause && !settings.runWithoutSandbox) {
       return yield* new SandboxUnavailable({
         message: `Jobs cannot run in a sandbox on this host: ${unsandboxedBecause}. Install what is missing (see the runner's README), or set RUNNER_RUN_WITHOUT_SANDBOX=true to run them without one.`,
       });
     }
+    if (unsandboxedBecause && !Equal.equals(network, DEFAULT_NETWORK_SETTINGS)) {
+      return yield* new SandboxUnavailable({
+        message: `Jobs cannot run in a sandbox on this host: ${unsandboxedBecause}. Without one, their commands reach every address, so RUNNER_NETWORK=none and RUNNER_NETWORK_EXCEPTIONS cannot apply: install what is missing (see the runner's README), or unset them to run jobs without a sandbox.`,
+      });
+    }
     const uncappedBecause = yield* tryMemoryCap(settings.jobMemoryLimit);
     return {
+      jobsProxy: unsandboxedBecause === undefined ? yield* jobsProxy : undefined,
       unsandboxedBecause,
       uncappedBecause,
+      networkNote: unsandboxedBecause === undefined ? describeNetwork(network) : undefined,
       open: (jobId: string, dirs: JobDirs) =>
         openJobEnvironment({
           jobId,
@@ -234,22 +270,39 @@ export function prepareJobEnvironments(
   }).pipe(Effect.provide(NodeServices));
 }
 
+/**
+ * The URL of the HTTP proxy sandbox-runtime started, which listens on the host's loopback and asks
+ * for its token as the password; any user name will do. It is up once a sandbox has started.
+ */
+const jobsProxy = Effect.suspend(() => {
+  const port = SandboxManager.getProxyPort();
+  const token = SandboxManager.getProxyAuthToken();
+  return port === undefined || token === undefined
+    ? Effect.die(new Error("sandbox-runtime's proxy is not running"))
+    : Effect.succeed(`http://runner:${token}@127.0.0.1:${port}`);
+});
+
 /** Node's implementations of the process and file-system services the Runner's checks use. */
 export const NodeServices = NodeChildProcessSpawner.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
 );
 
 /**
- * No network for jobs until Secrets and egress are built. It is also sandbox-runtime's
- * process-wide network configuration: its proxies allow a host on that list for every sandbox,
- * before they consult the sandbox's own, so it must stay empty there too.
+ * A job's sandbox's own network lists. sandbox-runtime's proxies decide every destination by its
+ * process-wide network configuration (`initializeSandboxRuntime`), so these lists add nothing; a
+ * sandbox given an `allowedDomains`, even an empty one, has no network of its own and reaches
+ * the network only through the proxies.
  */
-const NO_NETWORK = { allowedDomains: [], deniedDomains: [] };
+const THROUGH_PROXIES = { allowedDomains: [], deniedDomains: [] };
+
+/** The network settings the process's jobs have, once a Runner in it has started. */
+let configuredNetwork: NetworkSettings | undefined;
 
 /**
  * Configures sandbox-runtime once per process: it keeps its configuration and network proxies in
  * module state. Every job's sandbox gets its own filesystem policy, so the one given here applies
- * to none of them; its network policy applies to all of them (`NO_NETWORK`).
+ * to none of them; its network policy, made from `network` with the host's addresses at this
+ * start, applies to all of them, as do its proxies.
  *
  * Initializing also adds sandbox-runtime's one-time `SIGINT` and `SIGTERM` listeners, which reset
  * the sandbox but do not exit, and a listener on a signal turns off Node's exit on it. So the
@@ -258,11 +311,16 @@ const NO_NETWORK = { allowedDomains: [], deniedDomains: [] };
  * sandbox-runtime yet (`registerCleanup` in 0.0.80).
  */
 let initialized: Promise<void> | undefined;
-function initializeSandboxRuntime(): Promise<void> {
-  initialized ??= SandboxManager.initialize({
-    network: NO_NETWORK,
-    filesystem: { denyRead: ["/"], allowRead: [], allowWrite: [], denyWrite: [] },
-  });
+function initializeSandboxRuntime(network: NetworkSettings): Promise<void> {
+  if (initialized) return initialized;
+  const policy = sandboxNetwork(network, hostAddresses());
+  initialized = SandboxManager.initialize(
+    {
+      network: policy.network,
+      filesystem: { denyRead: ["/"], allowRead: [], allowWrite: [], denyWrite: [] },
+    },
+    policy.askCallback,
+  );
   return initialized;
 }
 
@@ -273,6 +331,7 @@ function initializeSandboxRuntime(): Promise<void> {
 function setUpSandboxRuntime(
   daemon: string,
   readable: readonly string[],
+  network: NetworkSettings,
 ): Effect.Effect<
   string | undefined,
   never,
@@ -287,7 +346,7 @@ function setUpSandboxRuntime(
     // Initializing checks for the programs the sandbox needs, but not for AppArmor denying
     // bubblewrap its user namespaces, as on Ubuntu 24.04 and later, so a command proves the sandbox
     // starts, with the score every job's daemon starts with.
-    yield* Effect.tryPromise({ try: () => initializeSandboxRuntime(), catch: ensureError });
+    yield* Effect.tryPromise({ try: () => initializeSandboxRuntime(network), catch: ensureError });
     const scratch = yield* FileSystem.FileSystem.use((fs) =>
       fs.makeTempDirectoryScoped({ prefix: "elflodge-sandbox-check-" }),
     );
@@ -403,16 +462,24 @@ function keptEnvironment(): Record.ReadonlyRecord<string, string> {
 
 /**
  * A job's sandbox: reading the system's paths, `readable` and its own folders, writing only its own
- * folders, no network. sandbox-runtime also denies writes to shell and tool settings, such as
- * `.bashrc` and `.git/hooks`, but finds them only under the Runner's working directory, so in its
- * own folders a job may write those too; the README warns against running git there unsandboxed.
+ * folders, reaching the network through sandbox-runtime's proxies. sandbox-runtime also denies
+ * writes to shell and tool settings, such as `.bashrc` and `.git/hooks`, but finds them only under
+ * the Runner's working directory, so in its own folders a job may write those too; the README warns
+ * against running git there unsandboxed.
  */
 function jobPolicy(dirs: JobDirs, readable: readonly string[]): Partial<SandboxRuntimeConfig> {
+  // On Linux the sandbox reaches the proxies through sockets of sandbox-runtime's in `/tmp`, which
+  // `denyRead: ["/"]` hides, so every request through them would fail
+  // (anthropics/sandbox-runtime#750). They exist once sandbox-runtime is initialized.
+  const proxySockets = [
+    SandboxManager.getLinuxHttpSocketPath(),
+    SandboxManager.getLinuxSocksSocketPath(),
+  ].filter((socket) => socket !== undefined);
   return {
-    network: NO_NETWORK,
+    network: THROUGH_PROXIES,
     filesystem: {
       denyRead: ["/"],
-      allowRead: [...readable, dirs.workspace, dirs.temp].map(asPath),
+      allowRead: [...readable, ...proxySockets, dirs.workspace, dirs.temp].map(asPath),
       allowWrite: [dirs.workspace, dirs.temp].map(asPath),
       denyWrite: [],
     },

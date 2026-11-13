@@ -1,7 +1,13 @@
 import { Result } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { describeWebSearch, planWebSearch, type WebSearchInput } from "../src/web-search.ts";
+import { DEFAULT_NETWORK_SETTINGS, type NetworkSettings } from "../src/network.ts";
+import {
+  describeWebSearch,
+  planWebSearch,
+  type WebSearchInput,
+  withNetwork,
+} from "../src/web-search.ts";
 
 // Web search may spend money and send jobs' queries elsewhere, so it goes only where the operator
 // said, once, and otherwise only through the ChatGPT subscription the jobs' model already runs on,
@@ -108,4 +114,46 @@ test("the operator's own settings may always bill a key, even confined as the Ru
 
 test("pi-web-access's own defaults are reported as open to any provider and to a key", () => {
   expect(describeWebSearch({})).toEqual({ enabled: true, openai: { mayUseApiKey: true } });
+});
+
+// pi-web-access's requests leave from the Runner, outside jobs' sandboxes, so the jobs' network
+// reaches them only through its settings. That its requests go through jobs' proxy is tested
+// through a job, in the hub's `web-access.test.ts`.
+const PROXY = "http://runner:token@127.0.0.1:4100";
+const held = (settings: Record<string, unknown>, network: NetworkSettings) =>
+  Result.getOrThrow(withNetwork(settings, { settings: network, proxy: PROXY }));
+
+test("pi-web-access fetches no page when jobs have no network, and reaches the operator's exception ranges otherwise", () => {
+  expect(held(defaults, { mode: "none", exceptions: [] })).toEqual({
+    ...defaults,
+    tools: { ...defaults.tools, fetchContent: { enabled: false } },
+    fetchContent: { domainPolicy: { allow: ["invalid"] } },
+    githubClone: { enabled: false },
+    githubPrIssue: { enabled: false },
+  });
+  // A range opened on one port is left out where pi-web-access would reach it without jobs' proxy,
+  // which holds it to the port.
+  const exceptions = [
+    { range: "10.20.0.0/16" },
+    { range: "10.30.0.0/16", port: 8080 },
+    { range: "127.0.0.1/32", port: 8080 },
+  ];
+  expect(held(defaults, { mode: "open", exceptions })).toMatchObject({
+    ssrf: { allowRanges: ["10.20.0.0/16", "10.30.0.0/16"] },
+  });
+});
+
+test("an operator's own proxy or allowed ranges for pi-web-access are refused while jobs' network is open", () => {
+  for (const own of [
+    { proxy: "http://proxy.example:3128" },
+    { ssrf: { allowRanges: ["127.0.0.1/32"] } },
+  ]) {
+    expect(
+      Result.isFailure(withNetwork(own, { settings: DEFAULT_NETWORK_SETTINGS, proxy: PROXY })),
+      JSON.stringify(own),
+    ).toBe(true);
+  }
+  // With no network, every page fetch is refused before its address is checked.
+  const own = { ssrf: { allowRanges: ["127.0.0.1/32"] } };
+  expect(held(own, { mode: "none", exceptions: [] })).toMatchObject(own);
 });

@@ -58,7 +58,7 @@ function startRunnerProcess(dataDir: string, registrationKey: string, phase: "be
 }
 
 test(
-  "a job whose Runner is killed mid-run is recovered when the Runner starts again, with each completed tool call run once",
+  "a job whose Runner is killed mid-run is recovered when the Runner starts again, with each completed tool call run once and the restarted Runner's network in its instructions",
   () =>
     Effect.gen(function* () {
       const dataDir = yield* Effect.promise(() => mkdtemp(path.join(tmpdir(), "runner-")));

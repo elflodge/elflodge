@@ -1,38 +1,30 @@
 import { execFile } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { createServer } from "node:http";
+import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { BACKGROUND_CONTEXT, withCancel } from "@earendil-works/chord/context";
-import { getOrThrow } from "@earendil-works/pi-durable/env";
 import { createEnvConformance, createExpectAssertions } from "@earendil-works/pi-durable/testing";
-import { Effect } from "effect";
 import { beforeAll, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
-import { DEFAULT_SANDBOX_SETTINGS } from "../src/index.ts";
+import { DEFAULT_NETWORK_SETTINGS } from "../src/index.ts";
+import type { JobEnvironment, JobEnvironments } from "../src/sandbox.ts";
 import {
-  type JobEnvironment,
-  type JobEnvironments,
-  prepareJobEnvironments,
-} from "../src/sandbox.ts";
+  HOST_SERVER_ANSWER,
+  prepareTestEnvironments,
+  run,
+  throughProxy,
+  withHostServer,
+  withJob as withJobIn,
+} from "./job-environments.ts";
 
 // pi-durable's tools reach a job's files and commands only through this environment: pi-env's
 // daemon in the job's sandbox (ADR 0027). So it is held to the cases pi-durable defines for every
 // environment, and to what the sandbox promises a job: its own folders and the system's programs,
-// no network, none of the Runner's variables, no other processes, a memory limit where systemd can
-// set one, and on Linux processes the kernel kills before the Runner when the host runs out of
-// memory.
+// the default network (ADR 0041), none of the Runner's variables, no other processes, a memory
+// limit where systemd can set one, and on Linux processes the kernel kills before the Runner when
+// the host runs out of memory.
 
 const execFileAsync = promisify(execFile);
 
@@ -44,40 +36,10 @@ function noneMatched(error: { code?: unknown }) {
 
 let environments: JobEnvironments;
 beforeAll(async () => {
-  environments = await Effect.runPromise(
-    prepareJobEnvironments({ ...DEFAULT_SANDBOX_SETTINGS, jobMemoryLimit: "256M" }),
-  );
+  environments = await prepareTestEnvironments(DEFAULT_NETWORK_SETTINGS);
 });
 
-/** Runs `use` with a job's environment in a new job directory, closed and removed afterwards. */
-async function withJob(
-  use: (
-    job: JobEnvironment,
-    dirs: { dir: string; workspace: string; temp: string },
-  ) => Promise<void>,
-) {
-  const dir = await mkdtemp(path.join(await realpath(tmpdir()), "job-"));
-  const dirs = { dir, workspace: path.join(dir, "workspace"), temp: path.join(dir, "tmp") };
-  await mkdir(dirs.workspace);
-  const job = environments.open(path.basename(dir), dirs);
-  try {
-    await use(job, dirs);
-  } finally {
-    await job.close();
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
-/** Runs `command` in the job's shell and returns its exit code and its output, both streams together. */
-async function run(job: JobEnvironment, command: string) {
-  let output = "";
-  const result = await job.env.exec(
-    command,
-    { onOutput: (text) => (output += text) },
-    BACKGROUND_CONTEXT,
-  );
-  return { exitCode: getOrThrow(result).exitCode, output };
-}
+const withJob = (use: Parameters<typeof withJobIn>[1]) => withJobIn(environments, use);
 
 /**
  * Leaves a `sleep` running in the job's background, for a random duration, and returns whether it
@@ -163,41 +125,71 @@ it("a job reads and writes its own folders, and nothing of another job, its jour
     }
   }));
 
-// sandbox-runtime gives every sandbox an HTTP proxy, named in `HTTPS_PROXY`, and a SOCKS proxy,
-// named in `FTP_PROXY` (its `ALL_PROXY` names the HTTP one), which allow the domains its
-// configuration allows: for a job, none.
-it("a job's commands have no network, directly or through the sandbox's proxies", async () => {
-  const server = createServer((_request, response) => response.end("reached"));
-  server.on("error", () => {});
-  server.on("connection", (socket) => socket.on("error", () => {}));
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("no port");
-  const url = `http://127.0.0.1:${address.port}/`;
-  try {
-    await withJob(async (job) => {
-      const direct = await run(job, `bash -c 'exec 3<>/dev/tcp/127.0.0.1/${address.port}'`);
-      expect(direct.exitCode).not.toBe(0);
+// A job reaches the network through sandbox-runtime's proxies, its HTTP proxy named in `HTTPS_PROXY`
+// and `ALL_PROXY` and its SOCKS proxy in `FTP_PROXY`, which refuse the Runner's host and local and
+// private addresses. `NO_PROXY` sends `localhost` and `127.0.0.1` past them, into the sandbox's own
+// network, so these requests name the proxy themselves.
 
-      const proxies = (await run(job, 'echo "$HTTPS_PROXY"; echo "$FTP_PROXY"')).output
-        .split("\n")
-        .filter(Boolean);
-      expect(proxies).toHaveLength(2);
-      for (const proxy of proxies) {
-        // Without `--proxytunnel` curl asks the HTTP proxy for the URL; with it, for a tunnel.
-        for (const tunnel of proxy.startsWith("http:") ? ["", "--proxytunnel"] : [""]) {
-          const reached = await run(
-            job,
-            `curl -sS --max-time 5 --noproxy '' ${tunnel} --proxy '${proxy}' ${url}`,
-          );
-          expect(reached.output).not.toContain("reached");
+it("a job's commands cannot reach the Runner's host by its loopback, however it is spelled", () =>
+  withHostServer("127.0.0.1", (port) =>
+    withJob(async (job) => {
+      const direct = await run(job, `bash -c 'exec 3<>/dev/tcp/127.0.0.1/${port}'`);
+      expect(direct.exitCode).not.toBe(0);
+      for (const host of [
+        "127.0.0.1",
+        "127.1",
+        "2130706433",
+        "[::ffff:127.0.0.1]",
+        "localhost",
+        "job.localhost",
+      ]) {
+        for (const answer of await throughProxy(job, host, port)) {
+          expect(answer, host).not.toContain(HOST_SERVER_ANSWER);
+          expect(answer, host).toMatch(/status=403|connect=403/);
         }
       }
-    });
-  } finally {
-    server.close();
-  }
-});
+      const socks = await run(
+        job,
+        `curl -sS --max-time 5 --noproxy '' --proxy "$FTP_PROXY" http://127.0.0.1:${port}/`,
+      );
+      expect(socks.output).not.toContain(HOST_SERVER_ANSWER);
+      // Refused by the SOCKS proxy, rather than missing it.
+      expect(socks.output).toMatch(/SOCKS5.*\(2\)/);
+    }),
+  ));
+
+it("a refused request tells the agent what is refused and which setting opens it", () =>
+  withJob(async (job) => {
+    // Refused before the proxy dials, so no such network is needed.
+    const plain = await run(job, "curl -sS --max-time 5 http://10.255.255.1/");
+    expect(plain.output).toContain("Private network addresses are blocked");
+    expect(plain.output).toContain("RUNNER_NETWORK_EXCEPTIONS");
+    const tunnel = await run(job, "curl -sS -v --max-time 5 https://10.255.255.1/ 2>&1");
+    expect(tunnel.output).toMatch(
+      /403 Private network addresses are blocked.*RUNNER_NETWORK_EXCEPTIONS/,
+    );
+  }));
+
+it("a server one of a job's commands starts is reached at localhost by its later commands", async (test) => {
+  // On macOS, Seatbelt refuses jobs' commands loopback.
+  if (process.platform !== "linux") test.skip("only Linux gives a job's commands a loopback");
+  await withJob(async (job) => {
+    await run(job, "nohup python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &");
+    await expect
+      .poll(
+        async () =>
+          (
+            await run(
+              job,
+              "curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:8765/",
+            )
+          ).output,
+        // Python takes its time starting on a loaded machine.
+        { timeout: 10_000 },
+      )
+      .toBe("200");
+  });
+}, 20_000);
 
 it("a job's processes see none of the Runner's variables, nor its processes or another job's", async () => {
   vi.stubEnv("ELFLODGE_TEST_RUNNER_VARIABLE", "runner-only");

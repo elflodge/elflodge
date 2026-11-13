@@ -37,7 +37,8 @@ import * as Prompt from "effect/cli/Prompt";
 import packageJson from "../package.json" with { type: "json" };
 import { createRunnerAuth, readApiKey } from "./auth.ts";
 import { fileCredentialStore } from "./credentials.ts";
-import { DEFAULT_SANDBOX_SETTINGS, runRunner } from "./index.ts";
+import { DEFAULT_NETWORK_SETTINGS, DEFAULT_SANDBOX_SETTINGS, runRunner } from "./index.ts";
+import { formatException, NETWORK_MODES, parseException } from "./network.ts";
 
 // Runs a Runner from the environment; `register` discards its own key and registers it again, and
 // `login` signs in to the model's provider. A stop signal interrupts
@@ -134,6 +135,42 @@ const readWebSearch = webSearchSetting.parse(
   ConfigProvider.fromEnv({ preserveEmptyStrings: true }),
 );
 
+/**
+ * An entry of `RUNNER_NETWORK_EXCEPTIONS`, read as `parseException` reads it, or the issue naming
+ * what is wrong with it.
+ */
+const NetworkException = Schema.Trim.pipe(
+  Schema.decodeTo(
+    Schema.Struct({ range: Schema.String, port: Schema.optionalKey(Schema.Number) }),
+    {
+      decode: SchemaGetter.transformEffect((entry: string, options) =>
+        parseException(entry).pipe(
+          Effect.mapError(
+            (invalid) => new SchemaIssue.InvalidValue({ message: invalid.message }, entry, options),
+          ),
+        ),
+      ),
+      encode: SchemaGetter.transform(formatException),
+    },
+  ),
+);
+
+/**
+ * `RUNNER_NETWORK_EXCEPTIONS`: the address ranges jobs may reach although they are local or
+ * private, each on every port or on the one it names, separated by commas, such as
+ * `10.20.0.0/16,192.168.1.10:8080`, a single address being a `/32` or `/128`. Split as
+ * `RUNNER_WEB_SEARCH` is, for the same reason.
+ */
+const networkExceptionsSetting = Config.schema(
+  Schema.String.pipe(
+    Schema.decodeTo(Schema.Array(NetworkException), {
+      decode: SchemaGetter.split(),
+      encode: SchemaGetter.transform((ranges: readonly string[]) => ranges.join(",")),
+    }),
+  ),
+  "RUNNER_NETWORK_EXCEPTIONS",
+).pipe(Config.map(Array.dedupe), Config.withDefault(DEFAULT_NETWORK_SETTINGS.exceptions));
+
 /** The Runner's settings, read from the environment by Effect's default `Config` source. */
 const runnerSettings = Config.all({
   hubUrl: Config.URL("HUB_URL"),
@@ -158,6 +195,12 @@ const runnerSettings = Config.all({
     Config.withDefault(DEFAULT_SANDBOX_SETTINGS.runWithoutSandbox),
   ),
   extensions: extensionsSetting,
+  network: Config.all({
+    mode: Config.Literals(NETWORK_MODES, "RUNNER_NETWORK").pipe(
+      Config.withDefault(DEFAULT_NETWORK_SETTINGS.mode),
+    ),
+    exceptions: networkExceptionsSetting,
+  }),
 });
 
 /**
@@ -372,6 +415,11 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
     if (Option.isNone(extensions) && Option.isSome(extensionSettings)) {
       return yield* refuse("RUNNER_EXTENSION_SETTINGS_DIR is set without RUNNER_EXTENSIONS_DIR.");
     }
+    if (settings.network.mode === "none" && settings.network.exceptions.length > 0) {
+      return yield* refuse(
+        "RUNNER_NETWORK_EXCEPTIONS is set with RUNNER_NETWORK=none, which gives jobs no network to open ranges in.",
+      );
+    }
     const { models, auth } = runnerAuth(settings.dataDir);
     const problem = yield* auth.prepareModel({
       provider: settings.provider,
@@ -396,6 +444,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         jobMemoryLimit: settings.jobMemoryLimit,
         runWithoutSandbox: settings.runWithoutSandbox,
       },
+      network: settings.network,
       extensions: Option.match(extensions, {
         onNone: () => undefined,
         onSome: (dir) => ({ extensions: dir, settings: Option.getOrUndefined(extensionSettings) }),
