@@ -7,7 +7,7 @@ import { namesUnchecked, type NetworkException, sandboxNetwork } from "../src/ne
 // The ask callback is the only check on an IP destination, and names are left to sandbox-runtime's
 // resolved-address guard (ADR 0041), so these ask both directly, as sandbox-runtime's proxies do.
 
-const host = ["192.168.7.20/32", "93.184.0.10/32"];
+const host = () => ["192.168.7.20/32", "93.184.0.10/32"];
 
 async function ask(exceptions: NetworkException[], destination: string, port = 80) {
   const { askCallback } = sandboxNetwork({ mode: "open", exceptions }, host);
@@ -18,7 +18,7 @@ async function ask(exceptions: NetworkException[], destination: string, port = 8
 
 function permits(exceptions: NetworkException[], address: string, port = 80) {
   const { network } = sandboxNetwork({ mode: "open", exceptions }, host);
-  const localAddresses = () => host.map((range) => range.split("/")[0] ?? range);
+  const localAddresses = () => host().map((range) => range.split("/")[0] ?? range);
   return createResolvedAddressGuard({ ...network, localAddresses }).permits(
     "service.example",
     address,
@@ -82,9 +82,19 @@ it("a range opens the Runner's own addresses it covers, but not its loopback or 
   const exceptions = ["192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "fe80::/10"];
   const { network } = sandboxNetwork(
     { mode: "open", exceptions: exceptions.map((range) => ({ range })) },
-    own,
+    () => own,
   );
   expect(network?.allowedDomains).toEqual(["192.168.7.20"]);
+});
+
+it("an address the Runner's host gains after it starts is refused to IP destinations too", async () => {
+  let own = ["192.168.7.20/32"];
+  const { askCallback } = sandboxNetwork({ mode: "open", exceptions: [] }, () => own);
+  expect(await askCallback?.({ host: "93.184.0.20", port: 80 })).toBe(true);
+  own = [...own, "93.184.0.20/32"];
+  expect(await askCallback?.({ host: "93.184.0.20", port: 80 })).toMatchObject({
+    reason: expect.stringContaining("Addresses of the Runner's own host"),
+  });
 });
 
 it("a name is refused where it resolves into a refused range, unless an exception opens it there", () => {

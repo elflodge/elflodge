@@ -91,7 +91,7 @@ Jobs' commands reach the public internet, so jobs can install packages, call pub
 
 Everything on the public internet. Refused:
 
-- the Runner's host: `localhost`, and every address of its network interfaces, as they are at each lookup for a name, and as the Runner started for a typed address;
+- the Runner's host: `localhost`, and every address of its network interfaces, as they are at each request;
 - loopback, link-local and cloud metadata addresses, such as `127.0.0.1`, `169.254.169.254` and Azure's `168.63.129.16`;
 - private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) and shared address space (`100.64.0.0/10`);
 - the other address ranges that IANA's special-purpose registries mark as not globally reachable, such as documentation, benchmarking and reserved addresses, and multicast and broadcast.

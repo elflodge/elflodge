@@ -1,5 +1,4 @@
 import { BlockList, isIP } from "node:net";
-import { networkInterfaces } from "node:os";
 
 import type { SandboxAskCallback, SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 // sandbox-runtime's own reading of a destination's port, of an address range into a BlockList, and
@@ -21,7 +20,10 @@ import {
   canonicalizeHost,
   resolveParentProxy,
 } from "@anthropic-ai/sandbox-runtime/dist/sandbox/parent-proxy.js";
-import { createResolvedAddressGuard } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
+import {
+  createResolvedAddressGuard,
+  localInterfaceAddresses,
+} from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import { containsCidr, excludeCidr, mergeCidr } from "cidr-tools";
 import { Data, Effect, Schema } from "effect";
 
@@ -167,11 +169,14 @@ const REFUSED_CLASSES: readonly {
   },
 ];
 
-/** The unicast addresses on this host's network interfaces now, each as a single-address range. */
+/**
+ * The addresses on this host's network interfaces now, each as a single-address range, as
+ * sandbox-runtime's guard reads them for names. None where they cannot be listed, so that then a
+ * host address in public space is refused neither to names nor to typed addresses, as the guard
+ * accepts for names.
+ */
 export function hostAddresses(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .flatMap((address) => (address ? mergeCidr([address.address]) : []));
+  return localInterfaceAddresses().flatMap((address) => mergeCidr([address]));
 }
 
 /**
@@ -181,18 +186,20 @@ export function hostAddresses(): string[] {
  * which judges where the name resolves.
  *
  * The guard refuses `deniedResolvedAddresses` (here the default classes, less the ranges opened on
- * every port) and its own classes: loopback, link-local, cloud metadata and `host`'s addresses. An
- * address and port in `allowedDomains` overrides both, but that list takes single addresses only
- * (ranges need anthropics/sandbox-runtime#807), so it holds each exception that is one, and
- * `host`'s addresses in each range opened, less those in the guard's own classes. Those classes in
- * an opened range so open only at an address named alone, and the callback holds literals to that
- * rule too.
+ * every port) and its own classes: loopback, link-local, cloud metadata and the host's addresses,
+ * read at each lookup. An address and port in `allowedDomains` overrides both, but that list takes
+ * single addresses only (ranges need anthropics/sandbox-runtime#807), so it holds each exception
+ * that is one, and the host's addresses in each range opened, as `host` gives them now, less those
+ * in the guard's own classes. Those classes in an opened range so open only at an address named
+ * alone, and the callback holds literals to that rule too. The callback reads `host` at each
+ * request, as the guard does, so that an address the host gains later is refused to literals as to
+ * names.
  *
  * Off, everything is refused before the callback, with one reason.
  */
 export function sandboxNetwork(
   settings: NetworkSettings,
-  host: readonly string[],
+  host: () => readonly string[],
 ): {
   network: SandboxRuntimeConfig["network"];
   askCallback?: SandboxAskCallback;
@@ -208,13 +215,14 @@ export function sandboxNetwork(
     name,
     ranges: excludeCidr(ranges, reachable),
   }));
-  const classes = [
-    { name: "Addresses of the Runner's own host", ranges: host },
-    ...refusedRanges,
-  ].map(({ name, ranges }) => ({
-    ranges,
+  const refusal = (name: string) => ({
+    allow: false as const,
+    reason: `${name} are blocked for jobs.${opening}`,
+  });
+  const ownHost = refusal("Addresses of the Runner's own host");
+  const classes = refusedRanges.map(({ name, ranges }) => ({
     addresses: blockList(ranges),
-    refusal: { allow: false as const, reason: `${name} are blocked for jobs.${opening}` },
+    refusal: refusal(name),
   }));
   const exceptions = settings.exceptions.map((exception) => ({
     ...exception,
@@ -224,11 +232,14 @@ export function sandboxNetwork(
   // loopback and link-local addresses: a range opens the host where a container would reach it,
   // while those open only when named alone, as elsewhere. A guard with no allow list sorts them, so
   // that a single address opened on one port does not let a range open it on every port.
+  // An address the host gains later inside an opened range is missing here, so a name resolving to
+  // it is refused while the callback lets it through as a literal; a restart adds it (ADR 0041).
   const plain = createResolvedAddressGuard({ localAddresses: () => [] });
+  const hostNow = host();
   const allowed = settings.exceptions.flatMap(({ range, port }) =>
     (isSingleAddress(range)
       ? [range]
-      : host.filter(
+      : hostNow.filter(
           (address) =>
             // Any port: a guard with no allow list has no rules by port.
             containsCidr(range, address) && plain.permits(PROBE_NAME, bareAddress(address), 1),
@@ -289,7 +300,9 @@ export function sandboxNetwork(
       // it, so it is refused as that address is too, as the guard refuses names. Only the address
       // itself is matched against exceptions, as in the guard, so an exception opens no such form.
       const carried = embeddedIPv4(dialed);
-      const refused = classes.find(
+      // The host's addresses first, so that one in a refused range, such as a LAN address, is
+      // refused as the host's.
+      const refused = [{ addresses: blockList(host()), refusal: ownHost }, ...classes].find(
         ({ addresses }) =>
           addressInSet(addresses, dialed) ||
           (carried !== undefined && addressInSet(addresses, carried)),
