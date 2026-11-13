@@ -6,7 +6,8 @@ export default defineConfig({
     sortImports: true,
     // release-please writes these in its own style, and its release PR must pass checks: the changelog
     // in its Markdown, and the plugin manifest, whose version it bumps, rewritten as JSON.stringify
-    // writes it, one array item per line.
+    // writes it, one array item per line. Oxfmt keeps package.json files in that style, but its
+    // overrides cannot choose it for another file, as Prettier's `json-stringify` parser can.
     ignorePatterns: ["CHANGELOG.md", "skills/.claude-plugin/plugin.json"],
   },
   staged: {
