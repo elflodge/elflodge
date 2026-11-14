@@ -61,7 +61,7 @@ Kept from being sent to a Runner by its Batch: a queued job whose Batch is pause
 _Avoid_: held, paused
 
 **Status unknown**:
-Said of a job sent to a Runner and not yet ended or paused whose current status the hub cannot confirm: it has heard nothing of the job for seven minutes, from its Runner at all or about this job. The job keeps the last status its Runner confirmed, with the reason shown beside it, as it may still be running and carries on once its Runner reports again.
+Said of a job sent to a Runner and not yet ended or paused whose current status the hub cannot confirm: it has heard nothing of the job for two minutes, from its Runner at all or about this job. The job keeps the last status its Runner confirmed, with the reason shown beside it, as it may still be running and carries on once its Runner reports again.
 _Avoid_: stranded, unavailable, lost (a lost journal fails its job)
 
 **Label**:
@@ -120,7 +120,7 @@ What jobs on a Runner can do, as the Runner reports it when it connects: its ver
 _Avoid_: setup, runner config
 
 **Connected**:
-Said of a Runner the hub has heard from within the last seven minutes: recent traffic from it, not an open socket. The jobs placed on a Runner that is not connected, and not yet ended or paused, show their status unknown.
+Said of a Runner the hub has heard from within the last two minutes: recent traffic from it, not an open socket. The jobs placed on a Runner that is not connected, and not yet ended or paused, show their status unknown.
 _Avoid_: online, alive
 
 **Runner protocol**:

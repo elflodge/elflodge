@@ -5,7 +5,7 @@ import { JobId, RunnerId } from "../src/db/types.ts";
 import { type OneJob, protocolClient, startSystem, submitJob } from "./harness.ts";
 
 // A job sent to a Runner keeps the last status its Runner confirmed, and shows `statusUnknown` once
-// the hub has heard nothing of it for seven minutes: from its Runner at all, or about this job. The
+// the hub has heard nothing of it for two minutes: from its Runner at all, or about this job. The
 // jobs are placed on a socket that speaks the protocol directly, and the minutes pass by moving the
 // recorded times back.
 
@@ -20,11 +20,11 @@ const SUBMISSION = {
   outputContract: { schema: { type: "integer" } },
 } satisfies OneJob;
 
-/** Moves what the hub recorded of the Runner `runnerId`, or of the job `jobId`, eight minutes back. */
-async function eightMinutesPass(which: { runnerId: string } | { jobId: string }) {
+/** Moves what the hub recorded of the Runner `runnerId`, or of the job `jobId`, three minutes back. */
+async function threeMinutesPass(which: { runnerId: string } | { jobId: string }) {
   await using database = openDatabase(inject("databaseUrl"));
   const db = database.withSchema(DB_SCHEMA);
-  const back = new Date(Date.now() - 8 * 60_000);
+  const back = new Date(Date.now() - 3 * 60_000);
   if ("runnerId" in which) {
     await db
       .updateTable("runner")
@@ -61,7 +61,7 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   const { client, job, runnerId, socket } = await placedJob();
   expect(await client.jobs.get({ id: job.id })).not.toHaveProperty("statusUnknown");
 
-  await eightMinutesPass({ runnerId });
+  await threeMinutesPass({ runnerId });
 
   const read = await client.jobs.get({ id: job.id });
   expect(read).toMatchObject({
@@ -84,7 +84,7 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
 test("a job its connected Runner stops reporting shows its status unknown until it reports", async () => {
   const { client, job, socket, runner, run } = await placedJob();
 
-  await eightMinutesPass({ jobId: job.id });
+  await threeMinutesPass({ jobId: job.id });
 
   expect(await client.jobs.get({ id: job.id })).toMatchObject({
     status: "queued",

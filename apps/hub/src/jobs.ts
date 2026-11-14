@@ -95,6 +95,7 @@ const JOB_COLUMNS = [
   "pendingControlRequestedAt",
   "customId",
   "labels",
+  "placedAt",
 ] as const;
 const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
 
@@ -126,10 +127,19 @@ function toApiJob(
     blockedBy,
     statusUnknown,
     runner,
+    placedAt,
+    lastReportedAt,
     ...rest
   } = job;
   const summary = {
     usage: { totalTokens, cost: { totalUsd: costUsd } },
+    // A report of the run a resume replaced can still write its time after the resume cleared it
+    // (`controlJob`). Each run is placed once, after its resume, so a time before the current
+    // placement is that old run's.
+    lastReportedAt:
+      placedAt !== null && lastReportedAt !== null && lastReportedAt >= placedAt
+        ? lastReportedAt
+        : null,
     ...(runner === null ? {} : { runner: { ...runner, lastSeenAt: new Date(runner.lastSeenAt) } }),
     ...(statusUnknown === null ? {} : { statusUnknown: { reason: statusUnknown } }),
     ...(job.status === "running" && activity !== null ? { activity } : {}),
@@ -729,8 +739,8 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
         // A resume starts a new run, which has not reported yet; a control changes nothing else of
         // the job's progress. A resumed job held before it started keeps its run ID until it is
         // placed, but no Runner holds that run. A report of the old run already under way, which
-        // locks only this row, can still write its time after this; `statusUnknownOf` takes the
-        // later placement instead.
+        // locks only this row, can still write its time after this; it is older than the new run's
+        // placement, so `toApiJob` does not show it and `statusUnknownOf` takes the placement.
         const progress =
           control === "resume"
             ? await trx
@@ -1337,6 +1347,7 @@ const LISTED_JOB_COLUMNS = [
   "pendingControlRequestedAt",
   "customId",
   "labels",
+  "placedAt",
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
 /**

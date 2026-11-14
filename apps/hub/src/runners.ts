@@ -78,25 +78,29 @@ export const listRunners = Db.use((database) =>
 
 /**
  * How often a Runner syncs when nothing prompts it sooner, told to it in the hub's answer to its
- * hello (ADR 0026): three minutes, for every deployment until one shows a reason to tune it.
+ * hello (ADR 0026): a minute. Its pass over every held job is what keeps each job's recorded report
+ * recent, so the interval bounds how soon `GONE_AFTER_MS` can be.
  */
-export const SYNC_INTERVAL_MS = 180_000;
+export const SYNC_INTERVAL_MS = 60_000;
 
 /**
- * How long a Runner may go unheard before it counts as gone: a sync it missed, the next one, and a
- * minute for it to arrive. Only Runners heard from more recently are told to sync.
+ * How long a Runner, or a job's current run, may go unheard before the hub says so (ADR 0042): two
+ * minutes, how soon a caller should learn that the hub has lost contact, chosen rather than derived.
+ * A healthy Runner's recorded times are at most about 77 seconds old: an interval with its jitter
+ * (66 seconds), a pass over every held job and its report (under a second, measured with 64 jobs),
+ * and `SEEN_WRITE_INTERVAL_MS`. The rest is headroom for a slow host or database. A dropped
+ * connection the Runner redials can show for a moment, which is true while it lasts. Only Runners
+ * heard from more recently are told to sync.
  */
-export const GONE_AFTER_MS = 2 * SYNC_INTERVAL_MS + 60_000;
+export const GONE_AFTER_MS = 120_000;
 
 /**
  * How long a socket's sighting of its Runner, or a report's of its job, goes unwritten when nothing
- * else changes: a third of the sync interval, so a Runner that syncs on time is never recorded as
- * more than about one interval old. Equal to the interval, a sync arriving a little early would
- * skip its write, and the next one's could find `lastSeenAt` nearly two intervals old. The third is
- * our own choice, with no precedent to follow: short enough to keep a recorded time well inside
- * `GONE_AFTER_MS`, long enough that a busy Runner's reports write rarely.
+ * else changes: ten seconds, so a recorded time is never more than that older than what the hub
+ * last heard, whatever the sync interval. It spares a busy Runner's reports, every few seconds, a
+ * write each.
  */
-export const SEEN_WRITE_INTERVAL_MS = SYNC_INTERVAL_MS / 3;
+export const SEEN_WRITE_INTERVAL_MS = 10_000;
 
 /**
  * Whether a Runner last seen at `lastSeenAt` counts as connected at `now`: heard from within

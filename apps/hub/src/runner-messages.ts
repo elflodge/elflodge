@@ -284,8 +284,8 @@ function applyReports(runnerId: RunnerId, reports: JobReport[]) {
  * usage; the answer then gives the Runner the position to read after. An end clears the activity.
  * The job's progress row is locked while the statement reads it, so two reports of one job apply
  * one after the other. Each report of the current run, applied or not, records when it came, at
- * most once a minute when nothing else changes, so a job its Runner stops reporting shows it
- * (`statusUnknownOf`).
+ * most once per `SEEN_WRITE_INTERVAL_MS` when nothing else changes, so a job its Runner stops
+ * reporting shows it (`statusUnknownOf`).
  */
 function applyReportsStatement(
   db: Kysely<Database>,

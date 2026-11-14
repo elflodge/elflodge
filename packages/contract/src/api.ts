@@ -38,12 +38,12 @@ export const runnerSchema = z
     name: z.string(),
     /**
      * When the hub last heard from the Runner: its hello, or the latest sync or report the hub
-     * recorded, to within a minute. A Runner that syncs on time is never more than about one sync
-     * interval, three minutes, behind.
+     * recorded, to within ten seconds. A Runner that syncs on time is never more than about one
+     * sync interval, a minute, behind.
      */
     lastSeenAt: z.date(),
     /**
-     * Whether the hub has heard from the Runner within the last seven minutes, as `lastSeenAt` tells:
+     * Whether the hub has heard from the Runner within the last two minutes, as `lastSeenAt` tells:
      * recent protocol traffic, not an open socket. The jobs placed on a disconnected Runner, and not
      * yet ended or paused, show `statusUnknown`.
      */
@@ -172,7 +172,7 @@ const jobBaseSchema = z.object({
     z.pick(runnerSchema, { id: true, name: true, lastSeenAt: true, connected: true }),
   ),
   /**
-   * When the job's Runner last reported its current run, to within a minute: null until the run
+   * When the job's Runner last reported its current run, to within ten seconds: null until the run
    * first reports, as after a resume, which starts a new run, and once the job is deleted. Its
    * `usage` and `activity` are as of then or earlier, as a report may leave out one it cannot read.
    */
@@ -181,7 +181,7 @@ const jobBaseSchema = z.object({
    * Present while the hub cannot confirm the job's `status`, which is then the last its Runner
    * confirmed: for a job sent to a Runner and not yet ended, paused or cancelled, when its Runner
    * has not been heard from (`runnerDisconnected`), or has, but has not reported this job
-   * (`notReported`), within seven minutes. The job may still be running there, and its Runner
+   * (`notReported`), within two minutes. The job may still be running there, and its Runner
    * carries on from where it was once it reports again; nothing ends it meanwhile. A Runner can
    * stop reporting one job while it reports others, as when that job's journal cannot be read.
    * New values may be added.
