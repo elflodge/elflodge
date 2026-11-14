@@ -21,6 +21,8 @@ export default interface JobProgressTable {
   activity: ColumnType<JobActivity | null, JobActivity | null, JobActivity | null>;
 
   lastReportedAt: ColumnType<Date | null, Date | string | null, Date | string | null>;
+
+  runId: ColumnType<string | null, string | null, string | null>;
 }
 
 export type JobProgress = Selectable<JobProgressTable>;

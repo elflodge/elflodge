@@ -87,7 +87,7 @@ export const SYNC_INTERVAL_MS = 60_000;
  * How long a Runner, or a job's current run, may go unheard before the hub says so (ADR 0042): two
  * minutes, how soon a caller should learn that the hub has lost contact, chosen rather than derived.
  * A healthy Runner's recorded times are at most about 77 seconds old: an interval with its jitter
- * (66 seconds), a pass over every held job and its report (under a second, measured with 64 jobs),
+ * (66 seconds), a pass over every held job and its report (under a second, measured with 64 idle jobs),
  * and `SEEN_WRITE_INTERVAL_MS`. The rest is headroom for a slow host or database. A dropped
  * connection the Runner redials can show for a moment, which is true while it lasts. Only Runners
  * heard from more recently are told to sync.

@@ -397,6 +397,11 @@ function applyReportsStatement(
               eb.case().when(usageApplies).then(reported).else(stored).end();
             return [
               fresh.as("fresh"),
+              // Whether the report's run may write the time of the job's last report. Read from the
+              // locked progress row, which Postgres reads at its latest version once it holds the
+              // lock, unlike the job row joined above: a report of a run a resume replaced can pass
+              // that join after the resume commits, but not this.
+              eb("p.runId", "=", eb.ref("r.runId")).as("holdsRun"),
               eb
                 .case()
                 .when(fresh)
@@ -434,7 +439,12 @@ function applyReportsStatement(
             // Any report of the current run counts, one behind the hub's position or partway
             // through a backlog included: the job is reporting, so its state is not unknown.
             // Never back: two reports can be applied out of order. `greatest` skips a null.
-            lastReportedAt: eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]),
+            lastReportedAt: eb
+              .case()
+              .when("c.holdsRun", "=", true)
+              .then(eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]))
+              .else(eb.ref("p.lastReportedAt"))
+              .end(),
           }))
           .whereRef("p.jobId", "=", "c.jobId")
           // A report that changes nothing leaves the row as it is, unless the time of its last
@@ -444,12 +454,17 @@ function applyReportsStatement(
               eb("c.nextPosition", "is distinct from", eb.ref("p.position")),
               eb("c.nextUsage", "is distinct from", eb.ref("p.usage")),
               eb("c.nextActivity", "is distinct from", eb.ref("p.activity")),
-              eb("p.lastReportedAt", "is", null),
-              eb(
-                "p.lastReportedAt",
-                "<=",
-                eb.val(new Date(now.getTime() - SEEN_WRITE_INTERVAL_MS)),
-              ),
+              eb.and([
+                eb("c.holdsRun", "=", true),
+                eb.or([
+                  eb("p.lastReportedAt", "is", null),
+                  eb(
+                    "p.lastReportedAt",
+                    "<=",
+                    eb.val(new Date(now.getTime() - SEEN_WRITE_INTERVAL_MS)),
+                  ),
+                ]),
+              ]),
             ]),
           ),
       )
@@ -733,6 +748,18 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
                 .skipLocked(),
             )
             .returning(RUN_COLUMNS),
+        )
+        // The run each placed job's reports may write its last report's time for, in step with
+        // the job's `runId`. A resume on the job's Runner set it already; a new job's first run and
+        // a job resumed before it started get theirs here, which no report can hold yet, so this
+        // locks no progress row a report may be waiting on.
+        .with("fenced", (qb) =>
+          qb
+            .updateTable("jobProgress")
+            .from("placed")
+            .set((eb) => ({ runId: eb.ref("placed.runId"), lastReportedAt: null }))
+            .whereRef("jobProgress.jobId", "=", "placed.id")
+            .where((eb) => eb("jobProgress.runId", "is distinct from", eb.ref("placed.runId"))),
         )
         .with("wanted", (qb) =>
           qb
