@@ -184,9 +184,13 @@ const jobBaseSchema = z.object({
    * (`notReported`), within two minutes. The job may still be running there, and its Runner
    * carries on from where it was once it reports again; nothing ends it meanwhile. A Runner can
    * stop reporting one job while it reports others, as when that job's journal cannot be read.
-   * New values may be added.
+   * New reasons may be added. `since` is when the status became unknown, whatever the reason
+   * now: two minutes after the earlier of the job's last report, or its placement before its first,
+   * and its Runner's last contact.
    */
-  statusUnknown: z.optional(z.object({ reason: z.enum(["runnerDisconnected", "notReported"]) })),
+  statusUnknown: z.optional(
+    z.object({ reason: z.enum(["runnerDisconnected", "notReported"]), since: z.date() }),
+  ),
 });
 
 /**

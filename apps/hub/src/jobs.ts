@@ -28,7 +28,7 @@ import {
   sql,
   type Transaction,
 } from "kysely";
-import { jsonArrayFrom, jsonObjectFrom } from "kysely/helpers/postgres";
+import { jsonArrayFrom, jsonBuildObject, jsonObjectFrom } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
 import { keyMetadataSchema } from "./auth/auth.ts";
@@ -109,7 +109,7 @@ function toApiJob(
     Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
       batchId: string;
       blockedBy: BlockedBy | null;
-      statusUnknown: StatusUnknownReason | null;
+      statusUnknown: StatusUnknownOfJob | null;
       runner: RunnerOfJob | null;
     },
 ): Job {
@@ -131,7 +131,14 @@ function toApiJob(
   const summary = {
     usage: { totalTokens, cost: { totalUsd: costUsd } },
     ...(runner === null ? {} : { runner: { ...runner, lastSeenAt: new Date(runner.lastSeenAt) } }),
-    ...(statusUnknown === null ? {} : { statusUnknown: { reason: statusUnknown } }),
+    ...(statusUnknown === null
+      ? {}
+      : {
+          statusUnknown: {
+            reason: statusUnknown.reason,
+            since: new Date(new Date(statusUnknown.lastHeardAt).getTime() + GONE_AFTER_MS),
+          },
+        }),
     ...(job.status === "running" && activity !== null ? { activity } : {}),
     // The migration keeps the two set together.
     ...(pendingControl !== null && pendingControlRequestedAt !== null
@@ -215,13 +222,15 @@ export function runnerOf(runnerId: Expression<RunnerId | null>, now: Date) {
 }
 
 /**
- * Why the hub cannot confirm the job's status at `now`, or null when it can (`Job["statusUnknown"]`).
- * Only a job sent to a Runner and not yet ended or paused waits on that Runner's reports. Its
- * Runner not connected (`connectedOf`) is `runnerDisconnected`; otherwise its current run's last
- * report, or the run's placement before the first, older than `GONE_AFTER_MS` is `notReported`, as
- * when the job's journal cannot be read. Worked out where it is read, so no disconnection is
- * recorded, nothing must clear it, and a Runner's reconnection leaves a job it still does not
- * report as it was.
+ * Why the hub cannot confirm the job's status at `now`, and since when, or null when it can
+ * (`Job["statusUnknown"]`). Only a job sent to a Runner and not yet ended or paused waits on that
+ * Runner's reports. Its Runner not connected (`connectedOf`) is `runnerDisconnected`; otherwise its
+ * current run's last report, or the run's placement before the first, older than `GONE_AFTER_MS`
+ * is `notReported`, as when the job's journal cannot be read. It began `GONE_AFTER_MS` after the
+ * earlier of the two times, the moment it would first have shown on any read, so a reason that
+ * changes, as when the Runner of a job it already did not report goes silent, keeps it. Worked out
+ * where it is read, so no disconnection is recorded, nothing must clear it, and a Runner's
+ * reconnection leaves a job it still does not report as it was.
  */
 export function statusUnknownOf(
   job: {
@@ -231,37 +240,42 @@ export function statusUnknownOf(
     lastReportedAt: Expression<JobProgressRow["lastReportedAt"]>;
   },
   now: Date,
-): AliasableExpression<StatusUnknownReason | null> {
+): AliasableExpression<StatusUnknownOfJob | null> {
   const eb = expressionBuilder<Database>();
   const before = eb.val(new Date(now.getTime() - GONE_AFTER_MS));
-  return (
-    eb
-      .case()
-      .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
-      .then(eb.lit(null))
-      .when(
-        eb.not(
-          connectedOf(
-            eb
-              .selectFrom("runner as silentRunner")
-              .select("silentRunner.lastSeenAt")
-              .where((where) => where("silentRunner.id", "=", job.runnerId))
-              .$asScalar()
-              // A removed Runner's job has ended.
-              .$notNull(),
-            now,
-          ),
-        ),
-      )
-      .then(eb.val<StatusUnknownReason>("runnerDisconnected"))
-      // The later of the two, `greatest` skipping a null: right also for a run placed again without a
-      // resume, which would keep its last run's time.
-      .when(eb(eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]), "<=", before))
-      .then(eb.val<StatusUnknownReason>("notReported"))
-      .else(eb.lit(null))
-      .end()
-  );
+  const runnerLastSeen = eb
+    .selectFrom("runner as silentRunner")
+    .select("silentRunner.lastSeenAt")
+    .where((where) => where("silentRunner.id", "=", job.runnerId))
+    .$asScalar()
+    // A removed Runner's job has ended.
+    .$notNull();
+  // The later of the two, `greatest` skipping a null: right also for a run placed again without a
+  // resume, which would keep its last run's time.
+  const jobLastHeard = eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]);
+  const unknown = (reason: StatusUnknownReason) =>
+    jsonBuildObject({
+      // Typed, as `json_build_object` takes any type and so cannot infer a parameter's.
+      reason: eb.cast<StatusUnknownReason>(eb.val(reason), "text"),
+      lastHeardAt: eb.fn<Date>("least", [jobLastHeard, runnerLastSeen]),
+    });
+  return eb
+    .case()
+    .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
+    .then(eb.lit(null))
+    .when(eb.not(connectedOf(runnerLastSeen, now)))
+    .then(unknown("runnerDisconnected"))
+    .when(eb(jobLastHeard, "<=", before))
+    .then(unknown("notReported"))
+    .else(eb.lit(null))
+    .end();
 }
+
+/**
+ * `Job["statusUnknown"]` as SQL builds it: its reason, and the last time the hub heard of the job,
+ * a JSON string, from which it began `GONE_AFTER_MS` later.
+ */
+type StatusUnknownOfJob = { reason: StatusUnknownReason; lastHeardAt: string };
 
 /** The ID the API shows of the Batch whose row is `batchUid`, a job's Batch's (ADR 0036). */
 export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<string> {

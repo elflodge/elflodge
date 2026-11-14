@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId, RunnerId } from "../src/db/types.ts";
+import { GONE_AFTER_MS } from "../src/runners.ts";
 import { type OneJob, protocolClient, startSystem, submitJob } from "./harness.ts";
 
 // A job sent to a Runner keeps the last status its Runner confirmed, and shows `statusUnknown` once
@@ -20,7 +21,10 @@ const SUBMISSION = {
   outputContract: { schema: { type: "integer" } },
 } satisfies OneJob;
 
-/** Moves what the hub recorded of the Runner `runnerId`, or of the job `jobId`, three minutes back. */
+/**
+ * Moves what the hub recorded of the Runner `runnerId`, or of the job `jobId`, three minutes back;
+ * returns when the job's status became unknown, `GONE_AFTER_MS` after that.
+ */
 async function threeMinutesPass(which: { runnerId: string } | { jobId: string }) {
   await using database = openDatabase(inject("databaseUrl"));
   const db = database.withSchema(DB_SCHEMA);
@@ -43,6 +47,7 @@ async function threeMinutesPass(which: { runnerId: string } | { jobId: string })
       .where("jobId", "=", JobId(which.jobId))
       .execute();
   }
+  return new Date(back.getTime() + GONE_AFTER_MS);
 }
 
 /** Submits a job and places it on a new Runner's socket, which holds it without reporting. */
@@ -61,12 +66,12 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   const { client, job, runnerId, socket } = await placedJob();
   expect(await client.jobs.get({ id: job.id })).not.toHaveProperty("statusUnknown");
 
-  await threeMinutesPass({ runnerId });
+  const since = await threeMinutesPass({ runnerId });
 
   const read = await client.jobs.get({ id: job.id });
   expect(read).toMatchObject({
     status: "queued",
-    statusUnknown: { reason: "runnerDisconnected" },
+    statusUnknown: { reason: "runnerDisconnected", since },
     runner: { id: runnerId, connected: false },
   });
   if (read.batchId === undefined) throw new Error("The job has no Batch");
@@ -84,11 +89,11 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
 test("a job its connected Runner stops reporting shows its status unknown until it reports", async () => {
   const { client, job, socket, runner, run } = await placedJob();
 
-  await threeMinutesPass({ jobId: job.id });
+  const since = await threeMinutesPass({ jobId: job.id });
 
   expect(await client.jobs.get({ id: job.id })).toMatchObject({
     status: "queued",
-    statusUnknown: { reason: "notReported" },
+    statusUnknown: { reason: "notReported", since },
     runner: { connected: true },
   });
 
