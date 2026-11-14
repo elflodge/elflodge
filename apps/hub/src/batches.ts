@@ -34,7 +34,7 @@ import {
   limitProblems,
   readJobs,
   outputContractProblems,
-  statusUnknownOf,
+  isStatusUnknown,
   type Submitter,
   UNFINISHED,
   USAGE_COPIED_COLUMNS,
@@ -98,7 +98,7 @@ export async function readBatch(
               agg.fn
                 .countAll<number>()
                 .filterWhere(
-                  statusUnknownOf(
+                  isStatusUnknown(
                     {
                       status: agg.ref("j.status"),
                       placedAt: agg.ref("j.placedAt"),
@@ -107,8 +107,6 @@ export async function readBatch(
                     },
                     now,
                   ),
-                  "is not",
-                  null,
                 )
                 .as("statusUnknown"),
               // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.

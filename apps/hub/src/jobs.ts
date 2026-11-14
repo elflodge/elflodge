@@ -25,6 +25,7 @@ import {
   expressionBuilder,
   type Kysely,
   type QueryCreator,
+  type SqlBool,
   sql,
   type Transaction,
 } from "kysely";
@@ -136,7 +137,7 @@ function toApiJob(
       : {
           statusUnknown: {
             reason: statusUnknown.reason,
-            since: new Date(new Date(statusUnknown.lastHeardAt).getTime() + GONE_AFTER_MS),
+            since: new Date(statusUnknown.since),
           },
         }),
     ...(job.status === "running" && activity !== null ? { activity } : {}),
@@ -221,28 +222,24 @@ export function runnerOf(runnerId: Expression<RunnerId | null>, now: Date) {
   );
 }
 
+/** What `statusUnknownOf` and `isStatusUnknown` read of a job. */
+interface StatusUnknownInput {
+  status: Expression<JobRow["status"]>;
+  placedAt: Expression<JobRow["placedAt"]>;
+  runnerId: Expression<JobRow["runnerId"]>;
+  lastReportedAt: Expression<JobProgressRow["lastReportedAt"]>;
+}
+
 /**
- * Why the hub cannot confirm the job's status at `now`, and since when, or null when it can
- * (`Job["statusUnknown"]`). Only a job sent to a Runner and not yet ended or paused waits on that
- * Runner's reports. Its Runner not connected (`connectedOf`) is `runnerDisconnected`; otherwise its
- * current run's last report, or the run's placement before the first, older than `GONE_AFTER_MS`
- * is `notReported`, as when the job's journal cannot be read. It began `GONE_AFTER_MS` after the
- * earlier of the two times, the moment it would first have shown on any read, so a reason that
- * changes, as when the Runner of a job it already did not report goes silent, keeps it. Worked out
- * where it is read, so no disconnection is recorded, nothing must clear it, and a Runner's
- * reconnection leaves a job it still does not report as it was.
+ * The rule `statusUnknownOf` explains and `isStatusUnknown` tests. Only a job sent to a Runner and
+ * not yet ended or paused waits on that Runner's reports (`waits`). Its Runner not connected
+ * (`connectedOf`) is `runnerDisconnected`; otherwise its current run's last report, or the run's
+ * placement before the first, older than `GONE_AFTER_MS` is `notReported`, as when the job's
+ * journal cannot be read. Worked out where it is read, so no disconnection is recorded, nothing must
+ * clear it, and a Runner's reconnection leaves a job it still does not report as it was.
  */
-export function statusUnknownOf(
-  job: {
-    status: Expression<JobRow["status"]>;
-    placedAt: Expression<JobRow["placedAt"]>;
-    runnerId: Expression<JobRow["runnerId"]>;
-    lastReportedAt: Expression<JobProgressRow["lastReportedAt"]>;
-  },
-  now: Date,
-): AliasableExpression<StatusUnknownOfJob | null> {
+function statusUnknownRule(job: StatusUnknownInput, now: Date) {
   const eb = expressionBuilder<Database>();
-  const before = eb.val(new Date(now.getTime() - GONE_AFTER_MS));
   const runnerLastSeen = eb
     .selectFrom("runner as silentRunner")
     .select("silentRunner.lastSeenAt")
@@ -253,29 +250,61 @@ export function statusUnknownOf(
   // The later of the two, `greatest` skipping a null: right also for a run placed again without a
   // resume, which would keep its last run's time.
   const jobLastHeard = eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]);
+  return {
+    runnerLastSeen,
+    jobLastHeard,
+    waits: eb.and([eb(job.status, "in", QUEUED_OR_RUNNING), eb(job.placedAt, "is not", null)]),
+    runnerDisconnected: eb.not(connectedOf(runnerLastSeen, now)),
+    notReported: eb(jobLastHeard, "<=", eb.val(new Date(now.getTime() - GONE_AFTER_MS))),
+  };
+}
+
+/**
+ * Whether the hub cannot confirm the job's status at `now` (`statusUnknownRule`), for a filter or a
+ * count, which need not build what `statusUnknownOf` explains.
+ */
+export function isStatusUnknown(job: StatusUnknownInput, now: Date): Expression<SqlBool> {
+  const eb = expressionBuilder<Database>();
+  const rule = statusUnknownRule(job, now);
+  return eb.and([rule.waits, eb.or([rule.runnerDisconnected, rule.notReported])]);
+}
+
+/**
+ * Why the hub cannot confirm the job's status at `now` (`statusUnknownRule`), and since when, or
+ * null when it can (`Job["statusUnknown"]`). It began `GONE_AFTER_MS` after the earlier of the
+ * job's and its Runner's last times, the moment it would first have shown on any read, so a reason
+ * that changes, as when the Runner of a job it already did not report goes silent, keeps it.
+ */
+export function statusUnknownOf(
+  job: StatusUnknownInput,
+  now: Date,
+): AliasableExpression<StatusUnknownOfJob | null> {
+  const eb = expressionBuilder<Database>();
+  const rule = statusUnknownRule(job, now);
+  const since = eb.fn<Date>("date_add", [
+    eb.fn<Date>("least", [rule.jobLastHeard, rule.runnerLastSeen]),
+    eb.cast(eb.val(`${GONE_AFTER_MS} milliseconds`), sql`interval`),
+  ]);
   const unknown = (reason: StatusUnknownReason) =>
     jsonBuildObject({
       // Typed, as `json_build_object` takes any type and so cannot infer a parameter's.
       reason: eb.cast<StatusUnknownReason>(eb.val(reason), "text"),
-      lastHeardAt: eb.fn<Date>("least", [jobLastHeard, runnerLastSeen]),
+      since,
     });
   return eb
     .case()
-    .when(eb.or([eb(job.status, "not in", QUEUED_OR_RUNNING), eb(job.placedAt, "is", null)]))
+    .when(eb.not(rule.waits))
     .then(eb.lit(null))
-    .when(eb.not(connectedOf(runnerLastSeen, now)))
+    .when(rule.runnerDisconnected)
     .then(unknown("runnerDisconnected"))
-    .when(eb(jobLastHeard, "<=", before))
+    .when(rule.notReported)
     .then(unknown("notReported"))
     .else(eb.lit(null))
     .end();
 }
 
-/**
- * `Job["statusUnknown"]` as SQL builds it: its reason, and the last time the hub heard of the job,
- * a JSON string, from which it began `GONE_AFTER_MS` later.
- */
-type StatusUnknownOfJob = { reason: StatusUnknownReason; lastHeardAt: string };
+/** `Job["statusUnknown"]` as SQL builds it, its time a JSON string. */
+type StatusUnknownOfJob = { reason: StatusUnknownReason; since: string };
 
 /** The ID the API shows of the Batch whose row is `batchUid`, a job's Batch's (ADR 0036). */
 export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<string> {
@@ -1261,6 +1290,18 @@ export interface JobListQuery {
   limit: number;
 }
 
+/** What `statusUnknownOf` reads of a listed job, `j` and its progress `p`. */
+function listedJobOf(
+  eb: ExpressionBuilder<Database & { j: JobRow; p: JobProgressRow }, "j" | "p">,
+): StatusUnknownInput {
+  return {
+    status: eb.ref("j.status"),
+    placedAt: eb.ref("j.placedAt"),
+    runnerId: eb.ref("j.runnerId"),
+    lastReportedAt: eb.ref("p.lastReportedAt"),
+  };
+}
+
 /**
  * A page of jobs matching `query`, newest first, after the job `query.after`: at most
  * `query.limit` of them, without their content, and whether more follow.
@@ -1270,18 +1311,6 @@ export function listJobs(query: JobListQuery) {
     database.query(async (db) => {
       const { statuses, labels, batchId, customId, statusUnknown, after, limit } = query;
       const now = new Date();
-      const unknownOf = (
-        eb: ExpressionBuilder<Database & { j: JobRow; p: JobProgressRow }, "j" | "p">,
-      ) =>
-        statusUnknownOf(
-          {
-            status: eb.ref("j.status"),
-            placedAt: eb.ref("j.placedAt"),
-            runnerId: eb.ref("j.runnerId"),
-            lastReportedAt: eb.ref("p.lastReportedAt"),
-          },
-          now,
-        );
       let selection = db
         .selectFrom("job as j")
         .innerJoin("jobProgress as p", "p.jobId", "j.id")
@@ -1299,11 +1328,13 @@ export function listJobs(query: JobListQuery) {
           }).as("blockedBy"),
           batchIdOf(eb.ref("j.batchUid")).as("batchId"),
           runnerOf(eb.ref("j.runnerId"), now).as("runner"),
-          unknownOf(eb).as("statusUnknown"),
+          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
         ]);
       if (statusUnknown !== undefined) {
         selection = selection.where((eb) =>
-          eb(unknownOf(eb), statusUnknown ? "is not" : "is", null),
+          statusUnknown
+            ? isStatusUnknown(listedJobOf(eb), now)
+            : eb.not(isStatusUnknown(listedJobOf(eb), now)),
         );
       }
       if (statuses.length > 0) {
