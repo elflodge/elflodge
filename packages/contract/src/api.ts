@@ -179,14 +179,15 @@ const jobBaseSchema = z.object({
   lastReportedAt: z.nullable(z.date()),
   /**
    * Present while the hub cannot confirm the job's `status`, which is then the last its Runner
-   * confirmed: for a job sent to a Runner and not yet ended, paused or cancelled, when its Runner
-   * has not been heard from (`runnerDisconnected`), or has, but has not reported this job
-   * (`notReported`), within two minutes. The job may still be running there, and its Runner
-   * carries on from where it was once it reports again; nothing ends it meanwhile. A Runner can
-   * stop reporting one job while it reports others, as when that job's journal cannot be read.
-   * New reasons may be added. `since` is when the status became unknown, whatever the reason
-   * now: two minutes after the earlier of the job's last report, or its placement before its first,
-   * and its Runner's last contact.
+   * confirmed: for a job sent to a Runner and not yet ended, paused or cancelled, when the job has
+   * not been reported, nor placed, within two minutes. `reason` says why: its Runner has not been
+   * heard from either (`runnerDisconnected`), or has, but has not reported this job
+   * (`notReported`). The job may still be running there, and its Runner carries on from where it
+   * was once it reports again; nothing ends it meanwhile. A Runner can stop reporting one job while
+   * it reports others, as when that job's journal cannot be read. New reasons may be added.
+   * `since` is when the status became unknown, two minutes after the job was last reported or
+   * placed, and stays while it lasts, whatever the reason; only a report whose write took the hub
+   * two minutes or more moves it.
    */
   statusUnknown: z.optional(
     z.object({ reason: z.enum(["runnerDisconnected", "notReported"]), since: z.date() }),

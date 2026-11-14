@@ -120,7 +120,7 @@ What jobs on a Runner can do, as the Runner reports it when it connects: its ver
 _Avoid_: setup, runner config
 
 **Connected**:
-Said of a Runner the hub has heard from within the last two minutes: recent traffic from it, not an open socket. The jobs placed on a Runner that is not connected, and not yet ended or paused, show their status unknown.
+Said of a Runner the hub has heard from within the last two minutes: recent traffic from it, not an open socket. The jobs placed on a Runner that is not connected, and not yet ended or paused, go unreported too and show their status unknown.
 _Avoid_: online, alive
 
 **Runner protocol**:

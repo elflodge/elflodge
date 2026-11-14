@@ -22,32 +22,36 @@ const SUBMISSION = {
 } satisfies OneJob;
 
 /**
- * Moves what the hub recorded of the Runner `runnerId`, or of the job `jobId`, three minutes back;
- * returns when the job's status became unknown, `GONE_AFTER_MS` after that.
+ * Moves what the hub recorded of the job `jobId`, and of the Runner `runnerId` when given, three
+ * minutes back; returns when the job's status became unknown, `GONE_AFTER_MS` after that.
  */
-async function threeMinutesPass(which: { runnerId: string } | { jobId: string }) {
+async function threeMinutesPass(which: { jobId: string; runnerId?: string }) {
   await using database = openDatabase(inject("databaseUrl"));
   const db = database.withSchema(DB_SCHEMA);
   const back = new Date(Date.now() - 3 * 60_000);
-  if ("runnerId" in which) {
-    await db
-      .updateTable("runner")
-      .set({ lastSeenAt: back })
-      .where("id", "=", RunnerId(which.runnerId))
-      .execute();
-  } else {
-    await db
-      .updateTable("job")
-      .set({ placedAt: back })
-      .where("id", "=", JobId(which.jobId))
-      .execute();
-    await db
-      .updateTable("jobProgress")
-      .set({ lastReportedAt: back })
-      .where("jobId", "=", JobId(which.jobId))
-      .execute();
-  }
+  await db
+    .updateTable("job")
+    .set({ placedAt: back })
+    .where("id", "=", JobId(which.jobId))
+    .execute();
+  await db
+    .updateTable("jobProgress")
+    .set({ lastReportedAt: back })
+    .where("jobId", "=", JobId(which.jobId))
+    .execute();
+  if (which.runnerId !== undefined) await runnerSeenAt(which.runnerId, back);
   return new Date(back.getTime() + GONE_AFTER_MS);
+}
+
+/** Records the Runner `runnerId` as last seen at `at`. */
+async function runnerSeenAt(runnerId: string, at: Date) {
+  await using database = openDatabase(inject("databaseUrl"));
+  await database
+    .withSchema(DB_SCHEMA)
+    .updateTable("runner")
+    .set({ lastSeenAt: at })
+    .where("id", "=", RunnerId(runnerId))
+    .execute();
 }
 
 /** Submits a job and places it on a new Runner's socket, which holds it without reporting. */
@@ -66,7 +70,7 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   const { client, job, runnerId, socket } = await placedJob();
   expect(await client.jobs.get({ id: job.id })).not.toHaveProperty("statusUnknown");
 
-  const since = await threeMinutesPass({ runnerId });
+  const since = await threeMinutesPass({ jobId: job.id, runnerId });
 
   const read = await client.jobs.get({ id: job.id });
   expect(read).toMatchObject({
@@ -83,6 +87,13 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   expect(unknown.jobs.map(({ id }) => id)).toEqual([job.id]);
   const known = await client.jobs.list({ batchId: read.batchId, statusUnknown: false });
   expect(known.jobs).toEqual([]);
+
+  // Heard from again without reporting the job: the reason changes, the time it began does not.
+  await runnerSeenAt(runnerId, new Date());
+  expect(await client.jobs.get({ id: job.id })).toMatchObject({
+    statusUnknown: { reason: "notReported", since },
+    runner: { connected: true },
+  });
   socket.close(1000);
 });
 

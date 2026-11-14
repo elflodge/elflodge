@@ -232,11 +232,15 @@ interface StatusUnknownInput {
 
 /**
  * The rule `statusUnknownOf` explains and `isStatusUnknown` tests. Only a job sent to a Runner and
- * not yet ended or paused waits on that Runner's reports (`waits`). Its Runner not connected
- * (`connectedOf`) is `runnerDisconnected`; otherwise its current run's last report, or the run's
- * placement before the first, older than `GONE_AFTER_MS` is `notReported`, as when the job's
- * journal cannot be read. Worked out where it is read, so no disconnection is recorded, nothing must
- * clear it, and a Runner's reconnection leaves a job it still does not report as it was.
+ * not yet ended or paused waits on that Runner's reports (`waits`). Its status is unknown once its
+ * current run's last report, or the run's placement before the first, is older than
+ * `GONE_AFTER_MS` (`unheard`). Its Runner's time only says why: not connected (`connectedOf`) is
+ * `runnerDisconnected`, otherwise `notReported`, as when the job's journal cannot be read. The
+ * job's own time decides, as each report of it and its placement is contact from its Runner, so
+ * the Runner's recorded time is never the later evidence, only one that went unwritten for up to
+ * `SEEN_WRITE_INTERVAL_MS`; and as only a report of the job changes it, which ends the unknown
+ * period, a Runner that reconnects without reporting the job changes only the reason. Worked out
+ * where it is read, so no disconnection is recorded and nothing must clear it.
  */
 function statusUnknownRule(job: StatusUnknownInput, now: Date) {
   const eb = expressionBuilder<Database>();
@@ -251,11 +255,10 @@ function statusUnknownRule(job: StatusUnknownInput, now: Date) {
   // resume, which would keep its last run's time.
   const jobLastHeard = eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]);
   return {
-    runnerLastSeen,
     jobLastHeard,
     waits: eb.and([eb(job.status, "in", QUEUED_OR_RUNNING), eb(job.placedAt, "is not", null)]),
+    unheard: eb(jobLastHeard, "<=", eb.val(new Date(now.getTime() - GONE_AFTER_MS))),
     runnerDisconnected: eb.not(connectedOf(runnerLastSeen, now)),
-    notReported: eb(jobLastHeard, "<=", eb.val(new Date(now.getTime() - GONE_AFTER_MS))),
   };
 }
 
@@ -266,14 +269,15 @@ function statusUnknownRule(job: StatusUnknownInput, now: Date) {
 export function isStatusUnknown(job: StatusUnknownInput, now: Date): Expression<SqlBool> {
   const eb = expressionBuilder<Database>();
   const rule = statusUnknownRule(job, now);
-  return eb.and([rule.waits, eb.or([rule.runnerDisconnected, rule.notReported])]);
+  return eb.and([rule.waits, rule.unheard]);
 }
 
 /**
  * Why the hub cannot confirm the job's status at `now` (`statusUnknownRule`), and since when, or
- * null when it can (`Job["statusUnknown"]`). It began `GONE_AFTER_MS` after the earlier of the
- * job's and its Runner's last times, the moment it would first have shown on any read, so a reason
- * that changes, as when the Runner of a job it already did not report goes silent, keeps it.
+ * null when it can (`Job["statusUnknown"]`). It began `GONE_AFTER_MS` after the job was last heard
+ * of, the moment it first showed on any read, and keeps that while it lasts, whatever its reason.
+ * A report's time is taken before its write, so one whose write commits `GONE_AFTER_MS` or more
+ * later moves it without ending it.
  */
 export function statusUnknownOf(
   job: StatusUnknownInput,
@@ -283,7 +287,7 @@ export function statusUnknownOf(
   const rule = statusUnknownRule(job, now);
   // A `timestamptz` plus an `interval`, which Kysely types only as operands of one type.
   const since = eb(
-    eb.fn("least", [rule.jobLastHeard, rule.runnerLastSeen]),
+    rule.jobLastHeard.$castTo<unknown>(),
     "+",
     eb.cast(eb.val(`${GONE_AFTER_MS} milliseconds`), sql`interval`),
   ).$castTo<Date>();
@@ -295,13 +299,11 @@ export function statusUnknownOf(
     });
   return eb
     .case()
-    .when(eb.not(rule.waits))
+    .when(eb.not(eb.and([rule.waits, rule.unheard])))
     .then(eb.lit(null))
     .when(rule.runnerDisconnected)
     .then(unknown("runnerDisconnected"))
-    .when(rule.notReported)
-    .then(unknown("notReported"))
-    .else(eb.lit(null))
+    .else(unknown("notReported"))
     .end();
 }
 
