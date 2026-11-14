@@ -27,13 +27,8 @@ allowBuilds:
   ssh2: false
   # The Runner's dependencies. pi-ai's Google SDK has a no-op install script.
   "@google/genai": false
-# sandbox-runtime's Windows backend, about 170 MB with the native modules it brings: the Runner does
-# not run on native Windows, so neither installing nor building it serves anything. Drop this once
-# a sandbox-runtime release includes anthropics/sandbox-runtime#822, which makes it an optional peer.
-ignoredOptionalDependencies:
-  - "@microsoft/mxc-sdk"
 catalog:
-  "@anthropic-ai/sandbox-runtime": ^0.0.82
+  "@anthropic-ai/sandbox-runtime": ^0.0.83
   "@better-auth/api-key": 1.7.18
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
@@ -126,6 +121,6 @@ patchedDependencies:
   # contains its change: anthropics/sandbox-runtime#594 (no `which` spawn for the shell; the patch
   # only skips it for an absolute path, see JOB_SHELL in apps/runner/src/sandbox.ts) and the part of
   # #597 that puts a refusal's reason in the body of a plain-HTTP 403.
-  "@anthropic-ai/sandbox-runtime@0.0.82": patches/@anthropic-ai__sandbox-runtime@0.0.82.patch
+  "@anthropic-ai/sandbox-runtime@0.0.83": patches/@anthropic-ai__sandbox-runtime@0.0.83.patch
   "@types/folder-hash@4.0.4": patches/@types__folder-hash@4.0.4.patch
   generate-license-file: patches/generate-license-file.patch
