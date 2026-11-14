@@ -67,7 +67,7 @@ async function placedJob() {
 }
 
 test("a job whose Runner goes unheard shows its status unknown, counted and listed", async () => {
-  const { client, job, runnerId, socket } = await placedJob();
+  const { client, job, runnerId, socket, runner } = await placedJob();
   expect(await client.jobs.get({ id: job.id })).not.toHaveProperty("statusUnknown");
 
   const since = await threeMinutesPass({ jobId: job.id, runnerId });
@@ -89,7 +89,7 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   expect(known.jobs).toEqual([]);
 
   // Heard from again without reporting the job: the reason changes, the time it began does not.
-  await runnerSeenAt(runnerId, new Date());
+  await runner.request("hello", { name: "host-1" }, 10_000);
   expect(await client.jobs.get({ id: job.id })).toMatchObject({
     statusUnknown: { reason: "notReported", since },
     runner: { connected: true },
