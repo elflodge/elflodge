@@ -165,8 +165,8 @@ settings:
 catalogs:
   default:
     '@anthropic-ai/sandbox-runtime':
-      specifier: ^0.0.82
-      version: 0.0.82
+      specifier: ^0.0.83
+      version: 0.0.83
     '@better-auth/api-key':
       specifier: 1.7.18
       version: 1.7.18
@@ -393,7 +393,7 @@ overrides:
   vitest@*: 5.1.0
 
 patchedDependencies:
-  '@anthropic-ai/sandbox-runtime@0.0.82': aecc62792e5f8e9802e40c57b421837c27d3a72df44a68597443937d217aa14e
+  '@anthropic-ai/sandbox-runtime@0.0.83': aecc62792e5f8e9802e40c57b421837c27d3a72df44a68597443937d217aa14e
   '@types/folder-hash@4.0.4': c272fda9d094b6c35e097b0b68f31400355d158c3c1eb33068c15e14c7a0d723
   generate-license-file: 39dc6d5bd5ec5e5ddd92d2ee76311082bf88278eee1c9107bdd223e80773ea08
 
@@ -560,7 +560,7 @@ importers:
     dependencies:
       '@anthropic-ai/sandbox-runtime':
         specifier: 'catalog:'
-        version: 0.0.82(patch_hash=aecc62792e5f8e9802e40c57b421837c27d3a72df44a68597443937d217aa14e)
+        version: 0.0.83(patch_hash=aecc62792e5f8e9802e40c57b421837c27d3a72df44a68597443937d217aa14e)
       '@earendil-works/chord':
         specifier: 'catalog:'
         version: 1.5.2(esbuild@0.28.2)(ws@8.21.0)
@@ -822,10 +822,15 @@ importers:
 
 packages:
 
-  '@anthropic-ai/sandbox-runtime@0.0.82':
-    resolution: {integrity: sha512-SCPWkuhLw4ieL+06Jp72yFevltS0s2GD1kMOZdSJ6XxeuqTcoyAa1EDwiLxuONp6szNEOD7x02+vYxPa0oAWwg==}
+  '@anthropic-ai/sandbox-runtime@0.0.83':
+    resolution: {integrity: sha512-yEusORnVJrNseF/9fvjVYyk6tr79/aFbIB3T/X8p2puLZdaaiGNeYN50v0CE+1DT70v7XuzKOAnTivh1f5cksA==}
     engines: {node: '>=22.12.0'}
     hasBin: true
+    peerDependencies:
+      '@microsoft/mxc-sdk': ^1.0.1
+    peerDependenciesMeta:
+      '@microsoft/mxc-sdk':
+        optional: true
 
   '@anthropic-ai/sdk@0.129.0':
     resolution: {integrity: sha512-MH7LB20kNpGLUpPTe2OG5XvL/KhX8HUO9XyBaFjgFk6TLS4Xjt0VPIuMKywe7POKKPslX+QxSlVok9e+8kG5Nw==}
@@ -5670,12 +5675,9 @@ packages:
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
-ignoredOptionalDependencies:
-  - '@microsoft/mxc-sdk'
-
 snapshots:
 
-  '@anthropic-ai/sandbox-runtime@0.0.82(patch_hash=aecc62792e5f8e9802e40c57b421837c27d3a72df44a68597443937d217aa14e)':
+  '@anthropic-ai/sandbox-runtime@0.0.83(patch_hash=aecc62792e5f8e9802e40c57b421837c27d3a72df44a68597443937d217aa14e)':
     dependencies:
       '@pondwader/socks5-server': 1.0.10
       commander: 12.1.0
