@@ -729,7 +729,7 @@ export function controlJob(jobId: JobId, control: Control, given: GivenLimits = 
         // A resume starts a new run, which has not reported yet; a control changes nothing else of
         // the job's progress. Only the new run's reports may write its time, in step with the job's
         // `runId`: a report of the old run already under way, which locks only this row, then
-        // writes nothing. A resumed job held before it started keeps its run ID until it is placed,
+        // does not write the time. A resumed job held before it started keeps its run ID until it is placed,
         // but no Runner holds that run, so none may write until placement gives it a new one.
         const progress =
           control === "resume"
