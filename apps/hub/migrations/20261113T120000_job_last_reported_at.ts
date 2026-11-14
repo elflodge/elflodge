@@ -20,7 +20,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // from the resume or placement that restarts it.
   await db
     .$extendTables<{
-      job: { id: string; runId: string | null; status: string };
+      job: { id: string; runId: string | null; status: string; placedAt: Date | null };
       jobProgress: { jobId: string; runId: string | null };
     }>()
     .withSchema("elflodge")
@@ -29,7 +29,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .set((eb) => ({ runId: eb.ref("j.runId") }))
     .whereRef("j.id", "=", "p.jobId")
     .where("j.status", "in", ["queued", "running"])
-    .where("j.runId", "is not", null)
+    .where("j.placedAt", "is not", null)
     .execute();
 }
 

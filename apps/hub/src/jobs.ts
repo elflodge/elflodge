@@ -281,10 +281,12 @@ export function statusUnknownOf(
 ): AliasableExpression<StatusUnknownOfJob | null> {
   const eb = expressionBuilder<Database>();
   const rule = statusUnknownRule(job, now);
-  const since = eb.fn<Date>("date_add", [
-    eb.fn<Date>("least", [rule.jobLastHeard, rule.runnerLastSeen]),
+  // A `timestamptz` plus an `interval`, which Kysely types only as operands of one type.
+  const since = eb(
+    eb.fn("least", [rule.jobLastHeard, rule.runnerLastSeen]),
+    "+",
     eb.cast(eb.val(`${GONE_AFTER_MS} milliseconds`), sql`interval`),
-  ]);
+  ).$castTo<Date>();
   const unknown = (reason: StatusUnknownReason) =>
     jsonBuildObject({
       // Typed, as `json_build_object` takes any type and so cannot infer a parameter's.
