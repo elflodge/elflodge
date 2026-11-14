@@ -33,6 +33,7 @@ import {
   MAX_FILES_PER_CHECK,
   MAX_JOBS_PER_ADD,
   problemOf,
+  type StatusUnknownReason,
 } from "contract";
 import {
   Array,
@@ -460,11 +461,13 @@ function waitCommand() {
       runCommand(
         Effect.gen(function* () {
           const client = yield* apiClient;
+          const unknown = statusUnknownNotice();
           const job = yield* hubCall((signal) => client.jobs.get(input, { signal })).pipe(
             // A read is retried as any call is, and an error that remains ends the wait, as AWS's
             // waiters end on one: an error that waiting does not fix, such as a hub not set up,
             // would otherwise keep the wait running without a word.
             Effect.retry(retryTransient),
+            Effect.tap((read) => unknown.announceChange(read.statusUnknown?.reason)),
             Effect.repeat({
               schedule: pollSchedule,
               until: (read) => FINAL_JOB_STATUSES.includes(read.status),
@@ -476,6 +479,33 @@ function waitCommand() {
         }),
       ),
     );
+}
+
+/**
+ * Says on stderr when a waited-for job's status turns unknown and when it is known again, also
+ * where no person watches, as it is a warning, not progress: the job may still be running, and a
+ * Runner that reports again carries on from where it was, so the wait goes on.
+ */
+function statusUnknownNotice() {
+  let shown: StatusUnknownReason | undefined;
+  return {
+    announceChange: (reason: StatusUnknownReason | undefined) =>
+      Effect.sync(() => {
+        if (reason === shown) return;
+        if (reason === undefined) {
+          process.stderr.write("The job's status is known again.\n");
+        } else {
+          const why =
+            reason === "runnerDisconnected"
+              ? "the hub has not heard from its Runner"
+              : "its Runner has not reported it, as when it cannot read the job's journal";
+          process.stderr.write(
+            `The job's status is unknown: ${why}. It may still be running; waiting goes on.\n`,
+          );
+        }
+        shown = reason;
+      }),
+  };
 }
 
 /** A file at `diskPath` that a job of `batches submit --each` carries, at `path` in `inputs`. */
@@ -808,7 +838,8 @@ function progressOf(batch: Batch, inCanary: boolean) {
   const canary =
     inCanary && batch.breaker !== false ? `; Canary of ${batch.breaker.canary} first` : "";
   const pause = batch.pausedBy === "caller" ? "; paused" : "";
-  return `${counts}${canary}${pause}`;
+  const unknown = batch.statusUnknownJobs > 0 ? `; ${batch.statusUnknownJobs} status unknown` : "";
+  return `${counts}${canary}${pause}${unknown}`;
 }
 
 /** Whether waiting for `batch` is over: no job is unfinished, or its failure breaker paused it. */
@@ -948,11 +979,30 @@ function waitAndSave(
         ),
       );
     }
+    // Whether stderr last said that some of the Batch's jobs have an unknown status. Said also where
+    // no person watches, as it is a warning, not progress; the wait goes on, as those jobs may
+    // still be running and carry on once their Runner reports again.
+    let unknownShown = false;
+    const noticeUnknown = (read: Batch) =>
+      Effect.gen(function* () {
+        const unknown = read.statusUnknownJobs > 0;
+        if (unknown === unknownShown) return;
+        unknownShown = unknown;
+        yield* endProgress;
+        yield* Effect.sync(() =>
+          process.stderr.write(
+            unknown
+              ? `The status of ${read.statusUnknownJobs} of the Batch's jobs is unknown: their Runner has not been heard from, or has not reported them. They may still be running; waiting goes on.\n`
+              : "Every job's status is known again.\n",
+          ),
+        );
+      });
     const waitThenSave = Effect.gen(function* () {
       const batch = yield* hubCall((signal) =>
         client.batches.get({ id: batchId }, { signal }),
       ).pipe(
         Effect.retry(retryTransient),
+        Effect.tap(noticeUnknown),
         Effect.tap((read) => (onTerminal ? showProgress(client, read) : Effect.void)),
         Effect.repeat({ schedule: pollSchedule, until: settled }),
         Effect.ensuring(endProgress),

@@ -89,6 +89,8 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
     batchId: batch.id,
     customId: "report-q3",
     labels: {},
+    // Not yet sent to a Runner, so it shows none and no report.
+    lastReportedAt: null,
   };
   expect(first).toEqual({ created: true, job: { ...job, createdAt: expect.any(String) } });
 

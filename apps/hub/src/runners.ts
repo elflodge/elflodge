@@ -1,9 +1,10 @@
 import { type Runner, type RunnerCapabilities, runnerCapabilitiesSchema } from "contract";
 import { Effect } from "effect";
+import { type AliasableExpression, type Expression, expressionBuilder } from "kysely";
 import * as z from "zod/mini";
 
 import { Db } from "./db/database.ts";
-import type { RunnerId, RunnerUpdate } from "./db/types.ts";
+import type { Database, RunnerId, RunnerUpdate } from "./db/types.ts";
 import { RunnerConnections } from "./platform.ts";
 
 // Runners are recorded by when the hub last heard from them and what their latest hello reported.
@@ -57,9 +58,16 @@ export function recordRunnerSeen(runnerId: RunnerId, seenAt: Date) {
  */
 export const listRunners = Db.use((database) =>
   database.query(async (db): Promise<Runner[]> => {
+    const now = new Date();
     const rows = await db
       .selectFrom("runner")
-      .select(["id", "name", "lastSeenAt", "capabilities"])
+      .select((eb) => [
+        "id",
+        "name",
+        "lastSeenAt",
+        "capabilities",
+        connectedOf(eb.ref("lastSeenAt"), now).as("connected"),
+      ])
       .execute();
     return rows.map((runner) => ({
       ...runner,
@@ -70,26 +78,57 @@ export const listRunners = Db.use((database) =>
 
 /**
  * How often a Runner syncs when nothing prompts it sooner, told to it in the hub's answer to its
- * hello (ADR 0026): three minutes, for every deployment until one shows a reason to tune it.
+ * hello (ADR 0026): a minute. Its pass over every held job is what keeps each job's recorded report
+ * recent, so the interval bounds how soon `GONE_AFTER_MS` can be.
  */
-export const SYNC_INTERVAL_MS = 180_000;
+export const SYNC_INTERVAL_MS = 60_000;
 
 /**
- * How long a Runner may go unheard before it counts as gone: a sync it missed, the next one, and a
- * minute for it to arrive. Only Runners heard from more recently are told to sync.
+ * How long a Runner, or a job's current run, may go unheard before the hub says so (ADR 0042): two
+ * minutes, how soon a caller should learn that the hub has lost contact, chosen rather than derived.
+ * A healthy Runner's recorded times are at most about 77 seconds old: an interval with its jitter
+ * (66 seconds), a pass over every held job and its report (under a second, measured with 64 idle jobs),
+ * and `SEEN_WRITE_INTERVAL_MS`. The rest is headroom for a slow host or database. A dropped
+ * connection the Runner redials can show for a moment, which is true while it lasts. Only Runners
+ * heard from more recently are told to sync.
  */
-export const GONE_AFTER_MS = 2 * SYNC_INTERVAL_MS + 60_000;
+export const GONE_AFTER_MS = 120_000;
 
 /**
- * Tells every Runner heard from within the last `GONE_AFTER_MS` to sync now, as for a new job. A
+ * How long a socket's sighting of its Runner, or a report's of its job, goes unwritten when nothing
+ * else changes: ten seconds, so a recorded time is never more than that older than what the hub
+ * last heard, whatever the sync interval. It spares a busy Runner's reports, every few seconds, a
+ * write each.
+ */
+export const SEEN_WRITE_INTERVAL_MS = 10_000;
+
+/**
+ * Whether a Runner last seen at `lastSeenAt` counts as connected at `now`: heard from within
+ * `GONE_AFTER_MS`. Recent protocol traffic, not an open socket: a socket that died without closing
+ * shows nothing, and on Workers the hub does not see a heartbeat. Worked out where it is read, so
+ * nothing records a disconnection, and no order of an old socket's close and a new one's hello can
+ * leave it wrong.
+ */
+export function connectedOf(lastSeenAt: Expression<Date>, now: Date): AliasableExpression<boolean> {
+  const eb = expressionBuilder<Database>();
+  // pg reads a boolean as one.
+  return eb(lastSeenAt, ">", eb.val(new Date(now.getTime() - GONE_AFTER_MS))).$castTo<boolean>();
+}
+
+/**
+ * Tells every connected Runner (`connectedOf`) to sync now, as for a new job. A
  * Runner that is not connected after all misses nothing: its next sync finds the same jobs.
  */
-export const hintLiveRunners = Effect.gen(function* () {
+export const hintConnectedRunners = Effect.gen(function* () {
   const database = yield* Db;
   const connections = yield* RunnerConnections;
-  const since = new Date(Date.now() - GONE_AFTER_MS);
+  const now = new Date();
   const runners = yield* database.query((db) =>
-    db.selectFrom("runner").select("id").where("lastSeenAt", ">", since).execute(),
+    db
+      .selectFrom("runner")
+      .select("id")
+      .where((eb) => connectedOf(eb.ref("lastSeenAt"), now))
+      .execute(),
   );
   yield* Effect.forEach(runners, (runner) => connections.hint(runner.id), {
     concurrency: "unbounded",

@@ -44,6 +44,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - Rows from the caller enter a statement as one JSON parameter expanded with `jsonb_array_elements`, each scalar field read with `->>` and cast and each JSON value with `->`; not as a union of one select per row.
 - A `WITH` clause with `UNION ALL`: build each branch separately, pass `a.unionAll(b)` to `with()`, and keep the branches' column types identical.
 - Do data work in SQL, not in code that stitches round trips together or queries per row (on the Workers hub each round trip crosses Hyperdrive); split statements where the work splits naturally.
+- Cast a bound value in a call PostgreSQL cannot infer its type from, such as `jsonBuildObject` or another function taking any type: `eb.cast(eb.val(reason), "text")`. A TypeScript type argument or `$castTo` emits no SQL cast.
 - `executeTakeFirst()` adds no `LIMIT 1`; add `.limit(1)` to a non-unique lookup.
 - Filter a parent by its children with `EXISTS`, not a join and `GROUP BY`. In a grouped query every selected non-aggregate column is grouped or aggregated: Kysely type-checks what Postgres rejects.
 - An empty child collection is `[]`, never an object of nulls.

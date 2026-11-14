@@ -10,11 +10,14 @@ import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   apiContract,
+  createJsonRpcClient,
   createProblemDetailsLink,
+  hubNotifications,
   RUNNER_CONNECT_PATH,
   RUNNER_PROTOCOL_VERSION,
   registeredRunnerSchema,
   runnerHttpContract,
+  runnerRequests,
 } from "contract";
 import getPort from "get-port";
 import { sql } from "kysely";
@@ -27,6 +30,24 @@ import * as z from "zod/mini";
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { setUpOrganization } from "../src/setup.ts";
 import { scriptedModel } from "./scripted-model.ts";
+
+/**
+ * A Runner's side of the protocol over `socket`, a socket the test opens itself, sending each
+ * message as `rewrite` changes it.
+ */
+export function protocolClient(socket: WebSocket, rewrite = (message: string) => message) {
+  const client = createJsonRpcClient(
+    runnerRequests,
+    hubNotifications,
+    { syncNow() {} },
+    (message) => socket.send(rewrite(message)),
+  );
+  socket.addEventListener("message", (event) => {
+    // `ws` types a message as text or binary; the protocol is text (ADR 0026).
+    if (typeof event.data === "string") client.receive(event.data);
+  });
+  return client;
+}
 
 /** The hub's API as a caller sees it through the contract's link. */
 export type ApiClient = ContractRouterClient<typeof apiContract>;

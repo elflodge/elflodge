@@ -565,7 +565,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Lists jobs, newest first, in pages of at most \`limit\`. Filters combine: a job is listed when it has one of the \`status\` values given, every label in \`labels\`, and the \`batchId\` and \`customId\` given. Read the next page with the same filters and \`after\` set to the last job's \`id\`, while the page says \`hasMore\`. A listed job has no \`output\`, failure \`message\` or \`activity\`: read the job for those.",
+          "description": "Lists jobs, newest first, in pages of at most \`limit\`. Filters combine: a job is listed when it has one of the \`status\` values given, every label in \`labels\`, the \`batchId\` and \`customId\` given, and \`statusUnknown\` present or absent as asked. Read the next page with the same filters and \`after\` set to the last job's \`id\`, while the page says \`hasMore\`. A listed job has no \`output\`, failure \`message\` or \`activity\`: read the job for those.",
           "name": "list",
           "options": [
             {
@@ -611,6 +611,16 @@ exports[`the commands and their flags 1`] = `
               "description": "The job's own \`customId\`, which is unique in its Batch, so without \`batchId\` it may match a job in each of several Batches.; Min length: 1; Max length: 255",
               "flags": "--custom-id [string]",
               "name": "custom-id",
+              "negate": false,
+              "optional": true,
+              "required": false,
+              "variadic": false,
+            },
+            {
+              "attributeName": "statusUnknown",
+              "description": "\`true\` for only the jobs whose status the hub cannot confirm now (\`statusUnknown\`), \`false\` for only the others; any job when absent.",
+              "flags": "--status-unknown [boolean]",
+              "name": "status-unknown",
               "negate": false,
               "optional": true,
               "required": false,

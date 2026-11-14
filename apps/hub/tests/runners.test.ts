@@ -1,9 +1,8 @@
 import { hostname } from "node:os";
 
-import { createJsonRpcClient, hubNotifications, runnerRequests } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { startSystem } from "./harness.ts";
+import { protocolClient, startSystem } from "./harness.ts";
 
 const system = startSystem();
 
@@ -14,7 +13,7 @@ test("the hub lists no runners before any connect", async () => {
   expect(await system.owner().runners.list()).toEqual([]);
 });
 
-test("a runner that connects is listed under its host's name with its capabilities, seen when it said hello", async () => {
+test("a runner that connects is listed under its host's name with its capabilities, connected and seen when it said hello", async () => {
   const before = Date.now();
   const runnerId = await system.startRunner();
 
@@ -24,6 +23,7 @@ test("a runner that connects is listed under its host's name with its capabiliti
       id: runnerId,
       name: hostname(),
       lastSeenAt: expect.any(Date),
+      connected: true,
       capabilities: {
         runnerVersion: expect.any(String),
         model: { provider: expect.any(String), modelId: expect.any(String), thinkingLevel: "off" },
@@ -49,12 +49,7 @@ test("a runner that restarts keeps its identity, listed once and seen again", as
 
 test("a runner whose capabilities the hub cannot read still connects, listed without it", async () => {
   const { runnerId, socket } = await system.connectRunner();
-  const runner = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
-    socket.send(text),
-  );
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data === "string") runner.receive(event.data);
-  });
+  const runner = protocolClient(socket);
 
   await runner.request(
     "hello",
@@ -66,6 +61,7 @@ test("a runner whose capabilities the hub cannot read still connects, listed wit
     id: runnerId,
     name: "newer runner",
     lastSeenAt: expect.any(Date),
+    connected: true,
     capabilities: null,
   });
   socket.close();
