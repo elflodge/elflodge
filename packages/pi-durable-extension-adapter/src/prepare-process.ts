@@ -302,10 +302,6 @@ async function buildEntries(
     makeAbsoluteExternalsRelative: false,
     transform: {
       define: {
-        // CommonJS code bundled into ES modules has no `__dirname`; with each entry beside its
-        // source, the module's own directory stands in for it.
-        __dirname: "import.meta.dirname",
-        __filename: "import.meta.filename",
         // Pi looks for its own files, its `package.json` with its version among them, above its
         // code, which the bundle moves; `PI_PACKAGE_DIR` is its documented way to say where they
         // are, set here rather than in the workers' environment, which commands inherit.
