@@ -498,7 +498,7 @@ function statusUnknownNotice() {
           const why =
             reason === "runnerDisconnected"
               ? "the hub has not heard from its Runner"
-              : "its Runner has not reported it, as when it cannot read the job's journal";
+              : "its Runner has not reported it";
           process.stderr.write(
             `The job's status is unknown: ${why}. It may still be running; waiting goes on.\n`,
           );
@@ -981,7 +981,8 @@ function waitAndSave(
     }
     // Whether stderr last said that some of the Batch's jobs have an unknown status. Said also where
     // no person watches, as it is a warning, not progress; the wait goes on, as those jobs may
-    // still be running and carry on once their Runner reports again.
+    // still be running and carry on once their Runner reports again. It names no number, as it is
+    // not said again when the number changes.
     let unknownShown = false;
     const noticeUnknown = (read: Batch) =>
       Effect.gen(function* () {
@@ -992,7 +993,7 @@ function waitAndSave(
         yield* Effect.sync(() =>
           process.stderr.write(
             unknown
-              ? `The status of ${read.statusUnknownJobs} of the Batch's jobs is unknown: their Runner has not been heard from, or has not reported them. They may still be running; waiting goes on.\n`
+              ? "The status of some of the Batch's jobs is unknown: their Runner has not been heard from, or has not reported them. They may still be running; waiting goes on.\n"
               : "Every job's status is known again.\n",
           ),
         );

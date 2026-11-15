@@ -364,7 +364,7 @@ test("batches submit --wait keeps waiting while its jobs' status is unknown, and
   const { exitCode, stderr } = await submit(hub.listener, cwd, ["--each", "a.pdf", "--wait"]);
 
   expect(exitCode).toBe(0);
-  expect(stderr).toContain("The status of 1 of the Batch's jobs is unknown");
+  expect(stderr).toContain("The status of some of the Batch's jobs is unknown");
   expect(stderr).toContain("Every job's status is known again.");
 });
 
