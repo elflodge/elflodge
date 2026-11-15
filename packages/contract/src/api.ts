@@ -183,8 +183,10 @@ const jobBaseSchema = z.object({
    * not been reported, nor placed, within two minutes. `reason` says why: its Runner has not been
    * heard from either (`runnerDisconnected`), or has, but has not reported this job
    * (`notReported`). The job may still be running there, and its Runner carries on from where it
-   * was once it reports again; nothing ends it meanwhile. A Runner can stop reporting one job while
-   * it reports others, as when that job's journal cannot be read. New reasons may be added.
+   * was once it reports again; nothing ends it meanwhile. A cancel or pause waits for its Runner to
+   * confirm it, and a job in its Batch's Canary holds the Batch's other jobs until it ends; removing
+   * the Runner ends it, with the Runner's other unfinished jobs. A Runner can stop reporting one job
+   * while it reports others, as when that job's journal cannot be read. New reasons may be added.
    * `since` is when the status became unknown, two minutes after the job was last reported or
    * placed, and stays while it lasts, whatever the reason; only a report whose write took the hub
    * two minutes or more moves it.
