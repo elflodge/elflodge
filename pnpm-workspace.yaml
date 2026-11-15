@@ -34,7 +34,7 @@ ignoredOptionalDependencies:
   - "@microsoft/mxc-sdk"
 catalog:
   "@anthropic-ai/sandbox-runtime": ^0.0.82
-  "@better-auth/api-key": 1.7.18
+  "@better-auth/api-key": 1.7.22
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
   "@earendil-works/chord": ^1.5.2
@@ -62,9 +62,9 @@ catalog:
   "@types/proper-lockfile": ^4.1.4
   "@types/ws": ^8.18.2
   atomically: ^2.1.1
-  auth: 1.7.18
+  auth: 1.7.22
   birpc: ^4.2.0
-  better-auth: 1.7.18
+  better-auth: 1.7.22
   canonicalize: ^5.1.0
   chunk-data: ^0.1.0
   cidr-tools: ^13.0.4
