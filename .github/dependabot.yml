@@ -11,6 +11,8 @@ updates:
       # The exact version Pi's chord takes as a peer, which `pnpm deploy` needs (pnpm-workspace.yaml).
       # This also stops security updates for it, which need chord's own update.
       - dependency-name: "ws"
+      # The exact version Pi pins, which installs then share (pnpm-workspace.yaml); it moves with Pi.
+      - dependency-name: "typebox"
     # A dependency joins the first group it matches, so the families come before the catch-all.
     groups:
       better-auth:
