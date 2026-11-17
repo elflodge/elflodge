@@ -103,7 +103,7 @@ export function authOptions(settings: AuthSettings) {
     advanced: {
       database: {
         // Each request builds its own instance, which would otherwise introspect the database on its
-        // first auth call; the schema comes from migrations. See better-auth/better-auth#11651.
+        // first auth call; the schema comes from migrations.
         validateSchema: false,
       },
       // Which header carries the client's address, and which proxies may have written it, depend on

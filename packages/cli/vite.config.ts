@@ -1,14 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import rollupPluginLicense from "rollup-plugin-license";
+import license from "rollup-plugin-license";
 import { defineConfig } from "vite-plus";
-
-// rollup-plugin-license exports the function itself (`module.exports`), but its types declare an
-// ES default export, which TypeScript, resolving as Node does, reads as an object holding it
-// (mjeanroy/rollup-plugin-license#2113).
-const license =
-  "default" in rollupPluginLicense ? rollupPluginLicense.default : rollupPluginLicense;
 
 // Optional peers of trpc-cli this CLI does not use, tRPC and Valibot, which trpc-cli imports inside
 // a `catch`: they stay out of the bundle and are never installed.
