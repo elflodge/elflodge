@@ -522,29 +522,32 @@ export const usageGroupBySchema = z.union(
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
 
+/** The `kind` of a submitter that is an API key. */
+export const KEY_SUBMITTER = "key";
+
 /** Who submitted a job: today always an API key, by `kind`, as other kinds may be added. */
 export const submitterSchema = z
   .discriminatedUnion("kind", [
     z.object({
-      kind: z.literal("key"),
+      kind: z.literal(KEY_SUBMITTER),
       /** The key's ID. */
       id: z.string(),
       /** The key's name as its jobs recorded it, which stays once the key is revoked. */
       name: z.nullable(z.string()),
     }),
   ])
-  .check(
-    z.describe(
+  // One entry, as a second `register` would replace the first's description.
+  .register(z.globalRegistry, {
+    id: "Submitter",
+    description:
       "Who submitted a job, by `kind`: `key`, an API key. New kinds may be added, so a client should expect a `kind` it does not know.",
-    ),
-  )
-  .register(z.globalRegistry, { id: "Submitter" });
+  });
 export type Submitter = z.infer<typeof submitterSchema>;
 
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
- * ID; `submitter`, who submitted the jobs, with the name of the group's latest record in the
- * window; `runner`, the Runner the jobs last ran on, with its name while the Runner
+ * ID; `submitter`, who submitted the jobs, with the name its latest record in the window holds,
+ * the one recorded last, by `recordedAt` and then by order of writing; `runner`, the Runner the jobs last ran on, with its name while the Runner
  * exists, as a job shows it, or null for jobs that ended before a Runner started them; `status`, the
  * status the jobs ended in; or `labelValue`, the label's value, null for jobs without that label.
  */
@@ -1174,7 +1177,7 @@ export const apiContract = {
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `submitter` for who submitted the jobs, as an API key, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, as an API key, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),
