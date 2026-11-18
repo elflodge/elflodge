@@ -8,8 +8,8 @@ import type { RunnerId } from "../db/types.ts";
 import type { RunnerSockets } from "./runner-sockets.ts";
 
 /**
- * Serves `fetch`, the app's handler, on `port`, and opens Runners' WebSockets as `decideUpgrade`
- * decides.
+ * Serves `fetch`, the app's handler, on `port` at `hostname`, or on every interface without one,
+ * and opens Runners' WebSockets as `decideUpgrade` decides.
  *
  * WebSockets are opened with crossws, whose upgrade hook either accepts a socket, selecting the
  * protocol version, or answers with the hub's refusal, body included: a Runner stops only on the
@@ -20,6 +20,7 @@ export async function startServer(
   decideUpgrade: (request: Request) => Promise<RunnerId | Response>,
   sockets: RunnerSockets,
   port: number,
+  hostname?: string,
 ): Promise<Server> {
   const websockets = crossws({
     // The hub watches Runners by their own syncs, not crossws's protocol pings, which `ws` would
@@ -45,7 +46,7 @@ export async function startServer(
   });
   let server!: Server;
   const listening = new Promise<void>((resolve) => {
-    const started = serve({ fetch, port }, () => resolve());
+    const started = serve({ fetch, port, hostname }, () => resolve());
     // Without a `createServer` option, Hono serves plain HTTP, which `upgrade` below relies on.
     if (!(started instanceof Server)) throw new Error("The hub's server is not an HTTP/1 server");
     server = started;

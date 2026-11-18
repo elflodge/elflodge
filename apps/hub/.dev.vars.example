@@ -1,5 +1,6 @@
 # Copy to .dev.vars for `wrangler dev`.
 # Signs sessions; generate one with `openssl rand -base64 32`.
 BETTER_AUTH_SECRET=
-# The hub's URL as members reach it.
+# The hub's URL as members reach it: the dashboard's development server's, such as
+# http://localhost:5173, when they reach the hub through it.
 HUB_URL=http://localhost:8787

@@ -7,10 +7,11 @@ import ensureError from "ensure-error";
 import { createApp, decideRunnerUpgrade } from "./app.ts";
 import { sweepUnusedBlobs } from "./blobs.ts";
 import { migrateDatabase } from "./db/migrate.ts";
+import { dashboardFiles } from "./node/dashboard.ts";
 import { NodeRunnerSockets, nodeServices } from "./node/layers.ts";
 import { startServer, stopServer } from "./node/server.ts";
 import type { HubServices } from "./platform.ts";
-import { hubSettings, settingsProblems } from "./settings.ts";
+import { type HubSettings, hubSettings, settingsProblems } from "./settings.ts";
 import { setUpOrganization } from "./setup.ts";
 
 // The hub as a Node process, which its Docker image runs (ADR 0014). It runs as a single process:
@@ -25,6 +26,7 @@ const nodeSettings = Config.all({
   hub: hubSettings,
   databaseUrl: Config.Redacted("DATABASE_URL"),
   port: Config.Port("PORT").pipe(Config.withDefault(8787)),
+  host: Config.String("HOST").pipe(Config.option),
   adminEmail: Config.String("ADMIN_EMAIL").pipe(Config.option),
   adminPassword: Config.Redacted("ADMIN_PASSWORD").pipe(Config.option),
 });
@@ -38,11 +40,19 @@ function refuse(message: string) {
 }
 
 /**
- * The hub's server on `port`, running each request on the services it is given. Stopping drains
- * before it releases: the server stops before those services, so Runners' sockets close and the
- * server finishes its requests first.
+ * The dashboard's build: the copy beside the built hub (`pack.copy` in `vite.config.ts`), or the
+ * dashboard's own when the hub runs from source, as its tests run it.
  */
-function hubServer(port: number) {
+const dashboardRoot = import.meta.filename.endsWith(".ts")
+  ? path.join(import.meta.dirname, "../../dashboard/dist/client")
+  : path.join(import.meta.dirname, "dashboard");
+
+/**
+ * The hub's server on `port`, at the address `host` or on every interface, with `settings`, running
+ * each request on the services it is given. Stopping drains before it releases: the server stops
+ * before those services, so Runners' sockets close and the server finishes its requests first.
+ */
+function hubServer(port: number, host: string | undefined, settings: HubSettings) {
   return Layer.effectDiscard(
     Effect.gen(function* () {
       const run = Effect.runPromiseWith(yield* Effect.context<HubServices>());
@@ -53,11 +63,19 @@ function hubServer(port: number) {
           // request, so only requests the decision refuses reach the app's Runner route here.
           throw new Error("The Node hub accepts Runners' sockets in its upgrade hook");
         },
+        hubUrl: () => settings.hubUrl,
+        dashboard: dashboardFiles(dashboardRoot),
       });
       const sockets = yield* NodeRunnerSockets;
       yield* Effect.acquireRelease(
         Effect.promise(() =>
-          startServer(app.fetch, (request) => run(decideRunnerUpgrade(request)), sockets, port),
+          startServer(
+            app.fetch,
+            (request) => run(decideRunnerUpgrade(request)),
+            sockets,
+            port,
+            host,
+          ),
         ),
         (server) =>
           Effect.promise(() => {
@@ -98,9 +116,10 @@ Effect.gen(function* () {
     catch: ensureError,
   });
   return yield* Layer.launch(
-    Layer.mergeAll(hubServer(settings.port), sweeper).pipe(
-      Layer.provide(nodeServices(settings.hub, databaseUrl)),
-    ),
+    Layer.mergeAll(
+      hubServer(settings.port, Option.getOrUndefined(settings.host), settings.hub),
+      sweeper,
+    ).pipe(Layer.provide(nodeServices(settings.hub, databaseUrl))),
   );
 }).pipe(
   Effect.catchTag("ConfigError", (error) =>

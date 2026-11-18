@@ -26,6 +26,8 @@ import {
   problemDetails,
   problemDetailsHandler,
 } from "hono-problem-details";
+import { except } from "hono/combine";
+import { csrf } from "hono/csrf";
 
 import {
   Auth,
@@ -341,16 +343,18 @@ const api = new OpenAPIHandler(router, {
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
-    // The OpenAPI document at `/spec.json` and a browsable reference of it at `/`, oRPC's defaults.
-    // The document names the session cookie of the hub's deployment, so it is generated from the
-    // request's services. The reference page runs on the origin where members sign in, so its
-    // script is pinned to a version rather than whatever the CDN serves as latest.
+    // The OpenAPI document at `/spec.json`, oRPC's default, and a browsable reference of it at
+    // `/docs`, as `/` leads to the dashboard (ADR 0043). The document names the session cookie of
+    // the hub's deployment, so it is generated from the request's services. The reference page runs
+    // on the origin where members sign in, so its script is pinned to a version rather than whatever
+    // the CDN serves as latest.
     new OpenAPIReferenceHandlerPlugin({
       spec: ({ context }) =>
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
           generateOpenAPIDocument,
         ),
       providerScriptUrl: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.75.1",
+      docsPath: "/docs",
     }),
   ],
 });
@@ -371,6 +375,13 @@ export interface HubPlatform<Bindings> {
    * platforms where upgrade requests reach the app.
    */
   acceptRunner(env: Bindings, request: Request, runnerId: RunnerId): Promise<Response>;
+  /** The hub's public URL, its `HUB_URL` setting. */
+  hubUrl(env: Bindings): string;
+  /**
+   * Serves the dashboard's files under its base path, on platforms where requests for them reach
+   * the app: on Workers, Workers Static Assets answer them before the Worker runs.
+   */
+  dashboard?: Hono;
 }
 
 /**
@@ -439,7 +450,17 @@ function authenticateRunner(headers: Headers) {
   );
 }
 
-/** The hub's HTTP API, Better Auth's routes and the Runners' WebSocket endpoint, on any platform. */
+/**
+ * Where the hub serves the dashboard. The dashboard sets it as its Vite `base`
+ * (`apps/dashboard/vite.config.ts`), and `wrangler.jsonc` and the dashboard's `public/_headers` repeat
+ * it for the Workers hub.
+ */
+export const DASHBOARD_BASE = "/dashboard/";
+
+/**
+ * The hub's HTTP API, Better Auth's routes, the Runners' WebSocket endpoint and the dashboard, on any
+ * platform.
+ */
 export function createApp<Bindings extends object>(platform: HubPlatform<Bindings>) {
   const app = new Hono<{ Bindings: Bindings }>();
 
@@ -450,10 +471,31 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
     }
   });
 
+  // A member's requests carry their session cookie, which a browser also sends with a request another
+  // site makes it send. Hono's CSRF check refuses an unsafe request that a page on another site can
+  // send without asking, a form's or one with no content type, unless the browser says it comes from
+  // the hub's own origin, by `Sec-Fetch-Site` or `Origin`. A JSON request from another site needs a
+  // CORS preflight, which the hub never answers, so the check lets JSON through: a permissive CORS
+  // policy would open the hub to it. A request carrying an API key is not checked: no browser sends
+  // a key by itself, and callers with one, such as Runners, send no `Origin` and often no body. Nor
+  // is one without cookies, which cannot act as a member, so that it gets the hub's own answer, such
+  // as a 401 that says how to authenticate; signing in, which needs no cookie, has Better Auth's own
+  // check of where it comes from.
+  app.use(
+    except(
+      (c) => c.req.header("x-api-key") !== undefined || c.req.header("cookie") === undefined,
+      csrf({ origin: (origin, c) => origin === new URL(platform.hubUrl(c.env)).origin }),
+    ),
+  );
+
   // For health checks, at the path Kubernetes' probe examples use. The hub answers once it serves
   // requests, which in Docker is after migrating and setting up (ADR 0015), and checks nothing else,
   // so an unreachable database does not count against the hub itself.
   app.get("/healthz", (c) => c.text("OK"));
+
+  // People reach the hub through the dashboard, an app shell served under its base path (ADR 0043).
+  app.get("/", (c) => c.redirect(DASHBOARD_BASE));
+  if (platform.dashboard) app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
 
   // Better Auth's own routes, such as signing in and out, at its default path.
   app.on(["GET", "POST"], "/api/auth/*", (c) =>

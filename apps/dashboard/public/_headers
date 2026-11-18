@@ -1,0 +1,5 @@
+# Read by Workers Static Assets on the Workers hub; the Node hub sets the same header itself. Paths
+# start with the dashboard's base path, its `base` in vite.config.ts.
+# Vite names every file under assets/ by a hash of its content, so a browser may keep it for a year.
+/dashboard/assets/*
+  Cache-Control: public, max-age=31536000, immutable

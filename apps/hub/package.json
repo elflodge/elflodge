@@ -4,9 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "build": "vp pack",
     "start": "node dist/main.mjs",
     "cf-typegen": "wrangler types",
     "db:types": "node scripts/generate-db-types.ts && vp fmt src/db/generated",
@@ -56,6 +53,7 @@
     "kanel": "catalog:",
     "kanel-kysely": "catalog:",
     "nf3": "catalog:",
+    "playwright": "catalog:",
     "runner": "workspace:*",
     "testcontainers": "catalog:",
     "typescript": "catalog:",

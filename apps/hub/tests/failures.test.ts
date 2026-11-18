@@ -14,6 +14,9 @@ function appFailingWith(error: Error) {
     acceptRunner: async () => {
       throw error;
     },
+    hubUrl: () => {
+      throw error;
+    },
   });
 }
 

@@ -141,8 +141,8 @@ docker run -d --name elflodge-runner --security-opt seccomp=unconfined \
 
 ## Calling the API directly
 
-The hub serves its OpenAPI document at `/spec.json`, generated from the contract, and a browsable reference of it at `/`, which shows each call with a `curl` example. Each call takes an API key in the `x-api-key` header holding the permissions the document lists for it, a member's session cookie, or either; errors are RFC 9457 Problem Details.
+The hub serves its OpenAPI document at `/spec.json`, generated from the contract, and a browsable reference of it at `/docs`, which shows each call with a `curl` example. Each call takes an API key in the `x-api-key` header holding the permissions the document lists for it, a member's session cookie, or either; errors are RFC 9457 Problem Details.
 
 - **Waiting for a job:** read it until its status is final, waiting longer between reads, as `elflodge jobs wait` does.
 - **Reading events:** a job's events come a page at a time. Read again `after` the last event's `id` while `hasMore` is true, and stop once a page without more has a final `status`. `elflodge jobs events --id <id> --after <event id>` does the same from the command line.
-- **Controls:** jobs and Batches can be paused, resumed (carrying on where they stopped) and cancelled, and jobs deleted once they have ended. A refused control says why, and the reference at `/` says when each applies.
+- **Controls:** jobs and Batches can be paused, resumed (carrying on where they stopped) and cancelled, and jobs deleted once they have ended. A refused control says why, and the reference at `/docs` says when each applies.

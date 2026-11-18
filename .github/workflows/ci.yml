@@ -47,6 +47,11 @@ jobs:
       - run: vp check
       # Every package's tests but the hub's, so a new package is tested without being listed here.
       - run: vp run --filter '!hub' test
+      # The Chromium the hub's browser test drives. The test runs it headless, which Playwright does
+      # with its smaller headless shell, so the full browser is not installed.
+      - &playwright
+        run: vp exec playwright install --with-deps --only-shell chromium
+        working-directory: apps/hub
       - run: vp test --project node
         working-directory: apps/hub
       - run: vp run -r build
@@ -78,6 +83,7 @@ jobs:
           node-version: 22.19.0
       - *job-sandbox
       - run: vp run --filter '!hub' test
+      - *playwright
       # The hub in workerd, with the tests and the Runners they start on Node 22. The `node` project
       # would run the hub itself on the tests' Node.
       - run: vp test --project workers

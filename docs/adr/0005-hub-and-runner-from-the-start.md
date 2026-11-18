@@ -4,4 +4,4 @@ The hub (job submission, the record of jobs and runners, placement) and the runn
 
 ## Consequences
 
-The hub will also serve the future web dashboard; whether the dashboard lives in the hub package (for example as a full-stack app with Cloudflare's Vite plugin) is decided when the dashboard is built.
+The hub also serves the web dashboard, a package of its own whose static build the hub serves from its own origin ([ADR 0043](0043-the-hub-serves-the-dashboard-as-a-static-app-shell.md)).
