@@ -397,8 +397,8 @@ export const batchSchema = z
       cancelled: z.int(),
     }),
     /**
-     * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, by the last
-     * status its Runner confirmed.
+     * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
+     * recorded status.
      */
     statusUnknownJobs: z.int(),
     /**
