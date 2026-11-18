@@ -21,9 +21,9 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      // A placeholder: set the real Hyperdrive configuration ID before deploying, of a configuration
-      // created with `--caching-disabled` (the hub's README says why). Locally, Wrangler reads the
-      // connection string from CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE.
+      // A placeholder: set the real Hyperdrive configuration ID before deploying, of a
+      // configuration with caching disabled (the hub's README says why). Locally, Wrangler reads
+      // the connection string from CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE.
       "id": "00000000000000000000000000000000",
     },
   ],
