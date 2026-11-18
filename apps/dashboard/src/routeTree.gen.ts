@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignedInRouteImport } from './routes/_signed-in'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignedInIndexRouteImport } from './routes/_signed-in/index'
 import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/change-password'
 
 const SignedInRoute = SignedInRouteImport.update({
   id: '/_signed-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -36,10 +42,12 @@ const SignedInChangePasswordRoute = SignedInChangePasswordRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof SignedInIndexRoute
+  '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/change-password': typeof SignedInChangePasswordRoute
 }
 export interface FileRoutesByTo {
+  '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/change-password': typeof SignedInChangePasswordRoute
   '/': typeof SignedInIndexRoute
@@ -47,18 +55,20 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_signed-in': typeof SignedInRouteWithChildren
+  '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
   '/_signed-in/': typeof SignedInIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/change-password'
+  fullPaths: '/' | '/setup' | '/sign-in' | '/change-password'
   fileRoutesByTo: FileRoutesByTo
-  to: '/sign-in' | '/change-password' | '/'
+  to: '/setup' | '/sign-in' | '/change-password' | '/'
   id:
     | '__root__'
     | '/_signed-in'
+    | '/setup'
     | '/sign-in'
     | '/_signed-in/change-password'
     | '/_signed-in/'
@@ -66,6 +76,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   SignedInRoute: typeof SignedInRouteWithChildren
+  SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
 }
 
@@ -76,6 +87,13 @@ declare module '@tanstack/solid-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof SignedInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -118,6 +136,7 @@ const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   SignedInRoute: SignedInRouteWithChildren,
+  SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport
