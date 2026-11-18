@@ -1,0 +1,286 @@
+/* The named parts, one section each. A class says what a part is, never which page it is on.
+   Every value comes from tokens.css; plain elements are styled in elements.css. */
+
+/* ---------- Skip link: the first thing in the body, seen only when the keyboard reaches it ---------- */
+.skip {
+  position: absolute;
+  left: var(--space-2);
+  top: -4rem;
+  z-index: 10;
+  background: var(--c-paper);
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule) solid var(--c-field-edge);
+}
+.skip:focus {
+  top: var(--space-2);
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .skip {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--control-touch);
+  }
+}
+
+/* ---------- Button variants: the primary action, and a quiet one that is words alone ---------- */
+.primary {
+  background: var(--brand-shape);
+  color: var(--c-on-shape);
+  border-color: var(--brand-shape);
+}
+@media (hover: hover) {
+  .primary:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--brand-shape) 86%, var(--c-ink));
+  }
+}
+.quiet {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ---------- The shell: a top bar, then the page full width ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--topbar);
+  padding: 0 var(--gutter);
+  border-bottom: var(--rule-heavy) solid var(--brand-shape);
+  background: var(--c-ground);
+}
+/* The bar is a known place: its links are not underlined. */
+.topbar a {
+  text-decoration: none;
+}
+.brand {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--c-ink);
+  font-weight: var(--weight-strong);
+  font-size: var(--text-md);
+}
+.brand-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+/* At the narrowest the brand is its mark alone; the mark's alt text names it. */
+@media (max-width: 26rem) {
+  .brand-name {
+    display: none;
+  }
+}
+/* A long name is cut at its end; the account menu shows it whole. */
+.org {
+  min-width: 0;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-ink-2);
+  padding-left: var(--space-4);
+  border-left: var(--rule) solid var(--c-rule);
+  white-space: nowrap;
+}
+.topbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The Member's name opens the account menu, which the chevron after it says. A long name is cut at its end. */
+.topbar-end > button {
+  min-width: 0;
+}
+.member-name {
+  min-width: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The account menu, opened by the Member's name: who is signed in, then the account's links. */
+.menu-pop {
+  margin: 0;
+  inset: auto;
+  position: fixed;
+  top: calc(var(--topbar) + var(--space-1));
+  right: var(--gutter);
+  min-width: 15rem;
+  max-width: calc(100vw - 2 * var(--gutter));
+  max-height: calc(100dvh - var(--topbar) - var(--space-3));
+  overflow: auto;
+}
+.pop-who {
+  padding-bottom: var(--space-2);
+  border-bottom: var(--rule) solid var(--c-rule);
+  color: var(--c-ink-2);
+  overflow-wrap: anywhere;
+}
+.pop-who strong {
+  color: var(--c-ink);
+}
+.pop-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+.pop-list :is(a, button) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--control);
+  padding: 0;
+  justify-content: flex-start;
+  font-weight: var(--weight-regular);
+}
+/* A button in the menu is drawn as its links are, underline included: nothing else says it can be pressed. */
+.pop-list button {
+  border: 0;
+  color: var(--c-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  text-decoration-color: color-mix(in oklab, currentColor 38%, transparent);
+}
+.pop-list button:hover,
+.pop-list button:focus-visible {
+  text-decoration-color: currentColor;
+}
+@media (max-width: 640px) {
+  .org {
+    display: none;
+  }
+  .topbar {
+    gap: var(--space-3);
+  }
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .pop-list :is(a, button),
+  .brand {
+    min-height: var(--control-touch);
+  }
+}
+
+/* ---------- Page: the main region ---------- */
+.page {
+  padding: var(--space-3) var(--gutter) var(--space-7);
+}
+/* A page without the shell (signing in, setting up): nothing of the hub can be read yet, so it is one narrow column under the mark. */
+.page.is-alone {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  max-width: 26rem;
+  margin-inline: auto;
+  padding-top: min(12vh, 6rem);
+}
+.page.is-alone > h1 {
+  padding-bottom: var(--space-2);
+  border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
+}
+
+/* ---------- Page head: the page's heading, with a heavy rule under it ---------- */
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-5);
+  align-items: start;
+  padding-bottom: var(--space-3);
+  border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
+  margin-bottom: var(--space-4);
+}
+
+/* ---------- Prose: sentences that explain, at a readable measure ---------- */
+.prose {
+  max-width: var(--measure);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+}
+
+/* ---------- Marks: one drawn geometry each, coloured by currentColor, always beside its words ---------- */
+.mark {
+  display: inline-block;
+  flex: none;
+  width: var(--mark);
+  height: var(--mark);
+  background: currentColor;
+  -webkit-mask: var(--m) center / contain no-repeat;
+  mask: var(--m) center / contain no-repeat;
+  vertical-align: -0.1em;
+}
+/* What opens a menu: a chevron after its words. */
+.mark-opens {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.5%204.5%206%208l3.5-3.5%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-succeeded {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M1.75%206.4%204.7%209.3%2010.4%202.9%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.9%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-failed {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.4%202.4l7.2%207.2M9.6%202.4l-7.2%207.2%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.9%22%2F%3E%3C%2Fsvg%3E");
+}
+
+/* ---------- Notices: one sentence the reader must not miss, a mark and its words on a wash ---------- */
+.notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--rule-heavy) solid;
+  margin: 0 0 var(--space-4);
+  max-width: 60rem;
+}
+.notice > .mark {
+  margin-top: 0.25em;
+}
+.notice p {
+  max-width: var(--measure);
+}
+.notice-failed {
+  background: var(--c-failed-wash);
+  border-color: var(--c-failed);
+}
+.notice-failed > .mark {
+  color: var(--c-failed);
+}
+.notice-done {
+  background: var(--c-ground-2);
+  border-color: var(--c-succeeded);
+}
+.notice-done > .mark {
+  color: var(--c-succeeded);
+}
+
+/* ---------- Fields: a label above its field; a plain form is fields one under another ---------- */
+.fields {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 24rem;
+}
+.fields > button {
+  justify-self: start;
+}
+.fields > .notice {
+  margin: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.field > label {
+  font-weight: var(--weight-medium);
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control);
+  cursor: pointer;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .check {
+    min-height: var(--control-touch);
+  }
+}

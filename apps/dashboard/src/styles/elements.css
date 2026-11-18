@@ -1,0 +1,361 @@
+/* Plain elements: semantic HTML with no class already looks like the system.
+   Every value comes from tokens.css. Named parts are in components.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scrollbar-color: var(--c-ink-3) var(--c-ground-2);
+  accent-color: var(--brand-shape);
+  caret-color: var(--brand-lamp);
+}
+body {
+  margin: 0;
+  background: var(--c-ground);
+  color: var(--c-ink);
+  font: var(--weight-regular) var(--text-sm) / var(--leading) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+::selection {
+  background: var(--c-selection);
+  color: var(--c-ink);
+}
+:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* ---- Text ---- */
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: var(--leading-tight);
+  font-weight: var(--weight-strong);
+  text-wrap: balance;
+}
+h1 {
+  font-size: var(--text-2xl);
+  letter-spacing: -0.01em;
+}
+h2 {
+  font-size: var(--text-lg);
+}
+h3,
+h4 {
+  font-size: var(--text-sm);
+}
+p,
+figure,
+blockquote {
+  margin: 0;
+}
+small {
+  font-size: var(--text-xs);
+}
+strong,
+b {
+  font-weight: var(--weight-strong);
+}
+del {
+  text-decoration-thickness: 1px;
+  color: var(--c-ink-2);
+}
+time {
+  white-space: nowrap;
+}
+abbr[title] {
+  text-decoration: none;
+}
+hr {
+  border: 0;
+  border-top: var(--rule) solid var(--c-rule);
+  margin: var(--space-4) 0;
+}
+mark {
+  background: var(--c-lamp-wash);
+  color: inherit;
+}
+
+/* Every link in content is underlined at rest, in a quieter tint of its colour, and at full strength
+   under the pointer or the keyboard. Only the top bar's destinations go without (components.css). */
+a {
+  color: var(--c-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  text-decoration-color: color-mix(in oklab, currentColor 38%, transparent);
+}
+a:hover,
+a:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+/* What a person might copy or compare: the mono, with code ligatures off so it reads as typed. */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  font-weight: var(--weight-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
+}
+pre {
+  margin: 0;
+}
+pre code {
+  font-size: 1em;
+}
+
+/* ---- Lists ---- */
+ul,
+ol {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+/* ---- A table is ruled: a hairline per row, heads small and quiet, figures right-aligned in the mono, a double rule above a total. ---- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+caption {
+  text-align: start;
+  font-size: var(--text-xs);
+  color: var(--c-ink-2);
+  padding-bottom: var(--space-1);
+}
+/* Row height holds at --row whatever the text: the padding is what the line and the hairline leave. */
+th,
+td {
+  padding: calc((var(--row) - 1lh - var(--rule)) / 2) var(--space-3)
+    calc((var(--row) - 1lh - var(--rule)) / 2) 0;
+  text-align: start;
+  vertical-align: top;
+  border-bottom: var(--rule) solid var(--c-rule);
+}
+th:last-child,
+td:last-child {
+  padding-right: 0;
+}
+tbody th {
+  font-weight: var(--weight-regular);
+}
+thead th {
+  font-weight: var(--weight-medium);
+  font-size: var(--text-xs);
+  color: var(--c-ink-2);
+  vertical-align: bottom;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom-color: var(--c-ink-3);
+}
+tfoot th,
+tfoot td {
+  border-top: var(--rule-total) var(--c-rule-strong);
+  border-bottom: 0;
+  font-weight: var(--weight-strong);
+  padding-top: var(--space-2);
+}
+
+/* ---- A definition list is ruled facts: one line each, the value at a fixed start. ---- */
+dl {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+  margin: 0;
+}
+dt,
+dd {
+  margin: 0;
+  min-width: 0;
+  padding: calc((var(--row) - 1lh - var(--rule)) / 2) 0;
+  border-bottom: var(--rule) solid var(--c-rule);
+}
+dt {
+  color: var(--c-ink-2);
+  padding-right: var(--space-4);
+}
+dd {
+  overflow-wrap: anywhere;
+}
+/* Narrow: each value under its name. */
+@media (max-width: 480px) {
+  dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  dt {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+}
+
+/* ---- Controls: 32px with a fine pointer, 44px at narrow widths or with a coarse pointer ---- */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: var(--control);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  color: var(--c-ink);
+  background: var(--c-paper);
+  border: var(--rule) solid var(--c-field-edge);
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  button:hover:not(:disabled) {
+    background: var(--c-ground-2);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+}
+button:disabled {
+  background: var(--c-ground-2);
+  color: var(--c-ink-2);
+  border-color: var(--c-rule);
+  cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--c-ink);
+  background: var(--c-paper);
+  border: var(--rule) solid var(--c-field-edge);
+  border-radius: var(--radius);
+  outline: 2px solid transparent;
+  outline-offset: -3px;
+  min-width: 0;
+}
+input:not([type="checkbox"], [type="radio"], [type="file"]),
+select {
+  min-height: var(--control);
+  padding: 0 var(--space-2);
+}
+textarea {
+  padding: var(--space-2);
+  resize: vertical;
+  min-height: 6rem;
+  line-height: var(--leading);
+  width: 100%;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-color: var(--c-focus);
+  outline-offset: -2px;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--c-ink-2);
+  opacity: 1;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--c-ground-2);
+  color: var(--c-ink-2);
+  border-color: var(--c-rule);
+  cursor: not-allowed;
+}
+[aria-invalid="true"] {
+  border-color: var(--c-failed);
+  background: var(--c-failed-wash);
+}
+label {
+  cursor: default;
+}
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+legend {
+  padding: 0;
+  font-weight: var(--weight-medium);
+}
+
+details > summary {
+  cursor: pointer;
+}
+summary {
+  color: var(--c-link);
+  font-weight: var(--weight-medium);
+}
+summary::marker {
+  color: var(--c-ink-2);
+}
+
+progress {
+  width: 10rem;
+  height: 0.5rem;
+  accent-color: var(--brand-shape);
+  vertical-align: middle;
+}
+
+dialog {
+  background: var(--c-paper);
+  color: var(--c-ink);
+  border: var(--rule) solid var(--c-field-edge);
+  border-radius: var(--radius);
+  padding: 0;
+  max-width: min(44rem, calc(100vw - 2 * var(--gutter)));
+  box-shadow: var(--shadow-dialog);
+}
+dialog::backdrop {
+  background: var(--c-scrim);
+}
+[popover] {
+  background: var(--c-paper);
+  color: var(--c-ink);
+  border: var(--rule) solid var(--c-field-edge);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  padding: var(--space-3);
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  button,
+  input:not([type="checkbox"], [type="radio"], [type="file"]),
+  select,
+  summary {
+    min-height: var(--control-touch);
+  }
+  button {
+    padding: 0 var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

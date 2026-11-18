@@ -1,0 +1,187 @@
+# Dashboard design
+
+How the dashboard looks, and how to build a page so that it looks the same. The stylesheets in `src/styles/` are the system; this file says what they give you and what they expect of the markup.
+
+## The idea
+
+The dashboard is a ruled record. It is set like a ledger: dense, plain, and exact about what each figure is.
+
+- **Ruled, not boxed.** The page is the brand's ground, in light and in dark. Regions are separated by rules: a hairline between rows, a heavy rule under a heading, a double rule above a total. There are no cards. Only what floats over the page (a popover, a dialog) has an edge and a shadow.
+- **Two faces.** Instrument Sans for the interface and for sentences. JetBrains Mono for data: anything a person might copy or compare, such as an ID, a figure or a command.
+- **Three brand colours.** The ground is the page. The green of the mark's hood carries links, the primary action and the heavy rules. The colour of its lamp marks only what is live now, and where the keyboard is. Nothing else uses the lamp, so it keeps its meaning.
+- **Colour never speaks alone.** What failed is red and has a cross and says so in words; what was done has a tick and says so.
+- **Compact.** The working size is 13px, a table row is 30px and a control 32px. At 640px and below, or with a coarse pointer, a control and a link standing alone are 44px.
+- **Nothing invented is shown as fact.** A figure carries its unit. A figure the dashboard derives, such as an estimate or a count still growing, says so. Words are the glossary's (`CONTEXT.md`), capitals included.
+
+## The files
+
+| File                        | What it holds                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `src/styles/tokens.css`     | Every design token, as a custom property, and nothing else.                    |
+| `src/styles/elements.css`   | Plain elements, so semantic HTML with no class already looks right.            |
+| `src/styles/components.css` | Named parts, one section each, opened by a comment that says what the part is. |
+| `src/styles/app.css`        | Imports the three, in that order.                                              |
+
+`src/routes/__root.tsx` links `app.css` and the two faces, which come from the `@fontsource-variable` packages and are served by the hub with the rest of the build. The faces are linked there rather than imported by `app.css` so that the build's third-party notices carry their licences.
+
+Pages are written as semantic HTML in JSX with these classes, and with no inline styles.
+
+## Tokens
+
+Each colour is written once, as `light-dark(light, dark)`. The page follows the system setting; `data-theme="light"` or `"dark"` on `<html>` forces one. The dashboard has no theme switch.
+
+- **Brand:** `--brand-ground`, `--brand-shape`, `--brand-lamp`. Nothing replaces them.
+- **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family in both themes.
+- **Inks** are explicit values. Text reaches 4.5:1 on every ground it is set on, in both themes.
+- **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
+- **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
+- **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size) and `--text-md` (15px, sentences that explain) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
+- **Space** is a 4px step, `--space-1` to `--space-7`; the page's side margin is `--gutter`.
+- **Sizes:** `--row`, `--control`, `--control-touch`, `--topbar`, and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
+
+A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
+
+## Plain elements
+
+With no class at all:
+
+- **Text** is the sans at 13px with tabular figures. Headings have fixed sizes: `h1` 23px, `h2` 17px. `code`, `kbd`, `samp` and `pre` are in the mono with ligatures off, so they read as typed. `time` stays on one line.
+- **Links** are underlined at rest in a quieter tint of their colour, and at full strength under the pointer or the keyboard. Focus everywhere is a 2px ring.
+- **Tables** are ruled: a hairline under each row, a one-line row 30px tall, small quiet column heads, a double rule above a `tfoot`.
+- **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
+- **Buttons** are paper with an edge; a disabled one is greyed. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
+- **`dialog`** and **`[popover]`** are paper with an edge and a shadow.
+
+## Parts
+
+### The shell
+
+Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
+
+```tsx
+<a class="skip" href="#main">Skip to the page</a>
+<header class="topbar">
+  <Link to="/" class="brand">
+    <BrandMark alt="Elflodge" />
+    <span class="brand-name" aria-hidden="true">Elflodge</span>
+  </Link>
+  <span class="org">Harbor & Pine</span>
+  <div class="topbar-end">
+    <button type="button" class="quiet" popovertarget="account">
+      <span class="member-name">Robin Hale</span>
+      <span class="mark mark-opens" aria-hidden="true" />
+    </button>
+  </div>
+</header>
+<div id="account" class="menu-pop" popover>
+  <p class="pop-who"><strong>Robin Hale</strong><br />robin@example.com<br />Harbor & Pine</p>
+  <ul class="pop-list">
+    <li><Link to="/change-password">Change password</Link></li>
+    <li><button type="button" class="quiet">Sign out</button></li>
+  </ul>
+</div>
+<main id="main" class="page">…</main>
+```
+
+- The bar holds the brand, the Organization's name and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
+- The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
+- A long name is cut at its end in the bar and shown whole in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
+- A link in the menu closes it when the router changes the page.
+
+### A page
+
+`main#main.page` is the full width of the window with the page's margins. A page begins with its heading in `div.head`, which rules a heavy line under it:
+
+```tsx
+<div class="head">
+  <h1>Change password</h1>
+</div>
+```
+
+Sentences that explain are `p.prose`: 15px, at most 72 characters a line.
+
+### A page without the shell
+
+Signing in, setting up, a page not found: nothing of the hub can be read yet, so there is no bar. The page is one narrow column under the mark.
+
+```tsx
+<main id="main" class="page is-alone">
+  <BrandMark alt="" />
+  <h1>Sign in to Elflodge</h1>
+  <form class="fields">…</form>
+</main>
+```
+
+The mark's `alt` is empty here because the heading names the product.
+
+### Fields
+
+A plain form is `form.fields`: fields one under another, at most 24rem wide, the button at the start of the last line. Each field is a `div.field` holding its `label` and its control, tied by `for` and `id`. A checkbox with its words is one `label.check`.
+
+```tsx
+<form class="fields">
+  <div class="field">
+    <label for="sign-in-email">Email</label>
+    <input id="sign-in-email" name="email" type="email" autocomplete="username" required />
+  </div>
+  <label class="check">
+    <input name="revoke-other-sessions" type="checkbox" checked />
+    Sign out of other sessions
+  </label>
+  <button type="submit" class="primary">
+    Sign in
+  </button>
+</form>
+```
+
+Use the browser's own validation (`required`, `type`, `pattern`, `min`, `max`), accepting exactly what the hub accepts.
+
+### Notices
+
+One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button.
+
+```tsx
+<Notice role="alert">The new password and its confirmation differ.</Notice>
+<Notice role="status">Your password is changed.</Notice>
+```
+
+which draw
+
+```html
+<div class="notice notice-failed" role="alert">
+  <span class="mark mark-failed" aria-hidden="true"></span>
+  <p>The new password and its confirmation differ.</p>
+</div>
+```
+
+### Buttons
+
+A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu.
+
+### Marks
+
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are three: `mark-failed`, a cross; `mark-succeeded`, a tick; and `mark-opens`, a chevron after words that open a menu. No icon set is used.
+
+## Rules
+
+1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the Member's name.
+2. **Targets:** 32px for a control with a fine pointer; 44px for a control or a link standing alone at 640px and below or with a coarse pointer. A link inside a sentence keeps its line's height.
+3. **The lamp colour is only for what is live now and for keyboard focus.**
+4. **Colour is never the only sign:** a mark and words go with it.
+5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu.
+6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
+
+## Adding a part
+
+A new page is the shell, a heading and the parts above. When it needs something they do not give:
+
+1. Write it as semantic HTML first; a plain element may already be enough.
+2. Add a section to `components.css`, opened by a one-line comment that says what the part is. Name classes for what a part is, never for the page it is on. Add any new token to `tokens.css`.
+3. Describe the part here: its element, its classes, the attributes it needs, and a short example.
+4. Look at it in light and in dark at 1440, 1280, 960 and 390px wide, and with the keyboard alone. Nothing may scroll sideways, and text and lines keep the contrast the tokens section gives.
+
+The part, its tokens and its description arrive in the change that builds the page that uses it.
+
+## Browser floor
+
+Chromium 123, Firefox 125 and Safari 17.5, the first versions with both `light-dark()` and the `popover` attribute. Only Chromium has been run.

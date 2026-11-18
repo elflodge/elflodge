@@ -2,7 +2,8 @@ import { Link, Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/
 import { Show, createSignal } from "solid-js";
 
 import { attemptAuth, authClient, failureMessage } from "../auth-client.ts";
-import { logoDark, logoLight } from "../logo.ts";
+import { BrandMark } from "../components/BrandMark.tsx";
+import { Notice } from "../components/Notice.tsx";
 
 // Every page but signing in and setting up is for a signed-in member. The session is read from the
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
@@ -26,6 +27,7 @@ function SignedIn() {
   const navigate = useNavigate();
   const [error, setError] = createSignal<string>();
   const [pending, setPending] = createSignal(false);
+  let account: HTMLDivElement | undefined;
 
   async function signOut() {
     const failure = await attemptAuth(() => authClient.signOut(), setPending);
@@ -38,29 +40,69 @@ function SignedIn() {
 
   return (
     <>
-      <header class="site-header">
+      <a class="skip" href="#main">
+        Skip to the page
+      </a>
+      <header class="topbar">
         <Link to="/" class="brand">
-          <picture>
-            <source srcset={logoDark} media="(prefers-color-scheme: dark)" />
-            <img src={logoLight} alt="" width="32" height="32" />
-          </picture>
-          Elflodge
+          <BrandMark alt="Elflodge" />
+          <span class="brand-name" aria-hidden="true">
+            Elflodge
+          </span>
         </Link>
-        <span class="organization">{context().organization?.name}</span>
-        <nav aria-label="Main">
-          {/* Served by the hub itself, outside the dashboard. */}
-          <a href="/docs">API reference</a>
-        </nav>
-        <div class="member">
-          <span>{context().member.email}</span>
-          <Link to="/change-password">Change password</Link>
-          <button type="button" disabled={pending()} onClick={() => void signOut()}>
-            Sign out
+        {/* Removing a member leaves their session, which then has no Organization to name. */}
+        <Show when={context().organization}>
+          {(organization) => <span class="org">{organization().name}</span>}
+        </Show>
+        <div class="topbar-end">
+          <button type="button" class="quiet" popovertarget="account">
+            <span class="member-name">{context().member.name}</span>
+            <span class="mark mark-opens" aria-hidden="true" />
           </button>
         </div>
       </header>
-      <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
-      <main>
+      {/* A native popover: the browser opens it, and closes it on Escape or a press elsewhere. */}
+      <div
+        id="account"
+        class="menu-pop"
+        popover
+        ref={(element) => {
+          account = element;
+        }}
+      >
+        <p class="pop-who">
+          <strong>{context().member.name}</strong>
+          <br />
+          {context().member.email}
+          <Show when={context().organization}>
+            {(organization) => (
+              <>
+                <br />
+                {organization().name}
+              </>
+            )}
+          </Show>
+        </p>
+        <ul class="pop-list">
+          <li>
+            {/* The router changes the page without loading it anew, which would leave the menu open. */}
+            <Link to="/change-password" onClick={() => account?.hidePopover()}>
+              Change password
+            </Link>
+          </li>
+          <li>
+            {/* Served by the hub itself, outside the dashboard. */}
+            <a href="/docs">API reference</a>
+          </li>
+          <li>
+            <button type="button" class="quiet" disabled={pending()} onClick={() => void signOut()}>
+              Sign out
+            </button>
+          </li>
+        </ul>
+      </div>
+      <main id="main" class="page">
+        <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
         <Outlet />
       </main>
     </>

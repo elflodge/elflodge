@@ -1,0 +1,133 @@
+/* Every design token, as a custom property, and nothing else.
+   Colours are written once each with light-dark(light, dark): the page follows the system setting,
+   and data-theme="light" or "dark" on <html> forces one.
+   A neutral that sits between the page and the brand's green (a rule, a band, an edge) is written as a
+   mix of the two brand colours, so it moves with them; text inks are explicit values, each checked for AA. */
+
+:root {
+  color-scheme: light dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root {
+  /* ---- Brand, fixed. The six colours of the mark; nothing replaces them. ---- */
+  --brand-ground: light-dark(#f0e8d7, #29372d); /* the mark's ground: the page itself */
+  --brand-shape: light-dark(
+    #46634b,
+    #c5d6bc
+  ); /* the hood: links, the primary action, heavy rules, what succeeded */
+  --brand-lamp: light-dark(
+    #b96a48,
+    #ffa470
+  ); /* the lamp: only what is live now, and where the keyboard is */
+
+  /* ---- Surfaces. The page is one ground; regions are ruled, not boxed. ---- */
+  --c-ground: var(--brand-ground); /* page background */
+  --c-ground-2: color-mix(
+    in oklab,
+    var(--brand-ground),
+    var(--brand-shape) 8%
+  ); /* a band set apart from the page; a control that cannot act */
+  --c-paper: light-dark(#f8f3e8, #314238); /* raised: fields, buttons, dialogs, popovers */
+  --c-lamp-wash: color-mix(
+    in oklab,
+    var(--brand-ground),
+    var(--brand-lamp) 16%
+  ); /* ground of what is live, and of marked text */
+  --c-failed-wash: light-dark(#f3d9d2, #45302d); /* ground of a refusal and of an invalid field */
+
+  /* ---- Ink. Text colours, each AA on --c-ground, --c-ground-2 and --c-paper. ---- */
+  --c-ink: light-dark(#1e2a22, #e7eee1); /* body text, figures */
+  --c-ink-2: light-dark(#4d594d, #b3c4ae); /* secondary text: labels of facts, units, notes */
+  --c-link: var(--brand-shape); /* links */
+  --c-on-shape: var(--brand-ground); /* text on a --brand-shape fill (the primary button) */
+
+  /* ---- Lines that are not text: 3:1 where they must be seen, quieter where they only separate.
+     Measured on --c-ground, -ground-2, -paper, -lamp-wash and -failed-wash, in both themes. ---- */
+  --c-ink-3: color-mix(
+    in oklab,
+    var(--brand-ground),
+    var(--brand-shape) 80%
+  ); /* dividers that must still read: at least 3.15:1 light, 4.19:1 dark */
+  --c-rule: color-mix(
+    in oklab,
+    var(--brand-ground),
+    var(--brand-shape) 22%
+  ); /* hairline between rows and entries */
+  --c-rule-strong: var(
+    --brand-shape
+  ); /* the heavy rule under a heading, the double rule above a total */
+  --c-field-edge: color-mix(
+    in oklab,
+    var(--brand-ground),
+    var(--brand-shape) 82%
+  ); /* edge of a field, a select, a button: at least 3.25:1 light, 4.37:1 dark */
+  --c-focus: light-dark(
+    #8e4426,
+    #ffa470
+  ); /* focus ring: where the lamp is, the keyboard is: at least 4.86:1 light, 4.76:1 dark */
+  --c-selection: light-dark(#e9c3a9, #5b4a33); /* selected text */
+  --c-scrim: light-dark(rgb(30 42 34 / 0.38), rgb(10 16 12 / 0.6)); /* behind a modal dialog */
+  --shadow-pop: 0 6px 18px light-dark(rgb(30 42 34 / 0.16), rgb(0 0 0 / 0.4)); /* a popover */
+  --shadow-dialog: 0 12px 40px light-dark(rgb(30 42 34 / 0.24), rgb(0 0 0 / 0.5)); /* a dialog over the scrim */
+
+  /* ---- Outcomes. Each has its own drawn mark as well; colour never carries it alone. ---- */
+  --c-succeeded: var(--brand-shape); /* what was done */
+  --c-failed: light-dark(#a12c3a, #ff9c8a); /* what failed or was refused, as mark and as words */
+
+  /* ---- Type. Two faces: the sans for the interface and sentences, the mono for data. ---- */
+  --font-sans: "Instrument Sans Variable", "Instrument Sans", system-ui, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --text-xs: 0.75rem; /* 12px: units, column heads, notes */
+  --text-sm: 0.8125rem; /* 13px: the working size: tables, facts, controls */
+  --text-md: 0.9375rem; /* 15px: sentences that explain */
+  --text-lg: 1.0625rem; /* 17px: section headings */
+  --text-xl: 1.25rem; /* 20px: a page's subject when it is an identifier, in the mono */
+  --text-2xl: 1.4375rem; /* 23px: a page heading that is a word */
+  --mono-size: 0.94em; /* JetBrains Mono runs large; set beside the sans at this ratio so x-heights meet */
+  --leading-tight: 1.25; /* headings, figures */
+  --leading: 1.45; /* the working size */
+  --leading-prose: 1.55; /* paragraphs */
+  --weight-regular: 400;
+  --weight-medium: 520; /* column heads, labels of fields and facts, controls */
+  --weight-strong: 620; /* headings, totals */
+  --weight-mono: 420; /* mono text in light; dark sets it lighter */
+  --measure: 72ch; /* longest line of prose */
+
+  /* ---- Space. A 4px step; the compact density lives in --row and --control. ---- */
+  --space-1: 0.25rem; /* 4: inside a cell, between a mark and its word */
+  --space-2: 0.5rem; /* 8: between related items */
+  --space-3: 0.75rem; /* 12: between a field and the next, table cell sides */
+  --space-4: 1rem; /* 16: inside a region */
+  --space-5: 1.5rem; /* 24: between regions */
+  --space-6: 2rem; /* 32: above a section heading */
+  --space-7: 3rem; /* 48: under a page's last region */
+  --gutter: clamp(0.75rem, 2.4vw, 1.5rem); /* the page's side margin */
+
+  /* ---- Sizes. ---- */
+  --row: 1.875rem; /* 30px: a one-line table row or ruled fact */
+  --control: 2rem; /* 32px: buttons, inputs, selects with a fine pointer */
+  --control-touch: 2.75rem; /* 44px: the same, and every link standing alone, at narrow widths or with a coarse pointer */
+  --mark: 0.75rem; /* 12px: a drawn mark */
+  --radius: 3px; /* controls and dialogs; tables and rules have none */
+  --rule: 1px; /* hairline */
+  --rule-heavy: 2px; /* under a heading, under the top bar */
+  --rule-total: 3px double; /* above a total */
+  --topbar: 3rem; /* height of the top bar */
+}
+
+/* Dark: the mono drops a little weight, as light text on a dark ground reads heavier. */
+:root[data-theme="dark"] {
+  --weight-mono: 360;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --weight-mono: 360;
+  }
+}

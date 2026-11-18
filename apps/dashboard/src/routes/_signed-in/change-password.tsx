@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
 
 import { attemptAuth, authClient } from "../../auth-client.ts";
+import { Notice } from "../../components/Notice.tsx";
 import { fieldText } from "../../form.ts";
 
 export const Route = createFileRoute("/_signed-in/change-password")({
@@ -46,28 +47,50 @@ function ChangePassword() {
 
   return (
     <>
-      <h1>Change password</h1>
-      <form onSubmit={changePassword}>
-        <label>
-          Current password
-          <input name="current-password" type="password" autocomplete="current-password" required />
-        </label>
-        <label>
-          New password
-          <input name="new-password" type="password" autocomplete="new-password" required />
-        </label>
-        <label>
-          Confirm new password
-          <input name="confirm-password" type="password" autocomplete="new-password" required />
-        </label>
-        <label class="choice">
+      <div class="head">
+        <h1>Change password</h1>
+      </div>
+      <form class="fields" onSubmit={changePassword}>
+        <div class="field">
+          <label for="current-password">Current password</label>
+          <input
+            id="current-password"
+            name="current-password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="new-password">New password</label>
+          <input
+            id="new-password"
+            name="new-password"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="confirm-password">Confirm new password</label>
+          <input
+            id="confirm-password"
+            name="confirm-password"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
+        </div>
+        <label class="check">
           {/* Checked by default: a changed password may mean the old one leaked, and the other
               sessions were signed in with it. */}
           <input name="revoke-other-sessions" type="checkbox" checked />
           Sign out of other sessions
         </label>
-        <Show when={result()}>{(shown) => <p role={shown().role}>{shown().message}</p>}</Show>
-        <button type="submit" disabled={pending()}>
+        <Show when={result()}>
+          {(shown) => <Notice role={shown().role}>{shown().message}</Notice>}
+        </Show>
+        <button type="submit" class="primary" disabled={pending()}>
           Change password
         </button>
       </form>
