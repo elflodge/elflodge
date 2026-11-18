@@ -4,7 +4,8 @@ import { text } from "node:stream/consumers";
 
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import { createORPCClient, ORPCError } from "@orpc/client";
+import { createORPCClient } from "@orpc/client";
+import { catchORPCErrorCode, createEffectClient } from "@orpc/effect";
 import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING,
@@ -167,7 +168,8 @@ export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
 
 /**
  * The Runner as a program: registers it on its first start, then runs it until it is interrupted, or
- * until it fails with `Removed` once the hub no longer knows it. Its jobs stop before it ends.
+ * until it fails with `RegistrationRefused` when the hub refuses its registration key, or with
+ * `Removed` once the hub no longer knows it. Its jobs stop before it ends.
  */
 export function runRunner(
   options: RunnerOptions,
@@ -327,21 +329,17 @@ function loadOrRegister(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const register = Effect.gen(function* () {
-      const hubHttp: HubHttpClient = createORPCClient(
-        createProblemDetailsLink(runnerHttpContract, {
-          origin: hubUrl.origin,
-          headers: { "x-api-key": options.registrationKey },
-        }),
-      );
-      const registration = yield* Effect.tryPromise({
-        try: () => hubHttp.register({ name: hostname() }),
-        catch: (error) => error,
-      }).pipe(
-        Effect.catch((error) =>
-          error instanceof ORPCError && error.code === "UNAUTHORIZED"
-            ? Effect.fail(new RegistrationRefused())
-            : Effect.die(error),
+      const hubHttp = createEffectClient<HubHttpClient>(
+        createORPCClient(
+          createProblemDetailsLink(runnerHttpContract, {
+            origin: hubUrl.origin,
+            headers: { "x-api-key": options.registrationKey },
+          }),
         ),
+      );
+      const registration = yield* hubHttp.register({ name: hostname() }).pipe(
+        catchORPCErrorCode("UNAUTHORIZED", () => Effect.fail(new RegistrationRefused())),
+        Effect.orDie,
       );
       yield* fs.makeDirectory(options.dataDir, { recursive: true });
       // Only the operating-system user running the Runner may read its key.
@@ -371,9 +369,10 @@ interface ConnectionContext {
 }
 
 /**
- * The hub refused the shared key the Runner registers with: it expired, was revoked or never was
- * one. A Runner registers on its first start, and again when its data directory, which keeps its
- * own key, is gone.
+ * The hub refused the shared key the Runner registers with (401): it expired, was revoked, lacks
+ * `runner: ["register"]` or never was one, or a proxy in front of the hub refused the request. A
+ * Runner registers on its first start, with `register`, and when its data directory, which keeps
+ * its own key, is gone.
  */
 export class RegistrationRefused extends Data.TaggedError("RegistrationRefused") {}
 

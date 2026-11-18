@@ -655,6 +655,9 @@ importers:
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.50
+      '@orpc/effect':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)
       '@orpc/openapi':
         specifier: 'catalog:'
         version: 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))

@@ -455,7 +455,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
       ),
       Effect.catchTag("RegistrationRefused", () =>
         refuse(
-          "The hub refused RUNNER_REGISTRATION_KEY: it may have expired or been revoked. A Runner registers on its first start and again when its data directory is gone. Create a new registration key in the dashboard and start the Runner with it.",
+          'The hub refused RUNNER_REGISTRATION_KEY (401): it may have expired, been revoked or lack runner: ["register"], or a proxy in front of the hub refused the request. Ask an owner or admin of the Organization for a new registration key, then run the same command again with it.',
         ),
       ),
       Effect.catchTag("Removed", () =>

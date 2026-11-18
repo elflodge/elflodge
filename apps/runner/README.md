@@ -3,7 +3,7 @@
 A Node process that connects out to the hub and runs many jobs' agents at once. It runs on its user's Node, from 22.19, so it uses only what Node 22 has. It runs separately from the CLI, which calls the hub over HTTP. After `vp run -t runner#build`, which also builds the extension adapter it loads, `vp run start` starts a Runner from the environment:
 
 - `HUB_URL`: the hub's URL.
-- `RUNNER_REGISTRATION_KEY`: an API key granted `runner: ["register"]`, shared by Runners. A Runner uses it on its first start to register and receive a key of its own.
+- `RUNNER_REGISTRATION_KEY`: an API key granted `runner: ["register"]`, shared by Runners. A Runner uses it to register and receive a key of its own: on its first start, with `register`, and when its data directory is gone. It refuses to start, saying so, when the hub refuses the key.
 - `RUNNER_MODEL_PROVIDER` and `RUNNER_MODEL_ID`: the model every job runs on, as Pi names it, such as `anthropic` and `claude-sonnet-5-5`. The Runner uses saved provider authentication first, then the environment as Pi reads it (for example `ANTHROPIC_API_KEY`); see below. The Runner refuses to start when Pi does not know the model, finds neither a key nor a sign-in for its provider, or cannot renew the sign-in; in the first two cases it lists the models it has a key or sign-in for. Images among a job's Input files, and PDF pages rendered with `pdftoppm`, reach the model as images, so jobs that need them need a model that accepts images.
 - `RUNNER_MODEL_BASE_URL`: call the provider's models at this URL instead of the provider's own, such as a gateway, a local model server or a replay server for tests. Give it in the shape of the provider's base URL, such as `http://127.0.0.1:4000/v1` for OpenAI's `https://api.openai.com/v1`; requests carry the provider's key and the model's own ID. Sign-ins are refused while it is set, so their tokens never reach that server. For OpenRouter, name it in `RUNNER_MODEL_PROVIDER` instead; for Azure OpenAI, set `AZURE_OPENAI_BASE_URL`.
 - `RUNNER_THINKING_LEVEL`: how hard the model thinks, one of Pi's levels from `off` to `max`; `medium` by default, as in Pi's coding agent.
@@ -138,7 +138,7 @@ To search with SearXNG or Firecrawl you run yourself, make it reachable at the R
 - **Docker**: the Runner's image, `ghcr.io/elflodge/elflodge-runner`, runs as a non-root user and needs three options for its jobs' sandboxes, as BuildKit's rootless image does: Docker's defaults deny bubblewrap the namespaces it needs and mask the paths under `/proc` that a sandbox mounts its own over.
 
   ```sh
-  docker run --hostname "$(hostname)" --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
+  docker run --hostname "$(uname -n)" --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped --volume runner-data:/data \
     --env HUB_URL --env RUNNER_REGISTRATION_KEY --env RUNNER_MODEL_PROVIDER --env RUNNER_MODEL_ID \
     --env ANTHROPIC_API_KEY ghcr.io/elflodge/elflodge-runner
@@ -148,6 +148,6 @@ To search with SearXNG or Firecrawl you run yourself, make it reachable at the R
 
 The Runner proves the sandbox works when it starts, and refuses to start, naming what is missing, if it does not.
 
-A Runner the hub has removed, or a hub that no longer knows (for example after a reset), stops with a message instead of retrying; `vp run start register` discards its key and registers it again. Any other refusal, such as from a proxy or from a hub that cannot reach its database, is retried.
+A Runner the hub has removed, or a hub that no longer knows (for example after a reset), stops with a message instead of retrying; `vp run start register` discards its key and registers it again. Any other refusal of its connection, such as from a proxy or from a hub that cannot reach its database, is retried. A registration that fails for a reason other than its key ends the Runner with the error, and `--restart` or its service manager starts it again.
 
 To remove a compromised host, delete its Runner on the hub (`DELETE /runners/{id}`), then revoke the registration key and create a new one for future hosts: the host still holds the old one and could otherwise register again. Runners already registered keep working, since they connect with their own keys. A registration key can also be created to expire (`expiresIn`), for a key meant for one batch of hosts.

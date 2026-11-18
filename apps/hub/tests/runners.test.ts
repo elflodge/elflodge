@@ -110,7 +110,7 @@ test("a runner offering no protocol version the hub supports is refused, told wh
   });
 });
 
-test("a Runner whose registration key the hub refuses says so", async () => {
+test("a runner whose registration key the hub refuses stops, refused rather than failed", async () => {
   await expect(
     system.startRunner({ register: true, registrationKey: "not-a-registration-key" }),
   ).rejects.toMatchObject({ _tag: "RegistrationRefused" });

@@ -29,6 +29,7 @@
     "@elflodge/pi-durable-extension-adapter": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
+    "@orpc/effect": "catalog:",
     "@orpc/openapi": "catalog:",
     "@standard-schema/utils": "catalog:",
     "atomically": "catalog:",

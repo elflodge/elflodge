@@ -129,7 +129,7 @@ RUNNER_MODEL_ID=openrouter/free
 OPENROUTER_API_KEY=<your key>
 RUNNER_EXTENSIONS_DIR=/app/extensions
 EOF
-docker run -d --name elflodge-runner --hostname "$(hostname)" --security-opt seccomp=unconfined \
+docker run -d --name elflodge-runner --hostname "$(uname -n)" --security-opt seccomp=unconfined \
   --security-opt systempaths=unconfined --security-opt apparmor=unconfined --memory 8g \
   --restart unless-stopped --volume runner-data:/data --env-file runner.env \
   ghcr.io/elflodge/elflodge-runner:0.10.0
