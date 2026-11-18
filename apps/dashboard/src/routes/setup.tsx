@@ -6,7 +6,7 @@ import { api, apiFailureMessage } from "../api-client.ts";
 import { attemptAuth, authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { fieldText } from "../form.ts";
+import { GIVEN_NAME, NEW_PASSWORD, fieldText } from "../form.ts";
 
 // Setting up a new hub: creating its owner with the setup link the hub printed (ADR 0015). The
 // link's token comes after `#`, so it never reaches the hub's request logs.
@@ -89,11 +89,12 @@ function Setup() {
                 name="organization"
                 autocomplete="organization"
                 required
+                {...GIVEN_NAME}
               />
             </div>
             <div class="field">
               <label for="setup-name">Your name</label>
-              <input id="setup-name" name="name" autocomplete="name" required />
+              <input id="setup-name" name="name" autocomplete="name" required {...GIVEN_NAME} />
             </div>
             <div class="field">
               <label for="setup-email">Email</label>
@@ -107,6 +108,7 @@ function Setup() {
                 type="password"
                 autocomplete="new-password"
                 required
+                {...NEW_PASSWORD}
               />
             </div>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>

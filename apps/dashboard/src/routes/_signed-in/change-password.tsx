@@ -3,7 +3,7 @@ import { Show, createSignal } from "solid-js";
 
 import { attemptAuth, authClient } from "../../auth-client.ts";
 import { Notice } from "../../components/Notice.tsx";
-import { fieldText } from "../../form.ts";
+import { NEW_PASSWORD, fieldText } from "../../form.ts";
 
 export const Route = createFileRoute("/_signed-in/change-password")({
   component: ChangePassword,
@@ -69,16 +69,20 @@ function ChangePassword() {
             type="password"
             autocomplete="new-password"
             required
+            {...NEW_PASSWORD}
           />
         </div>
         <div class="field">
           <label for="confirm-password">Confirm new password</label>
+          {/* The same lengths as the new password: a field cuts what is pasted beyond its longest,
+              and the two would then differ. */}
           <input
             id="confirm-password"
             name="confirm-password"
             type="password"
             autocomplete="new-password"
             required
+            {...NEW_PASSWORD}
           />
         </div>
         <label class="check">
