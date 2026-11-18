@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/solid-router";
+import { ClientOnly, HeadContent, Scripts, createRootRoute } from "@tanstack/solid-router";
 
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary.tsx";
 import { NotFound } from "../components/NotFound.tsx";
@@ -21,7 +21,18 @@ export const Route = createRootRoute({
     ],
   }),
   errorComponent: DefaultCatchBoundary,
-  notFoundComponent: () => <NotFound />,
+  // The shell the hub serves at every address renders this route alone, with nothing in its outlet.
+  // At an address no route matches, the router renders the not-found page in that outlet during
+  // hydration, which finds no nodes for it in the shell: Solid creates them but never attaches them,
+  // and the page stays blank. ClientOnly renders it once hydration is done, as the router does for
+  // the routes the shell leaves out. TanStack/router#8473 is the same mismatch in React, where
+  // ClientOnly does not help, since React fails on the mismatch itself. This can go once the router
+  // holds the root's not-found page back during hydration, as that issue asks.
+  notFoundComponent: () => (
+    <ClientOnly>
+      <NotFound />
+    </ClientOnly>
+  ),
   shellComponent: RootDocument,
 });
 
