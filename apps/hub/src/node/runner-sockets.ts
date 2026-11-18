@@ -5,7 +5,7 @@ import type { Context } from "effect";
 import type { Db } from "../db/database.ts";
 import { RunnerId } from "../db/types.ts";
 import { handleRunnerMessage, SYNC_NOW } from "../runner-messages.ts";
-import { SYNC_INTERVAL_MS } from "../runners.ts";
+import { SEEN_WRITE_INTERVAL_MS } from "../runners.ts";
 
 /**
  * Holds every Runner's WebSocket in the hub's one process, as a Durable Object per Runner does on
@@ -45,7 +45,7 @@ export class RunnerSockets {
       return;
     }
     const now = Date.now();
-    const recordSeen = now - (this.#lastSeenWrittenAt.get(peer) ?? 0) >= SYNC_INTERVAL_MS;
+    const recordSeen = now - (this.#lastSeenWrittenAt.get(peer) ?? 0) >= SEEN_WRITE_INTERVAL_MS;
     const reply = await handleRunnerMessage(text, {
       runnerId: runnerOf(peer),
       services: this.#services,

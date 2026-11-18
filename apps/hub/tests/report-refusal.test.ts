@@ -1,8 +1,8 @@
-import { createJsonRpcClient, hubNotifications, JOB_SUCCEEDED, runnerRequests } from "contract";
+import { JOB_SUCCEEDED } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 import type WebSocket from "ws";
 
-import { type OneJob, startSystem, submitJob } from "./harness.ts";
+import { type OneJob, protocolClient, startSystem, submitJob } from "./harness.ts";
 
 // A Runner's report carries every job it holds, so the hub reads each job's on its own: one it
 // cannot apply is refused alone, and the Runner's other jobs keep reporting. A failure the job's
@@ -30,23 +30,16 @@ function entry(kind: string, data: unknown) {
 // the nested JSON text before sending, so the test exercises the hub's depth check.
 const NESTED_OUTPUT = "__nested_output__";
 
-/** A Runner's side of the protocol over `socket`. */
-function protocolClient(socket: WebSocket, depth: number | undefined) {
-  const client = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
-    socket.send(
-      depth === undefined
-        ? text
-        : text.replace(
-            JSON.stringify(NESTED_OUTPUT),
-            '{"child":'.repeat(depth) + "0" + "}".repeat(depth),
-          ),
-    ),
+/** A Runner's side of the protocol over `socket`, its outputs nested `depth` deep. */
+function protocolClientNesting(socket: WebSocket, depth: number | undefined) {
+  return protocolClient(socket, (text) =>
+    depth === undefined
+      ? text
+      : text.replace(
+          JSON.stringify(NESTED_OUTPUT),
+          '{"child":'.repeat(depth) + "0" + "}".repeat(depth),
+        ),
   );
-  socket.addEventListener("message", (event) => {
-    // `ws` types a message as text or binary; the protocol is text (ADR 0026).
-    if (typeof event.data === "string") client.receive(event.data);
-  });
-  return client;
 }
 
 test.each([
@@ -59,7 +52,7 @@ test.each([
   const good = await submitJob(client, { ...SUBMISSION, outputContract: { schema: {} } });
   const bad = await submitJob(client, SUBMISSION);
   const { socket } = await system.connectRunner();
-  const runner = protocolClient(socket, depth);
+  const runner = protocolClientNesting(socket, depth);
 
   const { runs } = await runner.request("sync", { held: [], free: 2 }, 10_000);
   const held = runs.map(({ jobId, runId }) => ({ jobId, runId }));
@@ -121,7 +114,7 @@ test("a failure the job's journal did not record fails the job with its reason a
   const client = await system.clientWithNewJobsKey();
   const { id } = await submitJob(client, SUBMISSION);
   const { socket } = await system.connectRunner();
-  const runner = protocolClient(socket, undefined);
+  const runner = protocolClientNesting(socket, undefined);
   const { runs } = await runner.request("sync", { held: [], free: 1 }, 10_000);
   const held = runs.map(({ jobId, runId }) => ({ jobId, runId }));
   const failure = {

@@ -6,7 +6,7 @@ import * as z from "zod/mini";
 import { Db, databaseLayer } from "./db/database.ts";
 import { RunnerId } from "./db/types.ts";
 import { handleRunnerMessage, SYNC_NOW } from "./runner-messages.ts";
-import { SYNC_INTERVAL_MS } from "./runners.ts";
+import { SEEN_WRITE_INTERVAL_MS } from "./runners.ts";
 import { hubSettings, readConfig } from "./settings.ts";
 
 /** What the hub keeps with each socket, surviving hibernation. */
@@ -73,7 +73,7 @@ export class RunnerConnection extends DurableObject<Env> {
     const runnerId = this.#runnerId;
     const attachment = z.parse(socketAttachmentSchema, ws.deserializeAttachment());
     const now = Date.now();
-    const recordSeen = now - attachment.lastSeenWrittenAt >= SYNC_INTERVAL_MS;
+    const recordSeen = now - attachment.lastSeenWrittenAt >= SEEN_WRITE_INTERVAL_MS;
     const reply = await this.#withDatabase(
       Effect.contextWith((services: Context.Context<Db>) =>
         Effect.promise(() =>

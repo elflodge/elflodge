@@ -202,6 +202,12 @@ export class JobRunner {
             jobs.push({ ...report, events: [], failure });
           } else if (job.intent !== "run" && job.journalFound === "absent") {
             jobs.push({ ...report, events: [] });
+          } else if (all && failure === undefined && job.journalFound === "absent") {
+            // A job still preparing, as while its Input files download, has nothing to report yet,
+            // but the hub shows a job it hears nothing of as `notReported`; this says it is held.
+            // Only once its journal is known not to exist: a lookup of one that does exist and
+            // stalls must leave the job unreported.
+            jobs.push({ ...report, events: [] });
           }
           continue;
         }

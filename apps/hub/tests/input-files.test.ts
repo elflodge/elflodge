@@ -3,14 +3,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
-import { createJsonRpcClient, hubNotifications, problemOf, runnerRequests } from "contract";
+import { problemOf } from "contract";
 import { Effect } from "effect";
 import { sql } from "kysely";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { sweepUnusedBlobs } from "../src/blobs.ts";
 import { Db, DB_SCHEMA, openDatabase } from "../src/db/database.ts";
-import { type OneJob, startSystem, submitJob, uploadContent } from "./harness.ts";
+import { type OneJob, protocolClient, startSystem, submitJob, uploadContent } from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
 // A job's Input files reach its Runner apart from the hub's answers, which name them only: the
@@ -70,12 +70,7 @@ async function storedOf(contents: readonly string[]) {
 /** A Runner's side of the protocol on a socket the test opens itself. */
 async function connectProtocolRunner() {
   const { key, socket } = await system.connectRunner();
-  const runner = createJsonRpcClient(runnerRequests, hubNotifications, { syncNow() {} }, (text) =>
-    socket.send(text),
-  );
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data === "string") runner.receive(event.data);
-  });
+  const runner = protocolClient(socket);
   return { runner, api: system.runnerClient({ "x-api-key": key }), close: () => socket.close() };
 }
 

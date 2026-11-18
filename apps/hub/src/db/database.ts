@@ -1,6 +1,13 @@
-import { type Cause, Context, Effect, Layer } from "effect";
+import { type Cause, Context, Duration, Effect, Layer } from "effect";
 import ensureError from "ensure-error";
-import { type ExpressionBuilder, Kysely, PostgresDialect } from "kysely";
+import {
+  type Expression,
+  type ExpressionBuilder,
+  Kysely,
+  PostgresDialect,
+  type RawBuilder,
+  sql,
+} from "kysely";
 import { Pool, TypeOverrides, types } from "pg";
 
 import type { Database } from "./types.ts";
@@ -22,6 +29,28 @@ export function jsonRows<Row extends object>(eb: ExpressionBuilder<Database, nev
   return eb
     .fn<{ value: Row }>("jsonb_array_elements", [eb.cast(eb.val(JSON.stringify(rows)), "jsonb")])
     .as("row");
+}
+
+/**
+ * `at` plus `duration`, as Postgres adds an `interval` to a `timestamptz`, null when `at` is:
+ * Kysely has no `interval` type, and types `+` only between operands of one type.
+ */
+export function plusDuration<T extends Date | null>(
+  at: Expression<T>,
+  duration: Duration.Duration,
+): RawBuilder<T> {
+  return sql<T>`${at} + make_interval(secs => ${Duration.toSeconds(duration)})`;
+}
+
+/**
+ * The greatest of `values`, as Postgres's `greatest`, which skips nulls: null only when every
+ * value is, so not null when the first is not. Kysely's `eb.fn` would take the result's type on
+ * trust and let the values' types differ.
+ */
+export function greatest<T>(first: Expression<T>, ...rest: Expression<T | null>[]): RawBuilder<T>;
+export function greatest<T>(...values: Expression<T | null>[]): RawBuilder<T | null>;
+export function greatest<T>(...values: Expression<T | null>[]): RawBuilder<T | null> {
+  return sql<T | null>`greatest(${sql.join(values)})`;
 }
 
 /** The hub's database. */
