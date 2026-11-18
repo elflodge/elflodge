@@ -123,9 +123,9 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
     // `auth.$context`, outside a request, is not documented. After an upgrade, check that
     // `auth.$context` still gives it, that `createVerificationValue` and the atomic
     // `consumeVerificationValue` keep their behaviour and that `verification.storeIdentifier`
-    // still matches its overrides by prefix, which the setup tests exercise; and that
-    // `findUserByEmail` still finds a user by email, which no test exercises, as only an owner left
-    // by an interrupted setup in 0.10.0 or earlier needs it.
+    // still matches its overrides by prefix, which the setup tests exercise; and that setup still
+    // reuses an owner left by an interrupted setup in 0.10.0 or earlier, through
+    // `findUserByEmail`, which no test covers.
     await context.internalAdapter.createVerificationValue({
       identifier: SETUP_TOKEN_PREFIX + token,
       value: SETUP_LINK_VALUE,
