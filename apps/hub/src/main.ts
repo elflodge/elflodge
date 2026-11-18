@@ -15,9 +15,9 @@ import { type HubSettings, hubSettings, settingsProblems } from "./settings.ts";
 import { setUpOrganization } from "./setup.ts";
 
 // The hub as a Node process, which its Docker image runs (ADR 0014). It runs as a single process:
-// two would split Runners' connections between them. On start it migrates the database and sets up
-// the Organization and its owner from `ADMIN_EMAIL` and `ADMIN_PASSWORD` unless it exists (ADR 0015),
-// then serves until `SIGINT` or `SIGTERM`. It runs as Effect's example of an application entry point
+// two would split Runners' connections between them. On start it migrates the database and, unless
+// the Organization exists, creates it and its owner from `ADMIN_EMAIL` and `ADMIN_PASSWORD` or prints
+// a setup link (ADR 0015), then serves until `SIGINT` or `SIGTERM`. It runs as Effect's example of an application entry point
 // does, a layer started with `Layer.launch` under `NodeRuntime.runMain`, which the Runner's entry
 // point uses too: a signal interrupts it, and the server stops before the services it runs on.
 
@@ -109,8 +109,11 @@ Effect.gen(function* () {
       // Migrations sit beside `src` and `dist` alike, so the path holds before and after building.
       await migrateDatabase(databaseUrl, path.join(import.meta.dirname, "../migrations"));
       await setUpOrganization(databaseUrl, {
-        email: Option.getOrUndefined(settings.adminEmail),
-        password: Option.getOrUndefined(Option.map(settings.adminPassword, Redacted.value)),
+        owner: {
+          email: Option.getOrUndefined(settings.adminEmail),
+          password: Option.getOrUndefined(Option.map(settings.adminPassword, Redacted.value)),
+        },
+        hubUrl: settings.hub.hubUrl,
       });
     },
     catch: ensureError,

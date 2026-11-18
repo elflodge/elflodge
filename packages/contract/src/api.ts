@@ -23,7 +23,15 @@ import {
   strictBlobRefSchema,
   strictOutputContractSchema,
 } from "./job.ts";
-import { api, byKey, byKeyOrMember, byMember, forOrganization, NotFound } from "./procedure.ts";
+import {
+  api,
+  byAnyone,
+  byKey,
+  byKeyOrMember,
+  byMember,
+  forOrganization,
+  NotFound,
+} from "./procedure.ts";
 import {
   failureSchema,
   jobActivitySchema,
@@ -469,6 +477,13 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 
 /** A call the member's role does not allow, decided by the hub. */
 export const Forbidden = error("FORBIDDEN");
+/** A setup link the hub did not issue, or one already used or more than a day old. */
+export const SetupLinkRefused = error("FORBIDDEN", {
+  message:
+    "The setup link is not valid: it may have been used or be more than a day old. Restarting the hub, or running `vp run setup` for a hub on Workers, prints a new one.",
+});
+/** Setting up a hub that is already set up. */
+export const AlreadySetUp = error("CONFLICT", { message: "The hub is already set up" });
 /**
  * A control that cannot take effect on the job or Batch as it is, such as a resume of a job that
  * succeeded, or jobs added to a cancelled Batch; its message says why.
@@ -524,6 +539,35 @@ const blobCheckSchema = z.discriminatedUnion("stored", [
  * so the hub can add fields without breaking callers.
  */
 export const apiContract = {
+  setup: {
+    get: api
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/setup",
+          description:
+            "Whether the hub still needs setting up: true until its Organization and owner exist, so the dashboard knows to offer setup.",
+        }),
+        ...byAnyone,
+      )
+      .output(z.object({ needed: z.boolean() })),
+    complete: api
+      .errors({
+        BAD_REQUEST: {},
+        [SetupLinkRefused.code]: SetupLinkRefused,
+        [AlreadySetUp.code]: AlreadySetUp,
+      })
+      .meta(
+        openapi({
+          method: "POST",
+          path: "/setup",
+          description:
+            "Sets the hub up: creates its Organization and its owner, who then signs in with this email and password. `token` is the part after `#` of the setup link the hub printed when it started without an owner, or that `vp run setup` printed for a hub on Workers; it works once, within a day.",
+        }),
+        ...byAnyone,
+      )
+      .input(z.strictObject({ token: z.string(), email: z.email(), password: z.string() })),
+  },
   runners: {
     list: api
       .meta(openapi({ method: "GET", path: "/runners" }), ...byMember)

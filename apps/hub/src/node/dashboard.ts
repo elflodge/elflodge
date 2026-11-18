@@ -3,7 +3,7 @@ import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 
-import { DASHBOARD_BASE } from "../app.ts";
+import { DASHBOARD_BASE } from "../dashboard.ts";
 
 /**
  * The dashboard's files under its base path, from `root`, its build, as Workers Static Assets serve

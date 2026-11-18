@@ -34,8 +34,8 @@ export const HubNotSetUp = error("SERVICE_UNAVAILABLE", { message: "The hub is n
 export const NotFound = error("NOT_FOUND");
 
 /**
- * Every HTTP call, the API's and the Runner's. Every call says who may make it (`byKey`, `byMember`
- * or `byKeyOrMember`), and the hub refuses anyone else with `UNAUTHORIZED`.
+ * Every HTTP call, the API's and the Runner's. Every call says who may make it (`byKey`, `byMember`,
+ * `byKeyOrMember` or `byAnyone`), and the hub refuses anyone else with `UNAUTHORIZED`.
  */
 export const api = oc.errors({ [Unauthorized.code]: Unauthorized });
 /**
@@ -51,13 +51,14 @@ export const API_KEY_SECURITY_SCHEME = {
 } as const;
 
 /**
- * Who may make a call: with an API key holding the permissions in `key`, as a signed-in member, or
- * either. The hub checks it before every call, and the OpenAPI document gives it as the call's
- * `security`.
+ * Who may make a call: with an API key holding the permissions in `key`, as a signed-in member,
+ * either, or `anyone`, without either. The hub checks it before every call, and the OpenAPI document
+ * gives it as the call's `security`.
  */
 export interface Access {
   key?: KeyPermissions;
   member?: true;
+  anyone?: true;
 }
 
 const [accessMeta, getAccess] = defineMeta("access", (incoming: Access) => incoming);
@@ -86,6 +87,8 @@ export const byKey = (permissions: KeyPermissions) => calledBy({ key: permission
 export const byMember = calledBy({ member: true });
 export const byKeyOrMember = (permissions: KeyPermissions) =>
   calledBy({ key: permissions, member: true });
+/** For the calls a hub answers before it has members, such as setting it up. */
+export const byAnyone = calledBy({ anyone: true });
 
 /** Calls that act for the Organization, which exists once the hub is set up. */
 export const forOrganization = api.errors({ [HubNotSetUp.code]: HubNotSetUp });

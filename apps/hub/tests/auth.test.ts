@@ -2,7 +2,7 @@ import { RUNNER_NOT_FOUND } from "contract";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { resetPassword, setUpOrganization } from "../src/setup.ts";
-import { clearDatabase, OWNER, startSystem } from "./harness.ts";
+import { OWNER, startSystem } from "./harness.ts";
 
 const system = startSystem();
 
@@ -153,12 +153,15 @@ test("setting up again leaves the existing Organization and owner as they are", 
   const messages: string[] = [];
   await setUpOrganization(
     inject("databaseUrl"),
-    { email: "someone-else@example.com", password: "another password" },
+    {
+      owner: { email: "someone-else@example.com", password: "another password" },
+      hubUrl: system.origin,
+    },
     (message) => messages.push(message),
   );
 
   expect(messages).toEqual([
-    "The Organization exists, so ADMIN_EMAIL and its password are ignored",
+    "The Organization exists, so ADMIN_EMAIL and ADMIN_PASSWORD are ignored",
   ]);
   await system.signIn(OWNER);
 });
@@ -179,12 +182,4 @@ test("a forgotten password is reset with the recovery command, signing out old s
     body: JSON.stringify(OWNER),
   });
   expect(oldPassword.status).toBe(401);
-});
-
-test("without an Organization or owner settings, setting up refuses", async () => {
-  await clearDatabase(inject("databaseUrl"));
-
-  await expect(setUpOrganization(inject("databaseUrl"), {})).rejects.toThrow(
-    "Set ADMIN_EMAIL and ADMIN_PASSWORD",
-  );
 });
