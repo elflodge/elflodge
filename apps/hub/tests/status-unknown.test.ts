@@ -105,20 +105,28 @@ test("the Organization's unfinished jobs are counted by status, with those whose
   const client = await system.clientWithNewJobsKey();
   // Other tests' jobs count too, so only the change is the test's own.
   const before = await client.jobs.counts({});
+  /** Expects the counts to have changed from `before` by these differences. */
+  async function expectChange(queued: number, running: number, paused: number, unknown: number) {
+    expect(await client.jobs.counts({})).toEqual({
+      jobCounts: {
+        queued: before.jobCounts.queued + queued,
+        running: before.jobCounts.running + running,
+        paused: before.jobCounts.paused + paused,
+      },
+      statusUnknownJobs: before.statusUnknownJobs + unknown,
+    });
+  }
+
   const { job, runnerId, socket, runner, run } = await placedJob();
   const paused = await submitJob(client, SUBMISSION);
   await client.jobs.pause({ id: paused.id });
+  await expectChange(1, 0, 1, 0);
 
-  expect(await client.jobs.counts({})).toEqual({
-    jobCounts: {
-      queued: before.jobCounts.queued + 1,
-      running: before.jobCounts.running,
-      paused: before.jobCounts.paused + 1,
-    },
-    statusUnknownJobs: before.statusUnknownJobs,
-  });
+  // Unheard before its first report: still counted as queued, and as unknown.
+  await threeMinutesPass({ jobId: job.id, runnerId });
+  await expectChange(1, 0, 1, 1);
 
-  // The placed job starts, then goes unheard.
+  // Its start, reported, moves it to running and confirms it.
   const started = {
     id: 1,
     type: "entry",
@@ -137,16 +145,7 @@ test("the Organization's unfinished jobs are counted by status, with those whose
     },
     10_000,
   );
-  await threeMinutesPass({ jobId: job.id, runnerId });
-
-  expect(await client.jobs.counts({})).toEqual({
-    jobCounts: {
-      queued: before.jobCounts.queued,
-      running: before.jobCounts.running + 1,
-      paused: before.jobCounts.paused + 1,
-    },
-    statusUnknownJobs: before.statusUnknownJobs + 1,
-  });
+  await expectChange(0, 1, 1, 0);
 
   // A stray parameter is refused, not answered with counts that would read as the Batch's.
   const stray = await system.hub.fetch(`/jobs/counts?batchId=${paused.batchId}`, {
