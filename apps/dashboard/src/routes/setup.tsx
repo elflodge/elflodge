@@ -30,9 +30,10 @@ function Setup() {
     const form = new FormData(event.currentTarget);
     const organizationName = fieldText(form, "organization");
     const owner = { email: fieldText(form, "email"), password: fieldText(form, "password") };
+    const name = fieldText(form, "name");
     setPending(true);
     try {
-      await api.setup.complete({ token: token(), organizationName, ...owner });
+      await api.setup.complete({ token: token(), organizationName, name, ...owner });
     } catch (failure) {
       if (failure instanceof ORPCError && failure.code === "CONFLICT") setAlreadySetUp(true);
       else setError(apiFailureMessage(failure));
@@ -79,6 +80,10 @@ function Setup() {
             <label>
               Organization name
               <input name="organization" autocomplete="organization" required />
+            </label>
+            <label>
+              Your name
+              <input name="name" autocomplete="name" required />
             </label>
             <label>
               Email

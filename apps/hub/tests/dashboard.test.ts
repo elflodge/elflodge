@@ -147,6 +147,7 @@ test("in a browser, the setup link creates the Organization and its owner, who i
   await page.goto(link);
   const owner = { email: "new-owner@example.com", password: "a long enough password" };
   await page.getByLabel("Organization name").fill("Harbor & Pine");
+  await page.getByLabel("Your name").fill("Robin Hale");
   await page.getByLabel("Email").fill(owner.email);
   await page.getByLabel("Password").fill(owner.password);
   await page.getByRole("button", { name: "Create owner" }).click();

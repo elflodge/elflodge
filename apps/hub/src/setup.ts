@@ -57,7 +57,8 @@ export async function setUpOrganization(
     const created = await createOwnerAndOrganization(db, {
       // The settings name no Organization, so it keeps the hub's default name.
       name: "Organization",
-      owner: { email: owner.email, password: owner.password },
+      // Nor the owner, who keeps a placeholder name.
+      owner: { name: "Owner", email: owner.email, password: owner.password },
     });
     if (created === "created") log(`Created the Organization and its owner, ${owner.email}`);
     return;
@@ -122,7 +123,7 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
 }
 
 /**
- * Creates the owner and the Organization named `name`, using up the setup link's `token` when
+ * Creates the owner, named `owner.name`, and the Organization named `name`, using up the setup link's `token` when
  * given, in one transaction: a failure, such as a password Better Auth refuses, leaves no owner
  * behind and the link usable. Of two setups at once, the Organization's unique slug lets one
  * through, and the other finds the hub set up. Better Auth's refusals are thrown as its
@@ -134,7 +135,7 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
  */
 export async function createOwnerAndOrganization(
   db: Kysely<Database>,
-  { name, owner }: { name: string; owner: { email: string; password: string } },
+  { name, owner }: { name: string; owner: { name: string; email: string; password: string } },
   token?: string,
 ): Promise<"created" | "alreadySetUp" | "linkRefused"> {
   try {
@@ -163,7 +164,7 @@ export async function createOwnerAndOrganization(
         (token === undefined ? await findUserId(transaction, owner.email) : undefined) ??
         (
           await auth.api.signUpEmail({
-            body: { email: owner.email, password: owner.password, name: "Owner" },
+            body: { email: owner.email, password: owner.password, name: owner.name },
           })
         ).user.id;
       await auth.api.createOrganization({

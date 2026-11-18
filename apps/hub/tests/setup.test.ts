@@ -13,7 +13,7 @@ afterAll(() => system.stop());
 
 const NEW_OWNER = { email: "new-owner@example.com", password: "a long enough password" };
 /** What the setup form sends, apart from the token. */
-const SETUP = { organizationName: "Harbor & Pine", ...NEW_OWNER };
+const SETUP = { organizationName: "Harbor & Pine", name: "Robin Hale", ...NEW_OWNER };
 
 /** Empties the hub's database and sets it up as a hub without owner settings does: its link. */
 async function setupLink() {
@@ -46,8 +46,13 @@ test("a hub without an owner prints a link, with which the dashboard creates the
   await anyone.setup.complete({ token, ...SETUP });
 
   expect(await anyone.setup.get()).toEqual({ needed: false });
-  const owner = system.client({ cookie: await system.signIn(NEW_OWNER), origin: system.origin });
-  expect(await owner.organization.get()).toEqual({ name: SETUP.organizationName });
+  const cookie = await system.signIn(NEW_OWNER);
+  const session = await system.hub.fetch("/api/auth/get-session", { headers: { cookie } });
+  expect(await session.json()).toMatchObject({ user: { name: SETUP.name } });
+  const organizations = await system.hub.fetch("/api/auth/organization/list", {
+    headers: { cookie },
+  });
+  expect(await organizations.json()).toMatchObject([{ name: SETUP.organizationName }]);
   await expect(anyone.setup.complete({ token, ...SETUP })).rejects.toMatchObject({
     code: "CONFLICT",
   });

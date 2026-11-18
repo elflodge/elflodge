@@ -564,7 +564,7 @@ export const apiContract = {
           method: "POST",
           path: "/setup",
           description:
-            "Sets the hub up: creates its Organization, named `organizationName`, and its owner, who then signs in with this email and password. `token` is the part after `#` of the setup link the hub printed when it started without an owner, or that `vp run setup` printed for a hub on Workers.",
+            "Sets the hub up: creates its Organization, named `organizationName`, and its owner, named `name`, who then signs in with this email and password. `token` is the part after `#` of the setup link the hub printed when it started without an owner, or that `vp run setup` printed for a hub on Workers.",
         }),
         ...byAnyone,
       )
@@ -572,15 +572,11 @@ export const apiContract = {
         z.strictObject({
           token: z.string(),
           organizationName: textSchema.check(z.trim(), z.minLength(1)),
+          name: textSchema.check(z.trim(), z.minLength(1)),
           email: z.email(),
           password: z.string(),
         }),
       ),
-  },
-  organization: {
-    get: forOrganization
-      .meta(openapi({ method: "GET", path: "/organization" }), ...byMember)
-      .output(z.object({ name: z.string() })),
   },
   runners: {
     list: api

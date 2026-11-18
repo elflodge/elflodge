@@ -1,12 +1,14 @@
 import { createAuthClient } from "better-auth/client";
+import { organizationClient } from "better-auth/client/plugins";
 import ensureError from "ensure-error";
 
 /**
  * Better Auth's client for the hub that serves the dashboard, at Better Auth's default path on the
  * page's own origin, the only one from which the hub signs members in (ADR 0015). Its framework-
- * neutral client, as its Solid adapter is built for Solid 1.
+ * neutral client, as its Solid adapter is built for Solid 1. Its organization plugin reads the
+ * Organization.
  */
-export const authClient = createAuthClient();
+export const authClient = createAuthClient({ plugins: [organizationClient()] });
 
 /** What the member reads when a request to the hub got no answer. */
 export const CONNECTION_FAILED = "The connection to the hub failed. Please try again.";

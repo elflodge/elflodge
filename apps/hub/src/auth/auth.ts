@@ -68,7 +68,7 @@ export function databaseAndAuthLayer(connectionString: string, settings: Omit<Au
  * the hub is set up. There is only one, so the first row is it.
  */
 export async function findOrganization(db: Kysely<Database>) {
-  return await db.selectFrom("organization").select(["id", "name"]).executeTakeFirst();
+  return await db.selectFrom("organization").select("id").executeTakeFirst();
 }
 
 /** The deployment's Organization, or a 503 error before the hub is set up. */
