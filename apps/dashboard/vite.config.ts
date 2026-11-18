@@ -26,6 +26,13 @@ export default defineConfig({
       "^/(?!dashboard/)": { target: process.env.DEV_HUB_URL ?? "http://127.0.0.1:8787", ws: true },
     },
   },
+  preview: {
+    // Start renders the shell by fetching it from Vite's preview server, which listens on
+    // `localhost` by default. Where `localhost` resolves to `::1` first and IPv6 loopback takes no
+    // connections, as in a Docker build on Node 26, the server listens where the fetch cannot reach
+    // it; an IPv4 address leaves no choice to make.
+    host: "127.0.0.1",
+  },
   plugins: [
     tanstackStart({
       // A static app shell the hub serves (ADR 0043), with no server of its own. The shell is
