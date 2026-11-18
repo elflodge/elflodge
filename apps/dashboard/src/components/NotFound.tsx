@@ -1,16 +1,16 @@
 import { Link } from "@tanstack/solid-router";
 
-import { BrandMark } from "./BrandMark.tsx";
+import { FallbackPage } from "./FallbackPage.tsx";
 
 export function NotFound() {
   return (
-    <main id="main" class="page is-alone">
-      <BrandMark alt="" />
-      <h1>Not found</h1>
+    <FallbackPage heading="Not found">
       <p class="prose">The page you are looking for does not exist.</p>
       <p class="prose">
-        <Link to="/">Home</Link>
+        <Link to="/" class="stands-alone">
+          Home
+        </Link>
       </p>
-    </main>
+    </FallbackPage>
   );
 }

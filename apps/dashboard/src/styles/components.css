@@ -48,8 +48,8 @@
   border-bottom: var(--rule-heavy) solid var(--brand-shape);
   background: var(--c-ground);
 }
-/* The bar is a known place: its links are not underlined. */
-.topbar a {
+/* The bar is a known place: its links are not underlined. The account menu's are: it is in the bar's element, not in the bar. */
+.topbar > a {
   text-decoration: none;
 }
 .brand {
@@ -65,6 +65,21 @@
   display: block;
   width: 28px;
   height: 28px;
+}
+/* The mark's ground is drawn into it, so there is one for each theme, and only the one for the theme in force is shown. */
+:root[data-theme="dark"] .only-light,
+:root[data-theme="light"] .only-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .only-light {
+    display: none;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .only-dark {
+    display: none;
+  }
 }
 /* At the narrowest the brand is its mark alone; the mark's alt text names it. */
 @media (max-width: 26rem) {
@@ -167,7 +182,7 @@
 .page {
   padding: var(--space-3) var(--gutter) var(--space-7);
 }
-/* A page without the shell (signing in, setting up): nothing of the hub can be read yet, so it is one narrow column under the mark. */
+/* A page without the shell (signing in, setting up, a page that failed or was not found outside it): one narrow column under the mark. */
 .page.is-alone {
   display: grid;
   gap: var(--space-3);
@@ -183,10 +198,6 @@
 
 /* ---------- Page head: the page's heading, with a heavy rule under it ---------- */
 .head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-2) var(--space-5);
-  align-items: start;
   padding-bottom: var(--space-3);
   border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
   margin-bottom: var(--space-4);
@@ -197,6 +208,23 @@
   max-width: var(--measure);
   font-size: var(--text-md);
   line-height: var(--leading-prose);
+}
+.prose + .prose {
+  margin-top: var(--space-2);
+}
+/* A page without the shell already spaces what it holds. */
+.page.is-alone > .prose + .prose {
+  margin-top: 0;
+}
+
+/* ---------- A link standing alone, outside a sentence: a full target at narrow widths or on touch ---------- */
+@media (max-width: 640px), (pointer: coarse) {
+  .stands-alone {
+    display: inline-flex;
+    align-items: center;
+    min-width: var(--control-touch);
+    min-height: var(--control-touch);
+  }
 }
 
 /* ---------- Marks: one drawn geometry each, coloured by currentColor, always beside its words ---------- */
@@ -209,6 +237,16 @@
   -webkit-mask: var(--m) center / contain no-repeat;
   mask: var(--m) center / contain no-repeat;
   vertical-align: -0.1em;
+}
+/* Forced colours repaint every background as the page's own, which would leave a blank square: a mark keeps its shape there, in the system's colour for the text it stands beside. */
+@media (forced-colors: active) {
+  .mark {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+  button .mark {
+    background: ButtonText;
+  }
 }
 /* What opens a menu: a chevron after its words. */
 .mark-opens {
@@ -234,8 +272,10 @@
 .notice > .mark {
   margin-top: 0.25em;
 }
+/* What failed may be said in the hub's words, which can hold a long address or name with no space to break at. */
 .notice p {
   max-width: var(--measure);
+  overflow-wrap: anywhere;
 }
 .notice-failed {
   background: var(--c-failed-wash);

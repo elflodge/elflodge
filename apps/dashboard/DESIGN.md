@@ -11,7 +11,7 @@ The dashboard is a ruled record. It is set like a ledger: dense, plain, and exac
 - **Three brand colours.** The ground is the page. The green of the mark's hood carries links, the primary action and the heavy rules. The colour of its lamp marks only what is live now, and where the keyboard is. Nothing else uses the lamp, so it keeps its meaning.
 - **Colour never speaks alone.** What failed is red and has a cross and says so in words; what was done has a tick and says so.
 - **Compact.** The working size is 13px, a table row is 30px and a control 32px. At 640px and below, or with a coarse pointer, a control and a link standing alone are 44px.
-- **Nothing invented is shown as fact.** A figure carries its unit. A figure the dashboard derives, such as an estimate or a count still growing, says so. Words are the glossary's (`CONTEXT.md`), capitals included.
+- **Nothing invented is shown as fact.** A figure carries its unit. Words are the glossary's (`CONTEXT.md`), capitals included.
 
 ## The files
 
@@ -28,7 +28,7 @@ Pages are written as semantic HTML in JSX with these classes, and with no inline
 
 ## Tokens
 
-Each colour is written once, as `light-dark(light, dark)`. The page follows the system setting; `data-theme="light"` or `"dark"` on `<html>` forces one. The dashboard has no theme switch.
+Each colour is written once, as `light-dark(light, dark)`. The page follows the system setting; `data-theme="light"` or `"dark"` on `<html>` forces one, and the brand mark in the page follows it. The favicon follows the system setting, since it sits in the browser's tab and not in the page. The dashboard has no theme switch.
 
 - **Brand:** `--brand-ground`, `--brand-shape`, `--brand-lamp`. Nothing replaces them.
 - **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family in both themes.
@@ -37,6 +37,7 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
 - **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size) and `--text-md` (15px, sentences that explain) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
 - **Space** is a 4px step, `--space-1` to `--space-7`; the page's side margin is `--gutter`.
+- A step that nothing uses yet is not defined, which is why there is no `--text-xl` or `--space-6`.
 - **Sizes:** `--row`, `--control`, `--control-touch`, `--topbar`, and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
@@ -50,7 +51,10 @@ With no class at all:
 - **Tables** are ruled: a hairline under each row, a one-line row 30px tall, small quiet column heads, a double rule above a `tfoot`.
 - **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
 - **Buttons** are paper with an edge; a disabled one is greyed. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
+- **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
 - **`dialog`** and **`[popover]`** are paper with an edge and a shadow.
+
+No page has a table, a `dl`, `details`, `progress` or a `dialog` yet.
 
 ## Parts
 
@@ -65,28 +69,32 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
     <BrandMark alt="Elflodge" />
     <span class="brand-name" aria-hidden="true">Elflodge</span>
   </Link>
-  <span class="org">Harbor & Pine</span>
+  <span class="org" title="Harbor & Pine">Harbor & Pine</span>
   <div class="topbar-end">
     <button type="button" class="quiet" popovertarget="account">
-      <span class="member-name">Robin Hale</span>
+      <span class="member-name" title="Robin Hale">Robin Hale</span>
       <span class="mark mark-opens" aria-hidden="true" />
     </button>
   </div>
+  <div id="account" class="menu-pop" popover ref={(element) => { account = element; }} onFocusOut={closeWhenFocusLeaves}>
+    <p class="pop-who"><strong>Robin Hale</strong><br />robin@example.com<br />Harbor & Pine</p>
+    <ul class="pop-list">
+      <li><Link to="/change-password" onClick={() => account?.hidePopover()}>Change password</Link></li>
+      <li><a href="/docs">API reference</a></li>
+      <li><button type="button" class="quiet">Sign out</button></li>
+    </ul>
+  </div>
 </header>
-<div id="account" class="menu-pop" popover>
-  <p class="pop-who"><strong>Robin Hale</strong><br />robin@example.com<br />Harbor & Pine</p>
-  <ul class="pop-list">
-    <li><Link to="/change-password">Change password</Link></li>
-    <li><button type="button" class="quiet">Sign out</button></li>
-  </ul>
-</div>
-<main id="main" class="page">…</main>
+<main id="main" class="page">
+  <InShell value={true}><Outlet /></InShell>
+</main>
 ```
 
 - The bar holds the brand, the Organization's name and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
 - The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
-- A long name is cut at its end in the bar and shown whole in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
-- A link in the menu closes it when the router changes the page.
+- A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
+- The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open: a link in it that changes the page through the router (`hidePopover()` in the link's `onClick`), Tab leaving it (`closeWhenFocusLeaves`), and a failed sign-out, whose notice is in the page under the menu.
+- `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
 
 ### A page
 
@@ -102,7 +110,7 @@ Sentences that explain are `p.prose`: 15px, at most 72 characters a line.
 
 ### A page without the shell
 
-Signing in, setting up, a page not found: nothing of the hub can be read yet, so there is no bar. The page is one narrow column under the mark.
+Signing in and setting up have no bar, since no one is signed in yet. Such a page is `main#main.page.is-alone`: one narrow column under the mark.
 
 ```tsx
 <main id="main" class="page is-alone">
@@ -113,6 +121,23 @@ Signing in, setting up, a page not found: nothing of the hub can be read yet, so
 ```
 
 The mark's `alt` is empty here because the heading names the product.
+
+### A page that failed or was not found
+
+The router shows `DefaultCatchBoundary` in place of a page that failed and `NotFound` in place of one that does not exist (`src/components/`). Both are a `FallbackPage`, which takes a heading and what goes under it. Inside the shell it is a page like any other, its heading in `div.head`. Outside the shell, as when the session could not be read, it is a page without the shell.
+
+```tsx
+<FallbackPage heading="This page could not be shown">
+  <Notice role="alert">{ensureError(props.error).message}</Notice>
+  <p>
+    <button type="button" class="primary" onClick={() => void router.invalidate()}>
+      Try again
+    </button>
+  </p>
+</FallbackPage>
+```
+
+What failed is said in an alert notice, in the hub's words where it gave any, above "Try again".
 
 ### Fields
 
@@ -134,7 +159,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-Use the browser's own validation (`required`, `type`, `pattern`, `min`, `max`), accepting exactly what the hub accepts.
+Use the browser's own validation (`required`, `type`, `minlength`, `maxlength`, `pattern`, `min`, `max`), accepting exactly what the hub accepts. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the lengths of a password being set, and `GIVEN_NAME`, which refuses a name of spaces alone. A field that confirms another takes the same limits.
 
 ### Notices
 
@@ -160,28 +185,30 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are three: `mark-failed`, a cross; `mark-succeeded`, a tick; and `mark-opens`, a chevron after words that open a menu. No icon set is used.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are three: `mark-failed`, a cross; `mark-succeeded`, a tick; and `mark-opens`, a chevron after words that open a menu. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 
 1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the Member's name.
-2. **Targets:** 32px for a control with a fine pointer; 44px for a control or a link standing alone at 640px and below or with a coarse pointer. A link inside a sentence keeps its line's height.
+2. **Targets:** 32px for a control with a fine pointer; 44px for a control or a link standing alone at 640px and below or with a coarse pointer. A link outside a sentence takes `.stands-alone`, which gives it that target. A link inside a sentence keeps its line's height.
 3. **The lamp colour is only for what is live now and for keyboard focus.**
 4. **Colour is never the only sign:** a mark and words go with it.
-5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu.
+5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
 
 ## Adding a part
 
 A new page is the shell, a heading and the parts above. When it needs something they do not give:
 
-1. Write it as semantic HTML first; a plain element may already be enough.
+1. Write it as semantic HTML first; a plain element may already be enough. Look at the first use of a plain element that no page has yet as closely as at a new part.
 2. Add a section to `components.css`, opened by a one-line comment that says what the part is. Name classes for what a part is, never for the page it is on. Add any new token to `tokens.css`.
 3. Describe the part here: its element, its classes, the attributes it needs, and a short example.
-4. Look at it in light and in dark at 1440, 1280, 960 and 390px wide, and with the keyboard alone. Nothing may scroll sideways, and text and lines keep the contrast the tokens section gives.
+4. Look at it in light and in dark at 1440, 1280, 960, 390 and 320px wide, and with the keyboard alone. Nothing may scroll sideways, and text and lines keep the contrast the tokens section gives.
 
 The part, its tokens and its description arrive in the change that builds the page that uses it.
 
 ## Browser floor
 
 Chromium 123, Firefox 125 and Safari 17.5, the first versions with both `light-dark()` and the `popover` attribute. Only Chromium has been run.
+
+One exception is known. Safari on iOS and iPadOS before 18.3 does not close a popover on a tap elsewhere (WebKit bug 267688). The account menu still closes there from the Member's name, which opened it, and when one of its links is followed.

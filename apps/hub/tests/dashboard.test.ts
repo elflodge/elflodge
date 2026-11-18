@@ -162,7 +162,7 @@ test("in a browser, the setup link creates the Organization and its owner, who i
   await page.getByLabel("Password").fill(owner.password);
   await page.getByRole("button", { name: "Create owner" }).click();
   await page.waitForURL(`${dashboard}/`);
-  await page.getByRole("banner").getByText("Harbor & Pine").waitFor();
+  await page.getByRole("banner").getByText("Harbor & Pine", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Robin Hale" }).click();
   await page.getByText(owner.email).waitFor();
 }, 30_000);
