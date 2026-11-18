@@ -123,7 +123,7 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
 }
 
 /**
- * Creates the owner, named `owner.name`, and the Organization named `name`, using up the setup link's `token` when
+ * Creates the owner and the Organization named `name`, using up the setup link's `token` when
  * given, in one transaction: a failure, such as a password Better Auth refuses, leaves no owner
  * behind and the link usable. Of two setups at once, the Organization's unique slug lets one
  * through, and the other finds the hub set up. Better Auth's refusals are thrown as its

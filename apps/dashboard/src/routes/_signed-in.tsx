@@ -15,6 +15,7 @@ export const Route = createFileRoute("/_signed-in")({
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
     const organizations = await authClient.organization.list();
     if (organizations.error) throw new Error(failureMessage(organizations.error));
+    // Removing a member leaves their session, which then lists no Organization.
     return { member: data.user, organization: organizations.data[0] };
   },
   component: SignedIn,
@@ -52,7 +53,9 @@ function SignedIn() {
         </nav>
         <div class="member">
           <span>{context().member.email}</span>
-          <Link to="/change-password">Change password</Link>
+          <Show when={context().organization}>
+            <Link to="/change-password">Change password</Link>
+          </Show>
           <button type="button" disabled={pending()} onClick={() => void signOut()}>
             Sign out
           </button>
@@ -60,7 +63,12 @@ function SignedIn() {
       </header>
       <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
       <main>
-        <Outlet />
+        <Show
+          when={context().organization}
+          fallback={<p role="alert">This account is no longer a member of the Organization.</p>}
+        >
+          <Outlet />
+        </Show>
       </main>
     </>
   );
