@@ -951,7 +951,7 @@ export const apiContract = {
           runnerId: z.optional(
             textSchema.check(
               z.describe(
-                "The ID of the Runner the job was last sent to, its `runner.id`, which a started job keeps; a removed Runner's jobs still match its ID. A job not yet sent, or one its Runner paused or cancelled before starting it, matches none.",
+                "The ID of the Runner the job was last sent to, which a started job keeps and shows as its `runner.id` while that Runner exists; a removed Runner's jobs still match its ID. A job not yet sent, or one its Runner paused or cancelled before starting it, matches none.",
               ),
             ),
           ),
