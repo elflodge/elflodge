@@ -61,12 +61,14 @@ export const listRunners = Db.use((database) =>
     const now = new Date();
     const rows = await db
       .selectFrom("runner")
+      .innerJoin("apikey", "apikey.id", "runner.keyId")
       .select((eb) => [
-        "id",
-        "name",
-        "lastSeenAt",
-        "capabilities",
-        connectedOf(eb.ref("lastSeenAt"), now).as("connected"),
+        "runner.id",
+        "runner.name",
+        "apikey.createdAt as registeredAt",
+        "runner.lastSeenAt",
+        "runner.capabilities",
+        connectedOf(eb.ref("runner.lastSeenAt"), now).as("connected"),
       ])
       .execute();
     return rows.map((runner) => ({

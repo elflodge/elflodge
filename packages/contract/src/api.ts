@@ -46,6 +46,8 @@ export const runnerSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    /** When the Runner registered: when the hub gave it its own key, which a restart keeps. */
+    registeredAt: z.date(),
     /**
      * When the hub last heard from the Runner: its hello, or the latest sync or report the hub
      * recorded, to within ten seconds. A Runner that syncs on time is never more than about one

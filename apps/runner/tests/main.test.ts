@@ -1,4 +1,8 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -83,6 +87,53 @@ describe("the Runner's command line", () => {
     ).rejects.toMatchObject({
       code: 1,
       stderr: expect.stringContaining("The Runner is not configured"),
+    });
+  });
+
+  it("says what to do when the hub refuses its registration key, and exits 1", async () => {
+    const hub = createServer((_request, response) => {
+      response.writeHead(401, { "content-type": "application/problem+json" });
+      response.end(JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      hub.once("error", reject);
+      hub.listen(0, "127.0.0.1", () => {
+        hub.off("error", reject);
+        resolve();
+      });
+    });
+    hub.on("error", (error) => {
+      throw error;
+    });
+    onTestFinished(() => {
+      hub.close();
+    });
+    const address = hub.address();
+    if (address === null || typeof address === "string") throw new Error("Not listening on TCP");
+    const { port } = address;
+    const dataDir = await mkdtemp(path.join(tmpdir(), "runner-"));
+    onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
+    const main = fileURLToPath(new URL("../src/main.ts", import.meta.url));
+    await expect(
+      promisify(execFile)(process.execPath, ["--conditions=@elflodge/source", main], {
+        // A Runner that retried rather than refusing would never exit.
+        timeout: 30_000,
+        env: {
+          PATH: process.env.PATH,
+          HUB_URL: `http://127.0.0.1:${port}`,
+          RUNNER_REGISTRATION_KEY: "an expired key",
+          RUNNER_MODEL_PROVIDER: "anthropic",
+          RUNNER_MODEL_ID: "claude-sonnet-4-5",
+          ANTHROPIC_API_KEY: "not used",
+          RUNNER_DATA_DIR: dataDir,
+          RUNNER_RUN_WITHOUT_SANDBOX: "true",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringMatching(
+        /The hub refused RUNNER_REGISTRATION_KEY.*new registration key/s,
+      ),
     });
   });
 });

@@ -5,6 +5,7 @@ import { text } from "node:stream/consumers";
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import { createORPCClient } from "@orpc/client";
+import { catchORPCErrorCode, createEffectClient } from "@orpc/effect";
 import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING,
@@ -167,11 +168,15 @@ export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
 
 /**
  * The Runner as a program: registers it on its first start, then runs it until it is interrupted, or
- * until it fails with `Removed` once the hub no longer knows it. Its jobs stop before it ends.
+ * until it fails with `RegistrationRefused` when the hub refuses its registration key, or with
+ * `Removed` once the hub no longer knows it. Its jobs stop before it ends.
  */
 export function runRunner(
   options: RunnerOptions,
-): Effect.Effect<never, Removed | SandboxUnavailable | ExtensionsUnavailable> {
+): Effect.Effect<
+  never,
+  Removed | RegistrationRefused | SandboxUnavailable | ExtensionsUnavailable
+> {
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
     const { environments, extensions } = yield* prepareJobs(options);
@@ -316,18 +321,31 @@ function socketUrl(hubUrl: URL): URL {
  * The Runner's own key, kept in its data directory, or, on its first start, a new one from
  * registering with the shared key, as GitHub Actions and Buildkite runners do.
  */
-function loadOrRegister(hubUrl: URL, options: RunnerOptions): Effect.Effect<RegisteredRunner> {
+function loadOrRegister(
+  hubUrl: URL,
+  options: RunnerOptions,
+): Effect.Effect<RegisteredRunner, RegistrationRefused> {
   const file = path.join(options.dataDir, "runner.json");
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const register = Effect.gen(function* () {
-      const hubHttp: HubHttpClient = createORPCClient(
-        createProblemDetailsLink(runnerHttpContract, {
-          origin: hubUrl.origin,
-          headers: { "x-api-key": options.registrationKey },
-        }),
+      const hubHttp = createEffectClient<HubHttpClient>(
+        createORPCClient(
+          createProblemDetailsLink(runnerHttpContract, {
+            origin: hubUrl.origin,
+            headers: { "x-api-key": options.registrationKey },
+          }),
+        ),
       );
-      const registration = yield* Effect.promise(() => hubHttp.register({ name: hostname() }));
+      const registration = yield* hubHttp.register({ name: hostname() }).pipe(
+        catchORPCErrorCode("UNAUTHORIZED", () => Effect.fail(new RegistrationRefused())),
+        // Any other failure is not the key's, so it ends the Runner as a defect.
+        Effect.catchIf(
+          (error): error is Exclude<typeof error, RegistrationRefused> =>
+            !(error instanceof RegistrationRefused),
+          Effect.die,
+        ),
+      );
       yield* fs.makeDirectory(options.dataDir, { recursive: true });
       // Only the operating-system user running the Runner may read its key.
       yield* fs.writeFileString(file, JSON.stringify(registration), { mode: 0o600 });
@@ -338,7 +356,7 @@ function loadOrRegister(hubUrl: URL, options: RunnerOptions): Effect.Effect<Regi
       Effect.map((saved) => z.parse(registeredRunnerSchema, JSON.parse(saved))),
       Effect.catchReason("PlatformError", "NotFound", () => register),
     );
-  }).pipe(Effect.orDie, Effect.provide(NodeFileSystem.layer));
+  }).pipe(Effect.catchTag("PlatformError", Effect.die), Effect.provide(NodeFileSystem.layer));
 }
 
 /** What a connection needs: where and as whom to connect, and the jobs it keeps in sync. */
@@ -354,6 +372,14 @@ interface ConnectionContext {
   /** What the Runner reports about itself in each hello. */
   capabilities: RunnerCapabilities;
 }
+
+/**
+ * The hub refused the shared key the Runner registers with (401): it expired, was revoked, lacks
+ * `runner: ["register"]` or never was one, or a proxy in front of the hub refused the request. A
+ * Runner registers on its first start, with `register`, and when its data directory, which keeps
+ * its own key, is gone.
+ */
+export class RegistrationRefused extends Data.TaggedError("RegistrationRefused") {}
 
 /** The hub no longer knows this Runner: it was removed, or the hub was reset. Nothing retries it. */
 export class Removed extends Data.TaggedError("Removed") {}

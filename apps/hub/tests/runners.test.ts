@@ -22,6 +22,7 @@ test("a runner that connects is listed under its host's name with its capabiliti
     .toEqual({
       id: runnerId,
       name: hostname(),
+      registeredAt: expect.any(Date),
       lastSeenAt: expect.any(Date),
       connected: true,
       capabilities: {
@@ -32,10 +33,13 @@ test("a runner that connects is listed under its host's name with its capabiliti
       },
     });
   expect(await system.lastSeen(runnerId)).toBeGreaterThanOrEqual(before);
+  expect((await system.findRunner(runnerId))?.registeredAt.getTime()).toBeGreaterThanOrEqual(
+    before,
+  );
 });
 
 test("a runner that restarts keeps its identity, listed once and seen again", async () => {
-  const [{ id: runnerId }] = await system.owner().runners.list();
+  const [{ id: runnerId, registeredAt }] = await system.owner().runners.list();
   const firstSeen = await system.lastSeen(runnerId);
 
   await system.stopRunner();
@@ -43,7 +47,7 @@ test("a runner that restarts keeps its identity, listed once and seen again", as
 
   await expect.poll(() => system.lastSeen(runnerId)).toBeGreaterThan(firstSeen);
   expect(await system.owner().runners.list()).toEqual([
-    expect.objectContaining({ id: runnerId, name: hostname() }),
+    expect.objectContaining({ id: runnerId, name: hostname(), registeredAt }),
   ]);
 });
 
@@ -60,6 +64,7 @@ test("a runner whose capabilities the hub cannot read still connects, listed wit
   expect(await system.findRunner(runnerId)).toEqual({
     id: runnerId,
     name: "newer runner",
+    registeredAt: expect.any(Date),
     lastSeenAt: expect.any(Date),
     connected: true,
     capabilities: null,
