@@ -360,6 +360,14 @@ test("removing a Runner ends the jobs it held, and leaves its finished jobs no w
   }
   expect(await client.jobs.get({ id: cancelling })).toMatchObject({ status: "cancelled" });
   await expect(client.jobs.get({ id: deleting })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // Its jobs are still listed by its ID, and by no other.
+  const listed = (await client.jobs.list({ runnerId, limit: 100 })).jobs.map((job) => job.id);
+  expect(listed).toEqual(expect.arrayContaining([finished, running, cancelling, resumed]));
+  expect(listed).not.toContain(deleting);
+  expect(await client.jobs.list({ runnerId: crypto.randomUUID() })).toEqual({
+    jobs: [],
+    hasMore: false,
+  });
   await expect(client.jobs.resume({ id: finished })).rejects.toMatchObject({
     code: "CONFLICT",
     message: expect.stringContaining("Runner was removed"),
