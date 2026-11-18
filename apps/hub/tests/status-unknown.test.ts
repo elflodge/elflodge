@@ -105,15 +105,44 @@ test("the Organization's unfinished jobs are counted by status, with those whose
   const client = await system.clientWithNewJobsKey();
   // Other tests' jobs count too, so only the change is the test's own.
   const before = await client.jobs.counts({});
-  const { job, runnerId, socket } = await placedJob();
+  const { job, runnerId, socket, runner, run } = await placedJob();
   const paused = await submitJob(client, SUBMISSION);
   await client.jobs.pause({ id: paused.id });
-  await threeMinutesPass({ jobId: job.id, runnerId });
 
   expect(await client.jobs.counts({})).toEqual({
     jobCounts: {
       queued: before.jobCounts.queued + 1,
       running: before.jobCounts.running,
+      paused: before.jobCounts.paused + 1,
+    },
+    statusUnknownJobs: before.statusUnknownJobs,
+  });
+
+  // The placed job starts, then goes unheard.
+  const started = {
+    id: 1,
+    type: "entry",
+    record: {
+      kind: "elflodge.job.started",
+      data: { timestamp: Date.now(), runId: run.runId, runnerVersion: "0.0.0" },
+    },
+  } as const;
+  await runner.request(
+    "report",
+    {
+      held: [run],
+      free: 0,
+      deleted: [],
+      jobs: [{ ...run, intent: "run", position: 0, events: [started] }],
+    },
+    10_000,
+  );
+  await threeMinutesPass({ jobId: job.id, runnerId });
+
+  expect(await client.jobs.counts({})).toEqual({
+    jobCounts: {
+      queued: before.jobCounts.queued,
+      running: before.jobCounts.running + 1,
       paused: before.jobCounts.paused + 1,
     },
     statusUnknownJobs: before.statusUnknownJobs + 1,
