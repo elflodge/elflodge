@@ -7,7 +7,7 @@ How the dashboard looks, and how to build a page so that it looks the same. The 
 The dashboard is a ruled record. It is set like a ledger: dense, plain, and exact about what each figure is.
 
 - **Ruled, not boxed.** The page is the brand's ground, in light and in dark. Regions are separated by rules: a hairline between rows, a heavy rule under a heading, a double rule above a total. There are no cards. Only what floats over the page (a popover, a dialog) has an edge and a shadow.
-- **Two faces.** Instrument Sans for the interface and for sentences. JetBrains Mono for data: anything a person might copy or compare, such as an ID, a figure or a command.
+- **Two faces.** Instrument Sans for the interface and for sentences. JetBrains Mono for data: anything a person might copy or compare, such as an ID, a figure, an address or a command.
 - **Three brand colours.** The ground is the page. The green of the mark's hood carries links, the primary action and the heavy rules. The colour of its lamp marks only what is live now, and where the keyboard is. Nothing else uses the lamp, so it keeps its meaning.
 - **Colour never speaks alone.** What failed is red and has a cross and says so in words; what was done has a tick and says so.
 - **Compact.** The working size is 13px, a table row is 30px and a control 32px. At 640px and below, or with a coarse pointer, a control and a link standing alone are 44px.
@@ -76,7 +76,7 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
       <span class="mark mark-opens" aria-hidden="true" />
     </button>
     <div id="account" class="menu-pop" popover ref={(element) => { account = element; }}>
-      <p class="pop-who"><strong>Robin Hale</strong><br />robin@example.com<br />Harbor & Pine</p>
+      <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
         <li><Link to="/change-password" onClick={closeMenu}>Change password</Link></li>
         <li><a href="/docs">API reference</a></li>
@@ -91,7 +91,7 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
 ```
 
 - The bar holds the brand, the Organization's name and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
-- The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
+- The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
   - a link in it changes the page through the router;
@@ -185,6 +185,16 @@ which draw
 ### Buttons
 
 A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu.
+
+### Mono
+
+`.mono` sets in the mono what a person might copy or compare where no element (`code`, `kbd`, `samp`, `pre`) says it is, such as the Member's email address in the account menu:
+
+```tsx
+<span class="mono">robin@example.com</span>
+```
+
+An address, a host name or a file name always goes in the mono. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
 ### Marks
 

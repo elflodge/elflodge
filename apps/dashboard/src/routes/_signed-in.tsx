@@ -116,7 +116,9 @@ function SignedIn() {
             <p class="pop-who">
               <strong>{context().member.name}</strong>
               <br />
-              {context().member.email}
+              {/* In the mono, as what a person may copy. The sans also draws a full stop close into
+                  a round letter beside it, which closes up an address such as "pine.example". */}
+              <span class="mono">{context().member.email}</span>
               <Show when={context().organization}>
                 {(organization) => (
                   <>

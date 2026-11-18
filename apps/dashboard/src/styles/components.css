@@ -123,7 +123,8 @@
   top: calc(var(--topbar) + var(--space-1));
   right: var(--gutter);
   min-width: 15rem;
-  max-width: calc(100vw - 2 * var(--gutter));
+  /* A name or an address longer than this wraps. */
+  max-width: min(20rem, calc(100vw - 2 * var(--gutter)));
   max-height: calc(100dvh - var(--topbar) - var(--space-3));
   overflow: auto;
 }
@@ -233,6 +234,15 @@
     min-width: var(--control-touch);
     min-height: var(--control-touch);
   }
+}
+
+/* ---------- Mono: what a person might copy or compare, where no element says it is ---------- */
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  font-weight: var(--weight-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
 }
 
 /* ---------- Marks: one drawn geometry each, coloured by currentColor, always beside its words ---------- */
