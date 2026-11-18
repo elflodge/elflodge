@@ -106,14 +106,10 @@ export function readUsage(headers: Headers, query: UsageQuery) {
   });
 }
 
-/** A window of whole UTC days, from `from` to `to`, both included, and the instants it spans. */
+/** A window of whole UTC days, from `from` to `to`, both included, as `YYYY-MM-DD`. */
 interface Window {
   from: string;
   to: string;
-  /** The first instant of `from`. */
-  start: Date;
-  /** The first instant after `to`. */
-  end: Date;
 }
 
 /**
@@ -155,8 +151,6 @@ function windowOf(query: Pick<UsageQuery, "from" | "to">, today: DateTime.Utc) {
   return Effect.succeed<Window>({
     from: DateTime.formatIsoDateUtc(from),
     to: DateTime.formatIsoDateUtc(to),
-    start: DateTime.toDateUtc(from),
-    end: DateTime.toDateUtc(DateTime.add(to, { days: 1 })),
   });
 }
 
@@ -164,8 +158,12 @@ function windowOf(query: Pick<UsageQuery, "from" | "to">, today: DateTime.Utc) {
 function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery) {
   let records = qb
     .selectFrom("usageRecord")
-    .where("usageRecord.recordedAt", ">=", window.start)
-    .where("usageRecord.recordedAt", "<", window.end);
+    .where("usageRecord.recordedAt", ">=", (eb) =>
+      utcMidnightOf(eb, eb.cast(eb.val(window.from), "date")),
+    )
+    .where("usageRecord.recordedAt", "<", (eb) =>
+      utcMidnightOf(eb, eb(eb.cast(eb.val(window.to), "date"), "+", eb.lit(1))),
+    );
   const { statuses, labels, batchId, keyId, runnerId } = query;
   if (statuses.length > 0) {
     records = records.where("usageRecord.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
@@ -183,6 +181,15 @@ function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery
   if (keyId !== undefined) records = records.where("usageRecord.submitterKeyId", "=", keyId);
   if (runnerId !== undefined) records = records.where("usageRecord.runnerId", "=", runnerId);
   return records;
+}
+
+/**
+ * The first instant of the UTC day `day`, worked out by Postgres from the calendar date: a
+ * JavaScript `Date` would be sent in the local time zone, whose offset in some years had seconds
+ * that node-postgres drops.
+ */
+function utcMidnightOf(eb: ExpressionBuilder<Database, "usageRecord">, day: Expression<unknown>) {
+  return eb.fn<Date>("timezone", [eb.cast(eb.val("UTC"), "text"), eb.cast(day, "timestamp")]);
 }
 
 /** The UTC day a record counts on. */
