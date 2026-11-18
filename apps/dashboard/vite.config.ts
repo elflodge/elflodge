@@ -28,9 +28,8 @@ export default defineConfig({
   },
   preview: {
     // Start renders the shell by fetching it from Vite's preview server, which listens on
-    // `localhost` by default. Where `localhost` resolves to `::1` first and IPv6 loopback takes no
-    // connections, as in a Docker build on Node 26, the server listens where the fetch cannot reach
-    // it (TanStack/router#6275); an IPv4 address leaves no choice to make. This can go once Start
+    // `localhost` by default. In a Docker build on Node 26, the server listens on `::1` while the
+    // fetch connects to `127.0.0.1` (TanStack/router#6275); an IPv4 address leaves no choice to make. This can go once Start
     // binds the server to it itself (TanStack/router#6305).
     host: "127.0.0.1",
   },
