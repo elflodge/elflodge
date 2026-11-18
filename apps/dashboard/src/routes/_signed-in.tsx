@@ -5,9 +5,9 @@ import { api } from "../api-client.ts";
 import { attemptAuth, authClient, failureMessage } from "../auth-client.ts";
 import { logoDark, logoLight } from "../logo.ts";
 
-// Every page but signing in is for a signed-in member. The session is read from the hub on each
-// navigation, so a session that ended elsewhere, such as by a password change on another device,
-// sends the member to sign in again.
+// Every page but signing in and setting up is for a signed-in member. The session is read from the
+// hub on each navigation, so a session that ended elsewhere, such as by a password change on
+// another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
     const { data, error } = await authClient.getSession();

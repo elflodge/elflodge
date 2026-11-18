@@ -8,6 +8,9 @@ import ensureError from "ensure-error";
  */
 export const authClient = createAuthClient();
 
+/** What the member reads when a request to the hub got no answer. */
+export const CONNECTION_FAILED = "The connection to the hub failed. Please try again.";
+
 /** A refusal or failure as Better Auth's client returns it. */
 interface AuthError {
   message?: string | undefined;
@@ -38,7 +41,7 @@ export async function attemptAuth(
     // or its answer's body cannot be read (better-auth/better-auth#11284); this can go once it
     // returns one. Logged, as a mistake in `operation` lands here too.
     console.error(ensureError(error));
-    return "The connection to the hub failed. Please try again.";
+    return CONNECTION_FAILED;
   } finally {
     setPending(false);
   }

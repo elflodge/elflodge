@@ -21,11 +21,12 @@ function Setup() {
   // Read from the router, so a link opened over this page, which changes only its hash, counts.
   const token = useLocation({ select: (location) => location.hash });
   const [error, setError] = createSignal<string>();
-  const [setUp, setSetUp] = createSignal(false);
+  const [alreadySetUp, setAlreadySetUp] = createSignal(false);
   const [pending, setPending] = createSignal(false);
 
   async function createOwner(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
+    setError(undefined);
     const form = new FormData(event.currentTarget);
     const organizationName = fieldText(form, "organization");
     const owner = { email: fieldText(form, "email"), password: fieldText(form, "password") };
@@ -33,25 +34,34 @@ function Setup() {
     try {
       await api.setup.complete({ token: token(), organizationName, ...owner });
     } catch (failure) {
-      if (failure instanceof ORPCError && failure.code === "CONFLICT") setSetUp(true);
+      if (failure instanceof ORPCError && failure.code === "CONFLICT") setAlreadySetUp(true);
       else setError(apiFailureMessage(failure));
       return;
     } finally {
       setPending(false);
     }
     const signInFailure = await attemptAuth(() => authClient.signIn.email(owner), setPending);
-    await (signInFailure === undefined ? navigate({ to: "/" }) : navigate({ to: "/sign-in" }));
+    if (signInFailure === undefined) {
+      await navigate({ to: "/" });
+      return;
+    }
+    // The owner exists, so the form is done with; the sign-in page can try again.
+    setError(`The owner was created, but signing in failed: ${signInFailure}`);
+    setAlreadySetUp(true);
   }
 
   return (
     <main class="sign-in">
       <h1>Set up Elflodge</h1>
       <Show
-        when={!setUp()}
+        when={!alreadySetUp()}
         fallback={
-          <p>
-            This hub is already set up. <Link to="/sign-in">Sign in</Link>
-          </p>
+          <>
+            <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
+            <p>
+              This hub is set up. <Link to="/sign-in">Sign in</Link>
+            </p>
+          </>
         }
       >
         <Show
@@ -76,13 +86,7 @@ function Setup() {
             </label>
             <label>
               Password
-              <input
-                name="password"
-                type="password"
-                autocomplete="new-password"
-                minlength="8"
-                required
-              />
+              <input name="password" type="password" autocomplete="new-password" required />
             </label>
             <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
             <button type="submit" disabled={pending()}>
