@@ -37,6 +37,8 @@ export function dashboardFiles(root: string) {
         serveStatic({
           path: path.join(root, "THIRD_PARTY_NOTICES.md"),
           onFound: (_found, c) => {
+            // Hono's MIME table has no `.md`, so it would send the file as a download.
+            c.header("Content-Type", "text/markdown; charset=utf-8");
             c.header("Cache-Control", "no-cache");
           },
         }),

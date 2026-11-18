@@ -43,6 +43,8 @@ test("the dashboard's pages, deep links included, load its app shell", async () 
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
   await expectShellAt("/dashboard/.vite/manifest.json");
+  const notices = await system.hub.fetch("/dashboard/THIRD_PARTY_NOTICES.md");
+  expect(notices.headers.get("content-type")).toMatch(/^text\/markdown/);
 
   const unslashed = await system.hub.fetch("/dashboard", { redirect: "manual" });
   expect(unslashed.status).toBe(307);
