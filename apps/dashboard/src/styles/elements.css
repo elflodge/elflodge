@@ -122,7 +122,7 @@ ol {
   padding-left: 1.2em;
 }
 
-/* ---- A table is ruled: a hairline per row, heads small and quiet, figures right-aligned in the mono, a double rule above a total. ---- */
+/* ---- A table is ruled: a hairline per row, heads small and quiet, a double rule above a total. ---- */
 table {
   width: 100%;
   border-collapse: collapse;
