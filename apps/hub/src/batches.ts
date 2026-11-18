@@ -232,7 +232,7 @@ function batchStatusIs(
   );
   const cancelled = eb.and([eb("b.cancelledAt", "is not", null), eb.not(unfinishedJob)]);
   const conditions = {
-    paused: eb("b.pausedBy", "is not", null),
+    paused: eb.and([eb("b.pausedBy", "is not", null), eb.not(cancelled)]),
     cancelled,
     active: eb.and([eb("b.pausedBy", "is", null), eb.not(cancelled)]),
   };
@@ -241,19 +241,13 @@ function batchStatusIs(
 
 /**
  * A page of Batches, newest first by their `uid`, which follows their creation, with their jobs'
- * counts; or nothing when `after` names no Batch.
+ * counts; or `InvalidInput` naming `after` when it names no Batch.
  */
 export function listBatches(query: BatchListQuery) {
   return Effect.gen(function* () {
     const database = yield* Db;
     const page = yield* database.query(async (db) => {
       const { statuses, labels, after, limit } = query;
-      // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
-      const anchor =
-        after === undefined
-          ? undefined
-          : await db.selectFrom("batch").select("uid").where("id", "=", after).executeTakeFirst();
-      if (after !== undefined && !anchor) return undefined;
       const now = new Date();
       const rows = await db
         .with("page", (qb) => {
@@ -276,18 +270,35 @@ export function listBatches(query: BatchListQuery) {
           }
           if (labels !== undefined && Object.keys(labels).length > 0) {
             selection = selection.where((eb) =>
-              eb("b.labels", "@>", eb.cast<Labels>(eb.val(JSON.stringify(labels)), "jsonb")),
+              eb("b.labels", "@>", eb.cast<Labels>(eb.val(labels), "jsonb")),
             );
           }
-          if (anchor) selection = selection.where("b.uid", "<", anchor.uid);
+          if (after !== undefined) {
+            // An `after` naming no Batch finds nothing here, and is told apart below.
+            selection = selection.where((eb) =>
+              eb(
+                "b.uid",
+                "<",
+                eb
+                  .selectFrom("batch as a")
+                  // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
+                  .where("a.id", "=", after)
+                  .select("a.uid"),
+              ),
+            );
+          }
           // One more than the page, to learn whether more follow.
           return selection.orderBy("b.uid", "desc").limit(limit + 1);
         })
+        // The Batches the page shows, whose jobs are counted: not the one beyond it.
+        .with("shown", (qb) =>
+          qb.selectFrom("page").select("page.uid").orderBy("page.uid", "desc").limit(limit),
+        )
         // Counted from the jobs' rows alone, which the index on a job's Batch and status answers.
         .with("counts", (qb) =>
           qb
             .selectFrom("job as j")
-            .innerJoin("page", "page.uid", "j.batchUid")
+            .innerJoin("shown", "shown.uid", "j.batchUid")
             .groupBy("j.batchUid")
             .select((agg) => {
               const count = (status: JobStatus) =>
@@ -306,11 +317,8 @@ export function listBatches(query: BatchListQuery) {
         .with("unknown", (qb) =>
           qb
             .selectFrom("job as j")
-            .innerJoin("page", "page.uid", "j.batchUid")
+            .innerJoin("shown", "shown.uid", "j.batchUid")
             .innerJoin("jobProgress as p", "p.jobId", "j.id")
-            // Only a job sent to a Runner and not ended or paused can be unknown.
-            .where("j.status", "in", ["queued", "running"])
-            .where("j.placedAt", "is not", null)
             .where((eb) =>
               isStatusUnknown(
                 {
@@ -353,6 +361,13 @@ export function listBatches(query: BatchListQuery) {
         })
         .orderBy("page.uid", "desc")
         .execute();
+      if (
+        after !== undefined &&
+        rows.length === 0 &&
+        !(await db.selectFrom("batch").select("uid").where("id", "=", after).executeTakeFirst())
+      ) {
+        return undefined;
+      }
       return {
         batches: rows.slice(0, limit).map(listedBatchOf),
         hasMore: rows.length > limit,
