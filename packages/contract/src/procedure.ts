@@ -34,10 +34,12 @@ export const HubNotSetUp = error("SERVICE_UNAVAILABLE", { message: "The hub is n
 export const NotFound = error("NOT_FOUND");
 
 /**
- * Every HTTP call, the API's and the Runner's. Every call says who may make it (`byKey`, `byMember`,
- * `byKeyOrMember` or `byAnyone`), and the hub refuses anyone else with `UNAUTHORIZED`.
+ * Every HTTP call, the API's and the Runner's, that needs a caller. Every call says who may make it
+ * (`byKey`, `byMember` or `byKeyOrMember`), and the hub refuses anyone else with `UNAUTHORIZED`.
  */
 export const api = oc.errors({ [Unauthorized.code]: Unauthorized });
+/** The calls anyone may make (`byAnyone`), which the hub never refuses as `UNAUTHORIZED`. */
+export const forAnyone = oc;
 /**
  * How the OpenAPI document describes an API key, sent in `x-api-key`. A call's security lists the
  * permissions the key needs as role names.
