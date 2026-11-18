@@ -125,6 +125,13 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await system.signIn({ email: OWNER.email, password });
 }, 30_000);
 
+test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.goto(`${system.origin}/dashboard/nowhere`);
+  await page.getByRole("heading", { name: "Not found" }).waitFor();
+});
+
 // Last, as it empties the hub.
 test("in a browser, the setup link creates the Organization and its owner, who is then signed in", async () => {
   await clearDatabase(inject("databaseUrl"));
