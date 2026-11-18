@@ -1130,7 +1130,7 @@ export const apiContract = {
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`keyId\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, or longer than ${MAX_USAGE_DAYS} days, is refused.`,
+          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`keyId\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -1175,10 +1175,10 @@ export const apiContract = {
             batchIdSchema.check(z.describe("The ID of the Batch the jobs belong to.")),
           ),
           keyId: z.optional(
-            z.string().check(z.describe("The ID of the API key that submitted the jobs.")),
+            textSchema.check(z.describe("The ID of the API key that submitted the jobs.")),
           ),
           runnerId: z.optional(
-            z.string().check(z.describe("The ID of the Runner the jobs last ran on.")),
+            textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
           ),
           status: z.optional(
             z

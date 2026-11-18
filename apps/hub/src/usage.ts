@@ -15,19 +15,20 @@ import {
   type ExpressionBuilder,
   expressionBuilder,
   type Kysely,
+  type QueryCreator,
   sql,
 } from "kysely";
 import { jsonArrayFrom, jsonBuildObject } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
-import { Db } from "./db/database.ts";
+import { Db, greatest } from "./db/database.ts";
 import type { ApikeyId, BatchUid, Database, JobStatus, RunnerId } from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
 
 // The Organization's usage, added up from its Usage records: each records what one job used up to
 // one of its ends, since its previous end, and stays when the job is deleted. A record counts on
-// the UTC day the hub wrote it (`recordedAt`, ADR 0044).
+// the UTC day of the transaction that wrote it (`recordedAt`, ADR 0044).
 
 /** What a read of usage asks for, beside its window. */
 export interface UsageQuery {
@@ -47,6 +48,12 @@ export interface UsageQuery {
 const DEFAULT_DAYS = 30;
 
 /**
+ * The first day a window may hold: Postgres reads no year 0000 in a date, as its calendar goes from
+ * 1 BC to AD 1.
+ */
+const FIRST_DAY = DateTime.makeUnsafe("0001-01-01");
+
+/**
  * The usage `query` asks for, read by the member signed in with `headers`, whose role must grant
  * reading it; a 403 error otherwise, and the window's problem when it is refused.
  */
@@ -55,29 +62,34 @@ export function readUsage(headers: Headers, query: UsageQuery) {
     yield* requireRolePermission(headers, { usage: ["read"] });
     const today = DateTime.startOf(yield* DateTime.now, "day");
     const window = yield* windowOf(query, today);
-    const row = yield* Db.use((database) =>
-      database.query((db) => selectUsage(db, window, query).executeTakeFirstOrThrow()),
-    );
     const { groupBy } = query;
+    if (groupBy === undefined) {
+      const row = yield* Db.use((database) =>
+        database.query((db) => selectUsage(db, window, query).executeTakeFirstOrThrow()),
+      );
+      return {
+        from: window.from,
+        to: window.to,
+        usage: usageOf(row),
+        days: row.days.map((day) => ({ date: day.day, usage: usageOf(day) })),
+      } satisfies UsageReport;
+    }
+    const row = yield* Db.use((database) =>
+      database.query((db) =>
+        selectGroupedUsage(db, window, groupBy, query).executeTakeFirstOrThrow(),
+      ),
+    );
     return {
       from: window.from,
       to: window.to,
       usage: usageOf(row),
-      ...(groupBy === undefined
-        ? {}
-        : {
-            groups: row.groups.map((group) => groupOf(groupBy, group)),
-            other: { groups: row.otherGroups, usage: usageOf(otherOf(row)) },
-          }),
+      groups: row.groups.map((group) => groupOf(groupBy, group)),
+      other: { groups: row.otherGroups, usage: usageOf(otherOf(row)) },
       days: row.days.map((day) => ({
         date: day.day,
         usage: usageOf(day),
-        ...(groupBy === undefined
-          ? {}
-          : {
-              groups: day.groups.map((group) => groupOf(groupBy, group)),
-              other: { usage: usageOf(otherOf(day)) },
-            }),
+        groups: day.groups.map((group) => groupOf(groupBy, group)),
+        other: { usage: usageOf(otherOf(day)) },
       })),
     } satisfies UsageReport;
   });
@@ -95,8 +107,9 @@ interface Window {
 
 /**
  * The window `query` asks for, by default the `DEFAULT_DAYS` days ending `today`, or the problem
- * with it: a `from` after its `to`, or more than `MAX_USAGE_DAYS` days. The default `from`
- * always fits, so a problem is always the `from` given.
+ * with it, naming the field given: a day before `FIRST_DAY`, as when `to` puts the default
+ * `from` there, a `from` after its `to`, or more than `MAX_USAGE_DAYS` days. The default
+ * `from` is otherwise always within bounds, so the other problems are always the `from` given.
  */
 function windowOf(query: Pick<UsageQuery, "from" | "to">, today: DateTime.Utc) {
   const to = query.to === undefined ? today : DateTime.makeUnsafe(query.to);
@@ -105,14 +118,28 @@ function windowOf(query: Pick<UsageQuery, "from" | "to">, today: DateTime.Utc) {
       ? DateTime.subtract(to, { days: DEFAULT_DAYS - 1 })
       : DateTime.makeUnsafe(query.from);
   const days = Duration.toDays(DateTime.distance(from, to)) + 1;
+  const tooEarly = `Must be ${DateTime.formatIsoDateUtc(FIRST_DAY)} or later`;
   const problem =
-    days < 1
-      ? "Must not be after `to`"
-      : days > MAX_USAGE_DAYS
-        ? `Must be at most ${MAX_USAGE_DAYS} days before \`to\`, counting both`
-        : undefined;
+    query.to !== undefined && DateTime.isLessThan(to, FIRST_DAY)
+      ? { path: "to", message: tooEarly }
+      : query.from === undefined && DateTime.isLessThan(from, FIRST_DAY)
+        ? {
+            path: "to",
+            message: `Must be ${DateTime.formatIsoDateUtc(DateTime.add(FIRST_DAY, { days: DEFAULT_DAYS - 1 }))} or later without \`from\`, which is then ${DEFAULT_DAYS - 1} days before it`,
+          }
+        : DateTime.isLessThan(from, FIRST_DAY)
+          ? { path: "from", message: tooEarly }
+          : days < 1
+            ? { path: "from", message: "Must not be after `to`" }
+            : days > MAX_USAGE_DAYS
+              ? {
+                  path: "from",
+                  message: `Must be at most ${MAX_USAGE_DAYS} days before \`to\`, counting both`,
+                }
+              : undefined;
   if (problem !== undefined) {
-    return Effect.fail(new InvalidInput({ problems: [{ message: problem, path: ["from"] }] }));
+    const { path, message } = problem;
+    return Effect.fail(new InvalidInput({ problems: [{ message, path: [path] }] }));
   }
   return Effect.succeed<Window>({
     from: DateTime.formatIsoDateUtc(from),
@@ -122,59 +149,128 @@ function windowOf(query: Pick<UsageQuery, "from" | "to">, today: DateTime.Utc) {
   });
 }
 
+/** The Usage records `query` asks for, those the hub wrote in `window`, to select from. */
+function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery) {
+  let records = qb
+    .selectFrom("usageRecord")
+    .where("usageRecord.recordedAt", ">=", window.start)
+    .where("usageRecord.recordedAt", "<", window.end);
+  const { statuses, labels, batchId, keyId, runnerId } = query;
+  if (statuses.length > 0) {
+    records = records.where("usageRecord.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
+  }
+  if (labels !== undefined && Object.keys(labels).length > 0) {
+    records = records.where((eb) =>
+      eb("usageRecord.labels", "@>", eb.cast<Labels>(eb.val(JSON.stringify(labels)), "jsonb")),
+    );
+  }
+  if (batchId !== undefined) {
+    records = records.where("usageRecord.batchUid", "=", (eb) =>
+      eb.selectFrom("batch").select("batch.uid").where("batch.id", "=", batchId),
+    );
+  }
+  if (keyId !== undefined) records = records.where("usageRecord.submitterKeyId", "=", keyId);
+  if (runnerId !== undefined) records = records.where("usageRecord.runnerId", "=", runnerId);
+  return records;
+}
+
+/** The UTC day a record counts on. */
+function dayOf(eb: ExpressionBuilder<Database, "usageRecord">) {
+  return eb
+    .cast<string>(
+      eb.fn("timezone", [eb.cast(eb.val("UTC"), "text"), eb.ref("usageRecord.recordedAt")]),
+      "date",
+    )
+    .as("day");
+}
+
+/** Every day of `window`, as `day`. */
+function daysOf(qb: QueryCreator<Database>, window: Window) {
+  return qb
+    .selectFrom((eb) =>
+      eb
+        .fn<{ series: Date }>("generate_series", [
+          // Without time zones, so every step is a day.
+          eb.cast(eb.val(window.from), "timestamp"),
+          eb.cast(eb.val(window.to), "timestamp"),
+          eb.cast(eb.val("1 day"), sql`interval`),
+        ])
+        .as("series"),
+    )
+    .select((eb) => eb.cast<string>("series.series", "date").as("day"));
+}
+
 /**
- * The one statement that reads the usage `query` asks for over `window`: the records' sums per day
- * and group (`cells`), each group ranked by its cost over the window, then its tokens, then its key
- * (`ranked`), the top `limit` groups named (`top`), and the window's and each day's sums, each day
- * holding every top group and the rest summed. Without `groupBy` every record is in one group, and
- * none is named.
+ * The one statement that reads the usage `query` asks for over `window`, without groups: the
+ * records' sums per day, and the window's. Added up as Postgres's exact `numeric` and `bigint`, not
+ * in JavaScript.
  */
 function selectUsage(db: Kysely<Database>, window: Window, query: UsageQuery) {
-  const { groupBy } = query;
-  const limit = groupBy === undefined ? 0 : query.limit;
+  return db
+    .with("records", (qb) =>
+      recordsOf(qb, window, query).select((eb) => [
+        dayOf(eb),
+        "usageRecord.totalTokens",
+        "usageRecord.costUsd",
+      ]),
+    )
+    .with("dayTotals", (qb) =>
+      qb
+        .selectFrom("records as r")
+        .select((eb) => [
+          "r.day",
+          eb.cast<number>(eb.fn.sum("r.totalTokens"), "bigint").as("totalTokens"),
+          eb.fn.sum<number>("r.costUsd").as("costUsd"),
+        ])
+        .groupBy("r.day"),
+    )
+    .with("days", (qb) => daysOf(qb, window))
+    .selectFrom("dayTotals as dt")
+    .select((eb) => [
+      eb
+        .cast<number>(eb.fn.coalesce(eb.fn.sum("dt.totalTokens"), eb.lit(0)), "bigint")
+        .as("totalTokens"),
+      eb.fn.coalesce(eb.fn.sum<number>("dt.costUsd"), eb.lit(0)).as("costUsd"),
+      jsonArrayFrom(
+        eb
+          .selectFrom("days as d")
+          .leftJoin("dayTotals as each", "each.day", "d.day")
+          .select((day) => [
+            "d.day",
+            day.fn.coalesce("each.totalTokens", day.lit(0)).as("totalTokens"),
+            day.fn.coalesce("each.costUsd", day.lit(0)).as("costUsd"),
+          ])
+          .orderBy("d.day"),
+      ).as("days"),
+    ]);
+}
+
+/**
+ * The one statement that reads the usage `query` asks for over `window`, grouped by `groupBy`:
+ * the records' sums per day and group (`cells`), one row per group ranked by its cost over the
+ * window, then its tokens, then its key, which breaks every tie (`groups`), the top `limit` groups
+ * named (`top`), and the window's and each day's sums, each day holding every top group, with the
+ * rest summed as what the top groups leave of the day's total. Added up as Postgres's exact
+ * `numeric` and `bigint`, not in JavaScript.
+ */
+function selectGroupedUsage(
+  db: Kysely<Database>,
+  window: Window,
+  groupBy: UsageGroupBy,
+  query: UsageQuery,
+) {
+  const { limit } = query;
   return (
     db
-      .with("records", (qb) => {
-        let records = qb
-          .selectFrom("usageRecord")
-          .where("usageRecord.recordedAt", ">=", window.start)
-          .where("usageRecord.recordedAt", "<", window.end);
-        const { statuses, labels, batchId, keyId, runnerId } = query;
-        if (statuses.length > 0) {
-          records = records.where("usageRecord.status", "=", (eb) =>
-            eb.fn.any(eb.val([...statuses])),
-          );
-        }
-        if (labels !== undefined && Object.keys(labels).length > 0) {
-          records = records.where((eb) =>
-            eb(
-              "usageRecord.labels",
-              "@>",
-              eb.cast<Labels>(eb.val(JSON.stringify(labels)), "jsonb"),
-            ),
-          );
-        }
-        if (batchId !== undefined) {
-          records = records.where("usageRecord.batchUid", "=", (eb) =>
-            eb.selectFrom("batch").select("batch.uid").where("batch.id", "=", batchId),
-          );
-        }
-        if (keyId !== undefined) records = records.where("usageRecord.submitterKeyId", "=", keyId);
-        if (runnerId !== undefined) records = records.where("usageRecord.runnerId", "=", runnerId);
-        return records.select((eb) => [
-          eb
-            .cast<string>(
-              eb.fn("timezone", [eb.cast(eb.val("UTC"), "text"), eb.ref("usageRecord.recordedAt")]),
-              "date",
-            )
-            .as("day"),
+      .with("records", (qb) =>
+        recordsOf(qb, window, query).select((eb) => [
+          dayOf(eb),
           groupKeyOf(eb, groupBy).as("groupKey"),
           "usageRecord.totalTokens",
           "usageRecord.costUsd",
           "usageRecord.submitterKeyName",
-        ]);
-      })
-      // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.
+        ]),
+      )
       .with("cells", (qb) =>
         qb
           .selectFrom("records as r")
@@ -188,41 +284,28 @@ function selectUsage(db: Kysely<Database>, window: Window, query: UsageQuery) {
           ])
           .groupBy(["r.day", "r.groupKey"]),
       )
-      // Each group's sums over the window, by window functions over the cells rather than a join on
-      // the group, which would lose the group whose key is null, such as records without the label.
-      .with("grouped", (qb) =>
+      .with("groups", (qb) =>
         qb
-          .selectFrom("cells as c")
-          .selectAll("c")
-          .select((eb) => [
-            eb.fn
-              .sum<number>("c.costUsd")
-              .over((over) => over.partitionBy("c.groupKey"))
-              .as("groupCostUsd"),
-            eb
-              .cast<number>(
-                eb.fn.sum("c.totalTokens").over((over) => over.partitionBy("c.groupKey")),
-                "bigint",
-              )
-              .as("groupTotalTokens"),
-            eb.fn
-              .max("c.keyName")
-              .over((over) => over.partitionBy("c.groupKey"))
-              .as("groupKeyName"),
-          ]),
-      )
-      // A group's cells share one rank, and every group has its own, as the key breaks every tie.
-      .with("ranked", (qb) =>
-        qb
-          .selectFrom("grouped as g")
+          .selectFrom((sums) =>
+            sums
+              .selectFrom("cells as c")
+              .select((eb) => [
+                "c.groupKey",
+                eb.cast<number>(eb.fn.sum("c.totalTokens"), "bigint").as("totalTokens"),
+                eb.fn.sum<number>("c.costUsd").as("costUsd"),
+                eb.fn.max("c.keyName").as("keyName"),
+              ])
+              .groupBy("c.groupKey")
+              .as("g"),
+          )
           .selectAll("g")
           .select((eb) =>
             eb.fn
-              .agg<number>("dense_rank", [])
+              .agg<number>("row_number", [])
               .over((over) =>
                 over
-                  .orderBy("g.groupCostUsd", "desc")
-                  .orderBy("g.groupTotalTokens", "desc")
+                  .orderBy("g.costUsd", "desc")
+                  .orderBy("g.totalTokens", "desc")
                   .orderBy("g.groupKey", (order) => order.asc().nullsLast()),
               )
               .as("rank"),
@@ -231,108 +314,148 @@ function selectUsage(db: Kysely<Database>, window: Window, query: UsageQuery) {
       // Named only now, so only the groups shown read a Batch or Runner.
       .with("top", (qb) =>
         qb
-          .selectFrom((groups) =>
-            groups
-              .selectFrom("ranked as k")
-              .select([
-                "k.rank",
-                "k.groupKey",
-                "k.groupTotalTokens",
-                "k.groupCostUsd",
-                "k.groupKeyName",
-              ])
-              .distinct()
-              .where("k.rank", "<=", limit)
-              .as("t"),
-          )
+          .selectFrom("groups as g")
+          .where("g.rank", "<=", limit)
           .select((eb) => [
-            "t.rank",
-            "t.groupKey as value",
-            groupNameOf(groupBy, eb.ref("t.groupKey"), eb.ref("t.groupKeyName")).as("name"),
-            "t.groupTotalTokens as totalTokens",
-            "t.groupCostUsd as costUsd",
+            "g.rank",
+            "g.groupKey",
+            groupNameOf(groupBy, eb.ref("g.groupKey"), eb.ref("g.keyName")).as("name"),
+            "g.totalTokens",
+            "g.costUsd",
           ]),
       )
-      .with("days", (qb) =>
+      // Joined on the key and whether it is null, which Postgres can hash, unlike `is not distinct
+      // from`, so the null group, such as records without the label, joins too.
+      .with("topCells", (qb) =>
         qb
-          .selectFrom((eb) =>
-            eb
-              .fn<{ series: Date }>("generate_series", [
-                // Without time zones, so every step is a day.
-                eb.cast(eb.val(window.from), "timestamp"),
-                eb.cast(eb.val(window.to), "timestamp"),
-                eb.cast(eb.val("1 day"), sql`interval`),
-              ])
-              .as("series"),
+          .selectFrom("cells as c")
+          .innerJoin("top as t", (join) =>
+            join.on((eb) =>
+              eb.and([
+                eb(
+                  eb.parens(eb("c.groupKey", "is", null)),
+                  "=",
+                  eb.parens(eb("t.groupKey", "is", null)),
+                ),
+                eb(
+                  eb.fn.coalesce("c.groupKey", eb.val("")),
+                  "=",
+                  eb.fn.coalesce("t.groupKey", eb.val("")),
+                ),
+              ]),
+            ),
           )
-          .select((eb) => eb.cast<string>("series.series", "date").as("day")),
+          .select(["c.day", "t.rank", "c.totalTokens", "c.costUsd"]),
+      )
+      .with("days", (qb) => daysOf(qb, window))
+      .with("dayTotals", (qb) =>
+        qb
+          .selectFrom("cells as c")
+          .select((eb) => [
+            "c.day",
+            eb.cast<number>(eb.fn.sum("c.totalTokens"), "bigint").as("totalTokens"),
+            eb.fn.sum<number>("c.costUsd").as("costUsd"),
+          ])
+          .groupBy("c.day"),
       )
       .with("dayGroups", (qb) =>
         qb
           .selectFrom("days as d")
-          .innerJoin("top as t", (join) => join.onTrue())
-          .leftJoin("ranked as k", (join) =>
-            join.onRef("k.day", "=", "d.day").onRef("k.rank", "=", "t.rank"),
+          .crossJoin("top as t")
+          .leftJoin("topCells as tc", (join) =>
+            join.onRef("tc.day", "=", "d.day").onRef("tc.rank", "=", "t.rank"),
           )
           .select((eb) => [
             "d.day",
             eb.fn
-              .agg<GroupRow[]>("json_agg", [
+              .jsonAgg(
                 jsonBuildObject({
-                  value: eb.ref("t.value"),
+                  value: eb.ref("t.groupKey"),
                   name: eb.ref("t.name"),
-                  totalTokens: eb.fn.coalesce("k.totalTokens", eb.lit(0)),
-                  costUsd: eb.fn.coalesce("k.costUsd", eb.lit(0)),
+                  totalTokens: eb.fn.coalesce("tc.totalTokens", eb.lit(0)),
+                  costUsd: eb.fn.coalesce("tc.costUsd", eb.lit(0)),
                 }),
-              ])
+              )
               .orderBy("t.rank")
               .as("groups"),
+            eb
+              .cast<number>(eb.fn.coalesce(eb.fn.sum("tc.totalTokens"), eb.lit(0)), "bigint")
+              .as("topTotalTokens"),
+            eb.fn.coalesce(eb.fn.sum<number>("tc.costUsd"), eb.lit(0)).as("topCostUsd"),
           ])
           .groupBy("d.day"),
       )
-      .with("dayTotals", (qb) =>
-        qb
-          .selectFrom("ranked as k")
-          .select((eb) => [
-            "k.day",
-            ...sumsOf(eb, "totalTokens", "costUsd"),
-            ...sumsOf(eb, "otherTotalTokens", "otherCostUsd", limit),
-          ])
-          .groupBy("k.day"),
-      )
-      .selectFrom("ranked as k")
-      .select((eb) => [
-        ...sumsOf(eb, "totalTokens", "costUsd"),
-        ...sumsOf(eb, "otherTotalTokens", "otherCostUsd", limit),
-        eb.fn
-          .count<number>("k.rank")
-          .distinct()
-          .filterWhere("k.rank", ">", limit)
-          .as("otherGroups"),
-        jsonArrayFrom(
+      .selectFrom("dayTotals as dt")
+      .select((eb) => {
+        const totalTokens = eb.fn.coalesce(eb.fn.sum<number>("dt.totalTokens"), eb.lit(0));
+        const costUsd = eb.fn.coalesce(eb.fn.sum<number>("dt.costUsd"), eb.lit(0));
+        const top = eb.selectFrom("top as t");
+        return [
+          eb.cast<number>(totalTokens, "bigint").as("totalTokens"),
+          costUsd.as("costUsd"),
           eb
-            .selectFrom("top as t")
-            .select(["t.value", "t.name", "t.totalTokens", "t.costUsd"])
-            .orderBy("t.rank"),
-        ).as("groups"),
-        jsonArrayFrom(
+            .cast<number>(
+              eb(
+                totalTokens,
+                "-",
+                top
+                  .select((sum) =>
+                    sum.fn.coalesce(sum.fn.sum<number>("t.totalTokens"), sum.lit(0)).as("sum"),
+                  )
+                  .$asScalar(),
+              ),
+              "bigint",
+            )
+            .as("otherTotalTokens"),
+          eb(
+            costUsd,
+            "-",
+            top
+              .select((sum) =>
+                sum.fn.coalesce(sum.fn.sum<number>("t.costUsd"), sum.lit(0)).as("sum"),
+              )
+              .$asScalar(),
+          ).as("otherCostUsd"),
           eb
-            .selectFrom("days as d")
-            .leftJoin("dayTotals as dt", "dt.day", "d.day")
-            .leftJoin("dayGroups as dg", "dg.day", "d.day")
-            .select((day) => [
-              "d.day",
-              day.fn.coalesce("dt.totalTokens", day.lit(0)).as("totalTokens"),
-              day.fn.coalesce("dt.costUsd", day.lit(0)).as("costUsd"),
-              day.fn.coalesce("dt.otherTotalTokens", day.lit(0)).as("otherTotalTokens"),
-              day.fn.coalesce("dt.otherCostUsd", day.lit(0)).as("otherCostUsd"),
-              day.fn
-                .coalesce("dg.groups", day.cast<GroupRow[]>(day.val("[]"), "json"))
-                .as("groups"),
-            ])
-            .orderBy("d.day"),
-        ).as("days"),
-      ])
+            .selectFrom("groups as g")
+            .select((count) =>
+              greatest(eb.lit(0), count(count.fn.max("g.rank"), "-", limit)).as("otherGroups"),
+            )
+            .$asScalar()
+            .$notNull()
+            .as("otherGroups"),
+          jsonArrayFrom(
+            top
+              .select(["t.groupKey as value", "t.name", "t.totalTokens", "t.costUsd"])
+              .orderBy("t.rank"),
+          ).as("groups"),
+          jsonArrayFrom(
+            eb
+              .selectFrom("days as d")
+              .leftJoin("dayTotals as each", "each.day", "d.day")
+              .leftJoin("dayGroups as dg", "dg.day", "d.day")
+              .select((day) => {
+                const dayTokens = day.fn.coalesce("each.totalTokens", day.lit(0));
+                const dayCost = day.fn.coalesce("each.costUsd", day.lit(0));
+                return [
+                  "d.day",
+                  dayTokens.as("totalTokens"),
+                  dayCost.as("costUsd"),
+                  day(dayTokens, "-", day.fn.coalesce("dg.topTotalTokens", day.lit(0))).as(
+                    "otherTotalTokens",
+                  ),
+                  day(dayCost, "-", day.fn.coalesce("dg.topCostUsd", day.lit(0))).as(
+                    "otherCostUsd",
+                  ),
+                  day.fn
+                    .coalesce("dg.groups", day.cast<GroupRow[]>(day.val("[]"), "json"))
+                    .as("groups"),
+                ];
+              })
+              .orderBy("d.day"),
+          ).as("days"),
+        ];
+      })
   );
 }
 
@@ -344,45 +467,12 @@ interface GroupRow {
   costUsd: number;
 }
 
-/**
- * The sums of the ranked cells' tokens and cost, as `tokens` and `cost`, zeros when there are
- * none; with `limit`, only of the groups ranked after it.
- */
-function sumsOf<T extends string, C extends string>(
-  eb: ExpressionBuilder<{ k: { totalTokens: number; costUsd: number; rank: number } }, "k">,
-  tokens: T,
-  cost: C,
-  limit?: number,
-) {
-  const tokensSum = eb.fn.sum<number>("k.totalTokens");
-  const costSum = eb.fn.sum<number>("k.costUsd");
-  return [
-    eb
-      .cast<number>(
-        eb.fn.coalesce(
-          limit === undefined ? tokensSum : tokensSum.filterWhere("k.rank", ">", limit),
-          eb.lit(0),
-        ),
-        "bigint",
-      )
-      .as(tokens),
-    eb.fn
-      .coalesce(
-        limit === undefined ? costSum : costSum.filterWhere("k.rank", ">", limit),
-        eb.lit(0),
-      )
-      .as(cost),
-  ] as const;
-}
-
-/** What groups a record, as text, by `groupBy`; every record in one group without it. */
+/** What groups a record, as text, by `groupBy`. */
 function groupKeyOf(
   eb: ExpressionBuilder<Database, "usageRecord">,
-  groupBy: UsageGroupBy | undefined,
+  groupBy: UsageGroupBy,
 ): AliasableExpression<string | null> {
   switch (groupBy) {
-    case undefined:
-      return eb.cast<string | null>(eb.lit(null), "text");
     case "batch":
       // Its row's ID, which orders Batches by when they were created; its `id` names it after.
       return eb.cast<string>("usageRecord.batchUid", "text");
@@ -405,7 +495,7 @@ function groupKeyOf(
  * records hold it (`keyName`), and a Runner's name while the Runner exists, as a job shows it.
  */
 function groupNameOf(
-  groupBy: UsageGroupBy | undefined,
+  groupBy: UsageGroupBy,
   groupKey: Expression<string | null>,
   keyName: Expression<string | null>,
 ): AliasableExpression<string | null> {

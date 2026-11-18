@@ -1,12 +1,10 @@
-import { betterAuth } from "better-auth";
 import { problemOf, type Usage, type UsageReport } from "contract";
 import { Struct } from "effect";
 import { sql } from "kysely";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
-import { offlineAuthOptions } from "../src/auth/options.ts";
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
-import { type ApiClient, startSystem, submitJob, untilStatus } from "./harness.ts";
+import { startSystem, submitJob, untilStatus } from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
 // Reading the Organization's usage, against a real hub and Runner: what jobs used, added up from
@@ -75,28 +73,6 @@ const zero: Usage = { totalTokens: 0, cost: { totalUsd: 0 } };
 function expectUsage(usage: Usage, expected: Usage) {
   expect(usage.totalTokens).toBe(expected.totalTokens);
   expect(usage.cost.totalUsd).toBeCloseTo(expected.cost.totalUsd, 10);
-}
-
-/** Signs in as a new member of the Organization with the plain `member` role. */
-async function signInAsMember(): Promise<ApiClient> {
-  // Public sign-up is off, so the account is created as setup creates the owner's.
-  await using db = openDatabase(inject("databaseUrl"));
-  const options = offlineAuthOptions(db);
-  const auth = betterAuth({
-    ...options,
-    emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
-  });
-  const member = { email: "member@example.com", password: "a long enough password" };
-  const { user } = await auth.api.signUpEmail({ body: { ...member, name: "Member" } });
-  const organization = await db
-    .withSchema(DB_SCHEMA)
-    .selectFrom("organization")
-    .select("id")
-    .executeTakeFirstOrThrow();
-  await auth.api.addMember({
-    body: { userId: user.id, organizationId: organization.id, role: "member" },
-  });
-  return system.client({ cookie: await system.signIn(member), origin: system.origin });
 }
 
 test("usage adds up by day and by group, counting each end of a resumed job once and deleted jobs", async () => {
@@ -206,12 +182,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
     usage: zero,
   });
 
-  const topBatch = await owner.usage.get({ groupBy: "batch", limit: 1 });
-  expectAddsUp(topBatch);
-  expect(topBatch.groups).toHaveLength(1);
-  expect(topBatch.other?.groups).toBe(1);
-
-  // A day holds what the hub recorded that day.
+  // A day holds what the hub recorded that day: the deleted job's end, moved three days back.
   await using db = openDatabase(inject("databaseUrl"));
   const { rows } = await sql<{ recordedAt: Date }>`
     update ${sql.table(`${DB_SCHEMA}.usageRecord`)}
@@ -225,22 +196,43 @@ test("usage adds up by day and by group, counting each end of a resumed job once
     { date: day, usage: deletedUsage },
   ]);
   expect((await owner.usage.get({ keyId: support.id, from: report.to })).usage).toEqual(zero);
+
+  // Every day shows the window's top Batch, even the day it used nothing, with the rest as `other`.
+  expect(resumedUsage.cost.totalUsd).toBeGreaterThan(deletedUsage.cost.totalUsd);
+  const topBatch = await owner.usage.get({ groupBy: "batch", limit: 1 });
+  expectAddsUp(topBatch);
+  expect(topBatch.groups).toEqual([{ batchId: batch.id, usage: resumedUsage }]);
+  expect(topBatch.other).toEqual({ groups: 1, usage: deletedUsage });
+  expect(topBatch.days.find((each) => each.date === day)).toEqual({
+    date: day,
+    usage: deletedUsage,
+    groups: [{ batchId: batch.id, usage: zero }],
+    other: { usage: deletedUsage },
+  });
 }, 30_000);
 
-test("a window that ends before it starts, or is longer than 400 days, is refused naming `from`", async () => {
+test("a window that ends before it starts, is longer than 400 days or starts before year 1 is refused naming the field given", async () => {
   const owner = system.owner();
-  for (const window of [
-    { from: "2026-11-10", to: "2026-11-01" },
-    { from: "2025-09-26", to: "2026-10-31" },
-  ]) {
+  for (const [window, field] of [
+    [{ from: "2026-11-10", to: "2026-11-01" }, "from"],
+    [{ from: "2025-09-26", to: "2026-10-31" }, "from"],
+    // Postgres reads no year 0000, which an ISO date may hold.
+    [{ from: "0000-12-31", to: "0001-01-10" }, "from"],
+    // The default `from`, 29 days before `to`, would be in year 0000.
+    [{ to: "0001-01-01" }, "to"],
+  ] as const) {
     const problem = problemOf(await owner.usage.get(window).catch((error: unknown) => error));
-    expect(problem).toMatchObject({ status: 400, detail: expect.stringContaining("from") });
+    expect(problem).toMatchObject({ status: 400, detail: expect.stringMatching(`→ at ${field}$`) });
   }
   // 400 days, both included.
   expect((await owner.usage.get({ from: "2025-09-27", to: "2026-10-31" })).days).toHaveLength(400);
 });
 
 test("a member whose role does not allow reading usage is refused", async () => {
-  const member = await signInAsMember();
+  const member = await system.addMember({
+    email: "member@example.com",
+    password: "a long enough password",
+    name: "Member",
+  });
   await expect(member.usage.get({})).rejects.toMatchObject({ code: "FORBIDDEN", defined: true });
 });
