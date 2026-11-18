@@ -42,7 +42,14 @@ import {
   requireKey,
 } from "./auth/auth.ts";
 import { API_KEY_CONFIG, GRANTABLE_KEY_PERMISSIONS } from "./auth/options.ts";
-import { addJobs, cancelBatch, createBatch, getBatch, controlBatch } from "./batches.ts";
+import {
+  addJobs,
+  cancelBatch,
+  createBatch,
+  getBatch,
+  controlBatch,
+  listBatches,
+} from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
 import { DASHBOARD_BASE } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
@@ -263,6 +270,18 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         );
         if (added.jobs.some(({ created }) => created)) yield* hintRunners("live");
         return added;
+      }),
+      list: os.batches.list.effect(function* ({ input, errors }) {
+        return yield* listBatches({
+          statuses: input.status ?? [],
+          labels: input.labels,
+          after: input.after,
+          limit: input.limit,
+        }).pipe(
+          Effect.catchTag("InvalidInput", ({ problems }) =>
+            Effect.fail(invalidInput(errors, input, problems)),
+          ),
+        );
       }),
       get: os.batches.get.effect(function* ({ input }) {
         return yield* getBatch(input.id);

@@ -83,6 +83,10 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
     jobCounts: { queued: 1 },
     statusUnknownJobs: 1,
   });
+  const listed = await client.batches.list({});
+  expect(listed.batches.find(({ id }) => id === read.batchId)).toMatchObject({
+    statusUnknownJobs: 1,
+  });
   const unknown = await client.jobs.list({ batchId: read.batchId, statusUnknown: true });
   expect(unknown.jobs.map(({ id }) => id)).toEqual([job.id]);
   const known = await client.jobs.list({ batchId: read.batchId, statusUnknown: false });

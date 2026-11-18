@@ -238,6 +238,53 @@ test("jobs are listed by label, status, Batch and custom ID, newest first, with 
   await client.batches.cancel({ id: batch.id });
 });
 
+test("Batches are listed newest first, by status and label, in pages, without their usage", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const labels = { suite: "batch-list" };
+  const cancelled = await client.batches.create({ agent: AGENT, labels, breaker: false });
+  await client.batches.addJobs({ id: cancelled.id, jobs: [jobNamed("a")] });
+  await client.batches.cancel({ id: cancelled.id });
+  const paused = await client.batches.create({ agent: AGENT, labels, breaker: false });
+  await client.batches.pause({ id: paused.id });
+  const active = await client.batches.create({ agent: AGENT, labels: { ...labels, team: "ops" } });
+
+  const listed = await client.batches.list({ labels });
+  expect(listed.batches.map(({ id }) => id)).toEqual([active.id, paused.id, cancelled.id]);
+  expect(listed.batches[2]).toMatchObject({
+    status: "cancelled",
+    jobCounts: { cancelled: 1, queued: 0 },
+    statusUnknownJobs: 0,
+  });
+  expect(listed.batches[2]).not.toHaveProperty("usage");
+  expect(listed.hasMore).toBe(false);
+
+  const first = await client.batches.list({ labels, limit: 2 });
+  expect(first).toMatchObject({ batches: [{ id: active.id }, { id: paused.id }], hasMore: true });
+  const next = await client.batches.list({ labels, limit: 2, after: paused.id });
+  expect(next).toMatchObject({ batches: [{ id: cancelled.id }], hasMore: false });
+
+  for (const [status, batch] of [
+    ["active", active],
+    ["paused", paused],
+    ["cancelled", cancelled],
+  ] as const) {
+    const byStatus = await client.batches.list({ labels, status: [status] });
+    expect(byStatus.batches.map(({ id }) => id)).toEqual([batch.id]);
+  }
+  const ops = await client.batches.list({ labels: { team: "ops" } });
+  expect(ops.batches.map(({ id }) => id)).toContain(active.id);
+  expect(ops.batches.map(({ id }) => id)).not.toContain(paused.id);
+
+  // A Batch's ID tells nothing of its order, so an `after` naming no Batch cannot be read on from.
+  const refused = await client.batches
+    .list({ after: "no-such-batch" })
+    .catch((error: unknown) => error);
+  expect(problemOf(refused)).toMatchObject({
+    status: 400,
+    detail: expect.stringContaining("after"),
+  });
+});
+
 test("a paused Batch blocks the jobs not yet sent and those added later, without changing their status", async () => {
   const client = await system.clientWithNewJobsKey();
   const batch = await client.batches.create({ agent: AGENT, breaker: false });

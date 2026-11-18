@@ -409,6 +409,22 @@ export const batchSchema = z
   })
   .register(z.globalRegistry, { id: "Batch" });
 export type Batch = z.infer<typeof batchSchema>;
+export type BatchStatus = z.infer<typeof batchStatusSchema>;
+
+/**
+ * A Batch as a list shows it: without its `usage`, which only reading every job's progress tells,
+ * so a list of large Batches stays quick; read the Batch for it.
+ */
+export const listedBatchSchema = z
+  .omit(batchSchema, { usage: true })
+  .register(z.globalRegistry, { id: "ListedBatch" });
+export type ListedBatch = z.infer<typeof listedBatchSchema>;
+
+/** A page of Batches, newest first. */
+export const batchesPageSchema = z
+  .object({ batches: z.array(listedBatchSchema), hasMore: z.boolean() })
+  .register(z.globalRegistry, { id: "BatchesPage" });
+export type BatchesPage = z.infer<typeof batchesPageSchema>;
 
 /** The jobs an add asked for, in its order, each with whether the add created it, and their Batch. */
 export const addedJobsSchema = z
@@ -741,6 +757,53 @@ export const apiContract = {
         }),
       )
       .output(addedJobsSchema),
+    list: forMembers
+      .errors({ BAD_REQUEST: {} })
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/batches",
+          description:
+            "Lists Batches, newest first, in pages of at most `limit`. Filters combine: a Batch is listed when it has one of the `status` values given and every label in `labels`, its own labels rather than its jobs'. Read the next page with the same filters and `after` set to the last Batch's `id`, while the page says `hasMore`; an `after` naming no Batch is refused. A listed Batch has no `usage`: read the Batch for it.",
+          // Repeated `status=…` parameters, a single one included, read as a list.
+          queryStyles: { status: "array" },
+        }),
+        ...byKeyOrMember({ job: ["read"] }),
+      )
+      .input(
+        z.strictObject({
+          status: z.optional(
+            z
+              .array(batchStatusSchema)
+              .check(z.describe("Statuses, one per `status` parameter; any status when none.")),
+          ),
+          labels: z.optional(
+            z
+              .record(labelKeySchema, labelValueSchema)
+              .check(
+                z.describe(
+                  "Labels the Batch must all have, as `labels[customer]=acme`; repeat for more.",
+                ),
+              ),
+          ),
+          after: z.optional(
+            batchIdSchema.check(
+              z.describe("The last Batch's ID on the previous page, to read on after it."),
+            ),
+          ),
+          limit: z._default(
+            z
+              .int()
+              .check(
+                z.minimum(1),
+                z.maximum(100),
+                z.describe("At most this many Batches in the page, 50 by default."),
+              ),
+            50,
+          ),
+        }),
+      )
+      .output(batchesPageSchema),
     get: forMembers
       .errors({ [NotFound.code]: NotFound })
       .meta(
