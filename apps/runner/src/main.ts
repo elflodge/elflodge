@@ -453,6 +453,11 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
       Effect.catchTag(["SandboxUnavailable", "ExtensionsUnavailable"], (error) =>
         refuse(error.message),
       ),
+      Effect.catchTag("RegistrationRefused", () =>
+        refuse(
+          "The hub refused RUNNER_REGISTRATION_KEY: it may have expired or been revoked. A Runner registers on its first start and again when its data directory is gone. Create a new registration key in the dashboard and start the Runner with it.",
+        ),
+      ),
       Effect.catchTag("Removed", () =>
         // FIXME: re-registering belongs to the CLI. Once it exists, this message names its command
         // (such as `elflodge runner register`) and `register` moves out of this entry point.

@@ -109,3 +109,9 @@ test("a runner offering no protocol version the hub supports is refused, told wh
     supported: ["elflodge.v1"],
   });
 });
+
+test("a Runner whose registration key the hub refuses says so", async () => {
+  await expect(
+    system.startRunner({ register: true, registrationKey: "not-a-registration-key" }),
+  ).rejects.toMatchObject({ _tag: "RegistrationRefused" });
+});

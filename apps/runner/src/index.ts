@@ -4,7 +4,7 @@ import { text } from "node:stream/consumers";
 
 import type { Models } from "@earendil-works/pi-ai";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import { createORPCClient } from "@orpc/client";
+import { createORPCClient, ORPCError } from "@orpc/client";
 import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING,
@@ -171,7 +171,10 @@ export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
  */
 export function runRunner(
   options: RunnerOptions,
-): Effect.Effect<never, Removed | SandboxUnavailable | ExtensionsUnavailable> {
+): Effect.Effect<
+  never,
+  Removed | RegistrationRefused | SandboxUnavailable | ExtensionsUnavailable
+> {
   const hubUrl = new URL(options.hubUrl);
   return Effect.gen(function* () {
     const { environments, extensions } = yield* prepareJobs(options);
@@ -316,7 +319,10 @@ function socketUrl(hubUrl: URL): URL {
  * The Runner's own key, kept in its data directory, or, on its first start, a new one from
  * registering with the shared key, as GitHub Actions and Buildkite runners do.
  */
-function loadOrRegister(hubUrl: URL, options: RunnerOptions): Effect.Effect<RegisteredRunner> {
+function loadOrRegister(
+  hubUrl: URL,
+  options: RunnerOptions,
+): Effect.Effect<RegisteredRunner, RegistrationRefused> {
   const file = path.join(options.dataDir, "runner.json");
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -327,7 +333,16 @@ function loadOrRegister(hubUrl: URL, options: RunnerOptions): Effect.Effect<Regi
           headers: { "x-api-key": options.registrationKey },
         }),
       );
-      const registration = yield* Effect.promise(() => hubHttp.register({ name: hostname() }));
+      const registration = yield* Effect.tryPromise({
+        try: () => hubHttp.register({ name: hostname() }),
+        catch: (error) => error,
+      }).pipe(
+        Effect.catch((error) =>
+          error instanceof ORPCError && error.code === "UNAUTHORIZED"
+            ? Effect.fail(new RegistrationRefused())
+            : Effect.die(error),
+        ),
+      );
       yield* fs.makeDirectory(options.dataDir, { recursive: true });
       // Only the operating-system user running the Runner may read its key.
       yield* fs.writeFileString(file, JSON.stringify(registration), { mode: 0o600 });
@@ -338,7 +353,7 @@ function loadOrRegister(hubUrl: URL, options: RunnerOptions): Effect.Effect<Regi
       Effect.map((saved) => z.parse(registeredRunnerSchema, JSON.parse(saved))),
       Effect.catchReason("PlatformError", "NotFound", () => register),
     );
-  }).pipe(Effect.orDie, Effect.provide(NodeFileSystem.layer));
+  }).pipe(Effect.catchTag("PlatformError", Effect.die), Effect.provide(NodeFileSystem.layer));
 }
 
 /** What a connection needs: where and as whom to connect, and the jobs it keeps in sync. */
@@ -354,6 +369,13 @@ interface ConnectionContext {
   /** What the Runner reports about itself in each hello. */
   capabilities: RunnerCapabilities;
 }
+
+/**
+ * The hub refused the shared key the Runner registers with: it expired, was revoked or never was
+ * one. A Runner registers on its first start, and again when its data directory, which keeps its
+ * own key, is gone.
+ */
+export class RegistrationRefused extends Data.TaggedError("RegistrationRefused") {}
 
 /** The hub no longer knows this Runner: it was removed, or the hub was reset. Nothing retries it. */
 export class Removed extends Data.TaggedError("Removed") {}
