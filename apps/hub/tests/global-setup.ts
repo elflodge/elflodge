@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import path from "node:path";
+import { promisify } from "node:util";
+
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestProject } from "vite-plus/test/node";
 
@@ -9,8 +13,22 @@ declare module "vite-plus/test" {
   }
 }
 
-/** Starts one migrated Postgres for the test run; the hub reaches it through Hyperdrive's local connection string. */
+/**
+ * Builds the dashboard, which both hubs serve from its build, and starts one migrated Postgres for
+ * the test run; the hub reaches it through Hyperdrive's local connection string. Vite Task replays
+ * the dashboard's build when nothing it reads has changed.
+ */
 export default async function setup(project: TestProject) {
+  // Without Vitest's `NODE_ENV`, `test`, with which Vite would build the libraries' development
+  // builds: the build the hubs ship.
+  const env = { ...process.env };
+  delete env.NODE_ENV;
+  // First, so a failed build leaves no container behind.
+  await promisify(execFile)(
+    path.join(import.meta.dirname, "../node_modules/.bin/vp"),
+    ["run", "dashboard#build"],
+    { env },
+  );
   const container = await new PostgreSqlContainer("postgres:18-alpine").start();
   await migrateDatabase(container.getConnectionUri());
   project.provide("databaseUrl", container.getConnectionUri());

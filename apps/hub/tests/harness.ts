@@ -67,9 +67,10 @@ declare module "vite-plus/test" {
 /**
  * The origin the hub is told it serves. Better Auth signs members in only from its own origin once a
  * request carries browser fetch metadata, which Node's `fetch` sends; sign-in sends it as `Origin`,
- * as the dashboard on the hub's origin will.
+ * as the dashboard on the hub's origin does. A `.localhost` name, which browsers trust as they trust
+ * an HTTPS hub, so a browser test sends the fetch metadata it would send to a deployed hub.
  */
-const HUB_ORIGIN = "http://hub.test";
+const HUB_ORIGIN = "http://hub.localhost";
 
 /** The owner the hub is set up with. */
 export const OWNER = { email: "owner@example.com", password: "correct horse battery staple" };
@@ -194,13 +195,15 @@ async function startNodeHub(databaseUrl: string, settings: Record<string, string
       ...settings,
       DATABASE_URL: databaseUrl,
       PORT: String(port),
+      // Loopback only, so that the test hub is not reachable from other machines.
+      HOST: "127.0.0.1",
       ADMIN_EMAIL: OWNER.email,
       ADMIN_PASSWORD: OWNER.password,
     },
     stdio: "inherit",
   });
   const exited = once(hub, "exit");
-  const url = new URL(`http://localhost:${port}`);
+  const url = new URL(`http://127.0.0.1:${port}`);
   // The hub answers once it has migrated and set up; until then, connecting fails.
   await vi.waitFor(
     async () => {
@@ -360,7 +363,9 @@ export function startSystem(
       }
       url = running.url;
       ownerCookie = await signIn(OWNER);
-      owner = client({ cookie: ownerCookie });
+      // From the hub's origin, as the dashboard's requests are, which the hub's CSRF check requires
+      // of a member's unsafe request without a JSON body.
+      owner = client({ cookie: ownerCookie, origin: HUB_ORIGIN });
     },
     async stop() {
       // Both at once: a Runner that does not stop then fails the hook without keeping the hub's

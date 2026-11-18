@@ -1,0 +1,3 @@
+# Kept out of the Workers hub's static assets: Vite's manifest, which holds absolute source paths.
+# Wrangler leaves out its own configuration files, such as _headers, by itself.
+.vite

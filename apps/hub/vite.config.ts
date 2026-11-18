@@ -5,6 +5,15 @@ export default defineConfig({
   // The tests start a Runner in this process, which loads the extension adapter's source under the
   // condition its exports give it in the workspace (ADR 0006).
   ssr: { resolve: { conditions: ["@elflodge/source", ...defaultServerConditions] } },
+  run: {
+    tasks: {
+      // Each serves the dashboard's build, so builds it first: the Node hub's build copies it, and
+      // Wrangler uploads it as the Worker's static assets.
+      build: { command: "vp pack", dependsOn: ["dashboard#build"] },
+      dev: { command: "wrangler dev", dependsOn: ["dashboard#build"], cache: false },
+      deploy: { command: "wrangler deploy", dependsOn: ["dashboard#build"], cache: false },
+    },
+  },
   pack: {
     // The Node hub, which the Docker image runs; the Worker is built by Wrangler.
     entry: ["src/main.ts"],
@@ -14,6 +23,18 @@ export default defineConfig({
     // source, so it is bundled instead (ADR 0006).
     deps: { alwaysBundle: ["contract"] },
     plugins: [externals({ exclude: ["contract"] })],
+    // The files of the dashboard's build that browsers fetch, which the Node hub serves, beside it
+    // (`src/main.ts`): the build's other files are for Vite and Workers.
+    copy: [
+      {
+        from: [
+          "../dashboard/dist/client/index.html",
+          "../dashboard/dist/client/assets",
+          "../dashboard/dist/client/THIRD_PARTY_NOTICES.md",
+        ],
+        to: "dist/dashboard",
+      },
+    ],
   },
   test: {
     globalSetup: ["./tests/global-setup.ts"],

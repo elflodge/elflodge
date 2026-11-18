@@ -1,0 +1,23 @@
+{
+  "name": "dashboard",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build"
+  },
+  "dependencies": {
+    "@solidjs/web": "catalog:",
+    "@tanstack/solid-router": "catalog:",
+    "@tanstack/solid-start": "catalog:",
+    "better-auth": "catalog:",
+    "ensure-error": "catalog:",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

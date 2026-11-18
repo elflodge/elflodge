@@ -8,7 +8,13 @@ export default defineConfig({
     // in its Markdown, and the plugin manifest, whose version it bumps, rewritten as JSON.stringify
     // writes it, one array item per line. Oxfmt keeps package.json files in that style, but its
     // overrides cannot choose it for another file, as Prettier's `json-stringify` parser can.
-    ignorePatterns: ["CHANGELOG.md", "skills/.claude-plugin/plugin.json"],
+    // The dashboard's route tree, which TanStack Router generates in its own style; its docs advise
+    // keeping it out of formatters and linters.
+    ignorePatterns: [
+      "CHANGELOG.md",
+      "skills/.claude-plugin/plugin.json",
+      "apps/dashboard/src/routeTree.gen.ts",
+    ],
   },
   staged: {
     "*": "vp check --fix",
@@ -47,6 +53,8 @@ export default defineConfig({
     ignorePatterns: [
       "packages/pi-durable-extension-adapter/tests/fixtures/**",
       "apps/hub/tests/fixtures/extensions/extension/**",
+      // TanStack Router's generated route tree, as for the formatter.
+      "apps/dashboard/src/routeTree.gen.ts",
     ],
   },
   run: {

@@ -12,6 +12,7 @@ WORKDIR /app
 # packages from them. No lifecycle script runs: no build here needs one, and the root's `prepare`
 # sets up Git hooks (`vp config`).
 COPY --chown=vp:vp package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --chown=vp:vp apps/dashboard/package.json apps/dashboard/
 COPY --chown=vp:vp apps/hub/package.json apps/hub/
 COPY --chown=vp:vp apps/runner/package.json apps/runner/
 COPY --chown=vp:vp packages/cli/package.json packages/cli/
@@ -23,11 +24,12 @@ RUN vp install --frozen-lockfile --ignore-scripts
 COPY --chown=vp:vp . .
 
 # --- the hub's build, in a stage of its own as the Runner's is, so building one image skips the
-# other's build (Docker's multi-stage builds). It also copies the third-party files the hub loads into
-# `dist/node_modules`, in place of a production-dependencies stage, and writes the notices of every
-# package it ships. Vite Task's cache traces each process by preloading a library, which aborts under
-# QEMU, as the arm64 release build runs (voidzero-dev/vite-task#879), so it is off; Docker caches the
-# layers ---
+# other's build (Docker's multi-stage builds). It builds the dashboard first, whose files it copies
+# beside the hub, with the notices of the packages its browser bundle carries, copies the third-party
+# files the hub loads into `dist/node_modules`, in place of a production-dependencies stage, and
+# writes the notices of every package the hub ships. Vite Task's cache traces each process by
+# preloading a library, which aborts under QEMU, as the arm64 release build runs
+# (voidzero-dev/vite-task#879), so it is off; Docker caches the layers ---
 FROM build AS hub-build
 RUN vp run --no-cache hub#build && vp run --no-cache hub#notices
 
@@ -40,6 +42,8 @@ ENV NODE_ENV=production
 
 COPY --from=hub-build /app/apps/hub/dist/main.mjs /app/apps/hub/dist/THIRD_PARTY_NOTICES.txt ./dist/
 COPY --from=hub-build /app/apps/hub/dist/node_modules ./node_modules
+# The dashboard's files, which the hub's build copies beside it and the hub serves (ADR 0043).
+COPY --from=hub-build /app/apps/hub/dist/dashboard ./dist/dashboard
 # Applied as the hub starts (ADR 0015); the manifest makes Node load them as modules.
 COPY --from=hub-build /app/apps/hub/migrations ./migrations
 COPY --from=hub-build /app/apps/hub/package.json ./
