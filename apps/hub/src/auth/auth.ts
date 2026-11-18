@@ -7,7 +7,7 @@ import { type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
 import { Db, openScopedDatabase } from "../db/database.ts";
-import type { Database } from "../db/types.ts";
+import { type Database, UserId } from "../db/types.ts";
 import { authOptions, type AuthSettings } from "./options.ts";
 
 /** A Better Auth instance with the hub's options. */
@@ -78,12 +78,27 @@ export const getOrganization = Effect.gen(function* () {
   return organization;
 });
 
-/** The signed-in member making the request, or a 401 error. */
+/**
+ * The signed-in member making the request, or a 401 error. Removing a member from the Organization
+ * leaves their session, so the session alone does not make its user a member.
+ */
 function requireMember(headers: Headers) {
   return Effect.gen(function* () {
     const auth = yield* Auth;
     const session = yield* auth.call((instance) => instance.api.getSession({ headers }));
     if (!session) return yield* Effect.fail(new Unauthorized());
+    // One Organization per deployment (ADR 0007), so any membership is in it.
+    const membership = yield* Db.use((database) =>
+      database.query((db) =>
+        db
+          .selectFrom("member")
+          .select("id")
+          .where("userId", "=", UserId(session.user.id))
+          .limit(1)
+          .executeTakeFirst(),
+      ),
+    );
+    if (!membership) return yield* Effect.fail(new Unauthorized());
     return session.user;
   });
 }
