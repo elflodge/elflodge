@@ -95,7 +95,12 @@ test("a member removed from the Organization is refused, though their session la
     organizationId: organization.id,
   });
 
-  await expect(asMember.runners.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  // Signing in again would not help, so the refusal is not a 401.
+  await expect(asMember.runners.list()).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    defined: true,
+    message: "This account is not a member of the Organization",
+  });
 });
 
 test("a member creates and lists keys, and a revoked key is refused at once", async () => {

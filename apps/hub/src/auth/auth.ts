@@ -1,7 +1,7 @@
 import { ORPCError, type ORPCErrorCode } from "@orpc/server";
 import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
-import { type Access, HubNotSetUp, Unauthorized } from "contract";
+import { type Access, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
 import { type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
@@ -82,8 +82,9 @@ export const getOrganization = Effect.gen(function* () {
 });
 
 /**
- * The signed-in member making the request, or a 401 error. Removing a member from the Organization
- * leaves their session, so the session alone does not make its user a member.
+ * The signed-in member making the request; a 401 error without a session, or a 403 error for an
+ * account that is not a member. Removing a member from the Organization leaves their session, so the
+ * session alone does not make its user a member.
  */
 function requireMember(headers: Headers) {
   return Effect.gen(function* () {
@@ -101,7 +102,14 @@ function requireMember(headers: Headers) {
           .executeTakeFirst(),
       ),
     );
-    if (!membership) return yield* Effect.fail(new Unauthorized());
+    if (!membership) {
+      // An owner whose setup stopped before the Organization was created is told the hub is not
+      // set up (503), as calls acting for the Organization tell everyone then.
+      yield* getOrganization;
+      return yield* Effect.fail(
+        new Forbidden({ message: "This account is not a member of the Organization" }),
+      );
+    }
     return session.user;
   });
 }

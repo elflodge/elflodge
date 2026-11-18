@@ -25,12 +25,12 @@ import {
   textSchema,
 } from "./job.ts";
 import {
-  api,
   byAnyone,
   byKey,
   byKeyOrMember,
   byMember,
   forAnyone,
+  forMembers,
   forOrganization,
   NotFound,
 } from "./procedure.ts";
@@ -477,8 +477,6 @@ export const jobEventsPageSchema = z
   .register(z.globalRegistry, { id: "JobEventsPage" });
 export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 
-/** A call the member's role does not allow, decided by the hub. */
-export const Forbidden = error("FORBIDDEN");
 /** A name a person gives, such as the Organization's or a member's. */
 const nameSchema = textSchema.check(z.trim(), z.minLength(1));
 
@@ -501,8 +499,8 @@ export const ControlRefused = error("CONFLICT");
 export const IdReused = error("UNPROCESSABLE_CONTENT");
 
 // Calls a member's role does not allow fail with `FORBIDDEN`, and invalid ones with `BAD_REQUEST`.
-// Where Better Auth decides, the hub passes its `FORBIDDEN` through, declared without a factory;
-// removing a Runner raises `Forbidden` itself. The hub raises `BAD_REQUEST` itself only for what the
+// Where Better Auth decides, the hub passes its `FORBIDDEN` through; removing a Runner raises
+// `Forbidden` itself. The hub raises `BAD_REQUEST` itself only for what the
 // contract's schemas cannot check, such as an Output contract's schema.
 
 /**
@@ -582,12 +580,12 @@ export const apiContract = {
       ),
   },
   runners: {
-    list: api
+    list: forMembers
       .meta(openapi({ method: "GET", path: "/runners" }), ...byMember)
       .output(z.array(runnerSchema)),
     // Removing a Runner ends the jobs it held that have not ended.
-    delete: api
-      .errors({ [Forbidden.code]: Forbidden, [NotFound.code]: NotFound })
+    delete: forMembers
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "DELETE",
@@ -612,8 +610,8 @@ export const apiContract = {
       ),
   },
   apiKeys: {
-    create: forOrganization
-      .errors({ BAD_REQUEST: {}, FORBIDDEN: {} })
+    create: forMembers
+      .errors({ BAD_REQUEST: {} })
       .meta(openapi({ method: "POST", path: "/api-keys" }), ...byMember)
       .input(
         z.strictObject({
@@ -631,12 +629,11 @@ export const apiContract = {
         }),
       )
       .output(createdKeySchema),
-    list: forOrganization
-      .errors({ FORBIDDEN: {} })
+    list: forMembers
       .meta(openapi({ method: "GET", path: "/api-keys" }), ...byMember)
       .output(z.array(apiKeySchema)),
-    revoke: api
-      .errors({ FORBIDDEN: {}, [NotFound.code]: NotFound })
+    revoke: forMembers
+      .errors({ [NotFound.code]: NotFound })
       .meta(openapi({ method: "DELETE", path: "/api-keys/{id}" }), ...byMember)
       .input(z.strictObject({ id: z.string() })),
   },
@@ -742,7 +739,7 @@ export const apiContract = {
         }),
       )
       .output(addedJobsSchema),
-    get: api
+    get: forMembers
       .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/batches/{id}", description: "Reads a Batch." }),
@@ -750,7 +747,7 @@ export const apiContract = {
       )
       .input(batchRefSchema)
       .output(batchSchema),
-    pause: api
+    pause: forMembers
       .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
@@ -763,7 +760,7 @@ export const apiContract = {
       )
       .input(batchRefSchema)
       .output(batchSchema),
-    resume: api
+    resume: forMembers
       .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
@@ -776,7 +773,7 @@ export const apiContract = {
       )
       .input(batchRefSchema)
       .output(batchSchema),
-    cancel: api
+    cancel: forMembers
       .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
@@ -791,7 +788,7 @@ export const apiContract = {
       .output(batchSchema),
   },
   jobs: {
-    get: api
+    get: forMembers
       .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/jobs/{id}", description: "Reads a job." }),
@@ -799,7 +796,7 @@ export const apiContract = {
       )
       .input(jobRefSchema)
       .output(jobSchema),
-    pause: api
+    pause: forMembers
       .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
@@ -812,7 +809,7 @@ export const apiContract = {
       )
       .input(jobRefSchema)
       .output(jobSchema),
-    resume: api
+    resume: forMembers
       .errors({
         BAD_REQUEST: {},
         [NotFound.code]: NotFound,
@@ -846,7 +843,7 @@ export const apiContract = {
         }),
       )
       .output(jobSchema),
-    cancel: api
+    cancel: forMembers
       .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
@@ -860,7 +857,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     // Deletion removes content and records the host file purge still owed.
-    delete: api
+    delete: forMembers
       .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
@@ -873,7 +870,7 @@ export const apiContract = {
       )
       .input(jobRefSchema)
       .output(jobSchema),
-    events: api
+    events: forMembers
       .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
@@ -910,7 +907,7 @@ export const apiContract = {
         }),
       )
       .output(jobEventsPageSchema),
-    list: api
+    list: forMembers
       .meta(
         openapi({
           method: "GET",

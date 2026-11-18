@@ -61,7 +61,8 @@ test("the hub serves its OpenAPI document saying who may call and how errors rea
         },
       },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
-      "/runners": { get: { security: [{ session: [] }] } },
+      // A member's call answers 403 to a signed-in account that is not a member.
+      "/runners": { get: { security: [{ session: [] }], responses: { 403: {} } } },
     },
   });
 });

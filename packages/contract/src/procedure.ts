@@ -35,7 +35,8 @@ export const NotFound = error("NOT_FOUND");
 
 /**
  * Every HTTP call, the API's and the Runner's, that needs a caller. Every call says who may make it
- * (`byKey`, `byMember` or `byKeyOrMember`), and the hub refuses anyone else with `UNAUTHORIZED`.
+ * (`byKey`, or `byMember` or `byKeyOrMember` on `forMembers`), and the hub refuses anyone else
+ * with `UNAUTHORIZED`, or a signed-in account that is not a member with `FORBIDDEN`.
  */
 export const api = oc.errors({ [Unauthorized.code]: Unauthorized });
 /** The calls anyone may make (`byAnyone`), which the hub never refuses as `UNAUTHORIZED`. */
@@ -94,3 +95,15 @@ export const byAnyone = calledBy({ anyone: true });
 
 /** Calls that act for the Organization, which exists once the hub is set up. */
 export const forOrganization = api.errors({ [HubNotSetUp.code]: HubNotSetUp });
+/**
+ * A call refused to a signed-in account: one that is not a member of the Organization, such as one
+ * removed from it, or a member whose role does not allow the call.
+ */
+export const Forbidden = error("FORBIDDEN");
+/**
+ * The calls a signed-in member may make (`byMember` or `byKeyOrMember`). Signing in again cannot
+ * help an account the hub refuses (`FORBIDDEN`), so only a call without a valid session or key is
+ * `UNAUTHORIZED`, and a client can answer that by signing in. An account signed in before the hub
+ * has its Organization, left by a setup that stopped halfway, gets `SERVICE_UNAVAILABLE`.
+ */
+export const forMembers = forOrganization.errors({ [Forbidden.code]: Forbidden });
