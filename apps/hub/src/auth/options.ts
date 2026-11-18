@@ -64,7 +64,10 @@ export const API_KEY_CONFIG = "default";
 export const RUNNER_KEY_CONFIG = "runner";
 
 export interface AuthSettings {
-  /** The hub's database, without a schema plugin: Better Auth names `schemaName` itself. */
+  /**
+   * The hub's database. Better Auth names `schemaName` itself, so a schema plugin on it must name
+   * the same schema, as the hub's does.
+   */
   // oxlint-disable-next-line typescript/no-explicit-any -- Better Auth types its database as Kysely<any>.
   db: Kysely<any>;
   secret: string;

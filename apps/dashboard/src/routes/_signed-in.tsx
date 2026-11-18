@@ -53,9 +53,7 @@ function SignedIn() {
         </nav>
         <div class="member">
           <span>{context().member.email}</span>
-          <Show when={context().organization}>
-            <Link to="/change-password">Change password</Link>
-          </Show>
+          <Link to="/change-password">Change password</Link>
           <button type="button" disabled={pending()} onClick={() => void signOut()}>
             Sign out
           </button>
@@ -63,12 +61,7 @@ function SignedIn() {
       </header>
       <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
       <main>
-        <Show
-          when={context().organization}
-          fallback={<p role="alert">This account is no longer a member of the Organization.</p>}
-        >
-          <Outlet />
-        </Show>
+        <Outlet />
       </main>
     </>
   );

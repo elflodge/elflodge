@@ -34,7 +34,7 @@ The hub and a Runner from their published images on one machine, as a deployment
    ADMIN_EMAIL=you@example.com
    ADMIN_PASSWORD=choose-a-password
    EOF
-   # Returns once the hub has migrated its database and created its owner; if the hub itself fails, `docker compose logs hub` says why
+   # Returns once the hub has migrated its database and created its owner from these settings; if the hub itself fails, `docker compose logs hub` says why
    docker compose up --wait hub
    HUB=http://localhost:8787
    ```

@@ -22,6 +22,13 @@ import type { Database } from "./db/types.ts";
  */
 const SETUP_LINK_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The advisory lock under which a link is issued, in Postgres's two-key form: the first key spells
+ * "elfl" in ASCII, to keep apart from software sharing the database (ADR 0014), the second names the
+ * lock among the hub's.
+ */
+const SETUP_LINK_LOCK = [0x65_6c_66_6c, 1] as const;
+
 /** The `value` of a setup link's `verification` row, by which a new link revokes older ones. */
 const SETUP_LINK_VALUE = "hub-setup";
 
@@ -87,6 +94,7 @@ export async function setUpOrganization(
  * `SETUP_TOKEN_PREFIX`.
  */
 async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
+  // 32 characters, as Better Auth's one-time-token plugin makes its tokens.
   const token = generateRandomString(32);
   // Made first, so a `hubUrl` it cannot parse revokes no link.
   const link = `${dashboardUrl(hubUrl, "setup").href}#${token}`;
@@ -96,7 +104,10 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
     await transaction
       .selectNoFrom((eb) =>
         eb
-          .fn("pg_advisory_xact_lock", [eb.fn("hashtext", [eb.val(SETUP_LINK_VALUE)])])
+          .fn(
+            "pg_advisory_xact_lock",
+            SETUP_LINK_LOCK.map((key) => eb.lit(key)),
+          )
           .as("locked"),
       )
       .execute();
@@ -107,10 +118,11 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
       .where("value", "=", SETUP_LINK_VALUE)
       .execute();
     const context = await offlineAuth(transaction).$context;
-    // Better Auth's documentation describes its internal adapter only to plugin authors, as the
-    // database calls Better Auth makes itself, not as a stable API for applications. After an
-    // upgrade, check that `auth.$context` still gives it, that `createVerificationValue` and
-    // the atomic `consumeVerificationValue` keep their behaviour, and that
+    // Better Auth documents its internal adapter, the database calls it makes itself, for plugins
+    // and hooks, which reach it through their request's context; reaching it through
+    // `auth.$context`, outside a request, is not documented. After an upgrade, check that
+    // `auth.$context` still gives it, that `createVerificationValue`, the atomic
+    // `consumeVerificationValue` and `findUserByEmail` keep their behaviour, and that
     // `verification.storeIdentifier` still matches its overrides by prefix; the setup tests
     // exercise each.
     await context.internalAdapter.createVerificationValue({
@@ -125,9 +137,9 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
 /**
  * Creates the owner and the Organization named `name`, using up the setup link's `token` when
  * given, in one transaction: a failure, such as a password Better Auth refuses, leaves no owner
- * behind and the link usable. Of two setups at once, the Organization's unique slug lets one
- * through, and the other finds the hub set up. Better Auth's refusals are thrown as its
- * `APIError`s.
+ * behind and the link usable. Of two setups at once, one gets through and the other, held by the
+ * link's row or the database's unique keys until the first commits, finds the hub set up. Better
+ * Auth's refusals are thrown as its `APIError`s.
  *
  * Better Auth has no way to join a transaction it did not open (better-auth/better-auth#10609), so
  * an instance is built on this one. That holds while the hub's options leave Better Auth's own
@@ -146,8 +158,8 @@ export async function createOwnerAndOrganization(
         disableSignUp: false,
         autoSignIn: false,
       });
+      const context = await auth.$context;
       if (token !== undefined) {
-        const context = await auth.$context;
         // See `issueSetupLink` on the internal adapter. Consuming is atomic, so a token works once.
         const consumed = await context.internalAdapter.consumeVerificationValue(
           SETUP_TOKEN_PREFIX + token,
@@ -161,7 +173,9 @@ export async function createOwnerAndOrganization(
       // Up to 0.10.0, the hub created the owner and the Organization in two steps, so a start
       // stopped in between left the owner's `user` row behind, which its settings now claim.
       const userId =
-        (token === undefined ? await findUserId(transaction, owner.email) : undefined) ??
+        (token === undefined
+          ? (await context.internalAdapter.findUserByEmail(owner.email))?.user.id
+          : undefined) ??
         (
           await auth.api.signUpEmail({
             body: { email: owner.email, password: owner.password, name: owner.name },
@@ -177,17 +191,6 @@ export async function createOwnerAndOrganization(
     if (await findOrganization(db.withSchema(DB_SCHEMA))) return "alreadySetUp";
     throw error;
   }
-}
-
-/** The ID of the `user` row with `email`, if any; Better Auth stores emails in lower case. */
-async function findUserId(db: Kysely<Database>, email: string): Promise<string | undefined> {
-  const user = await db
-    .withSchema(DB_SCHEMA)
-    .selectFrom("user")
-    .select("id")
-    .where("email", "=", email.toLowerCase())
-    .executeTakeFirst();
-  return user?.id;
 }
 
 /** Sets a new password for the member with `email`, for a member who has forgotten theirs. */

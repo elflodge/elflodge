@@ -479,6 +479,9 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 
 /** A call the member's role does not allow, decided by the hub. */
 export const Forbidden = error("FORBIDDEN");
+/** A name a person gives, such as the Organization's or a member's. */
+const nameSchema = textSchema.check(z.trim(), z.minLength(1));
+
 /** A setup link the hub did not issue, or one it no longer accepts. */
 export const SetupLinkRefused = error("FORBIDDEN", {
   message:
@@ -570,9 +573,9 @@ export const apiContract = {
       )
       .input(
         z.strictObject({
-          token: z.string(),
-          organizationName: textSchema.check(z.trim(), z.minLength(1)),
-          name: textSchema.check(z.trim(), z.minLength(1)),
+          token: textSchema,
+          organizationName: nameSchema,
+          name: nameSchema,
           email: z.email(),
           password: z.string(),
         }),
