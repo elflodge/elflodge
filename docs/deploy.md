@@ -129,7 +129,7 @@ RUNNER_MODEL_ID=openrouter/free
 OPENROUTER_API_KEY=<your key>
 RUNNER_EXTENSIONS_DIR=/app/extensions
 EOF
-docker run -d --name elflodge-runner --security-opt seccomp=unconfined \
+docker run -d --name elflodge-runner --hostname "$(hostname)" --security-opt seccomp=unconfined \
   --security-opt systempaths=unconfined --security-opt apparmor=unconfined --memory 8g \
   --restart unless-stopped --volume runner-data:/data --env-file runner.env \
   ghcr.io/elflodge/elflodge-runner:0.10.0
@@ -137,7 +137,7 @@ docker run -d --name elflodge-runner --security-opt seccomp=unconfined \
 
 <!-- x-release-please-end -->
 
-`RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then the `docker run` line with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
+The hub lists the Runner under its host's name, which `--hostname` gives the container in place of its ID. `RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then the `docker run` line with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
 
 ## Calling the API directly
 

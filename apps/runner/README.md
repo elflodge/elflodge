@@ -138,13 +138,13 @@ To search with SearXNG or Firecrawl you run yourself, make it reachable at the R
 - **Docker**: the Runner's image, `ghcr.io/elflodge/elflodge-runner`, runs as a non-root user and needs three options for its jobs' sandboxes, as BuildKit's rootless image does: Docker's defaults deny bubblewrap the namespaces it needs and mask the paths under `/proc` that a sandbox mounts its own over.
 
   ```sh
-  docker run --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
+  docker run --hostname "$(hostname)" --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped --volume runner-data:/data \
     --env HUB_URL --env RUNNER_REGISTRATION_KEY --env RUNNER_MODEL_PROVIDER --env RUNNER_MODEL_ID \
     --env ANTHROPIC_API_KEY ghcr.io/elflodge/elflodge-runner
   ```
 
-  `apparmor=unconfined` is needed only on hosts with AppArmor; on Ubuntu 24.04 the host also needs `kernel.apparmor_restrict_unprivileged_userns=0` (in `/etc/sysctl.d`), as BuildKit's rootless image does, and on Ubuntu 25.04 and later its jobs cannot run in a sandbox yet, as on the host. `--restart` starts the Runner again after it stops, as when it could not reach the hub on its first start. `RUNNER_DATA_DIR` is `/data` in the image, so keep it on a volume. A container has no user systemd, so jobs run without a memory limit of their own: `--memory` caps the Runner and its jobs together. Jobs' commands find the programs of Debian's slim image; for more, build an image from this one.
+  `apparmor=unconfined` is needed only on hosts with AppArmor; on Ubuntu 24.04 the host also needs `kernel.apparmor_restrict_unprivileged_userns=0` (in `/etc/sysctl.d`), as BuildKit's rootless image does, and on Ubuntu 25.04 and later its jobs cannot run in a sandbox yet, as on the host. `--hostname` gives the container the host's name, under which the hub lists the Runner, in place of the container's ID. `--restart` starts the Runner again after it stops, as when it could not reach the hub on its first start. `RUNNER_DATA_DIR` is `/data` in the image, so keep it on a volume. A container has no user systemd, so jobs run without a memory limit of their own: `--memory` caps the Runner and its jobs together. Jobs' commands find the programs of Debian's slim image; for more, build an image from this one.
 
 The Runner proves the sandbox works when it starts, and refuses to start, naming what is missing, if it does not.
 
