@@ -25,14 +25,7 @@ import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { Db, greatest } from "./db/database.ts";
-import type {
-  ApikeyId,
-  BatchUid,
-  Database,
-  JobStatus,
-  RunnerId,
-  UsageRecordId,
-} from "./db/types.ts";
+import type { ApikeyId, BatchUid, Database, JobStatus, RunnerId } from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
 
 // The Organization's usage, added up from its Usage records: each records what one job used up to
@@ -282,7 +275,7 @@ function selectGroupedUsage(
         recordsOf(qb, window, query).select((eb) => [
           dayOf(eb),
           groupKeyOf(eb, groupBy).as("groupKey"),
-          latestKeyOf(eb, groupBy).as("latestKey"),
+          "usageRecord.recordedAt",
           "usageRecord.totalTokens",
           "usageRecord.costUsd",
         ]),
@@ -295,7 +288,7 @@ function selectGroupedUsage(
             "r.groupKey",
             eb.cast<number>(eb.fn.sum("r.totalTokens"), "bigint").as("totalTokens"),
             eb.fn.sum<number>("r.costUsd").as("costUsd"),
-            eb.fn.max("r.latestKey").as("latestKey"),
+            eb.fn.max("r.recordedAt").as("lastRecordedAt"),
           ])
           .groupBy(["r.day", "r.groupKey"]),
       )
@@ -308,7 +301,7 @@ function selectGroupedUsage(
                 "c.groupKey",
                 eb.cast<number>(eb.fn.sum("c.totalTokens"), "bigint").as("totalTokens"),
                 eb.fn.sum<number>("c.costUsd").as("costUsd"),
-                eb.fn.max("c.latestKey").as("latestKey"),
+                eb.fn.max("c.lastRecordedAt").as("lastRecordedAt"),
               ])
               .groupBy("c.groupKey")
               .as("g"),
@@ -334,7 +327,12 @@ function selectGroupedUsage(
           .select((eb) => [
             "g.rank",
             "g.groupKey",
-            groupNameOf(groupBy, eb.ref("g.groupKey"), eb.ref("g.latestKey")).as("name"),
+            groupNameOf(
+              groupBy,
+              eb.ref("g.groupKey"),
+              eb.ref("g.lastRecordedAt"),
+              recordsOf(db, window, query),
+            ).as("name"),
             "g.totalTokens",
             "g.costUsd",
           ]),
@@ -509,30 +507,17 @@ function groupKeyOf(
 }
 
 /**
- * What orders a record by when it was recorded, then by when it was written, where `groupBy` names
- * a group by its latest record: `[recordedAt as exact numeric seconds, id]`, which arrays compare
- * in that order, so that `max` keeps the ID of the latest of the records read, the filters
- * applied, through each sum. An earlier transaction can write after a later one, so the ID alone
- * would not do. Null for the other groupings, which then build no array per record.
- */
-function latestKeyOf(eb: ExpressionBuilder<Database, "usageRecord">, groupBy: UsageGroupBy) {
-  return groupBy === "submitter"
-    ? sql<LatestKey>`array[extract(epoch from ${eb.ref("usageRecord.recordedAt")}), ${eb.ref("usageRecord.id")}]`
-    : sql<LatestKey>`cast(null as numeric[])`;
-}
-
-/** `latestKeyOf`'s value, which stays in the statement. */
-type LatestKey = readonly unknown[] | null;
-
-/**
  * What names the group `groupKey`, as `groupOf` shows it: a Batch's `id`, a submitter's name as
- * the group's latest record of those read holds it, by `latestKey`, and a Runner's name while the
- * Runner exists, as a job shows it.
+ * its latest record of those read holds it, and a Runner's name while the Runner exists, as a job
+ * shows it. The latest record is, of the `records` read, the group's last recorded, at
+ * `lastRecordedAt`, and of those, the last written: an earlier transaction can write after a
+ * later one, so the ID alone would not do.
  */
 function groupNameOf(
   groupBy: UsageGroupBy,
   groupKey: Expression<string | null>,
-  latestKey: Expression<LatestKey>,
+  lastRecordedAt: Expression<Date>,
+  records: ReturnType<typeof recordsOf>,
 ): AliasableExpression<string | null> {
   const eb = expressionBuilder<Database>();
   switch (groupBy) {
@@ -543,10 +528,13 @@ function groupNameOf(
         .where("named.uid", "=", eb.cast<BatchUid>(groupKey, "uuid"))
         .$asScalar();
     case "submitter":
-      return eb
-        .selectFrom("usageRecord as named")
-        .select("named.submitterKeyName")
-        .where("named.id", "=", sql<UsageRecordId>`cast((${latestKey})[2] as bigint)`)
+      // Read for each group shown, by the index on `recordedAt`.
+      return records
+        .select("usageRecord.submitterKeyName")
+        .where("usageRecord.recordedAt", "=", lastRecordedAt)
+        .where((named) => named(groupKeyOf(named, groupBy), "=", groupKey))
+        .orderBy("usageRecord.id", "desc")
+        .limit(1)
         .$asScalar();
     case "runner":
       return eb
