@@ -9,8 +9,8 @@ import {
   NotFound,
   type Job,
   type JobEvent,
-  type JobEventsPage,
   type JobCounts,
+  type JobEventsPage,
   type JobsPage,
   type JobRunner,
   type Labels,
@@ -1395,13 +1395,14 @@ export function countJobs() {
   return Db.use((database) =>
     database.query(async (db) => {
       const now = new Date();
-      // One statement, so every count is of the same moment. The counts by status are read from
-      // the partial index on unfinished jobs' statuses alone.
+      // One statement, so every count is of the same moment. The partial index on unfinished jobs'
+      // statuses can cover the counts by status, though Postgres still reads the rows on pages a
+      // vacuum has not marked all-visible.
       const { statusUnknownJobs, ...jobCounts } = await db
         .selectFrom("job as j")
         .where("j.status", "in", UNFINISHED)
         .select((eb) => {
-          const count = (status: JobStatus) =>
+          const count = <S extends JobStatus>(status: S) =>
             eb.fn.countAll<number>().filterWhere("j.status", "=", status).as(status);
           return [
             count("queued"),
@@ -1410,7 +1411,7 @@ export function countJobs() {
             eb
               .selectFrom("job as u")
               // Only a placed job can be unknown, which has a Runner (`job_placedAt_check`); said
-              // here so the partial index on Runners' unfinished jobs can find the candidates.
+              // here so an index on the Runner can serve the count.
               .where("u.runnerId", "is not", null)
               .where((where) =>
                 isStatusUnknown(
@@ -1419,7 +1420,8 @@ export function countJobs() {
                     placedAt: where.ref("u.placedAt"),
                     runnerId: where.ref("u.runnerId"),
                     // Looked up only for the candidates the other conditions leave: joined instead,
-                    // the planner may read every job's row or every progress row.
+                    // the planner may read every job's row or every progress row. It differs from a
+                    // join only for a job without a progress row, which the hub never leaves.
                     lastReportedAt: where
                       .selectFrom("jobProgress as p")
                       .select("p.lastReportedAt")
