@@ -149,6 +149,26 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
 }
 
 /**
+ * Fails with a 403 error unless the role of the member signed in with `headers` grants
+ * `permissions`, as Better Auth decides it from the Organization's roles.
+ */
+export function requireRolePermission(headers: Headers, permissions: RolePermissions) {
+  return Effect.gen(function* () {
+    const auth = yield* Auth;
+    const { id: organizationId } = yield* getOrganization;
+    const { success } = yield* auth.call((instance) =>
+      instance.api.hasPermission({ headers, body: { organizationId, permissions } }),
+    );
+    if (!success) yield* Effect.fail(new Forbidden());
+  });
+}
+
+/** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
+type RolePermissions = NonNullable<
+  NonNullable<Parameters<BetterAuth["api"]["hasPermission"]>[0]>["body"]["permissions"]
+>;
+
+/**
  * What the hub records in the metadata of a key a member creates: the member, whom Better Auth does
  * not keep for an Organization's key. Better Auth types metadata as any object, so the hub checks it.
  */
