@@ -23,6 +23,8 @@ test("the hub serves its OpenAPI document saying who may call and how errors rea
           properties: { type: {}, title: {}, status: {}, detail: {} },
           required: ["type", "title", "status"],
         },
+        // A body refuses fields the call does not define, which a generated client can check first.
+        JobSubmission: { additionalProperties: false },
       },
       securitySchemes: {
         // A call lists the permissions a key needs as role names, which only the description explains.
@@ -64,6 +66,9 @@ test("the hub serves its OpenAPI document saying who may call and how errors rea
       "/runners": { get: { security: [{ session: [] }] } },
     },
   });
+
+  // An answer may gain fields, so a client generated from the document must accept unknown ones.
+  expect(document.components.schemas.Runner).not.toHaveProperty("additionalProperties");
 
   // A call a member may make answers 403 to a signed-in account that is not a member.
   const operations = Object.values<Record<string, { security?: object[]; responses: object }>>(
