@@ -1,6 +1,13 @@
-import { type Cause, Context, Effect, Layer } from "effect";
+import { type Cause, Context, Duration, Effect, Layer } from "effect";
 import ensureError from "ensure-error";
-import { type ExpressionBuilder, Kysely, PostgresDialect } from "kysely";
+import {
+  type Expression,
+  type ExpressionBuilder,
+  Kysely,
+  PostgresDialect,
+  type RawBuilder,
+  sql,
+} from "kysely";
 import { Pool, TypeOverrides, types } from "pg";
 
 import type { Database } from "./types.ts";
@@ -22,6 +29,14 @@ export function jsonRows<Row extends object>(eb: ExpressionBuilder<Database, nev
   return eb
     .fn<{ value: Row }>("jsonb_array_elements", [eb.cast(eb.val(JSON.stringify(rows)), "jsonb")])
     .as("row");
+}
+
+/**
+ * `at` plus `duration`, as Postgres adds an `interval` to a `timestamptz`: Kysely has no
+ * `interval` type, and types `+` only between operands of one type.
+ */
+export function plusDuration(at: Expression<Date>, duration: Duration.Duration): RawBuilder<Date> {
+  return sql<Date>`${at} + make_interval(secs => ${Duration.toSeconds(duration)})`;
 }
 
 /** The hub's database. */

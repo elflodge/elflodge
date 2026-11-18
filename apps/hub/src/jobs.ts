@@ -16,7 +16,7 @@ import {
   type StatusUnknownReason,
   jobEventSchema,
 } from "contract";
-import { Array, Effect, Order, Record, String, Struct } from "effect";
+import { Array, Duration, Effect, Order, Record, String, Struct } from "effect";
 import { compileSchema, isJsonError } from "json-schema-library";
 import {
   type AliasableExpression,
@@ -34,7 +34,7 @@ import * as z from "zod/mini";
 
 import { keyMetadataSchema } from "./auth/auth.ts";
 import { deleteUnusedBlobs } from "./blobs.ts";
-import { Db, DB_SCHEMA } from "./db/database.ts";
+import { Db, DB_SCHEMA, plusDuration } from "./db/database.ts";
 import {
   ApikeyId,
   type BatchUid,
@@ -285,12 +285,7 @@ export function statusUnknownOf(
 ): AliasableExpression<StatusUnknownOfJob | null> {
   const eb = expressionBuilder<Database>();
   const rule = statusUnknownRule(job, now);
-  // A `timestamptz` plus an `interval`, which Kysely types only as operands of one type.
-  const since = eb(
-    rule.jobLastHeard.$castTo<unknown>(),
-    "+",
-    eb.cast(eb.val(`${GONE_AFTER_MS} milliseconds`), sql`interval`),
-  ).$castTo<Date>();
+  const since = plusDuration(rule.jobLastHeard, Duration.millis(GONE_AFTER_MS));
   const unknown = (reason: StatusUnknownReason) =>
     jsonBuildObject({
       // Typed, as `json_build_object` takes any type and so cannot infer a parameter's.
