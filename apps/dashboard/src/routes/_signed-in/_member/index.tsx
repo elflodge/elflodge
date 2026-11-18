@@ -7,8 +7,10 @@ export const Route = createFileRoute("/_signed-in/_member/")({
 function Home() {
   return (
     <>
-      <h1>Connected to your hub</h1>
-      <p>
+      <div class="head">
+        <h1>Connected to your hub</h1>
+      </div>
+      <p class="prose">
         You are signed in to this hub. The <a href="/docs">API reference</a> describes everything
         the hub does.
       </p>

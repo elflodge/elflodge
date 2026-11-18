@@ -8,6 +8,8 @@
     "build": "vp build"
   },
   "dependencies": {
+    "@fontsource-variable/instrument-sans": "catalog:",
+    "@fontsource-variable/jetbrains-mono": "catalog:",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@solidjs/web": "catalog:",

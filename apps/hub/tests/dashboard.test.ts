@@ -106,7 +106,9 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByLabel("Password").fill(OWNER.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL(`${dashboard}/change-password`);
-  await page.getByText(OWNER.email).waitFor();
+  // The bar names who is signed in; their name opens the account menu.
+  const account = page.getByRole("button", { name: "Owner", exact: true });
+  await account.waitFor();
 
   await page.reload();
   const heading = page.getByRole("heading", { name: "Change password" });
@@ -119,6 +121,7 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("status").waitFor();
 
+  await account.click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL(`${dashboard}/sign-in`);
   // The new password signs in.
@@ -159,6 +162,7 @@ test("in a browser, the setup link creates the Organization and its owner, who i
   await page.getByLabel("Password").fill(owner.password);
   await page.getByRole("button", { name: "Create owner" }).click();
   await page.waitForURL(`${dashboard}/`);
+  await page.getByRole("banner").getByText("Harbor & Pine", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Robin Hale" }).click();
   await page.getByText(owner.email).waitFor();
-  await page.getByText("Harbor & Pine").waitFor();
 }, 30_000);

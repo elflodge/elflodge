@@ -58,6 +58,10 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - An output schema's nullability follows its source: a not-null column passed through is non-null, a nullable one is `.nullable()`, a computed field that may be absent is `.optional()`; a `T | null | undefined` from a module is normalised before the contract.
 - A stored enum in the API matches the database enum; a value SQL widened to `string` is parsed with the schema, not asserted.
 
+## Dashboard
+
+- Pages follow `apps/dashboard/DESIGN.md`: semantic HTML with its tokens, plain elements and named parts. A page that needs a new part adds it, and its description there, in the same change.
+
 ## Tests
 
 - Add a test only for behaviour a caller depends on. A fix or a new edge case is not by itself a reason for one; a comment can record why code behaves as it does.
