@@ -172,13 +172,13 @@
   }
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .pop-list :is(a, button),
-  .brand {
+  .pop-list :is(a, button) {
     min-height: var(--control-touch);
   }
   /* The brand may be its mark alone, which is narrower than a target. */
   .brand {
     min-width: var(--control-touch);
+    min-height: var(--control-touch);
   }
 }
 

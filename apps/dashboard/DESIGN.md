@@ -70,7 +70,7 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
     <span class="brand-name" aria-hidden="true">Elflodge</span>
   </Link>
   <span class="org" title="Harbor & Pine">Harbor & Pine</span>
-  <div class="topbar-end" onFocusOut={closeWhenFocusLeaves}>
+  <div class="topbar-end">
     <button type="button" class="quiet" popovertarget="account" ref={(element) => { opener = element; }}>
       <span class="member-name" title="Robin Hale">Robin Hale</span>
       <span class="mark mark-opens" aria-hidden="true" />
@@ -95,8 +95,8 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
   - a link in it changes the page through the router;
-  - the keyboard leaves the button and the menu, which are one group in `div.topbar-end`;
-  - signing out fails, when the notice is in the page under the menu, and the focus goes to the Member's name.
+  - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
+  - signing out fails, when the notice is in the page under the menu. The focus then goes to the Member's name, unless the Member has moved on to something else meanwhile.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
 
 ### A page

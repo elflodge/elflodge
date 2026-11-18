@@ -1,5 +1,5 @@
 import { Link, Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, onSettled } from "solid-js";
 
 import { answered, attemptAuth, authClient, failureMessage, unreadError } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
@@ -37,21 +37,33 @@ function SignedIn() {
     if (account?.matches(":popover-open")) account.hidePopover();
   }
 
-  // The browser closes the menu on Escape or a press elsewhere, but not when the keyboard leaves
-  // it, and it would then cover the page the keyboard is in. The button and the menu are one group
-  // for that, as the keyboard goes between them with the menu open.
-  function closeWhenFocusLeaves(event: FocusEvent & { currentTarget: HTMLDivElement }) {
-    const next = event.relatedTarget;
-    if (next instanceof Node && !event.currentTarget.contains(next)) closeMenu();
+  /** Whether `node` is the menu or the button that opens it, or is inside one of them. */
+  function inMenuGroup(node: EventTarget | null) {
+    return node instanceof Node && Boolean(opener?.contains(node) || account?.contains(node));
   }
+
+  // The browser closes the menu on Escape or a press elsewhere, but not when the keyboard goes
+  // elsewhere, and the menu would then cover the page the keyboard is in. So it closes when the
+  // focus arrives outside the menu and its button. Where the focus arrives is watched, not where
+  // it leaves from, so that the menu stays open while the focus is nowhere in the page: after a
+  // press on the menu's own text, or after Tab from the page's last control.
+  function closeWhenFocusArrivesElsewhere(event: FocusEvent) {
+    if (!inMenuGroup(event.target)) closeMenu();
+  }
+  onSettled(() => {
+    document.addEventListener("focusin", closeWhenFocusArrivesElsewhere);
+    return () => document.removeEventListener("focusin", closeWhenFocusArrivesElsewhere);
+  });
 
   async function signOut() {
     const failure = await attemptAuth(() => authClient.signOut(), setPending);
     if (failure) {
       // The notice is in the page, which the open menu would cover. The focus goes to the menu's
-      // button: the one pressed lost it when it was disabled, so closing the menu returns it nowhere.
+      // button when it is still in the menu or is nowhere, as it is once the button pressed has
+      // been disabled. A member who has moved on meanwhile keeps their place.
+      const focused = document.activeElement;
       closeMenu();
-      opener?.focus();
+      if (!focused || focused === document.body || inMenuGroup(focused)) opener?.focus();
       setError(failure);
       return;
     }
@@ -78,7 +90,7 @@ function SignedIn() {
             </span>
           )}
         </Show>
-        <div class="topbar-end" onFocusOut={closeWhenFocusLeaves}>
+        <div class="topbar-end">
           <button
             type="button"
             class="quiet"
