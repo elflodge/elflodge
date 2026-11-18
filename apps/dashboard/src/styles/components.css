@@ -176,6 +176,10 @@
   .brand {
     min-height: var(--control-touch);
   }
+  /* The brand may be its mark alone, which is narrower than a target. */
+  .brand {
+    min-width: var(--control-touch);
+  }
 }
 
 /* ---------- Page: the main region ---------- */
@@ -217,11 +221,15 @@
   margin-top: 0;
 }
 
-/* ---------- A link standing alone, outside a sentence: a full target at narrow widths or on touch ---------- */
+/* ---------- A link standing alone, outside a sentence: a target of its own, full size at narrow widths or on touch ---------- */
+.stands-alone {
+  display: inline-flex;
+  align-items: center;
+  min-width: var(--target);
+  min-height: var(--target);
+}
 @media (max-width: 640px), (pointer: coarse) {
   .stands-alone {
-    display: inline-flex;
-    align-items: center;
     min-width: var(--control-touch);
     min-height: var(--control-touch);
   }

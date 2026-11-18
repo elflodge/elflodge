@@ -48,3 +48,21 @@ export async function attemptAuth(
     setPending(false);
   }
 }
+
+/** The error of a read of the hub that failed, which names `what` could not be read. */
+export function unreadError(what: string, message: string): Error {
+  return new Error(`${what} could not be read: ${message}`);
+}
+
+/**
+ * The answer to `request`, a call of Better Auth's client, or, when it got none, the failure the
+ * client would otherwise reject with (see `attemptAuth`), so that a read has one failure to name.
+ */
+export function answered<Answer>(
+  request: Promise<Answer>,
+): Promise<Answer | { data: null; error: AuthError }> {
+  return request.catch((error: unknown) => {
+    console.error(ensureError(error));
+    return { data: null, error: { message: CONNECTION_FAILED, statusText: "", status: 0 } };
+  });
+}

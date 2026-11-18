@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
 
-import { api, apiFailureMessage } from "../api-client.ts";
+import { api, apiFailureMessage, readApi } from "../api-client.ts";
 import { attemptAuth, authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
@@ -12,7 +12,7 @@ import { GIVEN_NAME, NEW_PASSWORD, fieldText } from "../form.ts";
 // link's token comes after `#`, so it never reaches the hub's request logs.
 export const Route = createFileRoute("/setup")({
   loader: async () => {
-    const { needed } = await api.setup.get();
+    const { needed } = await readApi("Whether the hub is set up", () => api.setup.get());
     if (!needed) throw redirect({ to: "/sign-in" });
   },
   component: Setup,

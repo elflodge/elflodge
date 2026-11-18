@@ -1,7 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
 
-import { api } from "../api-client.ts";
+import { api, readApi } from "../api-client.ts";
 import { attemptAuth, authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/sign-in")({
   }),
   // A hub without an owner has no one to sign in; setting it up comes first.
   loader: async () => {
-    const { needed } = await api.setup.get();
+    const { needed } = await readApi("Whether the hub is set up", () => api.setup.get());
     if (needed) throw redirect({ to: "/setup" });
   },
   component: SignIn,

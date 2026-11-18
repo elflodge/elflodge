@@ -104,7 +104,6 @@
   --space-2: 0.5rem; /* 8: between related items */
   --space-3: 0.75rem; /* 12: between a field and the next, table cell sides */
   --space-4: 1rem; /* 16: inside a region */
-  --space-5: 1.5rem; /* 24: between regions */
   --space-7: 3rem; /* 48: under a page's last region */
   --gutter: clamp(0.75rem, 2.4vw, 1.5rem); /* the page's side margin */
 
@@ -112,6 +111,7 @@
   --row: 1.875rem; /* 30px: a one-line table row or ruled fact */
   --control: 2rem; /* 32px: buttons, inputs, selects with a fine pointer */
   --control-touch: 2.75rem; /* 44px: the same, and every link standing alone, at narrow widths or with a coarse pointer */
+  --target: 1.5rem; /* 24px: the least height of a link standing alone, with a fine pointer */
   --mark: 0.75rem; /* 12px: a drawn mark */
   --radius: 3px; /* controls and dialogs; tables and rules have none */
   --rule: 1px; /* hairline */

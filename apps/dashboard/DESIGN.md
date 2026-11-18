@@ -36,9 +36,9 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
 - **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size) and `--text-md` (15px, sentences that explain) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
-- **Space** is a 4px step, `--space-1` to `--space-7`; the page's side margin is `--gutter`.
-- A step that nothing uses yet is not defined, which is why there is no `--text-xl` or `--space-6`.
-- **Sizes:** `--row`, `--control`, `--control-touch`, `--topbar`, and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
+- **Space** is in steps of 4px: `--space-1` to `--space-4` (4 to 16px) and `--space-7` (48px). The page's side margin is `--gutter`.
+- A step that nothing uses is not defined, which is why the type sizes have no `--text-xl` and the spaces no `--space-5` or `--space-6`.
+- **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
 
@@ -70,19 +70,19 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
     <span class="brand-name" aria-hidden="true">Elflodge</span>
   </Link>
   <span class="org" title="Harbor & Pine">Harbor & Pine</span>
-  <div class="topbar-end">
-    <button type="button" class="quiet" popovertarget="account">
+  <div class="topbar-end" onFocusOut={closeWhenFocusLeaves}>
+    <button type="button" class="quiet" popovertarget="account" ref={(element) => { opener = element; }}>
       <span class="member-name" title="Robin Hale">Robin Hale</span>
       <span class="mark mark-opens" aria-hidden="true" />
     </button>
-  </div>
-  <div id="account" class="menu-pop" popover ref={(element) => { account = element; }} onFocusOut={closeWhenFocusLeaves}>
-    <p class="pop-who"><strong>Robin Hale</strong><br />robin@example.com<br />Harbor & Pine</p>
-    <ul class="pop-list">
-      <li><Link to="/change-password" onClick={() => account?.hidePopover()}>Change password</Link></li>
-      <li><a href="/docs">API reference</a></li>
-      <li><button type="button" class="quiet">Sign out</button></li>
-    </ul>
+    <div id="account" class="menu-pop" popover ref={(element) => { account = element; }}>
+      <p class="pop-who"><strong>Robin Hale</strong><br />robin@example.com<br />Harbor & Pine</p>
+      <ul class="pop-list">
+        <li><Link to="/change-password" onClick={closeMenu}>Change password</Link></li>
+        <li><a href="/docs">API reference</a></li>
+        <li><button type="button" class="quiet">Sign out</button></li>
+      </ul>
+    </div>
   </div>
 </header>
 <main id="main" class="page">
@@ -93,7 +93,10 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
 - The bar holds the brand, the Organization's name and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
 - The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
-- The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open: a link in it that changes the page through the router (`hidePopover()` in the link's `onClick`), Tab leaving it (`closeWhenFocusLeaves`), and a failed sign-out, whose notice is in the page under the menu.
+- The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
+  - a link in it changes the page through the router;
+  - the keyboard leaves the button and the menu, which are one group in `div.topbar-end`;
+  - signing out fails, when the notice is in the page under the menu, and the focus goes to the Member's name.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
 
 ### A page
@@ -137,7 +140,7 @@ The router shows `DefaultCatchBoundary` in place of a page that failed and `NotF
 </FallbackPage>
 ```
 
-What failed is said in an alert notice, in the hub's words where it gave any, above "Try again".
+What failed is said in an alert notice above "Try again". A read that fails says what could not be read, then the hub's words where it gave any: "The session could not be read: …". `unreadError` (`src/auth-client.ts`) makes that error, and `readApi` (`src/api-client.ts`) throws it for a call of the hub's API.
 
 ### Fields
 
@@ -159,7 +162,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-Use the browser's own validation (`required`, `type`, `minlength`, `maxlength`, `pattern`, `min`, `max`), accepting exactly what the hub accepts. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the lengths of a password being set, and `GIVEN_NAME`, which refuses a name of spaces alone. A field that confirms another takes the same limits.
+Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength`: it cuts what is typed or pasted instead of refusing it, so a longest length is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
 
@@ -190,7 +193,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 ## Rules
 
 1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the Member's name.
-2. **Targets:** 32px for a control with a fine pointer; 44px for a control or a link standing alone at 640px and below or with a coarse pointer. A link outside a sentence takes `.stands-alone`, which gives it that target. A link inside a sentence keeps its line's height.
+2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height.
 3. **The lamp colour is only for what is live now and for keyboard focus.**
 4. **Colour is never the only sign:** a mark and words go with it.
 5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`.
