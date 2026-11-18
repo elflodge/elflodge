@@ -1,10 +1,11 @@
 import { betterAuth } from "better-auth";
+import { createAuthClient } from "better-auth/client";
+import { organizationClient } from "better-auth/client/plugins";
 import { RUNNER_NOT_FOUND } from "contract";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
-import { findOrganization } from "../src/auth/auth.ts";
 import { offlineAuthOptions } from "../src/auth/options.ts";
-import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
+import { openDatabase } from "../src/db/database.ts";
 import { resetPassword, setUpOrganization } from "../src/setup.ts";
 import { clearDatabase, OWNER, startSystem } from "./harness.ts";
 
@@ -66,33 +67,41 @@ test("API errors are RFC 9457 Problem Details", async () => {
 });
 
 test("a member removed from the Organization is refused, though their session lasts", async () => {
+  // The owner manages the Organization through Better Auth's organization routes on the hub.
+  const ownerAuth = createAuthClient({
+    baseURL: system.origin,
+    plugins: [organizationClient()],
+    fetchOptions: {
+      headers: { cookie: system.ownerCookie(), origin: system.origin },
+      customFetchImpl: (input, init) => {
+        const target = new URL(input instanceof Request ? input.url : input);
+        return system.hub.fetch(target.pathname + target.search, init);
+      },
+      throw: true,
+    },
+  });
+  const [organization] = await ownerAuth.organization.list();
+  if (!organization) throw new Error("The hub has no Organization");
+  // Public sign-up is off, and invitations need email, so the member is added as setup adds the
+  // owner.
   await using db = openDatabase(inject("databaseUrl"));
   const options = offlineAuthOptions(db);
-  // Public sign-up is off, so the member is created as the hub's setup creates the owner.
   const auth = betterAuth({
     ...options,
     emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
   });
   const member = { email: "removed@example.com", password: "a long enough password" };
   const { user } = await auth.api.signUpEmail({ body: { ...member, name: "Removed" } });
-  const organization = await findOrganization(db.withSchema(DB_SCHEMA));
   await auth.api.addMember({
-    body: { userId: user.id, organizationId: organization?.id ?? "", role: "member" },
+    body: { userId: user.id, organizationId: organization.id, role: "member" },
   });
-  const cookie = await system.signIn(member);
-  const asMember = system.client({ cookie, origin: system.origin });
+  const asMember = system.client({ cookie: await system.signIn(member), origin: system.origin });
   await asMember.runners.list();
 
-  const removal = await system.hub.fetch("/api/auth/organization/remove-member", {
-    method: "POST",
-    headers: {
-      cookie: system.ownerCookie(),
-      origin: system.origin,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ memberIdOrEmail: member.email, organizationId: organization?.id }),
+  await ownerAuth.organization.removeMember({
+    memberIdOrEmail: member.email,
+    organizationId: organization.id,
   });
-  expect(removal.status).toBe(200);
 
   await expect(asMember.runners.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

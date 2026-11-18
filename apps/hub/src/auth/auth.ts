@@ -94,6 +94,7 @@ function requireMember(headers: Headers) {
           .selectFrom("member")
           .select("id")
           .where("userId", "=", UserId(session.user.id))
+          .limit(1)
           .executeTakeFirst(),
       ),
     );
