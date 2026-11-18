@@ -1,7 +1,7 @@
 import { ORPCError, type ORPCErrorCode } from "@orpc/server";
 import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
-import { type Access, HubNotSetUp, Unauthorized } from "contract";
+import { type Access, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
 import { type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
@@ -82,26 +82,42 @@ export const getOrganization = Effect.gen(function* () {
 });
 
 /**
- * The signed-in member making the request, or a 401 error. Removing a member from the Organization
- * leaves their session, so the session alone does not make its user a member.
+ * The signed-in member making the request: a 401 error without a session, and a 403 error for an
+ * account that is not a member of the Organization. Removing a member leaves their session, so the
+ * session alone does not make its user a member.
  */
 function requireMember(headers: Headers) {
   return Effect.gen(function* () {
     const auth = yield* Auth;
     const session = yield* auth.call((instance) => instance.api.getSession({ headers }));
     if (!session) return yield* Effect.fail(new Unauthorized());
-    // One Organization per deployment (ADR 0007), so any membership is in it.
-    const membership = yield* Db.use((database) =>
+    // The Organization and the membership in one read, so both come from the same moment.
+    const organization = yield* Db.use((database) =>
       database.query((db) =>
         db
-          .selectFrom("member")
-          .select("id")
-          .where("userId", "=", UserId(session.user.id))
-          .limit(1)
+          .selectFrom("organization")
+          .select((eb) =>
+            eb
+              .exists(
+                eb
+                  .selectFrom("member")
+                  .select("member.id")
+                  .whereRef("member.organizationId", "=", "organization.id")
+                  .where("member.userId", "=", UserId(session.user.id)),
+              )
+              .as("isMember"),
+          )
           .executeTakeFirst(),
       ),
     );
-    if (!membership) return yield* Effect.fail(new Unauthorized());
+    // An account without the Organization is an owner left by a setup that stopped halfway in
+    // 0.10.0 or earlier, before setup became one transaction: the hub is not set up for them.
+    if (!organization) return yield* Effect.fail(new HubNotSetUp());
+    if (!organization.isMember) {
+      return yield* Effect.fail(
+        new Forbidden({ message: "This account is not a member of the Organization" }),
+      );
+    }
     return session.user;
   });
 }

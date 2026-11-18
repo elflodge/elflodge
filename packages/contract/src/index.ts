@@ -17,6 +17,7 @@ export * from "./problem-details.ts";
 export {
   API_KEY_SECURITY_SCHEME,
   type Access,
+  Forbidden,
   getAccess,
   HubNotSetUp,
   KEY_PERMISSIONS,
