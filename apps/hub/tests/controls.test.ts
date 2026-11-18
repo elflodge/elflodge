@@ -345,6 +345,11 @@ test("removing a Runner ends the jobs it held, and leaves its finished jobs no w
   await client.jobs.resume({ id: resumed });
   await client.jobs.delete({ id: deleting });
   const runnerId = (await system.owner().runners.list())[0]?.id ?? "";
+  // What it holds now, as its page reads them.
+  const held = await client.jobs.list({ runnerId, status: ["queued", "running", "paused"] });
+  const heldIds = held.jobs.map((job) => job.id);
+  expect(heldIds).toEqual(expect.arrayContaining([running, cancelling, resumed]));
+  expect(heldIds).not.toContain(finished);
 
   const removed = await system.owner().runners.delete({ id: runnerId });
 
@@ -360,7 +365,7 @@ test("removing a Runner ends the jobs it held, and leaves its finished jobs no w
   }
   expect(await client.jobs.get({ id: cancelling })).toMatchObject({ status: "cancelled" });
   await expect(client.jobs.get({ id: deleting })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  // Its jobs are still listed by its ID, and by no other.
+  // Its jobs are still listed by its ID.
   const listed = (await client.jobs.list({ runnerId, limit: 100 })).jobs.map((job) => job.id);
   expect(listed).toEqual(expect.arrayContaining([finished, running, cancelling, resumed]));
   expect(listed).not.toContain(deleting);

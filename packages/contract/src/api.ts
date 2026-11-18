@@ -949,13 +949,11 @@ export const apiContract = {
             ),
           ),
           runnerId: z.optional(
-            z
-              .string()
-              .check(
-                z.describe(
-                  "The ID of the Runner the job was sent to, which keeps it once started; a removed Runner's jobs still match its ID. A job never sent to a Runner matches none.",
-                ),
+            textSchema.check(
+              z.describe(
+                "The ID of the Runner the job was last sent to, its `runner.id`, which a started job keeps; a removed Runner's jobs still match its ID. A job not yet sent, or one its Runner paused or cancelled before starting it, matches none.",
               ),
+            ),
           ),
           statusUnknown: z.optional(
             z

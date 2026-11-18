@@ -1130,7 +1130,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
           .selectFrom("job")
           .select("id")
           .where("runnerId", "=", runnerId)
-          .where("status", "not in", FINAL_STATUSES)
+          .where("status", "in", UNFINISHED)
           .orderBy("id")
           .forUpdate()
           .execute();
@@ -1173,7 +1173,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                   };
                 })
                 .where("job.runnerId", "=", runnerId)
-                .where("job.status", "not in", FINAL_STATUSES)
+                .where("job.status", "in", UNFINISHED)
                 .returning([
                   "job.id",
                   ...USAGE_COPIED_COLUMNS.map((column) => `job.${column}` as const),
