@@ -14,6 +14,7 @@ import type { RunnerId as RunnerIdType } from "./generated/elflodge/Runner.ts";
 import type { UploadId as UploadIdType } from "./generated/elflodge/Upload.ts";
 import type { UploadChunkIndex as UploadChunkIndexType } from "./generated/elflodge/UploadChunk.ts";
 import type { UsageRecordId } from "./generated/elflodge/UsageRecord.ts";
+import type { UserId as UserIdType } from "./generated/elflodge/User.ts";
 
 export type { default as Database } from "./generated/Database.ts";
 export type { Job as JobRow, JobUpdate, NewJob } from "./generated/elflodge/Job.ts";
@@ -42,6 +43,8 @@ export type ApikeyId = ApikeyIdType;
 export const ApikeyId = Brand.nominal<ApikeyId>();
 export type MemberId = MemberIdType;
 export const MemberId = Brand.nominal<MemberId>();
+export type UserId = UserIdType;
+export const UserId = Brand.nominal<UserId>();
 export type InputFilePath = InputFilePathType;
 export const InputFilePath = Brand.nominal<InputFilePath>();
 /** An event's ID in its job's journal, which a stored row of events is keyed by its last of. */
