@@ -194,7 +194,7 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 <span class="mono">robin@example.com</span>
 ```
 
-An address, a host name or a file name always goes in the mono. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
+An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
 ### Marks
 
