@@ -1,5 +1,3 @@
-import { STATUS_CODES } from "node:http";
-
 import { COMMON_ERROR_STATUS_MAP, ORPCError, type ClientContext } from "@orpc/client";
 import type { RouterContract } from "@orpc/contract";
 import { ResponseValidationLinkPlugin } from "@orpc/contract/plugins";
@@ -7,6 +5,7 @@ import { SmartCoercionLinkPlugin } from "@orpc/json-schema";
 import { OpenAPILink, type OpenAPILinkOptions } from "@orpc/openapi/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parse as parseContentType } from "content-type";
+import statuses from "statuses";
 import * as z from "zod/mini";
 
 // The API's errors as RFC 9457 Problem Details (ADR 0023), as clients read them back into oRPC's
@@ -65,16 +64,16 @@ export function createProblemDetailsLink<T extends ClientContext>(
     // contract says every body is, or as a problem, and lose its status; it reads as the problem
     // of its status, `about:blank`, as RFC 9457 has it for a problem that says no more than its
     // status, titled with its reason phrase, since HTTP/2 carries none of its own. The phrase comes
-    // from Node's table, which workerd's `nodejs_compat` has too; a status it lacks, such as
-    // Cloudflare's 52x, is titled with its number. A problem is known by its media type, which every
-    // error of the hub carries.
+    // from jshttp's `statuses`, the table Node's own matches, which loads in browsers too; a status
+    // it lacks, such as Cloudflare's 52x, is titled with its number. A problem is known by its
+    // media type, which every error of the hub carries.
     fetch: async (url, init, clientOptions, path) => {
       const response = await send(url, init, clientOptions, path);
       if (response.ok) return response;
       const contentType = parseContentType(response.headers.get("content-type") ?? "");
       if (contentType.type === "application/problem+json") return response;
       await response.body?.cancel();
-      const title = STATUS_CODES[response.status] ?? String(response.status);
+      const title = statuses.message[response.status] ?? String(response.status);
       return Response.json(
         { type: "about:blank", title, status: response.status },
         {
