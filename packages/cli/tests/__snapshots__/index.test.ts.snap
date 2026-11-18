@@ -738,7 +738,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Counts the Organization's unfinished jobs now, all read at one moment: how many are queued, running and paused, and how many of those show \`statusUnknown\`, as a Batch counts its own jobs.",
+          "description": "Counts the Organization's unfinished jobs now, all read at one moment: how many are queued, running and paused, and how many of those show \`statusUnknown\`, as a Batch counts its own jobs. It takes no query parameters, and refuses any with 400.",
           "name": "counts",
           "options": [],
           "usage": "[options]",
