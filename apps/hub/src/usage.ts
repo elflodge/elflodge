@@ -3,6 +3,7 @@ import {
   finalJobStatusSchema,
   type Labels,
   MAX_USAGE_DAYS,
+  submitterSchema,
   type Usage,
   type UsageGroup,
   type UsageGroupBy,
@@ -23,7 +24,14 @@ import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { Db, greatest } from "./db/database.ts";
-import type { ApikeyId, BatchUid, Database, JobStatus, RunnerId } from "./db/types.ts";
+import type {
+  ApikeyId,
+  BatchUid,
+  Database,
+  JobStatus,
+  RunnerId,
+  UsageRecordId,
+} from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
 
 // The Organization's usage, added up from its Usage records: each records what one job used up to
@@ -43,6 +51,9 @@ export interface UsageQuery {
   statuses: readonly JobStatus[];
   labels?: Labels;
 }
+
+/** The `kind` of a submitter that is an API key. */
+const SUBMITTER_KIND_KEY = "key";
 
 /** How many days a read covers when it names no `from`. */
 const DEFAULT_DAYS = 30;
@@ -266,9 +277,9 @@ function selectGroupedUsage(
         recordsOf(qb, window, query).select((eb) => [
           dayOf(eb),
           groupKeyOf(eb, groupBy).as("groupKey"),
+          "usageRecord.id",
           "usageRecord.totalTokens",
           "usageRecord.costUsd",
-          "usageRecord.submitterKeyName",
         ]),
       )
       .with("cells", (qb) =>
@@ -279,8 +290,7 @@ function selectGroupedUsage(
             "r.groupKey",
             eb.cast<number>(eb.fn.sum("r.totalTokens"), "bigint").as("totalTokens"),
             eb.fn.sum<number>("r.costUsd").as("costUsd"),
-            // The hub has no call that renames a key, so a key's records all hold one name.
-            eb.fn.max("r.submitterKeyName").as("keyName"),
+            eb.fn.max("r.id").as("lastRecordId"),
           ])
           .groupBy(["r.day", "r.groupKey"]),
       )
@@ -293,7 +303,7 @@ function selectGroupedUsage(
                 "c.groupKey",
                 eb.cast<number>(eb.fn.sum("c.totalTokens"), "bigint").as("totalTokens"),
                 eb.fn.sum<number>("c.costUsd").as("costUsd"),
-                eb.fn.max("c.keyName").as("keyName"),
+                eb.fn.max("c.lastRecordId").as("lastRecordId"),
               ])
               .groupBy("c.groupKey")
               .as("g"),
@@ -319,7 +329,7 @@ function selectGroupedUsage(
           .select((eb) => [
             "g.rank",
             "g.groupKey",
-            groupNameOf(groupBy, eb.ref("g.groupKey"), eb.ref("g.keyName")).as("name"),
+            groupNameOf(groupBy, eb.ref("g.groupKey"), eb.ref("g.lastRecordId")).as("name"),
             "g.totalTokens",
             "g.costUsd",
           ]),
@@ -467,7 +477,10 @@ interface GroupRow {
   costUsd: number;
 }
 
-/** What groups a record, as text, by `groupBy`. */
+/**
+ * What groups a record, as text, by `groupBy`. A submitter is its kind and its ID, as
+ * `key:<ID>`, so that submitters of different kinds stay apart; the kind holds no `:`.
+ */
 function groupKeyOf(
   eb: ExpressionBuilder<Database, "usageRecord">,
   groupBy: UsageGroupBy,
@@ -476,8 +489,8 @@ function groupKeyOf(
     case "batch":
       // Its row's ID, which orders Batches by when they were created; its `id` names it after.
       return eb.cast<string>("usageRecord.batchUid", "text");
-    case "key":
-      return eb.ref("usageRecord.submitterKeyId");
+    case "submitter":
+      return eb(eb.val(`${SUBMITTER_KIND_KEY}:`), "||", eb.ref("usageRecord.submitterKeyId"));
     case "runner":
       return eb.ref("usageRecord.runnerId");
     case "status":
@@ -491,13 +504,14 @@ function groupKeyOf(
 }
 
 /**
- * What names the group `groupKey`, as `groupOf` shows it: a Batch's `id`, a key's name as its
- * records hold it (`keyName`), and a Runner's name while the Runner exists, as a job shows it.
+ * What names the group `groupKey`, as `groupOf` shows it: a Batch's `id`, a submitter's name as
+ * the group's latest record in the window holds it (`lastRecordId`), and a Runner's name while the
+ * Runner exists, as a job shows it.
  */
 function groupNameOf(
   groupBy: UsageGroupBy,
   groupKey: Expression<string | null>,
-  keyName: Expression<string | null>,
+  lastRecordId: Expression<UsageRecordId>,
 ): AliasableExpression<string | null> {
   const eb = expressionBuilder<Database>();
   switch (groupBy) {
@@ -507,8 +521,12 @@ function groupNameOf(
         .select("named.id")
         .where("named.uid", "=", eb.cast<BatchUid>(groupKey, "uuid"))
         .$asScalar();
-    case "key":
-      return eb.cast<string | null>(keyName, "text");
+    case "submitter":
+      return eb
+        .selectFrom("usageRecord as named")
+        .select("named.submitterKeyName")
+        .where("named.id", "=", lastRecordId)
+        .$asScalar();
     case "runner":
       return eb
         .selectFrom("runner as named")
@@ -537,8 +555,12 @@ function groupOf(groupBy: UsageGroupBy, row: GroupRow): UsageGroup {
     case "batch":
       // A Batch is never deleted, so its row names it.
       return { batchId: z.parse(batchIdSchema, row.name), usage };
-    case "key":
-      return { key: { id: z.parse(z.string(), row.value), name: row.name }, usage };
+    case "submitter": {
+      const value = z.parse(z.string(), row.value);
+      const kind = value.slice(0, value.indexOf(":"));
+      const id = value.slice(kind.length + 1);
+      return { submitter: z.parse(submitterSchema, { kind, id, name: row.name }), usage };
+    }
     case "runner":
       return {
         runner:

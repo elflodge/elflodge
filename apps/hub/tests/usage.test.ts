@@ -151,12 +151,12 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   // A deleted job's use stays, under the key that submitted it, whose name stays once revoked.
   await owner.apiKeys.revoke({ id: support.id });
   expectUsage((await owner.usage.get({ keyId: support.id })).usage, deletedUsage);
-  const byKey = await owner.usage.get({ groupBy: "key" });
-  expectAddsUp(byKey);
-  expect(byKey.groups).toEqual(
+  const bySubmitter = await owner.usage.get({ groupBy: "submitter" });
+  expectAddsUp(bySubmitter);
+  expect(bySubmitter.groups).toEqual(
     expect.arrayContaining([
-      { key: { id: billing.id, name: "billing" }, usage: expect.anything() },
-      { key: { id: support.id, name: "support" }, usage: expect.anything() },
+      { submitter: { kind: "key", id: billing.id, name: "billing" }, usage: resumedUsage },
+      { submitter: { kind: "key", id: support.id, name: "support" }, usage: deletedUsage },
     ]),
   );
 

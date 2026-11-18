@@ -509,30 +509,49 @@ export const MAX_USAGE_DAYS = 400;
 const dateSchema = z.iso.date();
 
 /**
- * What a read of usage groups it by: the jobs' Batch, the API key that submitted them, the Runner
+ * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner
  * they last ran on, the status they ended in, or the value of one of their labels, as
  * `label:customer`.
  */
 export const usageGroupBySchema = z.union(
-  [z.enum(["batch", "key", "runner", "status"]), z.templateLiteral(["label:", labelKeySchema])],
-  { error: "Must be `batch`, `key`, `runner`, `status` or `label:` and a label key" },
+  [
+    z.enum(["batch", "submitter", "runner", "status"]),
+    z.templateLiteral(["label:", labelKeySchema]),
+  ],
+  { error: "Must be `batch`, `submitter`, `runner`, `status` or `label:` and a label key" },
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
 
+/** Who submitted a job: today always an API key, by `kind`, as other kinds may be added. */
+export const submitterSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("key"),
+      /** The key's ID. */
+      id: z.string(),
+      /** The key's name as its jobs recorded it, which stays once the key is revoked. */
+      name: z.nullable(z.string()),
+    }),
+  ])
+  .check(
+    z.describe(
+      "Who submitted a job, by `kind`: `key`, an API key. New kinds may be added, so a client should expect a `kind` it does not know.",
+    ),
+  )
+  .register(z.globalRegistry, { id: "Submitter" });
+export type Submitter = z.infer<typeof submitterSchema>;
+
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
- * ID; `key`, the API key that submitted the jobs, with the name the jobs recorded, which stays once
- * the key is revoked; `runner`, the Runner the jobs last ran on, with its name while the Runner
+ * ID; `submitter`, who submitted the jobs, with the name of the group's latest record in the
+ * window; `runner`, the Runner the jobs last ran on, with its name while the Runner
  * exists, as a job shows it, or null for jobs that ended before a Runner started them; `status`, the
  * status the jobs ended in; or `labelValue`, the label's value, null for jobs without that label.
  */
 const usageGroupSchema = z
   .union([
     z.object({ batchId: batchIdSchema, usage: usageSchema }),
-    z.object({
-      key: z.object({ id: z.string(), name: z.nullable(z.string()) }),
-      usage: usageSchema,
-    }),
+    z.object({ submitter: submitterSchema, usage: usageSchema }),
     z.object({
       runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
       usage: usageSchema,
@@ -1155,7 +1174,7 @@ export const apiContract = {
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `key` for the API key that submitted the jobs, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, as an API key, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),
