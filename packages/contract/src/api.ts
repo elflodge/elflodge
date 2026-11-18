@@ -190,8 +190,8 @@ const jobBaseSchema = z.object({
    */
   lastReportedAt: z.nullable(z.date()),
   /**
-   * Present while the hub cannot confirm the job's `status`, which is then the last its Runner
-   * confirmed: for a job sent to a Runner and not yet ended, paused or cancelled, when the job has
+   * Present while the hub cannot confirm the job's `status`, which is then its recorded status:
+   * for a job sent to a Runner and not yet ended, paused or cancelled, when the job has
    * not been reported, nor placed, within two minutes. `reason` says why: its Runner has not been
    * heard from either (`runnerDisconnected`), or has, but has not reported this job
    * (`notReported`). The job may still be running there, and its Runner carries on from where it
