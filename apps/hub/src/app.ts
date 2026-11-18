@@ -63,6 +63,7 @@ import {
   type GivenLimits,
   limitProblems,
   listJobs,
+  countJobs,
   readJobEvents,
   submitterOf,
 } from "./jobs.ts";
@@ -313,6 +314,9 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
           after: input.after === undefined ? undefined : JobId(input.after),
           limit: input.limit,
         });
+      }),
+      counts: os.jobs.counts.effect(function* () {
+        return yield* countJobs();
       }),
       get: os.jobs.get.effect(function* ({ input }) {
         // The ID enters the hub here.

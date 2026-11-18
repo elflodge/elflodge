@@ -10,6 +10,7 @@ import {
   type Job,
   type JobEvent,
   type JobEventsPage,
+  type JobCounts,
   type JobsPage,
   type JobRunner,
   type Labels,
@@ -1385,6 +1386,60 @@ const LISTED_JOB_COLUMNS = [
   "customId",
   "labels",
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
+
+/**
+ * The Organization's unfinished jobs now: how many have each unfinished status, and how many of
+ * those show `statusUnknown` (`isStatusUnknown`).
+ */
+export function countJobs() {
+  return Db.use((database) =>
+    database.query(async (db) => {
+      const now = new Date();
+      // One statement, so every count is of the same moment. The counts by status are read from
+      // the partial index on unfinished jobs' statuses alone.
+      const { statusUnknownJobs, ...jobCounts } = await db
+        .selectFrom("job as j")
+        .where("j.status", "in", UNFINISHED)
+        .select((eb) => {
+          const count = (status: JobStatus) =>
+            eb.fn.countAll<number>().filterWhere("j.status", "=", status).as(status);
+          return [
+            count("queued"),
+            count("running"),
+            count("paused"),
+            eb
+              .selectFrom("job as u")
+              // Only a placed job can be unknown, which has a Runner (`job_placedAt_check`); said
+              // here so the partial index on Runners' unfinished jobs can find the candidates.
+              .where("u.runnerId", "is not", null)
+              .where((where) =>
+                isStatusUnknown(
+                  {
+                    status: where.ref("u.status"),
+                    placedAt: where.ref("u.placedAt"),
+                    runnerId: where.ref("u.runnerId"),
+                    // Looked up only for the candidates the other conditions leave: joined instead,
+                    // the planner may read every job's row or every progress row.
+                    lastReportedAt: where
+                      .selectFrom("jobProgress as p")
+                      .select("p.lastReportedAt")
+                      .whereRef("p.jobId", "=", "u.id")
+                      .$asScalar(),
+                  },
+                  now,
+                ),
+              )
+              .select((agg) => agg.fn.countAll<number>().as("statusUnknownJobs"))
+              .$asScalar()
+              .$notNull()
+              .as("statusUnknownJobs"),
+          ];
+        })
+        .executeTakeFirstOrThrow();
+      return { jobCounts, statusUnknownJobs } satisfies JobCounts;
+    }),
+  );
+}
 
 /**
  * A page of the job `jobId`'s events after the position `after`, or a 404 error. Stored rows

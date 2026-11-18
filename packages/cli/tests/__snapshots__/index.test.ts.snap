@@ -738,6 +738,14 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
+          "description": "Counts the Organization's unfinished jobs now, all read at one moment: how many are queued, running and paused, and how many of those show \`statusUnknown\`, as a Batch counts its own jobs.",
+          "name": "counts",
+          "options": [],
+          "usage": "[options]",
+        },
+        {
+          "arguments": [],
+          "commands": [],
           "description": "Waits for a job to end and prints it, exiting non-zero unless it succeeded. A paused job keeps it waiting, as its work is still owed, until the job is resumed and ends or is cancelled. Stopping the command leaves the job running.",
           "name": "wait",
           "options": [
@@ -765,7 +773,7 @@ exports[`the commands and their flags 1`] = `
           "usage": "[options]",
         },
       ],
-      "description": "Available subcommands: submit, get, pause, resume, cancel, delete, events, list, wait",
+      "description": "Available subcommands: submit, get, pause, resume, cancel, delete, events, list, counts, wait",
       "name": "jobs",
       "options": [],
       "usage": "[options] [command]",
