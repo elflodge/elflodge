@@ -49,8 +49,8 @@ const dashboardRoot = import.meta.filename.endsWith(".ts")
 
 /**
  * The hub's server on `port`, at the address `host` or on every interface, with `settings`, running
- * each request on the services it is given. Stopping drains before it releases: the server stops before those services, so Runners' sockets
- * close and the server finishes its requests first.
+ * each request on the services it is given. Stopping drains before it releases: the server stops
+ * before those services, so Runners' sockets close and the server finishes its requests first.
  */
 function hubServer(port: number, host: string | undefined, settings: HubSettings) {
   return Layer.effectDiscard(
