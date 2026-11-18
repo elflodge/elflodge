@@ -74,15 +74,12 @@ function ChangePassword() {
         </div>
         <div class="field">
           <label for="confirm-password">Confirm new password</label>
-          {/* The same lengths as the new password: a field cuts what is pasted beyond its longest,
-              and the two would then differ. */}
           <input
             id="confirm-password"
             name="confirm-password"
             type="password"
             autocomplete="new-password"
             required
-            {...NEW_PASSWORD}
           />
         </div>
         <label class="check">
