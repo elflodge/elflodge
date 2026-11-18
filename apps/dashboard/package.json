@@ -8,10 +8,13 @@
     "build": "vp build"
   },
   "dependencies": {
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
     "@solidjs/web": "catalog:",
     "@tanstack/solid-router": "catalog:",
     "@tanstack/solid-start": "catalog:",
     "better-auth": "catalog:",
+    "contract": "workspace:*",
     "ensure-error": "catalog:",
     "solid-js": "catalog:"
   },

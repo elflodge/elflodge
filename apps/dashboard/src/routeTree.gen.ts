@@ -10,12 +10,19 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignedInRouteImport } from './routes/_signed-in'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
-import { Route as SignedInIndexRouteImport } from './routes/_signed-in/index'
+import { Route as SignedInMemberRouteImport } from './routes/_signed-in/_member'
 import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/change-password'
+import { Route as SignedInMemberIndexRouteImport } from './routes/_signed-in/_member/index'
 
 const SignedInRoute = SignedInRouteImport.update({
   id: '/_signed-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -23,9 +30,8 @@ const SignInRoute = SignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SignedInIndexRoute = SignedInIndexRouteImport.update({
-  id: '/',
-  path: '/',
+const SignedInMemberRoute = SignedInMemberRouteImport.update({
+  id: '/_member',
   getParentRoute: () => SignedInRoute,
 } as any)
 const SignedInChangePasswordRoute = SignedInChangePasswordRouteImport.update({
@@ -33,39 +39,51 @@ const SignedInChangePasswordRoute = SignedInChangePasswordRouteImport.update({
   path: '/change-password',
   getParentRoute: () => SignedInRoute,
 } as any)
+const SignedInMemberIndexRoute = SignedInMemberIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof SignedInIndexRoute
+  '/': typeof SignedInMemberIndexRoute
+  '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/change-password': typeof SignedInChangePasswordRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof SignedInMemberIndexRoute
+  '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/change-password': typeof SignedInChangePasswordRoute
-  '/': typeof SignedInIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_signed-in': typeof SignedInRouteWithChildren
+  '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
+  '/_signed-in/_member': typeof SignedInMemberRouteWithChildren
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
-  '/_signed-in/': typeof SignedInIndexRoute
+  '/_signed-in/_member/': typeof SignedInMemberIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/change-password'
+  fullPaths: '/' | '/setup' | '/sign-in' | '/change-password'
   fileRoutesByTo: FileRoutesByTo
-  to: '/sign-in' | '/change-password' | '/'
+  to: '/' | '/setup' | '/sign-in' | '/change-password'
   id:
     | '__root__'
     | '/_signed-in'
+    | '/setup'
     | '/sign-in'
+    | '/_signed-in/_member'
     | '/_signed-in/change-password'
-    | '/_signed-in/'
+    | '/_signed-in/_member/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   SignedInRoute: typeof SignedInRouteWithChildren
+  SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
 }
 
@@ -78,6 +96,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sign-in': {
       id: '/sign-in'
       path: '/sign-in'
@@ -85,11 +110,11 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_signed-in/': {
-      id: '/_signed-in/'
-      path: '/'
+    '/_signed-in/_member': {
+      id: '/_signed-in/_member'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof SignedInIndexRouteImport
+      preLoaderRoute: typeof SignedInMemberRouteImport
       parentRoute: typeof SignedInRoute
     }
     '/_signed-in/change-password': {
@@ -99,17 +124,36 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInChangePasswordRouteImport
       parentRoute: typeof SignedInRoute
     }
+    '/_signed-in/_member/': {
+      id: '/_signed-in/_member/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof SignedInMemberIndexRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
   }
 }
 
+interface SignedInMemberRouteChildren {
+  SignedInMemberIndexRoute: typeof SignedInMemberIndexRoute
+}
+
+const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
+  SignedInMemberIndexRoute: SignedInMemberIndexRoute,
+}
+
+const SignedInMemberRouteWithChildren = SignedInMemberRoute._addFileChildren(
+  SignedInMemberRouteChildren,
+)
+
 interface SignedInRouteChildren {
+  SignedInMemberRoute: typeof SignedInMemberRouteWithChildren
   SignedInChangePasswordRoute: typeof SignedInChangePasswordRoute
-  SignedInIndexRoute: typeof SignedInIndexRoute
 }
 
 const SignedInRouteChildren: SignedInRouteChildren = {
+  SignedInMemberRoute: SignedInMemberRouteWithChildren,
   SignedInChangePasswordRoute: SignedInChangePasswordRoute,
-  SignedInIndexRoute: SignedInIndexRoute,
 }
 
 const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
@@ -118,6 +162,7 @@ const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   SignedInRoute: SignedInRouteWithChildren,
+  SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport

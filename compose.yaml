@@ -41,9 +41,10 @@ services:
       # The address the hub's callers use; one that other machines reach is set in `.env`.
       HUB_URL: ${HUB_URL:-http://localhost:8787}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set it in .env, as from openssl rand -base64 32}
-      # The owner the hub creates on its first start (ADR 0015).
-      ADMIN_EMAIL: ${ADMIN_EMAIL:?set it in .env}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set it in .env}
+      # The owner the hub creates on its first start, when both are set in `.env`; without them, the
+      # hub prints a setup link in its log (ADR 0015).
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     # Where this machine opens the hub to callers outside Compose, as `address:port`, which `.env`
     # can set as `HUB_PUBLISH`; only Compose reads it. The Runner here reaches the hub over
     # Compose's network whatever it says.

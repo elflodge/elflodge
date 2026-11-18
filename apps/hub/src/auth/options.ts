@@ -53,12 +53,21 @@ const roles = {
   member: memberAc,
 };
 
+/**
+ * What starts the identifier of a setup link's token in Better Auth's `verification` table, which
+ * Better Auth stores by its digest.
+ */
+export const SETUP_TOKEN_PREFIX = "hub-setup:";
+
 /** The API key configurations: keys for services, and each Runner's own key. */
 export const API_KEY_CONFIG = "default";
 export const RUNNER_KEY_CONFIG = "runner";
 
 export interface AuthSettings {
-  /** The hub's database, without a schema plugin: Better Auth names `schemaName` itself. */
+  /**
+   * The hub's database. Better Auth names `schemaName` itself, so a schema plugin on it must name
+   * the same schema, as the hub's does.
+   */
   // oxlint-disable-next-line typescript/no-explicit-any -- Better Auth types its database as Kysely<any>.
   db: Kysely<any>;
   secret: string;
@@ -91,6 +100,11 @@ export function authOptions(settings: AuthSettings) {
       disableSignUp: true,
       // A reset is often because the password leaked, so whoever signed in with it is signed out.
       revokeSessionsOnPasswordReset: true,
+    },
+    verification: {
+      // A setup link's token is as good as the owner's password until it is used, so the database
+      // keeps only its digest, as Better Auth's option for identifiers offers.
+      storeIdentifier: { default: "plain", overrides: { [SETUP_TOKEN_PREFIX]: "hashed" } },
     },
     rateLimit: {
       // Set explicitly: Better Auth enables rate limits only when `NODE_ENV` is `production`, which

@@ -4,8 +4,8 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   // Where the hub serves the dashboard (ADR 0043); TanStack Start derives the router's basepath from
-  // it. It is repeated in `apps/hub/src/app.ts` for the Node hub, and in `apps/hub/wrangler.jsonc`
-  // and `public/_headers` for the Workers hub.
+  // it. It is repeated in `apps/hub/src/dashboard.ts` for the Node hub, and in
+  // `apps/hub/wrangler.jsonc` and `public/_headers` for the Workers hub.
   base: "/dashboard/",
   environments: {
     client: {

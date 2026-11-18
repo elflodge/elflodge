@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/solid-router";
 
-export const Route = createFileRoute("/_signed-in/")({
+export const Route = createFileRoute("/_signed-in/_member/")({
   component: Home,
 });
 

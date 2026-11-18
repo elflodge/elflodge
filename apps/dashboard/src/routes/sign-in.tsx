@@ -1,6 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/solid-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
 
+import { api } from "../api-client.ts";
 import { attemptAuth, authClient } from "../auth-client.ts";
 import { fieldText } from "../form.ts";
 
@@ -13,6 +14,11 @@ export const Route = createFileRoute("/sign-in")({
         ? search.redirect
         : undefined,
   }),
+  // A hub without an owner has no one to sign in; setting it up comes first.
+  loader: async () => {
+    const { needed } = await api.setup.get();
+    if (needed) throw redirect({ to: "/setup" });
+  },
   component: SignIn,
 });
 
@@ -37,8 +43,8 @@ function SignIn() {
       setError(failure);
       return;
     }
-    const redirect = search().redirect;
-    await (redirect === undefined ? navigate({ to: "/" }) : navigate({ href: redirect }));
+    const target = search().redirect;
+    await (target === undefined ? navigate({ to: "/" }) : navigate({ href: target }));
   }
 
   return (

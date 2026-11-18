@@ -18,8 +18,7 @@ export class Auth extends Context.Service<
   Auth,
   {
     /**
-     * Calls Better Auth. Its errors become oRPC's, which name statuses as Better Auth's do, such as
-     * `BAD_REQUEST` and `NOT_FOUND`; oRPC would answer one it does not know with a 400.
+     * Calls Better Auth. Its refusals become oRPC's errors (`fromBetterAuth`).
      */
     readonly call: <A>(
       run: (betterAuth: BetterAuth) => Promise<A>,
@@ -31,17 +30,21 @@ export class Auth extends Context.Service<
     Effect.sync(() => {
       const instance = betterAuth(authOptions({ ...settings, db }));
       return {
-        call: (run) =>
-          Effect.tryPromise({
-            try: () => run(instance),
-            catch: (error) =>
-              isAPIError(error)
-                ? new ORPCError(String(error.status), { message: error.body?.message })
-                : new Cause.UnknownError(error),
-          }),
+        call: (run) => Effect.tryPromise({ try: () => run(instance), catch: fromBetterAuth }),
       };
     }),
 }) {}
+
+/**
+ * What Better Auth threw, as oRPC's error of the same status when it is one of Better Auth's
+ * refusals, such as `BAD_REQUEST` for a password too short; oRPC would answer one it does not know
+ * with a 400.
+ */
+export function fromBetterAuth(error: unknown) {
+  return isAPIError(error)
+    ? new ORPCError(String(error.status), { message: error.body?.message })
+    : new Cause.UnknownError(error);
+}
 
 /**
  * The hub's database and Better Auth on it, for the Layer's lifetime. On Workers the Layer is built
@@ -136,15 +139,19 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
 export const keyMetadataSchema = z.object({ createdBy: z.string() });
 export type KeyMetadata = z.infer<typeof keyMetadataSchema>;
 
-/** Who made a call: the API key it was sent with, as Better Auth verified it, or the member. */
+/**
+ * Who made a call: the API key it was sent with, as Better Auth verified it, the member, or anyone,
+ * unidentified, for a call open to anyone.
+ */
 export type Caller =
   | { kind: "key"; key: Effect.Success<ReturnType<typeof requireKey>> }
-  | { kind: "member"; member: Effect.Success<ReturnType<typeof requireMember>> };
+  | { kind: "member"; member: Effect.Success<ReturnType<typeof requireMember>> }
+  | { kind: "anyone" };
 
 /**
  * The caller `headers` identify, as `access` allows: the API key sent in `x-api-key`, verified to
  * hold `access.key`, whenever a key is accepted and one is sent; else the signed-in member, where a
- * member is accepted; else a 401 error.
+ * member is accepted; else anyone, where anyone is accepted; else a 401 error.
  */
 export function authenticate(headers: Headers, access: Access) {
   if (access.key && headers.has("x-api-key")) {
@@ -157,6 +164,7 @@ export function authenticate(headers: Headers, access: Access) {
       Effect.map((member): Caller => ({ kind: "member", member })),
     );
   }
+  if (access.anyone) return Effect.succeed<Caller>({ kind: "anyone" });
   return Effect.fail(new Unauthorized());
 }
 
@@ -164,12 +172,12 @@ export function authenticate(headers: Headers, access: Access) {
 export function callerKey(caller: Caller) {
   return caller.kind === "key"
     ? Effect.succeed(caller.key)
-    : Effect.die(new Error("A member made a call the contract declares as by key"));
+    : Effect.die(new Error(`A call the contract declares as by key was made by ${caller.kind}`));
 }
 
 /** The member who made a call the contract declares as by member; a key there is a hub defect. */
 export function callerMember(caller: Caller) {
   return caller.kind === "member"
     ? Effect.succeed(caller.member)
-    : Effect.die(new Error("A key made a call the contract declares as by member"));
+    : Effect.die(new Error(`A call the contract declares as by member was made by ${caller.kind}`));
 }

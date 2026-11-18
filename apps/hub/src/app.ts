@@ -35,6 +35,8 @@ import {
   type Caller,
   callerKey,
   callerMember,
+  findOrganization,
+  fromBetterAuth,
   getOrganization,
   type KeyMetadata,
   requireKey,
@@ -42,6 +44,8 @@ import {
 import { API_KEY_CONFIG, GRANTABLE_KEY_PERMISSIONS } from "./auth/options.ts";
 import { addJobs, cancelBatch, createBatch, getBatch, controlBatch } from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
+import { DASHBOARD_BASE } from "./dashboard.ts";
+import { Db } from "./db/database.ts";
 import { ApikeyId, EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
 import {
@@ -61,6 +65,7 @@ import { toProblemDetails } from "./problem-details.ts";
 import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registration.ts";
 import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
+import { createOwnerAndOrganization } from "./setup.ts";
 
 interface ApiContext extends WithEffectContext<HubServices> {
   headers: Headers;
@@ -144,6 +149,23 @@ function invalidInput<E>(
 const router = implement<typeof hubContract, ApiContext>(hubContract)
   .use(requireDeclaredAccess)
   .router({
+    setup: {
+      get: os.setup.get.effect(function* () {
+        const organization = yield* Db.use((database) => database.query(findOrganization));
+        return { needed: organization === undefined };
+      }),
+      complete: os.setup.complete.effect(function* ({ input, errors }) {
+        const { organizationName, token, ...owner } = input;
+        const result = yield* Db.use((database) =>
+          database.query((db) =>
+            createOwnerAndOrganization(db, { name: organizationName, owner }, token),
+          ),
+        ).pipe(Effect.mapError((error) => fromBetterAuth(error.cause)));
+        if (result !== "created") {
+          yield* Effect.fail(result === "linkRefused" ? errors.FORBIDDEN() : errors.CONFLICT());
+        }
+      }),
+    },
     runners: {
       list: os.runners.list.effect(function* () {
         return yield* listRunners;
@@ -449,13 +471,6 @@ function authenticateRunner(headers: Headers) {
     Effect.catchTag("UnknownError", () => Effect.succeed(new Response(null, { status: 503 }))),
   );
 }
-
-/**
- * Where the hub serves the dashboard. The dashboard sets it as its Vite `base`
- * (`apps/dashboard/vite.config.ts`), and `wrangler.jsonc` and the dashboard's `public/_headers` repeat
- * it for the Workers hub.
- */
-export const DASHBOARD_BASE = "/dashboard/";
 
 /**
  * The hub's HTTP API, Better Auth's routes, the Runners' WebSocket endpoint and the dashboard, on any

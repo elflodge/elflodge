@@ -21,7 +21,7 @@ A job's limits are resolved when it is submitted, so lowering a maximum reaches 
 In Docker, also:
 
 - `DATABASE_URL` (required): the hub's Postgres database.
-- `ADMIN_EMAIL` and `ADMIN_PASSWORD`: the owner to create on first start, when no Organization exists. The hub applies migrations and sets up as it starts, then ignores both.
+- `ADMIN_EMAIL` and `ADMIN_PASSWORD`: the owner to create on first start, when no Organization exists; set both or neither. Without them, the hub prints a setup link as it starts, with which you create the owner in the dashboard; each start replaces it with a new one. Once the Organization exists, the hub ignores both.
 - `PORT`: where the hub listens; 8787 by default.
 - `HOST`: the address the hub listens on; every interface by default.
 
@@ -39,7 +39,7 @@ docker build . --target hub --tag elflodge-hub
 
 Run with `DATABASE_URL` set to the hub's database.
 
-- `vp run setup`: applies migrations, then creates the Organization and its owner from `ADMIN_EMAIL` and `ADMIN_PASSWORD`, unless the Organization exists. Run it before deploying.
+- `vp run setup`: applies migrations, then, unless the Organization exists, creates it and its owner from `ADMIN_EMAIL` and `ADMIN_PASSWORD`, or, without them, prints a setup link to the hub at `HUB_URL`, with which you create the owner in the dashboard. Run it before deploying; running it again replaces the link. It prints the link only to a terminal, so a deploy from CI, whose log others may read, sets `ADMIN_EMAIL` and `ADMIN_PASSWORD` instead.
 - `vp run reset-password`: sets a new password, `ADMIN_PASSWORD`, for the member with `ADMIN_EMAIL`.
 
 These start Postgres themselves with Testcontainers:

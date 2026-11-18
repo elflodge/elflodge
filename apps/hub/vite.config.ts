@@ -12,6 +12,8 @@ export default defineConfig({
       build: { command: "vp pack", dependsOn: ["dashboard#build"] },
       dev: { command: "wrangler dev", dependsOn: ["dashboard#build"], cache: false },
       deploy: { command: "wrangler deploy", dependsOn: ["dashboard#build"], cache: false },
+      // Not cached: each run reads the database, and may print a new setup link, to a terminal.
+      setup: { command: "node scripts/setup.ts", cache: false },
     },
   },
   pack: {
