@@ -148,6 +148,6 @@ To search with SearXNG or Firecrawl you run yourself, make it reachable at the R
 
 The Runner proves the sandbox works when it starts, and refuses to start, naming what is missing, if it does not.
 
-A Runner the hub has removed, or a hub that no longer knows (for example after a reset), stops with a message instead of retrying; `vp run start register` discards its key and registers it again. Any other refusal of its connection, such as from a proxy or from a hub that cannot reach its database, is retried. A registration that fails for a reason other than its key ends the Runner with the error, and `--restart` or its service manager starts it again.
+A Runner the hub has removed, or a hub that no longer knows (for example after a reset), stops with a message instead of retrying; `vp run start register` discards its key and registers it again. Any other refusal of its connection, such as from a proxy or from a hub that cannot reach its database, is retried. A registration that fails other than with a 401 ends the Runner with the error, and `--restart` or its service manager starts it again.
 
 To remove a compromised host, delete its Runner on the hub (`DELETE /runners/{id}`), then revoke the registration key and create a new one for future hosts: the host still holds the old one and could otherwise register again. Runners already registered keep working, since they connect with their own keys. A registration key can also be created to expire (`expiresIn`), for a key meant for one batch of hosts.

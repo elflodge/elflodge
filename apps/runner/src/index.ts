@@ -339,7 +339,12 @@ function loadOrRegister(
       );
       const registration = yield* hubHttp.register({ name: hostname() }).pipe(
         catchORPCErrorCode("UNAUTHORIZED", () => Effect.fail(new RegistrationRefused())),
-        Effect.orDie,
+        // Any other failure is not the key's, so it ends the Runner as a defect.
+        Effect.catchIf(
+          (error): error is Exclude<typeof error, RegistrationRefused> =>
+            !(error instanceof RegistrationRefused),
+          Effect.die,
+        ),
       );
       yield* fs.makeDirectory(options.dataDir, { recursive: true });
       // Only the operating-system user running the Runner may read its key.

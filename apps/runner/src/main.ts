@@ -455,7 +455,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
       ),
       Effect.catchTag("RegistrationRefused", () =>
         refuse(
-          'The hub refused RUNNER_REGISTRATION_KEY (401): it may have expired, been revoked or lack runner: ["register"], or a proxy in front of the hub refused the request. Ask an owner or admin of the Organization for a new registration key, then run the same command again with it.',
+          'The hub refused RUNNER_REGISTRATION_KEY (401): it may have expired, been revoked or lack runner: ["register"]; if a proxy in front of the hub asks for authentication, the 401 may be its own. Otherwise, ask an owner or admin of the Organization for a new registration key, then start the Runner with it as before; a container must be created again to take it.',
         ),
       ),
       Effect.catchTag("Removed", () =>

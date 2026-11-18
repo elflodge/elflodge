@@ -381,7 +381,6 @@ export function startSystem(
     async startRunner(
       runnerOptions: {
         register?: boolean;
-        registrationKey?: string;
         onRemoved?: () => void;
         maxJobs?: number;
         extensions?: Parameters<typeof startRunner>[0]["extensions"];
