@@ -65,7 +65,7 @@ import { toProblemDetails } from "./problem-details.ts";
 import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registration.ts";
 import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
-import { createOrganization } from "./setup.ts";
+import { createOwnerAndOrganization } from "./setup.ts";
 
 interface ApiContext extends WithEffectContext<HubServices> {
   headers: Headers;
@@ -158,7 +158,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         const { organizationName: name, email, password, token } = input;
         const result = yield* Db.use((database) =>
           database.query((db) =>
-            createOrganization(db, { name, owner: { email, password } }, token),
+            createOwnerAndOrganization(db, { name, owner: { email, password } }, token),
           ),
         ).pipe(Effect.mapError((error) => fromBetterAuth(error.cause)));
         if (result !== "created") {

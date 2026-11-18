@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
+import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { setUpOrganization } from "../src/setup.ts";
 import { clearDatabase, startSystem } from "./harness.ts";
 
@@ -17,6 +18,11 @@ const SETUP = { organizationName: "Harbor & Pine", ...NEW_OWNER };
 /** Empties the hub's database and sets it up as a hub without owner settings does: its link. */
 async function setupLink() {
   await clearDatabase(inject("databaseUrl"));
+  return newSetupLink();
+}
+
+/** Sets the hub up again without owner settings, which prints a new link. */
+async function newSetupLink() {
   const messages: string[] = [];
   await setUpOrganization(inject("databaseUrl"), { owner: {}, hubUrl: system.origin }, (message) =>
     messages.push(message),
@@ -30,6 +36,12 @@ test("a hub without an owner prints a link, with which the dashboard creates the
   const { token } = await setupLink();
   const anyone = system.client();
   expect(await anyone.setup.get()).toEqual({ needed: true });
+  // The database keeps the token only by its digest, so reading it gives no working link.
+  {
+    await using db = openDatabase(inject("databaseUrl"));
+    const rows = await db.withSchema(DB_SCHEMA).selectFrom("verification").selectAll().execute();
+    expect(JSON.stringify(rows)).not.toContain(token);
+  }
 
   await anyone.setup.complete({ token, ...SETUP });
 
@@ -51,6 +63,17 @@ test("a token the hub did not print is refused, and creates nothing", async () =
   expect(await anyone.setup.get()).toEqual({ needed: true });
 });
 
+test("a new link replaces the one printed before", async () => {
+  const old = await setupLink();
+  const { token } = await newSetupLink();
+  const anyone = system.client();
+
+  await expect(anyone.setup.complete({ token: old.token, ...SETUP })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+  });
+  await anyone.setup.complete({ token, ...SETUP });
+});
+
 test("a password Better Auth refuses leaves the link usable", async () => {
   const { token } = await setupLink();
   const anyone = system.client();
@@ -64,26 +87,13 @@ test("a password Better Auth refuses leaves the link usable", async () => {
 });
 
 test("of two setups at once, one creates the owner and the other finds the hub set up", async () => {
-  const first = await setupLink();
-  const second = new URL(
-    await new Promise<string>(
-      (resolve) =>
-        void setUpOrganization(
-          inject("databaseUrl"),
-          { owner: {}, hubUrl: system.origin },
-          (message) => resolve(message.split("\n").at(-1) ?? ""),
-        ),
-    ),
-  ).hash.slice(1);
+  // As from two tabs with the same link.
+  const { token } = await setupLink();
   const anyone = system.client();
 
   const results = await Promise.allSettled([
-    anyone.setup.complete({ token: first.token, ...SETUP }),
-    anyone.setup.complete({
-      token: second,
-      ...SETUP,
-      email: "other@example.com",
-    }),
+    anyone.setup.complete({ token, ...SETUP }),
+    anyone.setup.complete({ token, ...SETUP, email: "other@example.com" }),
   ]);
 
   expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
