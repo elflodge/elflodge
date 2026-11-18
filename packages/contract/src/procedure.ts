@@ -104,7 +104,8 @@ export const forOrganization = api.errors({ [HubNotSetUp.code]: HubNotSetUp });
  * The calls a signed-in member may make (`byMember` or `byKeyOrMember`). On a member's session,
  * the hub answers 401 when there is no valid session, which signing in can fix, and 403 to an
  * account that is not a member, which signing in again cannot. An owner left by a setup that
- * stopped halfway in 0.10.0 or earlier, before the Organization existed, gets 503. A key sent
- * with the call is checked in place of the session, and a key not valid for it gets 401.
+ * stopped halfway in 0.10.0 or earlier, before the Organization existed, gets 503. On a call that
+ * also takes a key (`byKeyOrMember`), a key sent with it is checked in place of the session, and
+ * one not valid for the call gets 401.
  */
 export const forMembers = forOrganization.errors({ [Forbidden.code]: Forbidden });
