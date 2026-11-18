@@ -500,8 +500,8 @@ export const IdReused = error("UNPROCESSABLE_CONTENT");
 
 // Calls a member's role does not allow fail with `FORBIDDEN`, and invalid ones with `BAD_REQUEST`.
 // Where Better Auth decides, the hub passes its `FORBIDDEN` through; removing a Runner raises
-// `Forbidden` itself. The hub raises `BAD_REQUEST` itself only for what the
-// contract's schemas cannot check, such as an Output contract's schema.
+// `Forbidden` itself. The hub raises `BAD_REQUEST` itself only for what the contract's schemas
+// cannot check, such as an Output contract's schema.
 
 /**
  * The most bytes a request's body may hold, other than an upload's, which may hold a file

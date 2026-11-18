@@ -61,8 +61,17 @@ test("the hub serves its OpenAPI document saying who may call and how errors rea
         },
       },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
-      // A member's call answers 403 to a signed-in account that is not a member.
-      "/runners": { get: { security: [{ session: [] }], responses: { 403: {} } } },
+      "/runners": { get: { security: [{ session: [] }] } },
     },
   });
+
+  // A call a member may make answers 403 to a signed-in account that is not a member.
+  const operations = Object.values<Record<string, { security?: object[]; responses: object }>>(
+    document.paths,
+  ).flatMap((path) => Object.values(path));
+  for (const operation of operations.filter((each) =>
+    each.security?.some((scheme) => "session" in scheme),
+  )) {
+    expect(operation.responses).toHaveProperty("403");
+  }
 });

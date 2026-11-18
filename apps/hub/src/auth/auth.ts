@@ -82,8 +82,8 @@ export const getOrganization = Effect.gen(function* () {
 });
 
 /**
- * The signed-in member making the request; a 401 error without a session, or a 403 error for an
- * account that is not a member. Removing a member from the Organization leaves their session, so the
+ * The signed-in member making the request: a 401 error without a session, and a 403 error for an
+ * account that is not a member of the Organization. Removing a member leaves their session, so the
  * session alone does not make its user a member.
  */
 function requireMember(headers: Headers) {
@@ -91,21 +91,29 @@ function requireMember(headers: Headers) {
     const auth = yield* Auth;
     const session = yield* auth.call((instance) => instance.api.getSession({ headers }));
     if (!session) return yield* Effect.fail(new Unauthorized());
-    // One Organization per deployment (ADR 0007), so any membership is in it.
-    const membership = yield* Db.use((database) =>
+    // The Organization and the membership in one read, so both come from the same moment.
+    const organization = yield* Db.use((database) =>
       database.query((db) =>
         db
-          .selectFrom("member")
-          .select("id")
-          .where("userId", "=", UserId(session.user.id))
-          .limit(1)
+          .selectFrom("organization")
+          .select((eb) =>
+            eb
+              .exists(
+                eb
+                  .selectFrom("member")
+                  .select("member.id")
+                  .whereRef("member.organizationId", "=", "organization.id")
+                  .where("member.userId", "=", UserId(session.user.id)),
+              )
+              .as("isMember"),
+          )
           .executeTakeFirst(),
       ),
     );
-    if (!membership) {
-      // An owner whose setup stopped before the Organization was created is told the hub is not
-      // set up (503), as calls acting for the Organization tell everyone then.
-      yield* getOrganization;
+    // An account without the Organization is an owner left by a setup that stopped halfway in
+    // 0.10.0 or earlier, before setup became one transaction: the hub is not set up for them.
+    if (!organization) return yield* Effect.fail(new HubNotSetUp());
+    if (!organization.isMember) {
       return yield* Effect.fail(
         new Forbidden({ message: "This account is not a member of the Organization" }),
       );

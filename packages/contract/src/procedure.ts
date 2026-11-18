@@ -26,8 +26,13 @@ export type KeyPermissions = {
   };
 }[keyof typeof KEY_PERMISSIONS];
 
-/** A call made without a signed-in member or an API key holding the permission it needs. */
+/** A call made without a valid session, or without an API key holding the permission it needs. */
 export const Unauthorized = error("UNAUTHORIZED");
+/**
+ * A call refused to a signed-in account: one that is not a member of the Organization, such as one
+ * removed from it, or a member whose role does not allow the call.
+ */
+export const Forbidden = error("FORBIDDEN");
 /** A call that acts for the Organization, made before the hub is set up. */
 export const HubNotSetUp = error("SERVICE_UNAVAILABLE", { message: "The hub is not set up" });
 /** A call naming a Runner, an API key or a job the hub does not have. */
@@ -96,14 +101,10 @@ export const byAnyone = calledBy({ anyone: true });
 /** Calls that act for the Organization, which exists once the hub is set up. */
 export const forOrganization = api.errors({ [HubNotSetUp.code]: HubNotSetUp });
 /**
- * A call refused to a signed-in account: one that is not a member of the Organization, such as one
- * removed from it, or a member whose role does not allow the call.
- */
-export const Forbidden = error("FORBIDDEN");
-/**
- * The calls a signed-in member may make (`byMember` or `byKeyOrMember`). Signing in again cannot
- * help an account the hub refuses (`FORBIDDEN`), so only a call without a valid session or key is
- * `UNAUTHORIZED`, and a client can answer that by signing in. An account signed in before the hub
- * has its Organization, left by a setup that stopped halfway, gets `SERVICE_UNAVAILABLE`.
+ * The calls a signed-in member may make (`byMember` or `byKeyOrMember`). On a member's session,
+ * the hub answers 401 when there is no valid session, which signing in can fix, and 403 to an
+ * account that is not a member, which signing in again cannot. An owner left by a setup that
+ * stopped halfway in 0.10.0 or earlier, before the Organization existed, gets 503. A key sent
+ * with the call is checked in place of the session, and a key not valid for it gets 401.
  */
 export const forMembers = forOrganization.errors({ [Forbidden.code]: Forbidden });
