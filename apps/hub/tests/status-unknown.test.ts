@@ -101,6 +101,60 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   socket.close(1000);
 });
 
+test("the Organization's unfinished jobs are counted by status, with those whose status is unknown", async () => {
+  const client = await system.clientWithNewJobsKey();
+  // Other tests' jobs count too, so only the change is the test's own.
+  const before = await client.jobs.counts({});
+  /** Expects the counts to have changed from `before` by these differences. */
+  async function expectChange(queued: number, running: number, paused: number, unknown: number) {
+    expect(await client.jobs.counts({})).toEqual({
+      jobCounts: {
+        queued: before.jobCounts.queued + queued,
+        running: before.jobCounts.running + running,
+        paused: before.jobCounts.paused + paused,
+      },
+      statusUnknownJobs: before.statusUnknownJobs + unknown,
+    });
+  }
+
+  const { job, runnerId, socket, runner, run } = await placedJob();
+  const paused = await submitJob(client, SUBMISSION);
+  await client.jobs.pause({ id: paused.id });
+  await expectChange(1, 0, 1, 0);
+
+  // Unheard before its first report: still counted as queued, and as unknown.
+  await threeMinutesPass({ jobId: job.id, runnerId });
+  await expectChange(1, 0, 1, 1);
+
+  // Its start, reported, moves it to running and confirms it.
+  const started = {
+    id: 1,
+    type: "entry",
+    record: {
+      kind: "elflodge.job.started",
+      data: { timestamp: Date.now(), runId: run.runId, runnerVersion: "0.0.0" },
+    },
+  } as const;
+  await runner.request(
+    "report",
+    {
+      held: [run],
+      free: 0,
+      deleted: [],
+      jobs: [{ ...run, intent: "run", position: 0, events: [started] }],
+    },
+    10_000,
+  );
+  await expectChange(0, 1, 1, 0);
+
+  // A stray parameter is refused, not answered with counts that would read as the Batch's.
+  const stray = await system.hub.fetch(`/jobs/counts?batchId=${paused.batchId}`, {
+    headers: { "x-api-key": await system.newJobsKey() },
+  });
+  expect(stray.status).toBe(400);
+  socket.close(1000);
+});
+
 test("a job its connected Runner stops reporting shows its status unknown until it reports", async () => {
   const { client, job, socket, runner, run } = await placedJob();
 

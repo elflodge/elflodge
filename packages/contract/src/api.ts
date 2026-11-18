@@ -190,8 +190,8 @@ const jobBaseSchema = z.object({
    */
   lastReportedAt: z.nullable(z.date()),
   /**
-   * Present while the hub cannot confirm the job's `status`, which is then the last its Runner
-   * confirmed: for a job sent to a Runner and not yet ended, paused or cancelled, when the job has
+   * Present while the hub cannot confirm the job's `status`, which is then its recorded status:
+   * for a job sent to a Runner and not yet ended, paused or cancelled, when the job has
    * not been reported, nor placed, within two minutes. `reason` says why: its Runner has not been
    * heard from either (`runnerDisconnected`), or has, but has not reported this job
    * (`notReported`). The job may still be running there, and its Runner carries on from where it
@@ -397,8 +397,8 @@ export const batchSchema = z
       cancelled: z.int(),
     }),
     /**
-     * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, by the last
-     * status its Runner confirmed.
+     * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
+     * recorded status.
      */
     statusUnknownJobs: z.int(),
     /**
@@ -410,6 +410,24 @@ export const batchSchema = z
   .register(z.globalRegistry, { id: "Batch" });
 export type Batch = z.infer<typeof batchSchema>;
 export type BatchStatus = z.infer<typeof batchStatusSchema>;
+
+/**
+ * The Organization's unfinished jobs now, counted at one moment, as a Batch counts its own: by
+ * status, and those whose status the hub cannot confirm. Ended jobs are left out: counting them
+ * would read every job the Organization has kept.
+ */
+export const jobCountsSchema = z
+  .object({
+    /** How many jobs have each unfinished status. */
+    jobCounts: z.pick(batchSchema.shape.jobCounts, { queued: true, running: true, paused: true }),
+    /**
+     * How many jobs show `statusUnknown`: each is also counted in `jobCounts`, under its recorded
+     * status.
+     */
+    statusUnknownJobs: batchSchema.shape.statusUnknownJobs,
+  })
+  .register(z.globalRegistry, { id: "JobCounts" });
+export type JobCounts = z.infer<typeof jobCountsSchema>;
 
 /**
  * A Batch as a list shows it: without its `usage`, which only reading every job's progress tells,
@@ -1044,5 +1062,19 @@ export const apiContract = {
         }),
       )
       .output(jobsPageSchema),
+    counts: forMembers
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/jobs/counts",
+          description:
+            "Counts the Organization's unfinished jobs now, all read at one moment: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. It takes no query parameters, and refuses any with 400.",
+        }),
+        ...byKeyOrMember({ job: ["read"] }),
+      )
+      // Strict, so a stray parameter such as `batchId` is refused rather than answered with the
+      // Organization's counts, which would read as the Batch's (ADR 0010).
+      .input(z.strictObject({}))
+      .output(jobCountsSchema),
   },
 };
