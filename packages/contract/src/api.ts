@@ -103,7 +103,21 @@ export const jobStatusSchema = z.enum([
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 
 /** The statuses a job ends in: once a job reaches one, nothing more happens to it unless it is resumed. */
-export const FINAL_JOB_STATUSES: readonly JobStatus[] = ["succeeded", "failed", "cancelled"];
+export const finalJobStatusSchema = z.enum(["succeeded", "failed", "cancelled"]);
+export const FINAL_JOB_STATUSES: readonly JobStatus[] = finalJobStatusSchema.options;
+
+/** Model usage as pi counts it: every model call, including those made inside tools. */
+export const usageSchema = z
+  .object({
+    /** Tokens of every kind, summed; cached input counts each time a model call reads it. */
+    totalTokens: z.int(),
+    cost: z.object({
+      /** pi's estimate at the models' prices, in US dollars. */
+      totalUsd: z.number(),
+    }),
+  })
+  .register(z.globalRegistry, { id: "Usage" });
+export type Usage = z.infer<typeof usageSchema>;
 
 /** Any JSON value, such as a job's output: what its Output contract's schema accepts. */
 export type { JsonValue } from "type-fest";
@@ -120,14 +134,7 @@ const jobBaseSchema = z.object({
    * The job's model usage so far, as pi counts it: every model call of the job's agent and its
    * sub-agents, including those made inside tools. Zeros until the job runs.
    */
-  usage: z.object({
-    /** Tokens of every kind, summed; cached input counts each time a model call reads it. */
-    totalTokens: z.int(),
-    cost: z.object({
-      /** pi's estimate at the models' prices, in US dollars. */
-      totalUsd: z.number(),
-    }),
-  }),
+  usage: usageSchema,
   /**
    * How long the job may work each time it runs on a Runner, in seconds: counted from when its
    * agent starts there, so time queued, paused or waiting for a Runner counts nothing, and started
@@ -405,7 +412,7 @@ export const batchSchema = z
      * Its jobs' model usage, as each job reports its own; a deleted job's is not included, and stays
      * in its Usage records.
      */
-    usage: z.object({ totalTokens: z.int(), cost: z.object({ totalUsd: z.number() }) }),
+    usage: usageSchema,
   })
   .register(z.globalRegistry, { id: "Batch" });
 export type Batch = z.infer<typeof batchSchema>;
@@ -495,6 +502,77 @@ export const jobEventsPageSchema = z
   .register(z.globalRegistry, { id: "JobEventsPage" });
 export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 
+/** The most days one read of usage covers. */
+export const MAX_USAGE_DAYS = 400;
+
+/** A calendar day, as `YYYY-MM-DD`. */
+const dateSchema = z.iso.date();
+
+/**
+ * What a read of usage groups it by: the jobs' Batch, the API key that submitted them, the Runner
+ * they last ran on, the status they ended in, or the value of one of their labels, as
+ * `label:customer`.
+ */
+export const usageGroupBySchema = z.union(
+  [z.enum(["batch", "key", "runner", "status"]), z.templateLiteral(["label:", labelKeySchema])],
+  { error: "Must be `batch`, `key`, `runner`, `status` or `label:` and a label key" },
+);
+export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
+
+/**
+ * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
+ * ID; `key`, the API key that submitted the jobs, with the name the jobs recorded, which stays once
+ * the key is revoked; `runner`, the Runner the jobs last ran on, with its name while the Runner
+ * exists, as a job shows it, or null for jobs that ended before a Runner started them; `status`, the
+ * status the jobs ended in; or `labelValue`, the label's value, null for jobs without that label.
+ */
+const usageGroupSchema = z
+  .union([
+    z.object({ batchId: batchIdSchema, usage: usageSchema }),
+    z.object({
+      key: z.object({ id: z.string(), name: z.nullable(z.string()) }),
+      usage: usageSchema,
+    }),
+    z.object({
+      runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
+      usage: usageSchema,
+    }),
+    z.object({ status: finalJobStatusSchema, usage: usageSchema }),
+    z.object({ labelValue: z.nullable(z.string()), usage: usageSchema }),
+  ])
+  .register(z.globalRegistry, { id: "UsageGroup" });
+export type UsageGroup = z.infer<typeof usageGroupSchema>;
+
+/** Model usage over a window of days: in total, each day's and, when grouped, each group's. */
+export const usageReportSchema = z
+  .object({
+    /** The window's first day, a UTC day. */
+    from: dateSchema,
+    /** The window's last day, included. */
+    to: dateSchema,
+    usage: usageSchema,
+    /**
+     * With `groupBy`, the groups that cost the most over the window, at most `limit`, the costliest
+     * first; between groups that cost the same, the one with more tokens first, then in a fixed order.
+     */
+    groups: z.optional(z.array(usageGroupSchema)),
+    /** With `groupBy`, how many groups are not in `groups`, and their usage together. */
+    other: z.optional(z.object({ groups: z.int(), usage: usageSchema })),
+    /** Every day of the window, oldest first, days without usage included. */
+    days: z.array(
+      z.object({
+        date: dateSchema,
+        usage: usageSchema,
+        /** With `groupBy`, the window's `groups`, in its order, each with the day's usage. */
+        groups: z.optional(z.array(usageGroupSchema)),
+        /** With `groupBy`, the day's usage of the groups not in `groups`. */
+        other: z.optional(z.object({ usage: usageSchema })),
+      }),
+    ),
+  })
+  .register(z.globalRegistry, { id: "UsageReport" });
+export type UsageReport = z.infer<typeof usageReportSchema>;
+
 /** A name a person gives, such as the Organization's or a member's. */
 const nameSchema = textSchema.check(z.trim(), z.minLength(1));
 
@@ -517,9 +595,9 @@ export const ControlRefused = error("CONFLICT");
 export const IdReused = error("UNPROCESSABLE_CONTENT");
 
 // Calls a member's role does not allow fail with `FORBIDDEN`, and invalid ones with `BAD_REQUEST`.
-// Where Better Auth decides, the hub passes its `FORBIDDEN` through; removing a Runner raises
-// `Forbidden` itself. The hub raises `BAD_REQUEST` itself only for what the contract's schemas
-// cannot check, such as an Output contract's schema.
+// Where Better Auth decides, the hub passes its `FORBIDDEN` through; removing a Runner and reading
+// usage raise `Forbidden` themselves. The hub raises `BAD_REQUEST` itself only for what the
+// contract's schemas cannot check, such as an Output contract's schema.
 
 /**
  * The most bytes a request's body may hold, other than an upload's, which may hold a file
@@ -1044,5 +1122,84 @@ export const apiContract = {
         }),
       )
       .output(jobsPageSchema),
+  },
+  usage: {
+    get: forMembers
+      .errors({ BAD_REQUEST: {} })
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/usage",
+          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`keyId\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, or longer than ${MAX_USAGE_DAYS} days, is refused.`,
+          // Repeated `status=…` parameters, a single one included, read as a list.
+          queryStyles: { status: "array" },
+        }),
+        ...byMember,
+      )
+      .input(
+        z.strictObject({
+          from: z.optional(
+            dateSchema.check(
+              z.describe(
+                "The window's first day, as `YYYY-MM-DD`, a UTC day; by default 29 days before `to`, for 30 days.",
+              ),
+            ),
+          ),
+          to: z.optional(
+            dateSchema.check(
+              z.describe(
+                "The window's last day, included, as `YYYY-MM-DD`, a UTC day; today by default.",
+              ),
+            ),
+          ),
+          groupBy: z.optional(
+            usageGroupBySchema.check(
+              z.describe(
+                "What to group usage by: `batch`, `key` for the API key that submitted the jobs, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+              ),
+            ),
+          ),
+          limit: z._default(
+            z
+              .int()
+              .check(
+                z.minimum(1),
+                z.maximum(50),
+                z.describe(
+                  "With `groupBy`, at most this many groups, 10 by default; the rest are summed as `other`.",
+                ),
+              ),
+            10,
+          ),
+          batchId: z.optional(
+            batchIdSchema.check(z.describe("The ID of the Batch the jobs belong to.")),
+          ),
+          keyId: z.optional(
+            z.string().check(z.describe("The ID of the API key that submitted the jobs.")),
+          ),
+          runnerId: z.optional(
+            z.string().check(z.describe("The ID of the Runner the jobs last ran on.")),
+          ),
+          status: z.optional(
+            z
+              .array(finalJobStatusSchema)
+              .check(
+                z.describe(
+                  "Statuses the jobs ended in, one per `status` parameter; any status when none.",
+                ),
+              ),
+          ),
+          labels: z.optional(
+            z
+              .record(labelKeySchema, labelValueSchema)
+              .check(
+                z.describe(
+                  "Labels the jobs must all have had as they ended, as `labels[customer]=acme`; repeat for more.",
+                ),
+              ),
+          ),
+        }),
+      )
+      .output(usageReportSchema),
   },
 };

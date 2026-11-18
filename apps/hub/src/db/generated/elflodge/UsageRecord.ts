@@ -69,6 +69,8 @@ export default interface UsageRecordTable {
   batchUid: ColumnType<BatchUid, BatchUid, BatchUid>;
 
   labels: ColumnType<Labels, Labels, Labels>;
+
+  recordedAt: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 
 export type UsageRecord = Selectable<UsageRecordTable>;

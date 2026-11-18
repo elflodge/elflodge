@@ -24,6 +24,8 @@ const statements = {
   // Auth lists and deletes keys for a signed-in member's session, not for an API key.
   apiKey: ["create", "read", "update", "delete"],
   ...KEY_PERMISSIONS,
+  // Reading the Organization's usage, which a member's role grants; no key may be granted it yet.
+  usage: ["read"],
 } as const;
 
 const ac = createAccessControl(statements);
@@ -45,11 +47,20 @@ export const RUNNER_KEY_PERMISSIONS = ac.newRole({ runner: ["actAs"] });
  * Better Auth's default organization roles, with key management granted to owners and admins, as in
  * Better Auth's API key docs. Its key routes let owners do everything anyway; granting it in the role
  * makes a check of the role's permissions, as the hub makes before removing a Runner, decide as they
- * do. Members have none, so keys stay with admins and owners, as Buildkite's agent tokens do.
+ * do. Members have none, so keys stay with admins and owners, as Buildkite's agent tokens do. Owners
+ * and admins also read the Organization's usage, which shows what every member's work cost.
  */
 const roles = {
-  owner: ac.newRole({ ...ownerAc.statements, apiKey: ["create", "read", "update", "delete"] }),
-  admin: ac.newRole({ ...adminAc.statements, apiKey: ["create", "read", "update", "delete"] }),
+  owner: ac.newRole({
+    ...ownerAc.statements,
+    apiKey: ["create", "read", "update", "delete"],
+    usage: ["read"],
+  }),
+  admin: ac.newRole({
+    ...adminAc.statements,
+    apiKey: ["create", "read", "update", "delete"],
+    usage: ["read"],
+  }),
   member: memberAc,
 };
 
