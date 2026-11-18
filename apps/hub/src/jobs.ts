@@ -1130,7 +1130,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
           .selectFrom("job")
           .select("id")
           .where("runnerId", "=", runnerId)
-          .where("status", "not in", FINAL_STATUSES)
+          .where("status", "in", UNFINISHED)
           .orderBy("id")
           .forUpdate()
           .execute();
@@ -1173,7 +1173,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                   };
                 })
                 .where("job.runnerId", "=", runnerId)
-                .where("job.status", "not in", FINAL_STATUSES)
+                .where("job.status", "in", UNFINISHED)
                 .returning([
                   "job.id",
                   ...USAGE_COPIED_COLUMNS.map((column) => `job.${column}` as const),
@@ -1284,6 +1284,7 @@ export interface JobListQuery {
   labels?: Labels;
   batchId?: string;
   customId?: string;
+  runnerId?: RunnerId;
   /** Whether the job's status must be unknown (`statusUnknownOf`), or known; either when absent. */
   statusUnknown?: boolean;
   after?: JobId;
@@ -1309,7 +1310,7 @@ function listedJobOf(
 export function listJobs(query: JobListQuery) {
   return Db.use((database) =>
     database.query(async (db) => {
-      const { statuses, labels, batchId, customId, statusUnknown, after, limit } = query;
+      const { statuses, labels, batchId, customId, runnerId, statusUnknown, after, limit } = query;
       const now = new Date();
       let selection = db
         .selectFrom("job as j")
@@ -1351,6 +1352,7 @@ export function listJobs(query: JobListQuery) {
         );
       }
       if (customId !== undefined) selection = selection.where("j.customId", "=", customId);
+      if (runnerId !== undefined) selection = selection.where("j.runnerId", "=", runnerId);
       if (after !== undefined) selection = selection.where("j.id", "<", after);
       const rows = await selection
         .orderBy("j.id", "desc")

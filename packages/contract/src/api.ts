@@ -915,7 +915,7 @@ export const apiContract = {
           method: "GET",
           path: "/jobs",
           description:
-            "Lists jobs, newest first, in pages of at most `limit`. Filters combine: a job is listed when it has one of the `status` values given, every label in `labels`, the `batchId` and `customId` given, and `statusUnknown` present or absent as asked. Read the next page with the same filters and `after` set to the last job's `id`, while the page says `hasMore`. A listed job has no `output`, failure `message` or `activity`: read the job for those.",
+            "Lists jobs, newest first, in pages of at most `limit`. Filters combine: a job is listed when it has one of the `status` values given, every label in `labels`, the `batchId`, `customId` and `runnerId` given, and `statusUnknown` present or absent as asked. Read the next page with the same filters and `after` set to the last job's `id`, while the page says `hasMore`. A listed job has no `output`, failure `message` or `activity`: read the job for those.",
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -944,6 +944,13 @@ export const apiContract = {
             customIdSchema.check(
               z.describe(
                 "The job's own `customId`, which is unique in its Batch, so without `batchId` it may match a job in each of several Batches.",
+              ),
+            ),
+          ),
+          runnerId: z.optional(
+            textSchema.check(
+              z.describe(
+                "The ID of the Runner the job was last sent to, which a started job keeps and shows as its `runner.id` while that Runner exists; a removed Runner's jobs still match its ID. A job not yet sent, or one its Runner paused or cancelled before starting it, matches none.",
               ),
             ),
           ),
