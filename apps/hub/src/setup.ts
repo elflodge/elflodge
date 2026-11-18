@@ -43,7 +43,11 @@ export async function setUpOrganization(
     return;
   }
   if (owner.email && owner.password) {
-    const created = await createOrganization(db, { email: owner.email, password: owner.password });
+    const created = await createOrganization(db, {
+      // The settings name no Organization, so it keeps the hub's default name.
+      name: "Organization",
+      owner: { email: owner.email, password: owner.password },
+    });
     if (created === "created") log(`Created the Organization and its owner, ${owner.email}`);
     return;
   }
@@ -86,14 +90,14 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
 }
 
 /**
- * Creates the Organization and its owner, using up the setup link's `token` when given, in one
- * transaction: a failure, such as a password Better Auth refuses, leaves no owner behind and the
- * link usable. Of two setups at once, the Organization's unique slug lets one through, and the
+ * Creates the Organization named `name` and its owner, using up the setup link's `token` when
+ * given, in one transaction: a failure, such as a password Better Auth refuses, leaves no owner
+ * behind and the link usable. Of two setups at once, the Organization's unique slug lets one through, and the
  * other finds the hub set up. Better Auth's refusals are thrown as its `APIError`s.
  */
 export async function createOrganization(
   db: Kysely<Database>,
-  owner: { email: string; password: string },
+  { name, owner }: { name: string; owner: { email: string; password: string } },
   token?: string,
 ): Promise<"created" | "alreadySetUp" | "linkRefused"> {
   try {
@@ -116,7 +120,8 @@ export async function createOrganization(
         body: { email: owner.email, password: owner.password, name: "Owner" },
       });
       await auth.api.createOrganization({
-        body: { name: "Organization", slug: "organization", userId: user.id },
+        // One Organization per deployment (ADR 0007), so the slug Better Auth requires is fixed.
+        body: { name, slug: "organization", userId: user.id },
       });
       return "created";
     });

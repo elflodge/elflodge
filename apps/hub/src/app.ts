@@ -155,13 +155,21 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         return { needed: organization === undefined };
       }),
       complete: os.setup.complete.effect(function* ({ input, errors }) {
-        const { email, password, token } = input;
+        const { organizationName: name, email, password, token } = input;
         const result = yield* Db.use((database) =>
-          database.query((db) => createOrganization(db, { email, password }, token)),
+          database.query((db) =>
+            createOrganization(db, { name, owner: { email, password } }, token),
+          ),
         ).pipe(Effect.mapError((error) => fromBetterAuth(error.cause)));
         if (result !== "created") {
           yield* Effect.fail(result === "linkRefused" ? errors.FORBIDDEN() : errors.CONFLICT());
         }
+      }),
+    },
+    organization: {
+      get: os.organization.get.effect(function* () {
+        const { name } = yield* getOrganization;
+        return { name };
       }),
     },
     runners: {

@@ -11,6 +11,8 @@ beforeAll(() => system.start());
 afterAll(() => system.stop());
 
 const NEW_OWNER = { email: "new-owner@example.com", password: "a long enough password" };
+/** What the setup form sends, apart from the token. */
+const SETUP = { organizationName: "Harbor & Pine", ...NEW_OWNER };
 
 /** Empties the hub's database and sets it up as a hub without owner settings does: its link. */
 async function setupLink() {
@@ -29,12 +31,12 @@ test("a hub without an owner prints a link, with which the dashboard creates the
   const anyone = system.client();
   expect(await anyone.setup.get()).toEqual({ needed: true });
 
-  await anyone.setup.complete({ token, ...NEW_OWNER });
+  await anyone.setup.complete({ token, ...SETUP });
 
   expect(await anyone.setup.get()).toEqual({ needed: false });
   const owner = system.client({ cookie: await system.signIn(NEW_OWNER), origin: system.origin });
-  expect(await owner.runners.list()).toEqual([]);
-  await expect(anyone.setup.complete({ token, ...NEW_OWNER })).rejects.toMatchObject({
+  expect(await owner.organization.get()).toEqual({ name: SETUP.organizationName });
+  await expect(anyone.setup.complete({ token, ...SETUP })).rejects.toMatchObject({
     code: "CONFLICT",
   });
 });
@@ -44,7 +46,7 @@ test("a token the hub did not print is refused, and creates nothing", async () =
   const anyone = system.client();
 
   await expect(
-    anyone.setup.complete({ token: "not-the-printed-token", ...NEW_OWNER }),
+    anyone.setup.complete({ token: "not-the-printed-token", ...SETUP }),
   ).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(await anyone.setup.get()).toEqual({ needed: true });
 });
@@ -53,11 +55,11 @@ test("a password Better Auth refuses leaves the link usable", async () => {
   const { token } = await setupLink();
   const anyone = system.client();
 
-  await expect(
-    anyone.setup.complete({ token, email: NEW_OWNER.email, password: "short" }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(anyone.setup.complete({ token, ...SETUP, password: "short" })).rejects.toMatchObject(
+    { code: "BAD_REQUEST" },
+  );
 
-  await anyone.setup.complete({ token, ...NEW_OWNER });
+  await anyone.setup.complete({ token, ...SETUP });
   await system.signIn(NEW_OWNER);
 });
 
@@ -76,11 +78,11 @@ test("of two setups at once, one creates the owner and the other finds the hub s
   const anyone = system.client();
 
   const results = await Promise.allSettled([
-    anyone.setup.complete({ token: first.token, ...NEW_OWNER }),
+    anyone.setup.complete({ token: first.token, ...SETUP }),
     anyone.setup.complete({
       token: second,
+      ...SETUP,
       email: "other@example.com",
-      password: NEW_OWNER.password,
     }),
   ]);
 

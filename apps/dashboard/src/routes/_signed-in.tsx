@@ -1,6 +1,7 @@
 import { Link, Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
 
+import { api } from "../api-client.ts";
 import { attemptAuth, authClient, failureMessage } from "../auth-client.ts";
 import { logoDark, logoLight } from "../logo.ts";
 
@@ -12,7 +13,8 @@ export const Route = createFileRoute("/_signed-in")({
     const { data, error } = await authClient.getSession();
     if (error) throw new Error(failureMessage(error));
     if (!data) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
-    return { member: data.user };
+    const organization = await api.organization.get();
+    return { member: data.user, organization };
   },
   component: SignedIn,
 });
@@ -42,6 +44,7 @@ function SignedIn() {
           </picture>
           Elflodge
         </Link>
+        <span class="organization">{context().organization.name}</span>
         <nav aria-label="Main">
           {/* Served by the hub itself, outside the dashboard. */}
           <a href="/docs">API reference</a>

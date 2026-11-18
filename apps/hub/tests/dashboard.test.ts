@@ -126,7 +126,7 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
 }, 30_000);
 
 // Last, as it empties the hub.
-test("in a browser, the setup link creates the owner, who is then signed in", async () => {
+test("in a browser, the setup link creates the Organization and its owner, who is then signed in", async () => {
   await clearDatabase(inject("databaseUrl"));
   let link = "";
   await setUpOrganization(
@@ -146,9 +146,11 @@ test("in a browser, the setup link creates the owner, who is then signed in", as
 
   await page.goto(link);
   const owner = { email: "new-owner@example.com", password: "a long enough password" };
+  await page.getByLabel("Organization name").fill("Harbor & Pine");
   await page.getByLabel("Email").fill(owner.email);
   await page.getByLabel("Password").fill(owner.password);
   await page.getByRole("button", { name: "Create owner" }).click();
   await page.waitForURL(`${dashboard}/`);
   await page.getByText(owner.email).waitFor();
+  await page.getByText("Harbor & Pine").waitFor();
 }, 30_000);

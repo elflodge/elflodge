@@ -27,10 +27,11 @@ function Setup() {
   async function createOwner(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const organizationName = fieldText(form, "organization");
     const owner = { email: fieldText(form, "email"), password: fieldText(form, "password") };
     setPending(true);
     try {
-      await api.setup.complete({ token: token(), ...owner });
+      await api.setup.complete({ token: token(), organizationName, ...owner });
     } catch (failure) {
       if (failure instanceof ORPCError && failure.code === "CONFLICT") setSetUp(true);
       else setError(apiFailureMessage(failure));
@@ -65,6 +66,10 @@ function Setup() {
         >
           <p>Create the hub's owner, who manages its members, API keys and Runners.</p>
           <form onSubmit={createOwner}>
+            <label>
+              Organization name
+              <input name="organization" autocomplete="organization" required />
+            </label>
             <label>
               Email
               <input name="email" type="email" autocomplete="username" required />
