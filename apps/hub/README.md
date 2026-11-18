@@ -2,6 +2,8 @@
 
 The central service every caller and Runner connects to. It runs on Cloudflare Workers, with Postgres through Hyperdrive, and as a Node process in a Docker image, with Postgres directly.
 
+On Workers, create the Hyperdrive configuration with caching disabled, `wrangler hyperdrive create <name> --connection-string=<url> --caching-disabled`, and set its ID in `wrangler.jsonc`. Hyperdrive caches reads for a minute by default and keeps serving them after a write, so a member could still see a session that ended, a key that was revoked or a job's old status.
+
 ## Settings
 
 On Workers, set them in `wrangler.jsonc` and as Wrangler secrets; for `wrangler dev`, copy `.dev.vars.example` to `.dev.vars`. In Docker, set them as environment variables.
