@@ -1,0 +1,238 @@
+import { problemOf, type Usage, type UsageReport } from "contract";
+import { Struct } from "effect";
+import { sql } from "kysely";
+import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+
+import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
+import { startSystem, submitJob, untilStatus } from "./harness.ts";
+import { callTool } from "./scripted-model.ts";
+
+// Reading the Organization's usage, against a real hub and Runner: what jobs used, added up from
+// their Usage records by day and by group.
+
+const system = startSystem();
+
+beforeAll(() => system.start());
+afterAll(() => system.stop());
+
+const AGENT = { outputContract: { schema: { type: "integer" } } };
+const JOB_PERMISSIONS = { job: ["create", "read", "pause", "resume", "cancel", "delete"] };
+
+/** A new API key named `name` that may submit and control jobs, and a client sending it. */
+async function newKey(name: string) {
+  const { id, key } = await system.owner().apiKeys.create({ name, permissions: JOB_PERMISSIONS });
+  return { id, client: system.client({ "x-api-key": key }) };
+}
+
+/** `usages` added up. */
+function sumOf(usages: Usage[]) {
+  return {
+    totalTokens: usages.reduce((sum, usage) => sum + usage.totalTokens, 0),
+    totalUsd: usages.reduce((sum, usage) => sum + usage.cost.totalUsd, 0),
+  };
+}
+
+/** Expects `usages` to add up to `total`. */
+function expectSum(usages: Usage[], total: Usage) {
+  const sum = sumOf(usages);
+  expect(sum.totalTokens).toBe(total.totalTokens);
+  expect(sum.totalUsd).toBeCloseTo(total.cost.totalUsd, 10);
+}
+
+/**
+ * Expects `report`'s days to add up to its total and, when grouped, its groups and `other` too,
+ * each day to hold the same groups with its own share, and each group's days to add up to the group.
+ */
+function expectAddsUp(report: UsageReport) {
+  expectSum(
+    report.days.map((day) => day.usage),
+    report.usage,
+  );
+  const { groups, other } = report;
+  if (groups === undefined || other === undefined) return;
+  expectSum([...groups.map((group) => group.usage), other.usage], report.usage);
+  const identity = (group: (typeof groups)[number]) => Struct.omit(group, ["usage"]);
+  for (const day of report.days) {
+    expect(day.groups?.map(identity)).toEqual(groups.map(identity));
+    expectSum(
+      [...(day.groups ?? []).map((group) => group.usage), day.other?.usage ?? zero],
+      day.usage,
+    );
+  }
+  groups.forEach((group, index) => {
+    expectSum(
+      report.days.flatMap((day) => day.groups?.[index]?.usage ?? []),
+      group.usage,
+    );
+  });
+}
+
+const zero: Usage = { totalTokens: 0, cost: { totalUsd: 0 } };
+
+/** Expects `usage` to be `expected`, money to within rounding. */
+function expectUsage(usage: Usage, expected: Usage) {
+  expect(usage.totalTokens).toBe(expected.totalTokens);
+  expect(usage.cost.totalUsd).toBeCloseTo(expected.cost.totalUsd, 10);
+}
+
+test("usage adds up by day and by group, counting each end of a resumed job once and deleted jobs", async () => {
+  const billing = await newKey("billing");
+  const support = await newKey("support");
+  const batch = await billing.client.batches.create({
+    agent: AGENT,
+    labels: { customer: "acme" },
+    breaker: false,
+  });
+  // Cancelled before any Runner started it: an end without usage or a Runner.
+  const [unstarted] = (
+    await billing.client.batches.addJobs({
+      id: batch.id,
+      jobs: [{ customId: "unstarted", input: "Never mind.", labels: { customer: "globex" } }],
+    })
+  ).jobs;
+  await billing.client.jobs.cancel({ id: unstarted?.job.id ?? "" });
+  const runnerId = await system.startRunner();
+
+  // Cancelled while it runs a command, then resumed to succeed: two ends.
+  system.model.setResponses([callTool("bash", { command: "sleep 600" })]);
+  const [resumed] = (
+    await billing.client.batches.addJobs({
+      id: batch.id,
+      jobs: [{ customId: "resumed", input: "Wait." }],
+    })
+  ).jobs;
+  const resumedId = resumed?.job.id ?? "";
+  await expect
+    .poll(async () => (await billing.client.jobs.get({ id: resumedId })).activity?.[0]?.tools, {
+      timeout: 10_000,
+    })
+    .toMatchObject([{ name: "bash", status: "running" }]);
+  await billing.client.jobs.cancel({ id: resumedId });
+  await untilStatus(billing.client, resumedId, "cancelled");
+  const firstEnd = (await billing.client.jobs.get({ id: resumedId })).usage;
+  system.model.setResponses([callTool("submit_output", { value: 1 })]);
+  await billing.client.jobs.resume({ id: resumedId });
+  await untilStatus(billing.client, resumedId, "succeeded");
+
+  // Run to the end by another key, then deleted.
+  system.model.setResponses([callTool("submit_output", { value: 2 })]);
+  const deleted = await submitJob(support.client, { ...AGENT, input: "Two." });
+  await untilStatus(support.client, deleted.id, "succeeded");
+  const deletedUsage = (await support.client.jobs.get({ id: deleted.id })).usage;
+  await support.client.jobs.delete({ id: deleted.id });
+
+  const resumedUsage = (await billing.client.jobs.get({ id: resumedId })).usage;
+  expect(firstEnd.cost.totalUsd).toBeGreaterThan(0);
+  expect(resumedUsage.cost.totalUsd).toBeGreaterThan(firstEnd.cost.totalUsd);
+  const owner = system.owner();
+
+  const report = await owner.usage.get({});
+  expect(report.days).toHaveLength(30);
+  expect([report.days[0]?.date, report.days.at(-1)?.date]).toEqual([report.from, report.to]);
+  expectUsage(report.usage, {
+    totalTokens: resumedUsage.totalTokens + deletedUsage.totalTokens,
+    cost: { totalUsd: resumedUsage.cost.totalUsd + deletedUsage.cost.totalUsd },
+  });
+  expectAddsUp(report);
+
+  // Each end counts what the job used since the previous one.
+  const byStatus = await owner.usage.get({ groupBy: "status", batchId: batch.id });
+  expectAddsUp(byStatus);
+  expect(byStatus.groups?.map((group) => "status" in group && group.status).toSorted()).toEqual([
+    "cancelled",
+    "succeeded",
+  ]);
+  expectUsage(byStatus.usage, resumedUsage);
+  expectUsage(
+    (await owner.usage.get({ batchId: batch.id, status: ["cancelled"] })).usage,
+    firstEnd,
+  );
+
+  // A deleted job's use stays, under the key that submitted it, whose name stays once revoked.
+  await owner.apiKeys.revoke({ id: support.id });
+  expectUsage((await owner.usage.get({ keyId: support.id })).usage, deletedUsage);
+  const bySubmitter = await owner.usage.get({ groupBy: "submitter" });
+  expectAddsUp(bySubmitter);
+  expect(bySubmitter.groups).toEqual(
+    expect.arrayContaining([
+      { submitter: { kind: "key", id: billing.id, name: "billing" }, usage: resumedUsage },
+      { submitter: { kind: "key", id: support.id, name: "support" }, usage: deletedUsage },
+    ]),
+  );
+
+  const byLabel = await owner.usage.get({ groupBy: "label:customer" });
+  expectAddsUp(byLabel);
+  expect(byLabel.groups).toHaveLength(3);
+  expect(byLabel.groups).toEqual(
+    expect.arrayContaining([
+      { labelValue: "acme", usage: expect.anything() },
+      { labelValue: null, usage: deletedUsage },
+      { labelValue: "globex", usage: zero },
+    ]),
+  );
+  expectUsage((await owner.usage.get({ labels: { customer: "acme" } })).usage, resumedUsage);
+
+  const byRunner = await owner.usage.get({ groupBy: "runner", runnerId });
+  expectAddsUp(byRunner);
+  expect(byRunner.groups).toEqual([
+    { runner: { id: runnerId, name: expect.any(String) }, usage: report.usage },
+  ]);
+  expect((await owner.usage.get({ groupBy: "runner" })).groups?.at(-1)).toEqual({
+    runner: null,
+    usage: zero,
+  });
+
+  // A day holds what the hub recorded that day: the deleted job's end, moved three days back.
+  await using db = openDatabase(inject("databaseUrl"));
+  const { rows } = await sql<{ recordedAt: Date }>`
+    update ${sql.table(`${DB_SCHEMA}.usageRecord`)}
+    set "recordedAt" = "recordedAt" - interval '3 days'
+    where "jobId" = ${deleted.id}
+    returning "recordedAt"
+  `.execute(db);
+  const day = rows[0]?.recordedAt.toISOString().slice(0, 10);
+  const moved = await owner.usage.get({ keyId: support.id });
+  expect(moved.days.filter((each) => each.usage.totalTokens > 0)).toEqual([
+    { date: day, usage: deletedUsage },
+  ]);
+  expect((await owner.usage.get({ keyId: support.id, from: report.to })).usage).toEqual(zero);
+
+  // Every day shows the window's top Batch, even the day it used nothing, with the rest as `other`.
+  expect(resumedUsage.cost.totalUsd).toBeGreaterThan(deletedUsage.cost.totalUsd);
+  const topBatch = await owner.usage.get({ groupBy: "batch", limit: 1 });
+  expectAddsUp(topBatch);
+  expect(topBatch.groups).toEqual([{ batchId: batch.id, usage: resumedUsage }]);
+  expect(topBatch.other).toEqual({ groups: 1, usage: deletedUsage });
+  expect(topBatch.days.find((each) => each.date === day)).toEqual({
+    date: day,
+    usage: deletedUsage,
+    groups: [{ batchId: batch.id, usage: zero }],
+    other: { usage: deletedUsage },
+  });
+}, 30_000);
+
+test("a window that ends before it starts, is longer than 400 days or starts before year 1 is refused naming the field given", async () => {
+  const owner = system.owner();
+  for (const [window, field] of [
+    [{ from: "2026-11-10", to: "2026-11-01" }, "from"],
+    [{ from: "2025-09-26", to: "2026-10-31" }, "from"],
+    // Postgres reads no year 0000, which an ISO date may hold.
+    [{ from: "0000-12-31", to: "0001-01-10" }, "from"],
+    // The default `from`, 29 days before `to`, would be in year 0000.
+    [{ to: "0001-01-01" }, "to"],
+  ] as const) {
+    const problem = problemOf(await owner.usage.get(window).catch((error: unknown) => error));
+    expect(problem).toMatchObject({ status: 400, detail: expect.stringMatching(`→ at ${field}$`) });
+  }
+  // 400 days, both included.
+  expect((await owner.usage.get({ from: "2025-09-27", to: "2026-10-31" })).days).toHaveLength(400);
+});
+
+test("a member whose role does not allow reading usage is refused", async () => {
+  const member = await system.addMember({
+    email: "member@example.com",
+    password: "a long enough password",
+    name: "Member",
+  });
+  await expect(member.usage.get({})).rejects.toMatchObject({ code: "FORBIDDEN", defined: true });
+});

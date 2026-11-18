@@ -33,7 +33,7 @@ _Avoid_: checkpoint
 A running job carrying on from its journal after its Runner stopped and started again: it stays running, completed tool calls are not repeated, a tool call cut off mid-flight gets an interrupted result, and a model call in flight is made again. A job whose journal is lost is not recovered. Not a resume, which is a control a caller gives a stopped job.
 
 **Usage record**:
-The small, lasting record of a job's outcome and cost (labels, Batch, model, status, tokens, cost, times), kept after the job's content is deleted. A job resumed after it ended has one for each end, each with what it used since the previous one.
+The small, lasting record of a job's outcome and cost (labels, Batch, status, Runner, the key that submitted it, tokens, cost, times), kept after the job's content is deleted. A job resumed after it ended has one for each end, each with what it used since the previous one.
 _Avoid_: billing record, receipt
 
 **Batch**:

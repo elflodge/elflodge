@@ -1,7 +1,7 @@
-import { Forbidden, NotFound } from "contract";
+import { NotFound } from "contract";
 import { Effect, Predicate } from "effect";
 
-import { Auth, getOrganization } from "./auth/auth.ts";
+import { Auth, getOrganization, requireRolePermission } from "./auth/auth.ts";
 import { RUNNER_KEY_CONFIG, RUNNER_KEY_PERMISSIONS } from "./auth/options.ts";
 import { Db } from "./db/database.ts";
 import { ApikeyId, RunnerId } from "./db/types.ts";
@@ -70,15 +70,8 @@ export function findRunnerByKey(keyId: ApikeyId) {
  */
 export function removeRunner(headers: Headers, runnerId: RunnerId) {
   return Effect.gen(function* () {
+    yield* requireRolePermission(headers, { apiKey: ["delete"] });
     const auth = yield* Auth;
-    const { id: organizationId } = yield* getOrganization;
-    const { success: allowed } = yield* auth.call((betterAuth) =>
-      betterAuth.api.hasPermission({
-        headers,
-        body: { organizationId, permissions: { apiKey: ["delete"] } },
-      }),
-    );
-    if (!allowed) return yield* Effect.fail(new Forbidden());
     const removed = yield* deleteRunnerWithItsWork(runnerId).pipe(
       Effect.filterOrFail(Predicate.isNotUndefined, () => new NotFound()),
     );

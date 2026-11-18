@@ -1,11 +1,6 @@
-import { betterAuth } from "better-auth";
-import { createAuthClient } from "better-auth/client";
-import { organizationClient } from "better-auth/client/plugins";
 import { RUNNER_NOT_FOUND } from "contract";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
-import { offlineAuthOptions } from "../src/auth/options.ts";
-import { openDatabase } from "../src/db/database.ts";
 import { resetPassword, setUpOrganization } from "../src/setup.ts";
 import { OWNER, startSystem } from "./harness.ts";
 
@@ -67,28 +62,13 @@ test("API errors are RFC 9457 Problem Details", async () => {
 });
 
 test("a member removed from the Organization is refused, though their session lasts", async () => {
+  const member = { email: "removed@example.com", password: "a long enough password" };
+  const asMember = await system.addMember({ ...member, name: "Removed" });
+  await asMember.runners.list();
   // The owner manages the Organization through Better Auth's organization routes on the hub.
-  const ownerAuth = createAuthClient({
-    baseURL: system.url().origin,
-    plugins: [organizationClient()],
-    fetchOptions: { headers: { cookie: system.ownerCookie(), origin: system.origin }, throw: true },
-  });
+  const ownerAuth = system.ownerAuth();
   const [organization] = await ownerAuth.organization.list();
   if (!organization) throw new Error("The hub has no Organization");
-  // Public sign-up is off, so the member's account is created as setup creates the owner's.
-  await using db = openDatabase(inject("databaseUrl"));
-  const options = offlineAuthOptions(db);
-  const auth = betterAuth({
-    ...options,
-    emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
-  });
-  const member = { email: "removed@example.com", password: "a long enough password" };
-  const { user } = await auth.api.signUpEmail({ body: { ...member, name: "Removed" } });
-  await auth.api.addMember({
-    body: { userId: user.id, organizationId: organization.id, role: "member" },
-  });
-  const asMember = system.client({ cookie: await system.signIn(member), origin: system.origin });
-  await asMember.runners.list();
 
   await ownerAuth.organization.removeMember({
     memberIdOrEmail: member.email,

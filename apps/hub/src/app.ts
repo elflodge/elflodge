@@ -74,6 +74,7 @@ import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registra
 import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
 import { createOwnerAndOrganization } from "./setup.ts";
+import { readUsage } from "./usage.ts";
 
 interface ApiContext extends WithEffectContext<HubServices> {
   headers: Headers;
@@ -346,6 +347,23 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       events: os.jobs.events.effect(function* ({ input }) {
         // The IDs enter the hub here.
         return yield* readJobEvents(JobId(input.id), EventId(input.after), input.limit);
+      }),
+    },
+    usage: {
+      get: os.usage.get.effect(function* ({ input, context, errors }) {
+        const { status, keyId, runnerId, ...rest } = input;
+        // The IDs enter the hub here.
+        const query = {
+          ...rest,
+          statuses: status ?? [],
+          keyId: keyId === undefined ? undefined : ApikeyId(keyId),
+          runnerId: runnerId === undefined ? undefined : RunnerId(runnerId),
+        };
+        return yield* readUsage(context.headers, query).pipe(
+          Effect.catchTag("InvalidInput", ({ problems }) =>
+            Effect.fail(invalidInput(errors, input, problems)),
+          ),
+        );
       }),
     },
     runnerProtocol: {

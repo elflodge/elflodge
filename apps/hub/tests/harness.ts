@@ -8,6 +8,9 @@ import { text } from "node:stream/consumers";
 
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
+import { betterAuth } from "better-auth";
+import { createAuthClient } from "better-auth/client";
+import { organizationClient } from "better-auth/client/plugins";
 import {
   apiContract,
   createJsonRpcClient,
@@ -27,6 +30,7 @@ import { createTestHarness } from "wrangler";
 import WebSocket from "ws";
 import * as z from "zod/mini";
 
+import { offlineAuthOptions } from "../src/auth/options.ts";
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { setUpOrganization } from "../src/setup.ts";
 import { scriptedModel } from "./scripted-model.ts";
@@ -277,6 +281,44 @@ export function startSystem(
     return cookie.split(";")[0] ?? "";
   }
 
+  /** Better Auth's client of the hub's organization routes, signed in as `OWNER`. */
+  function ownerAuth() {
+    return createAuthClient({
+      baseURL: url.origin,
+      plugins: [organizationClient()],
+      fetchOptions: { headers: { cookie: ownerCookie, origin: HUB_ORIGIN }, throw: true },
+    });
+  }
+
+  /**
+   * Creates the account `member`, adds it to the Organization with the plain `member` role, and
+   * returns a client signed in as it.
+   */
+  async function addMember(member: {
+    email: string;
+    password: string;
+    name: string;
+  }): Promise<ApiClient> {
+    const [organization] = await ownerAuth().organization.list();
+    if (!organization) throw new Error("The hub has no Organization");
+    // Public sign-up is off, so the account is created as setup creates the owner's.
+    await using db = openDatabase(inject("databaseUrl"));
+    const authOptions = offlineAuthOptions(db);
+    const auth = betterAuth({
+      ...authOptions,
+      emailAndPassword: {
+        ...authOptions.emailAndPassword,
+        disableSignUp: false,
+        autoSignIn: false,
+      },
+    });
+    const { user } = await auth.api.signUpEmail({ body: member });
+    await auth.api.addMember({
+      body: { userId: user.id, organizationId: organization.id, role: "member" },
+    });
+    return client({ cookie: await signIn(member), origin: HUB_ORIGIN });
+  }
+
   /** Creates the key Runners share to register, as the owner. */
   async function createRegistrationKey(): Promise<string> {
     const { key } = await owner.apiKeys.create({
@@ -351,6 +393,8 @@ export function startSystem(
     },
     /** The session cookie of `OWNER`. */
     ownerCookie: () => ownerCookie,
+    ownerAuth,
+    addMember,
     async start() {
       const databaseUrl = inject("databaseUrl");
       await clearDatabase(databaseUrl);
