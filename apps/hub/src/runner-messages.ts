@@ -32,7 +32,7 @@ import { jsonArrayFrom, jsonBuildObject } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
 import { lockBreakerBatches, countEndsAndPauseTrippedBatches } from "./batches.ts";
-import { Db, DB_SCHEMA, jsonRows } from "./db/database.ts";
+import { Db, DB_SCHEMA, greatest, jsonRows } from "./db/database.ts";
 import {
   type Database,
   JobId,
@@ -442,7 +442,7 @@ function applyReportsStatement(
             lastReportedAt: eb
               .case()
               .when("c.holdsRun", "=", true)
-              .then(eb.fn<Date>("greatest", ["p.lastReportedAt", eb.val(now)]))
+              .then(greatest(eb.val(now), eb.ref("p.lastReportedAt")))
               .else(eb.ref("p.lastReportedAt"))
               .end(),
           }))
@@ -718,7 +718,7 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
                 )
                 .orderBy("id")
                 .limit((limitEb) =>
-                  limitEb.fn<number>("greatest", [
+                  greatest(
                     limitEb.lit(0),
                     limitEb(
                       limitEb.val(load.free),
@@ -742,7 +742,7 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
                         )
                         .$asScalar(),
                     ),
-                  ]),
+                  ),
                 )
                 .forUpdate()
                 .skipLocked(),

@@ -7,7 +7,7 @@ import { Cause, Effect, Stream } from "effect";
 import { type ExpressionBuilder, type Kysely } from "kysely";
 
 import { getOrganization } from "./auth/auth.ts";
-import { Db } from "./db/database.ts";
+import { Db, greatest } from "./db/database.ts";
 import {
   BlobSha256,
   type Database,
@@ -280,10 +280,7 @@ export function uploadBlob(digest: string, sizeBytes: number, body: ReadableStre
               .values({ organizationId: organization.id, sha256, expiresAt: until })
               .onConflict((conflict) =>
                 conflict.columns(["organizationId", "sha256"]).doUpdateSet((eb) => ({
-                  expiresAt: eb.fn("greatest", [
-                    eb.ref("organizationBlob.expiresAt"),
-                    eb.val(until),
-                  ]),
+                  expiresAt: greatest(eb.ref("organizationBlob.expiresAt"), eb.val(until)),
                 })),
               )
               .execute();

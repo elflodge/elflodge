@@ -34,7 +34,7 @@ import * as z from "zod/mini";
 
 import { keyMetadataSchema } from "./auth/auth.ts";
 import { deleteUnusedBlobs } from "./blobs.ts";
-import { Db, DB_SCHEMA, plusDuration } from "./db/database.ts";
+import { Db, DB_SCHEMA, greatest, plusDuration } from "./db/database.ts";
 import {
   ApikeyId,
   type BatchUid,
@@ -253,7 +253,7 @@ function statusUnknownRule(job: StatusUnknownInput, now: Date) {
     .$notNull();
   // The later of the two, `greatest` skipping a null: right also for a run placed again without a
   // resume, which would keep its last run's time.
-  const jobLastHeard = eb.fn<Date>("greatest", [job.lastReportedAt, job.placedAt]);
+  const jobLastHeard = greatest(job.lastReportedAt, job.placedAt);
   return {
     jobLastHeard,
     waits: eb.and([eb(job.status, "in", QUEUED_OR_RUNNING), eb(job.placedAt, "is not", null)]),
@@ -285,7 +285,8 @@ export function statusUnknownOf(
 ): AliasableExpression<StatusUnknownOfJob | null> {
   const eb = expressionBuilder<Database>();
   const rule = statusUnknownRule(job, now);
-  const since = plusDuration(rule.jobLastHeard, Duration.millis(GONE_AFTER_MS));
+  // Read only where `waits` holds, which needs a placement, so the job has been heard of.
+  const since = plusDuration(rule.jobLastHeard, Duration.millis(GONE_AFTER_MS)).$notNull();
   const unknown = (reason: StatusUnknownReason) =>
     jsonBuildObject({
       // Typed, as `json_build_object` takes any type and so cannot infer a parameter's.
