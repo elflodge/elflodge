@@ -69,21 +69,13 @@ test("API errors are RFC 9457 Problem Details", async () => {
 test("a member removed from the Organization is refused, though their session lasts", async () => {
   // The owner manages the Organization through Better Auth's organization routes on the hub.
   const ownerAuth = createAuthClient({
-    baseURL: system.origin,
+    baseURL: system.url().origin,
     plugins: [organizationClient()],
-    fetchOptions: {
-      headers: { cookie: system.ownerCookie(), origin: system.origin },
-      customFetchImpl: (input, init) => {
-        const target = new URL(input instanceof Request ? input.url : input);
-        return system.hub.fetch(target.pathname + target.search, init);
-      },
-      throw: true,
-    },
+    fetchOptions: { headers: { cookie: system.ownerCookie(), origin: system.origin }, throw: true },
   });
   const [organization] = await ownerAuth.organization.list();
   if (!organization) throw new Error("The hub has no Organization");
-  // Public sign-up is off, and invitations need email, so the member is added as setup adds the
-  // owner.
+  // Public sign-up is off, so the member's account is created as setup creates the owner's.
   await using db = openDatabase(inject("databaseUrl"));
   const options = offlineAuthOptions(db);
   const auth = betterAuth({
