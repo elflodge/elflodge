@@ -28,25 +28,23 @@ afterAll(async () => {
  * hub serves the shell for a path with no file of its own only for a navigation.
  */
 async function expectShellAt(pathname: string) {
-  // Inspect the HTML the hub served before the dashboard can change it or navigate away.
-  const page = await browser.newPage({ javaScriptEnabled: false });
+  const page = await browser.newPage();
   onTestFinished(() => page.close());
   const response = await page.goto(`${system.origin}${pathname}`);
   if (!response) throw new Error(`No response for ${pathname}`);
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toMatch(/^text\/html/);
-  // The app's script, under the dashboard's base path.
-  expect(
-    await page.locator('script[src^="/dashboard/assets/"][src$=".js"]').count(),
-  ).toBeGreaterThan(0);
-  return page;
+  const body = await response.text();
+  const scriptPath = body.match(/<script[^>]* src="(\/dashboard\/assets\/[^"]+\.js)"/)?.[1];
+  if (!scriptPath) throw new Error(`No dashboard script in the shell at ${pathname}`);
+  return { page, scriptPath };
 }
 
 test("the dashboard's pages, deep links included, load its app shell", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
-  const page = await expectShellAt("/dashboard/.vite/manifest.json");
+  const { page, scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
   const missingPath = "/dashboard/assets/missing.js";
   const missing = await page.evaluate(async (path) => {
     const response = await fetch(path);
@@ -59,6 +57,11 @@ test("the dashboard's pages, deep links included, load its app shell", async () 
   if (inject("hub") === "workers") {
     expect(navigation?.status()).toBe(200);
     await page.getByRole("heading", { name: "Not found" }).waitFor();
+    const script = await system.hub.fetch(scriptPath);
+    expect(script.status).toBe(200);
+    for (const vary of [script.headers.get("vary"), navigation?.headers().vary]) {
+      expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
+    }
   } else {
     expect(navigation?.status()).toBe(404);
   }

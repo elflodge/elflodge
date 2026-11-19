@@ -1,5 +1,7 @@
-# Read by Workers Static Assets on the Workers hub; the Node hub sets the same header itself. Paths
-# start with the dashboard's base path, its `base` in vite.config.ts.
+# Workers Static Assets match paths under the dashboard's Vite base.
 # Vite names every file under assets/ by a hash of its content, so a browser may keep it for a year.
+# Cloudflare serves the asset if present, otherwise the shell or a 404 according to Sec-Fetch-Mode,
+# so caches must distinguish request modes at the same URL (RFC 9110, 12.5.5).
 /dashboard/assets/*
   Cache-Control: public, max-age=31536000, immutable
+  Vary: Sec-Fetch-Mode
