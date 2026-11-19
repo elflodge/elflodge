@@ -152,7 +152,9 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
 export function requireRolePermission(role: string, permissions: RolePermissions) {
   if (clientSideHasPermission({ role, permissions, options: { ac, roles } })) return Effect.void;
   const required = permissionNames(permissions).map((name) => `the ${name} permission`);
-  return Effect.fail(new Forbidden({ message: `This call requires ${required.join(" and ")}` }));
+  return Effect.fail(
+    new Forbidden({ message: `The ${role} role lacks ${required.join(" and ")}` }),
+  );
 }
 
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
