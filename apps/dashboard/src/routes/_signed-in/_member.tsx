@@ -1,4 +1,4 @@
-import { Outlet, createFileRoute } from "@tanstack/solid-router";
+import { Outlet, createFileRoute, useLoaderData } from "@tanstack/solid-router";
 import { Show } from "solid-js";
 
 import { Notice } from "../../components/Notice.tsx";
@@ -15,10 +15,10 @@ export const Route = createFileRoute("/_signed-in/_member")({
 });
 
 function Member() {
-  const context = Route.useRouteContext();
+  const session = useLoaderData({ from: "/_signed-in" });
   return (
     <Show
-      when={context().member}
+      when={session().membership.status === "member"}
       fallback={
         <>
           <div class="head">

@@ -4,7 +4,13 @@ import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
-import { backdateJobContact, protocolClient, startedJobReport, startSystem } from "./harness.ts";
+import {
+  OWNER,
+  backdateJobContact,
+  protocolClient,
+  startedJobReport,
+  startSystem,
+} from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
 // other sites from acting with a member's session.
@@ -173,6 +179,52 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   await jobs.click({ modifiers: ["ControlOrMeta"] });
   await expectBrowser(jobs).toBeVisible();
 }, 30_000);
+
+test.each([
+  ["jobs", "Jobs"],
+  ["runners", "Runners"],
+  ["api-keys", "API keys"],
+])(
+  "retrying a failed %s read keeps the dashboard while the session is checked",
+  async (path, heading) => {
+    const page = await browser.newPage();
+    onTestFinished(() => page.close());
+    const list = (url: URL) => url.pathname === `/${path}`;
+    await page.route(list, (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        body: JSON.stringify({ type: "about:blank", title: "Bad Request", status: 400 }),
+      }),
+    );
+    await signInAt(system, page, path, OWNER);
+    const retry = page.getByRole("button", { name: "Try again" });
+    await retry.waitFor();
+    await page.unroute(list);
+
+    const release = Promise.withResolvers<void>();
+    await page.route("**/api/auth/get-session", async (route) => {
+      await release.promise;
+      await route.continue();
+    });
+    const reading = page.waitForRequest("**/api/auth/get-session");
+    const recovered = page.waitForResponse(
+      (response) => list(new URL(response.url())) && response.ok(),
+    );
+    try {
+      await retry.click();
+      await reading;
+      await expectBrowser(page.getByRole("banner")).toBeVisible();
+      await expectBrowser(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    } finally {
+      release.resolve();
+    }
+    await recovered;
+    await expectBrowser(retry).toBeHidden();
+    await expectBrowser(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  },
+  30_000,
+);
 
 test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
   const page = await browser.newPage();
