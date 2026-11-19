@@ -1,9 +1,8 @@
+import { BetterFetchError } from "@better-fetch/fetch";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { apiContract, createProblemDetailsLink } from "contract";
 import ensureError from "ensure-error";
-
-import { CONNECTION_FAILED, unreadError } from "./auth-client.ts";
 
 /**
  * The hub's API, on the page's own origin, which serves it (ADR 0043): its calls go to paths the
@@ -14,11 +13,17 @@ export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
 );
 
 /** What went wrong with a call to the hub, in words for the member. */
-export function apiFailureMessage(error: unknown): string {
+export function apiFailureMessage(error: Error): string {
   if (error instanceof ORPCError) return error.message;
+  if (error instanceof BetterFetchError) {
+    const message: unknown = error.error?.message;
+    if (typeof message === "string" && message) return message;
+    // A proxy can answer without a body, and HTTP/2 has no status text.
+    return error.statusText || `The hub answered with HTTP status ${error.status}.`;
+  }
   // A call that got no answer, or a mistake in the dashboard, which the console keeps.
-  console.error(ensureError(error));
-  return CONNECTION_FAILED;
+  console.error(error);
+  return "The connection to the hub failed. Please try again.";
 }
 
 /**
@@ -28,7 +33,9 @@ export function apiFailureMessage(error: unknown): string {
 export async function readApi<T>(what: string, read: () => Promise<T>): Promise<T> {
   try {
     return await read();
-  } catch (error) {
-    throw unreadError(what, apiFailureMessage(error));
+  } catch (caught) {
+    throw new Error(`${what} could not be read: ${apiFailureMessage(ensureError(caught))}`, {
+      cause: caught,
+    });
   }
 }

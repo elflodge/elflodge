@@ -141,6 +141,39 @@ test("a request with neither a session nor a key is told how to authenticate", a
   expect(response.headers.get("www-authenticate")).not.toBeNull();
 });
 
+test("a member can retry a refused sign-in from the keyboard and submits only once while navigating", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const member = await newMember("Keyboard Reader");
+  // A destination on another site is discarded, so signing in leads home.
+  await page.goto(`${system.origin}/dashboard/sign-in?redirect=//elsewhere.example/other`);
+  await page.getByLabel("Email").fill(member.email);
+  const password = page.getByLabel("Password");
+  await password.fill("incorrect password");
+  const submit = page.getByRole("button", { name: "Sign in" });
+  await submit.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("alert").waitFor();
+  expect(await submit.evaluate((button) => button.matches(":focus"))).toBe(true);
+
+  // Hold the destination's first read after the hub has accepted the password.
+  const release = Promise.withResolvers<void>();
+  await page.route("**/api/auth/organization/list", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  const reading = page.waitForRequest("**/api/auth/organization/list");
+  await password.fill(member.password);
+  await submit.click();
+  try {
+    await reading;
+    expect(await submit.isDisabled()).toBe(true);
+  } finally {
+    release.resolve();
+  }
+  await page.getByRole("heading", { name: "Connected to your hub" }).waitFor();
+}, 30_000);
+
 test("in a browser, the bar leads to the dashboard's pages", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
@@ -237,7 +270,7 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   expect(signInDocument).not.toBe(firstDocument);
 
   // Signed in as the next member in the other tab, over this one's session, this one shows the next
-  // member at its next navigation, with what it reads afresh rather than the first member's reads.
+  // member at its next session read, with a fresh set of counts.
   await page.getByLabel("Email").fill(first.email);
   await page.getByLabel("Password").fill(first.password);
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -257,14 +290,11 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   const home = page
     .getByRole("navigation", { name: "Destinations" })
     .getByRole("link", { name: "Home" });
-  // Hovering reads the session for the destination, but only following it changes this page.
-  const preload = page.waitForResponse(`${system.origin}/api/auth/organization/list`);
+  // The preload observes the new member while the pointer is over Home. The current page reloads.
   await home.hover();
-  await preload;
-  await page.getByRole("button", { name: first.name }).waitFor();
-  await home.click();
   await page.getByRole("button", { name: next.name }).waitFor();
   expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
+  expect(page.url()).toBe(`${dashboard}/change-password`);
   expect(await queued.innerText()).toBe(`${before + 1} queued`);
 }, 60_000);
 
@@ -311,6 +341,7 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByLabel("Confirm new password").fill(password);
   // The change makes a new session for the same member, which the page reads; it stays, and so does
   // what it said.
+  const signedInDocument = await page.evaluate(() => performance.timeOrigin);
   const sessionRead = page.waitForResponse(
     (response) =>
       response.url().includes("/api/auth/get-session") && response.request().method() === "GET",
@@ -318,10 +349,9 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("status").waitFor();
   await sessionRead;
-  await page.waitForLoadState("networkidle");
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(signedInDocument);
   expect(await page.getByRole("status").innerText()).toMatch(/^Your password is changed/);
 
-  const signedInDocument = await page.evaluate(() => performance.timeOrigin);
   await account.click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL(`${dashboard}/sign-in`);

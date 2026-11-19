@@ -1,10 +1,13 @@
+import { BetterFetchError } from "@better-fetch/fetch";
 import { createFileRoute } from "@tanstack/solid-router";
+import ensureError from "ensure-error";
 import { Show, createSignal, flush } from "solid-js";
 
-import { attemptAuth, authClient } from "../../auth-client.ts";
+import { apiFailureMessage } from "../../api-client.ts";
+import { authClient } from "../../auth-client.ts";
 import { FieldError } from "../../components/FieldError.tsx";
 import { Notice } from "../../components/Notice.tsx";
-import { NEW_PASSWORD, fieldText } from "../../form.ts";
+import { NEW_PASSWORD, createFormAction, fieldText } from "../../form.ts";
 
 export const Route = createFileRoute("/_signed-in/change-password")({
   component: ChangePassword,
@@ -23,12 +26,9 @@ const WRONG_CURRENT_PASSWORD = "That is not your current password.";
 function ChangePassword() {
   const [result, setResult] = createSignal<{ role: "alert" | "status"; message: string }>();
   const [currentRefused, setCurrentRefused] = createSignal(false);
-  const [pending, setPending] = createSignal(false);
   let currentPassword: HTMLInputElement | undefined;
 
-  async function changePassword(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
-    const formElement = event.currentTarget;
+  const { pending, onSubmit } = createFormAction(async (formElement) => {
     const form = new FormData(formElement);
     setCurrentRefused(false);
     const newPassword = fieldText(form, "new-password");
@@ -37,28 +37,24 @@ function ChangePassword() {
       return;
     }
     const revokeOtherSessions = form.has("revoke-other-sessions");
-    const failure = await attemptAuth(
-      () =>
-        authClient.changePassword({
-          currentPassword: fieldText(form, "current-password"),
-          newPassword,
-          revokeOtherSessions,
-        }),
-      setPending,
-    );
-    // Better Auth answers a wrong current password with "Invalid password", which could mean any of
-    // the three, so it is said at the field it is about, where the focus goes to correct it.
-    if (failure?.code === INVALID_PASSWORD) {
-      setResult(undefined);
-      setCurrentRefused(true);
-      // Solid applies writes in a batch after this handler; flush applies them now, so the field
-      // has its error and description when the focus lands and a screen reader says them.
-      flush();
-      currentPassword?.focus();
-      return;
-    }
-    if (failure) {
-      setResult({ role: "alert", message: failure.message });
+    try {
+      await authClient.changePassword({
+        currentPassword: fieldText(form, "current-password"),
+        newPassword,
+        revokeOtherSessions,
+      });
+    } catch (caught) {
+      const failure = ensureError(caught);
+      // Better Auth's "Invalid password" could mean any of the three. Say which field to correct.
+      if (failure instanceof BetterFetchError && failure.error?.code === INVALID_PASSWORD) {
+        setResult(undefined);
+        setCurrentRefused(true);
+        // Apply its description before focusing the field so a screen reader announces it.
+        flush();
+        currentPassword?.focus();
+      } else {
+        setResult({ role: "alert", message: apiFailureMessage(failure) });
+      }
       return;
     }
     formElement.reset();
@@ -68,14 +64,14 @@ function ChangePassword() {
         ? "Your password is changed. Every other session signed in as you has ended."
         : "Your password is changed.",
     });
-  }
+  });
 
   return (
     <>
       <div class="head">
         <h1>Change password</h1>
       </div>
-      <form class="fields" onSubmit={changePassword}>
+      <form class="fields" onSubmit={onSubmit}>
         <div class="field">
           <label for="current-password">Current password</label>
           <input

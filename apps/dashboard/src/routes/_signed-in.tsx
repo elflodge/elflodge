@@ -1,34 +1,37 @@
 import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
-import { Show, createSignal, onSettled } from "solid-js";
+import ensureError from "ensure-error";
+import { Show, action, createOptimistic, createSignal, onSettled } from "solid-js";
 
-import { answered, attemptAuth, authClient, failureMessage, unreadError } from "../auth-client.ts";
+import { apiFailureMessage, readApi } from "../api-client.ts";
+import { authClient, getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
 import { HubStrip } from "../components/HubStrip.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { reloadIfMemberChanged, signOutTo, watchDocumentMember } from "../member-document.ts";
+import {
+  waitForReloadIfMemberChanged,
+  signOutTo,
+  watchDocumentMember,
+} from "../member-document.ts";
 
 // Every page but signing in and setting up is for a signed-in member. The session is read from the
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
 // another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
-  beforeLoad: async ({ location, preload, abortController }) => {
-    const { data, error } = await answered(authClient.getSession());
-    // A 401, as when the session was deleted during renewal, says no one is signed in.
-    if (error && error.status !== 401) throw unreadError("The session", failureMessage(error));
-    // A preload shows no page, and a superseded navigation can answer after its replacement.
-    if (!preload && !abortController.signal.aborted) {
-      await reloadIfMemberChanged(data?.user.id ?? null);
-    }
-    if (!data) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
+  beforeLoad: async ({ location }) => {
+    // Start both reads together, but act on the session first even if the Organization read fails.
+    const organizations = readApi("The Organization", () => authClient.organization.list()).catch(
+      ensureError,
+    );
+    const session = await readApi("The session", getSession);
+    await waitForReloadIfMemberChanged(session?.user.id ?? null);
+    if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
-    const organizations = await answered(authClient.organization.list());
-    if (organizations.error) {
-      throw unreadError("The Organization", failureMessage(organizations.error));
-    }
+    const list = await organizations;
+    if (list instanceof Error) throw list;
     // Removing a member leaves their session, which then lists no Organization.
-    return { member: data.user, organization: organizations.data[0] };
+    return { member: session.user, organization: list[0] };
   },
   component: SignedIn,
 });
@@ -38,7 +41,7 @@ function SignedIn() {
   const router = useRouter();
   onSettled(() => watchDocumentMember(context().member.id));
   const [error, setError] = createSignal<string>();
-  const [pending, setPending] = createSignal(false);
+  const [pending, setPending] = createOptimistic(false);
   let account: HTMLDivElement | undefined;
   let opener: HTMLButtonElement | undefined;
 
@@ -64,21 +67,20 @@ function SignedIn() {
     return () => document.removeEventListener("focusin", closeWhenFocusArrivesElsewhere);
   });
 
-  async function signOut() {
-    const failure = await attemptAuth(
-      () => signOutTo(router.buildLocation({ to: "/sign-in" }).publicHref),
-      setPending,
-    );
-    if (failure) {
+  const signOut = action(function* () {
+    setPending(true);
+    try {
+      yield signOutTo(router.buildLocation({ to: "/sign-in" }).publicHref);
+    } catch (failure) {
       // The notice is in the page, which the open menu would cover. The focus goes to the menu's
       // button when it is still in the menu or is nowhere, as it is once the button pressed has
       // been disabled. A member who has moved on meanwhile keeps their place.
       const focused = document.activeElement;
       closeMenu();
       if (!focused || focused === document.body || inMenuGroup(focused)) opener?.focus();
-      setError(failure.message);
+      setError(apiFailureMessage(ensureError(failure)));
     }
-  }
+  });
 
   return (
     <>

@@ -1,7 +1,10 @@
-import { authClient } from "./auth-client.ts";
+import { authClient, isSignedOutError } from "./auth-client.ts";
 
+/** The member whose shell this document has shown. Undefined until the first shell is shown. */
 let documentMember: string | undefined;
+/** The destination of a pending sign-out, also used if a session read observes sign-out first. */
 let signOutHref: string | undefined;
+/** Holds callers in this document until the browser replaces it. */
 let leaving: Promise<never> | undefined;
 
 function leaveDocument() {
@@ -15,7 +18,8 @@ function leaveDocument() {
   return leaving;
 }
 
-export function reloadIfMemberChanged(memberId: string | null) {
+/** A null member ID means no one is signed in. A new document has no member to compare yet. */
+export function waitForReloadIfMemberChanged(memberId: string | null) {
   if (documentMember !== undefined && documentMember !== memberId) return leaveDocument();
   return leaving;
 }
@@ -27,9 +31,12 @@ export function watchDocumentMember(memberId: string) {
   // the document's life, including a subsequent visit to a page outside the shell.
   authClient.useSession.subscribe((session) => {
     if (session.isPending || session.isRefetching) return;
-    // A 401 clears Better Auth's session. Other errors say nothing about who is signed in.
-    if (session.error && session.error.status !== 401) return;
-    void reloadIfMemberChanged(session.data?.user.id ?? null);
+    // With throw enabled Better Auth keeps the last data on failure. A 401 ends the session.
+    if (session.error) {
+      if (isSignedOutError(session.error)) void waitForReloadIfMemberChanged(null);
+    } else {
+      void waitForReloadIfMemberChanged(session.data?.user.id ?? null);
+    }
   });
 }
 
@@ -38,8 +45,7 @@ export async function signOutTo(href: string) {
   // take the member to the plain sign-in page.
   signOutHref = href;
   try {
-    const answer = await authClient.signOut();
-    if (answer.error) return answer;
+    await authClient.signOut();
     return await leaveDocument();
   } finally {
     signOutHref = undefined;
