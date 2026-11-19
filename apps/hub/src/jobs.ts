@@ -11,6 +11,7 @@ import {
   NotFound,
   type Job,
   type JobEvent,
+  type JobEventOrder,
   type JobCounts,
   type JobEventsPage,
   type JobsPage,
@@ -20,7 +21,7 @@ import {
   jobEventSchema,
   submitterSchema,
 } from "contract";
-import { Array, Duration, Effect, Record, String, Struct } from "effect";
+import { Array, Duration, Effect, Order, Record, String, Struct } from "effect";
 import { compileSchema, isJsonError } from "json-schema-library";
 import {
   type AliasableExpression,
@@ -1497,72 +1498,82 @@ export function countJobs() {
   );
 }
 
-/** A page past `after` in the requested order, with the job's status at the same moment. */
+/**
+ * A page of a job's events, or a 404 if the job is missing. Each stored row holds one report.
+ * Split the selected rows into events and skip those at or before the cursor in the requested
+ * order (IDs at or below it for ascending, at or above it for descending). Zero starts the read.
+ */
 export function readJobEvents(
   jobId: JobId,
   after: EventId,
   limit: number,
-  order: "asc" | "desc" = "asc",
+  order: JobEventOrder = "asc",
 ) {
   return Effect.gen(function* () {
     const database = yield* Db;
     const descending = order === "desc";
     // A final status and its last events must come from the same snapshot.
-    const job = yield* database.query((db) => {
-      const chunks = db.selectFrom("jobEventChunk").where("jobId", "=", jobId);
-      const next = chunks
-        .select((eb) => ["lastId", "events", eb.fn<number>("octet_length", ["events"]).as("size")])
-        .$if(after > 0, (qb) => qb.where("lastId", descending ? "<" : ">", after))
-        .orderBy("lastId", order)
-        .limit(limit);
-      const sized = db.selectFrom(next.as("next")).select((eb) => [
-        "next.lastId",
-        "next.events",
-        eb(
-          eb.fn.sum<number>("next.size").over((over) => over.orderBy("next.lastId", order)),
-          "-",
-          eb.ref("next.size"),
-        ).as("before"),
-      ]);
-      return (
-        db
-          .selectFrom("job as j")
-          .innerJoin("jobProgress as p", "p.jobId", "j.id")
-          .where("j.id", "=", jobId)
-          .select((eb) => [
+    const job = yield* database.query((db) =>
+      db
+        .selectFrom("job as j")
+        .where("j.id", "=", jobId)
+        .select((eb) => {
+          const chunks = eb.selectFrom("jobEventChunk").whereRef("jobId", "=", "j.id");
+          const next = chunks
+            .select((size) => [
+              "lastId",
+              "events",
+              size.fn<number>("octet_length", ["events"]).as("size"),
+            ])
+            .$if(after > 0, (qb) => qb.where("lastId", descending ? "<" : ">", after))
+            .orderBy("lastId", order)
+            .limit(limit);
+          const sized = eb.selectFrom(next.as("next")).select((sum) => [
+            "next.lastId",
+            "next.events",
+            sum(
+              sum.fn.sum<number>("next.size").over((over) => over.orderBy("next.lastId", order)),
+              "-",
+              sum.ref("next.size"),
+            ).as("before"),
+          ]);
+          return [
             "j.status",
-            (descending
-              ? chunks.select("lastId").orderBy("lastId").limit(1).$asScalar()
-              : eb.ref("p.position")
-            ).as("endChunkId"),
+            chunks
+              .select("lastId")
+              .orderBy("lastId", descending ? "asc" : "desc")
+              .limit(1)
+              .as("endChunkId"),
             jsonArrayFrom(
-              db
+              eb
                 .selectFrom(sized.as("sized"))
                 .select(["sized.lastId", "sized.events"])
                 // Include the first row even when one event alone exceeds the budget.
-                .where("sized.before", "<", MAX_PAGE_BYTES)
-                .orderBy("sized.lastId", order),
+                .where("sized.before", "<", MAX_PAGE_BYTES),
             ).as("chunks"),
-          ])
-          // The cursor's report may hold earlier events. Read it outside the older rows' byte
-          // budget because even a very large report might have no lines below the cursor.
-          .$if(descending && after > 0, (qb) =>
-            qb.select(
-              jsonObjectFrom(
-                chunks
-                  .select(["lastId", "events"])
-                  .where("lastId", ">=", after)
-                  .orderBy("lastId")
-                  .limit(1),
-              ).as("boundary"),
-            ),
-          )
-          .executeTakeFirst()
-      );
-    });
+            // The cursor's report may hold earlier events. Read it outside the older rows' byte
+            // budget because even a very large report might have no lines below the cursor.
+            descending && after > 0
+              ? jsonObjectFrom(
+                  chunks
+                    .select(["lastId", "events"])
+                    .where("lastId", ">=", after)
+                    .orderBy("lastId")
+                    .limit(1),
+                ).as("boundary")
+              : eb.lit(null).as("boundary"),
+          ];
+        })
+        .executeTakeFirst(),
+    );
     if (!job) return yield* Effect.fail(new NotFound());
 
-    const chunks = job.boundary ? [job.boundary, ...job.chunks] : job.chunks;
+    // jsonArrayFrom aggregates the rows without an ORDER BY inside json_agg.
+    const chunks = Array.sortWith(
+      job.boundary ? [job.boundary, ...job.chunks] : job.chunks,
+      (chunk) => chunk.lastId,
+      descending ? Order.flip(Order.Number) : Order.Number,
+    );
     const events: JobEvent[] = [];
     let bytes = 0;
     for (const chunk of chunks) {
@@ -1580,6 +1591,8 @@ export function readJobEvents(
     }
     const lastChunk = chunks.at(-1);
     const hasMore = lastChunk !== undefined && lastChunk.lastId !== job.endChunkId;
+    // Events are stored only for a job that has not ended (`applyReports`), and its end only with
+    // its last event, so nothing follows an ascending page without more whose status is final.
     return { events, hasMore, status: job.status } satisfies JobEventsPage;
   });
 }

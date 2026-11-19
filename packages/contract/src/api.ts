@@ -531,6 +531,11 @@ export const jobsPageSchema = z
   .register(z.globalRegistry, { id: "JobsPage" });
 export type JobsPage = z.infer<typeof jobsPageSchema>;
 
+const jobEventOrderSchema = z
+  .enum(["asc", "desc"])
+  .check(z.describe("Event ID order, oldest first (asc, the default) or newest first (desc)."));
+export type JobEventOrder = z.infer<typeof jobEventOrderSchema>;
+
 /** Follow a job in ascending order until a page with a final status has no more events. */
 export const jobEventsPageSchema = z
   .object({
@@ -539,13 +544,16 @@ export const jobEventsPageSchema = z
       .check(z.describe("Events past the cursor, in the requested order.")),
     hasMore: z
       .boolean()
-      .check(z.describe("Whether more events are already stored past this page in that order.")),
-    /**
-     * The job's status as of this page, read with its events: once it is final, the job's events are
-     * stored up to its end. A job whose host is lost may end without some of its events, so a final
-     * status says nothing follows, not that every event is here.
-     */
-    status: jobStatusSchema,
+      .check(
+        z.describe(
+          "Whether more events are already stored past this page in that order. In descending order, false means the start of the stored history has been reached.",
+        ),
+      ),
+    status: jobStatusSchema.check(
+      z.describe(
+        "The job's status when this page was read. A final status means the hub has stored events through the end of this run. Events lost with a host may be missing.",
+      ),
+    ),
   })
   .register(z.globalRegistry, { id: "JobEventsPage" });
 export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
@@ -1092,22 +1100,14 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/jobs/{id}/events",
           description:
-            "Reads a job's events in the requested order. For example, if `?order=desc&limit=2` returns IDs 98 and 93, use `?order=desc&after=93` for older events and `?after=98` to follow new ones. Follow from 0 if the first page was empty. A page holds at most `limit` events and stops at about 1 MiB, always returning one eligible event if any exist. `hasMore` means more are already stored in that order. The job's status is read with the page.",
+            "Reads a job's events in the requested order. For example, if `?order=desc&limit=2` returns IDs 98 and 93, use `?order=desc&after=93` for older events and `?after=98` to follow new ones. Follow from 0 if the first page was empty. When following, read again at once while `hasMore` is true, or after a few seconds otherwise. Stop when an ascending page has a final `status` and `hasMore` is false. A page holds at most `limit` events and stops at about 1 MiB, always returning one eligible event if any exist. `hasMore` means more are already stored in that order. The job's status is read with the page.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
       .input(
         z.extend(jobRefSchema, {
           // Let the hub apply the default so the CLI can omit this field against older hubs.
-          order: z.optional(
-            z
-              .enum(["asc", "desc"])
-              .check(
-                z.describe(
-                  "Event ID order, oldest first (asc, the default) or newest first (desc).",
-                ),
-              ),
-          ),
+          order: z.optional(jobEventOrderSchema),
           after: z._default(
             z
               .int()
