@@ -9,6 +9,12 @@ import type { Kysely } from "kysely";
 // latest version once it holds the row's lock, so a report of a run a resume replaced never writes
 // it, without the report taking the job row's lock. Null while no run may write it: before the job
 // is first placed, and from the resume of a job that never started until it is placed again.
+//
+// Only on Workers, between setup and the new version taking over, v0.10.0 can place or resume a
+// job and write only job.runId. It leaves jobProgress.runId on the earlier run, or null on first
+// placement, so the new run's reports cannot refresh lastReportedAt. We accept the job showing
+// statusUnknown with reason notReported after two minutes until it ends: the hub still records
+// its status and outcome.
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .withSchema("elflodge")

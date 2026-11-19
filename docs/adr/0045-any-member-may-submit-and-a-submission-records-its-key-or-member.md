@@ -14,7 +14,7 @@ A Batch, a job and a Usage record each record their submitter as the API shows i
 
 ## Consequences
 
-The migration renames the submitter columns, so a hub of the previous version fails against a migrated database: the hub restarts across it rather than running beside the new version. A client that checks answers against this contract refuses a Batch from an earlier hub, which has no `submitter`. A deleted job shows no submitter, as its read keeps only its status, times and totals; its Usage records keep it. The hub validates each Submitter against a closed union. A client built for those kinds can reject a new one, so a release adding a kind marks the change as breaking.
+The migration renames the submitter columns. The Docker hub applies it after the previous hub stops. On Workers the previous version can still serve after setup and fail on the old column names until the new version takes over (ADR 0047). A client that checks answers against this contract refuses a Batch from an earlier hub, which has no `submitter`. A deleted job shows no submitter, as its read keeps only its status, times and totals; its Usage records keep it. The hub validates each Submitter against a closed union. A client built for those kinds can reject a new one, so a release adding a kind marks the change as breaking.
 
 ## When to reconsider
 
