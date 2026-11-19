@@ -368,7 +368,7 @@ export const jobSubmissionSchema = z
   .strictObject({
     customId: customIdSchema.check(
       z.describe(
-        "Your own ID for the job, unique in its Batch. Adding a job again with the same `customId` and the same content returns the job already added, so an add can be retried safely and a whole Batch added again to add only the jobs it lacks; with other content it is refused. A new job needs a new ID.",
+        "Your own ID for the job, unique in its Batch, given only once per call and reused if you retry the add.",
       ),
     ),
     input: z.optional(
@@ -677,6 +677,15 @@ const blobCheckSchema = z.discriminatedUnion("stored", [
   }),
 ]);
 
+const statusFilterDescription = z.describe(
+  "Any of the given statuses. Omit the filter to include every status. An empty list also includes every status.",
+);
+const labelFilterSchema = z.optional(
+  z
+    .record(labelKeySchema, labelValueSchema)
+    .check(z.describe("Label key/value pairs that must all match.")),
+);
+
 /**
  * The hub's public HTTP API, for people and their programs. Callers sign in as a member or send an
  * API key in `x-api-key`. A Runner's own calls are `runnerHttpContract`'s.
@@ -731,7 +740,7 @@ export const apiContract = {
       .output(z.array(runnerSchema)),
     // Removing a Runner ends the jobs it held that have not ended.
     delete: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "DELETE",
@@ -779,7 +788,7 @@ export const apiContract = {
       .meta(openapi({ method: "GET", path: "/api-keys" }), ...byMember)
       .output(z.array(apiKeySchema)),
     revoke: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(openapi({ method: "DELETE", path: "/api-keys/{id}" }), ...byMember)
       .input(z.strictObject({ id: z.string() })),
   },
@@ -853,7 +862,7 @@ export const apiContract = {
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. Add its jobs with `POST /batches/{id}/jobs`. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Its `id`, given or made, names it in every call. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
+            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's `id` when adding its jobs. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -870,7 +879,7 @@ export const apiContract = {
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} per request, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing: any problem refuses the whole request, naming every problem with its path, such as \`jobs[17].input\`: 400 when any job is invalid, then 409 when the Batch is cancelled, then 422 for each \`customId\` the Batch already has for a job with other content. A job whose \`customId\` the Batch already has with the same content is returned as it is, with \`created: false\`, so an add can be retried safely, and a whole Batch added again to add only the jobs it lacks; a new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise the add is refused with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -882,7 +891,7 @@ export const apiContract = {
               z.minLength(1),
               z.maxLength(MAX_JOBS_PER_ADD),
               z.describe(
-                `The jobs to add, 1 to ${MAX_JOBS_PER_ADD} per request; a larger Batch is added over several.`,
+                "The jobs to add in this call. For a larger Batch, add more jobs with the same Batch ID in later calls.",
               ),
             ),
         }),
@@ -903,20 +912,8 @@ export const apiContract = {
       )
       .input(
         z.strictObject({
-          status: z.optional(
-            z
-              .array(batchStatusSchema)
-              .check(z.describe("Statuses, one per `status` parameter; any status when none.")),
-          ),
-          labels: z.optional(
-            z
-              .record(labelKeySchema, labelValueSchema)
-              .check(
-                z.describe(
-                  "Labels the Batch must all have, as `labels[customer]=acme`; repeat for more.",
-                ),
-              ),
-          ),
+          status: z.optional(z.array(batchStatusSchema).check(statusFilterDescription)),
+          labels: labelFilterSchema,
           after: z.optional(
             batchIdSchema.check(
               z.describe("The last Batch's ID on the previous page, to read on after it."),
@@ -936,7 +933,7 @@ export const apiContract = {
       )
       .output(batchesPageSchema),
     get: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/batches/{id}", description: "Reads a Batch." }),
         ...byKeyOrMember({ job: ["read"] }),
@@ -944,7 +941,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     pause: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -957,7 +954,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     resume: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -970,7 +967,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     cancel: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "POST",
@@ -985,7 +982,7 @@ export const apiContract = {
   },
   jobs: {
     get: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/jobs/{id}", description: "Reads a job." }),
         ...byKeyOrMember({ job: ["read"] }),
@@ -993,7 +990,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     pause: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -1040,7 +1037,7 @@ export const apiContract = {
       )
       .output(jobSchema),
     cancel: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "POST",
@@ -1054,7 +1051,7 @@ export const apiContract = {
       .output(jobSchema),
     // Deletion removes content and records the host file purge still owed.
     delete: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "DELETE",
@@ -1067,7 +1064,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     events: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "GET",
@@ -1104,6 +1101,7 @@ export const apiContract = {
       )
       .output(jobEventsPageSchema),
     list: forMembers
+      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
@@ -1117,20 +1115,8 @@ export const apiContract = {
       )
       .input(
         z.strictObject({
-          status: z.optional(
-            z
-              .array(jobStatusSchema)
-              .check(z.describe("Statuses, one per `status` parameter; any status when none.")),
-          ),
-          labels: z.optional(
-            z
-              .record(labelKeySchema, labelValueSchema)
-              .check(
-                z.describe(
-                  "Labels the job must all have, as `labels[customer]=acme`; repeat for more.",
-                ),
-              ),
-          ),
+          status: z.optional(z.array(jobStatusSchema).check(statusFilterDescription)),
+          labels: labelFilterSchema,
           batchId: z.optional(
             batchIdSchema.check(z.describe("The ID of the Batch the job belongs to.")),
           ),
@@ -1176,12 +1162,13 @@ export const apiContract = {
       )
       .output(jobsPageSchema),
     counts: forMembers
+      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
           path: "/jobs/counts",
           description:
-            "Counts the Organization's unfinished jobs now, all read at one moment: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. It takes no query parameters, and refuses any with 400.",
+            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. Any filter or other input is refused.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
@@ -1197,7 +1184,7 @@ export const apiContract = {
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
+          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -1249,31 +1236,15 @@ export const apiContract = {
               })
               .check(
                 z.describe(
-                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`, as `submitter[kind]=member&submitter[id]=…`. A later kind of submitter joins as one more `kind` value.",
+                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`. A later kind of submitter joins as one more `kind` value.",
                 ),
               ),
           ),
           runnerId: z.optional(
             textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
           ),
-          status: z.optional(
-            z
-              .array(finalJobStatusSchema)
-              .check(
-                z.describe(
-                  "Statuses the jobs ended in, one per `status` parameter; any status when none.",
-                ),
-              ),
-          ),
-          labels: z.optional(
-            z
-              .record(labelKeySchema, labelValueSchema)
-              .check(
-                z.describe(
-                  "Labels the jobs must all have had as they ended, as `labels[customer]=acme`; repeat for more.",
-                ),
-              ),
-          ),
+          status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
+          labels: labelFilterSchema,
         }),
       )
       .output(usageReportSchema),

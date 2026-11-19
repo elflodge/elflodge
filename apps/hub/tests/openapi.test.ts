@@ -86,7 +86,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
     },
   });
 
-  // A call a member may make answers 403 to a signed-in account that is not a member.
   const operations = Object.values<OpenAPIV3_2.PathItemObject>(document.paths).flatMap((path) =>
     [
       path.get,
@@ -101,6 +100,8 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       ...Object.values(path.additionalOperations ?? {}),
     ].filter((operation) => operation !== undefined),
   );
+
+  // A call a member may make answers 403 to a signed-in account that is not a member.
   for (const operation of operations.filter((each) =>
     each.security?.some((scheme) => "session" in scheme),
   )) {
