@@ -1,6 +1,6 @@
 # Deploying Elflodge
 
-The README starts one machine with `npx elflodge stack start`. This page has what running it for longer needs: host requirements, operating the local stack, a Compose deployment, opening the hub to Runners and callers on other machines, and how to call the hub's API directly.
+The README starts one machine with `npx elflodge stack start`. This guide covers host requirements, the local stack and a Docker Compose deployment. It also explains how to upgrade on rolling platforms and Cloudflare Workers, connect Runners and callers on other machines, and call the API directly.
 
 ## Host requirements
 
@@ -16,13 +16,13 @@ On Ubuntu 24.04, let the Runner's job sandboxes create user namespaces before st
 - **Web access.** Jobs' agents read web pages and PDFs with pi-web-access. Web search is off, except through a ChatGPT subscription the model runs on. To let jobs search through a provider, name it and forward its key: `BRAVE_API_KEY="$MY_BRAVE_KEY" npx elflodge stack start --search brave --env BRAVE_API_KEY`. A forwarded key alone does not turn search on, and `--reset-search` goes back to the default. The Runner's README covers [extensions](../apps/runner/README.md#extensions).
 - **Status and logs.** `npx elflodge stack status` shows whether the stack is running, the hub's URL and health, the image versions in use and the Runner's authentication source. `npx elflodge stack logs` prints the logs; `--follow` keeps printing them. A job stays `queued` until a Runner has room for it, and the Runner's log shows any error that keeps it from connecting.
 - **Stopping.** `npx elflodge stack stop` keeps the containers, data and credentials for the next start. `npx elflodge stack delete` removes the database and Runner volumes, including saved logins, without a prompt.
-- **Upgrading.** Run `npx elflodge stack stop`, back up the volumes if the data matters, then `npx elflodge@<new-version> stack start` with the new CLI version. Saved logins survive; if you used `--env`, supply those variables again.
+- **Upgrading.** Let the local Runner's jobs finish before running `npx elflodge stack stop`, which stops the Runner, hub and Postgres. A restarted Runner recovers its jobs from their journals, but a tool call cut off by the stop gets an `interrupted` result. Back up the stopped volumes. If you pin the images with `ELFLODGE_VERSION`, set it to the target version or unset it before starting, including when going back. Run `npx elflodge@<new-version> stack start`. It starts Postgres on its existing volume, waits up to 60 seconds for the hub to migrate and become healthy, then starts the matching Runner with its saved data and logins. If you forwarded variables with `--env`, have their values in your environment again. To go back, restore the pre-upgrade volumes and start with the previous CLI version.
 
 ## Several machines: Docker Compose
 
 The hub and a Runner from their published images on one machine, as a deployment that other machines' Runners and callers can reach once the hub is opened to them, as [Runners on other machines](#runners-on-other-machines) shows. It needs Docker Engine 29 or later and Compose 5 or later, `curl`, `jq` and `openssl`, and on Ubuntu 24.04 the host setting in [Host requirements](#host-requirements). Use current patch releases of [Docker Engine](https://docs.docker.com/engine/install/) and [Compose](https://docs.docker.com/compose/install/).
 
-1. **Start the hub.** It creates its owner from these settings on its first start and serves the API and the dashboard at `http://localhost:8787`. To create the owner in the dashboard instead, leave `ADMIN_EMAIL` and `ADMIN_PASSWORD` out: `docker compose logs hub` then shows a setup link, and step 2 uses the email and password you choose there. To upgrade later, rerun only the `curl` line from the current version of this page, then `docker compose up -d`, and after it upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release: before 1.0 a release may change how Runners talk to the hub, and a Runner newer than its hub is not supported, as a Kubernetes kubelet must not be newer than its API server.
+1. **Start the hub.** It creates its owner from these settings on its first start and serves the API and the dashboard at `http://localhost:8787`. To create the owner in the dashboard instead, leave `ADMIN_EMAIL` and `ADMIN_PASSWORD` out: `docker compose logs hub` then shows a setup link, and step 2 uses the email and password you choose there. For an existing installation, follow [Upgrading the Compose hub](#upgrading-the-compose-hub).
 
    <!-- x-release-please-start-version -->
 
@@ -72,6 +72,55 @@ The hub and a Runner from their published images on one machine, as a deployment
    Jobs read web pages and PDFs with pi-web-access, from the image's folder of extensions. Web search is off, except through a ChatGPT subscription the model runs on. To let jobs search through a provider, set `RUNNER_WEB_SEARCH`, such as `brave`, as the comment in `compose.yaml` shows, and add its key. To change the extensions, copy that folder out of the image you run with `docker compose cp runner:/app/extensions ./extensions`, edit the copy, mount it with `./extensions:/extensions:ro` in the runner's `volumes` and set `RUNNER_EXTENSIONS_DIR: /extensions`. When you upgrade the image, compare your own settings files, if any, with its defaults, and copy its folder to a new path, such as `./extensions-0.9.0`, and carry your edits over: its lockfile may pin newer extensions, and `docker compose cp` into an existing folder nests the copy inside it. The Runner's README covers [extensions](../apps/runner/README.md#extensions).
 
 4. **Submit jobs** as in [the README's first job](../README.md#an-everyday-chore-done-by-an-agent), from writing `job.json` on, with `export ELFLODGE_URL=http://localhost:8787`; `docker compose logs runner` shows any error that keeps the Runner from connecting.
+
+### Upgrading the Compose hub
+
+Allow a window for the hub to restart and migrate its database. Rerun only the `curl` line in step 1 from the new release's guide to get its Compose file. If you pin the image tags with `ELFLODGE_VERSION` in your shell or Compose `.env`, update it to the target version or unset it to use the file's tags. Do the same with the previous release's file if you go back. Run `docker compose pull hub` now so a failed image download leaves the old hub serving.
+
+For a predictable window, stop new submissions, pause Batches to block their queued jobs from placement, and let jobs already on Runners finish reporting. If the release changes the Runner protocol incompatibly, drain the Runners this way before upgrading the hub.
+
+Stop the hub, leave Postgres running, and back up the database to a new file. With the hub stopped, it cannot accept writes after the backup.
+
+```sh
+docker compose stop hub && docker compose exec -T database pg_dump -U elflodge -Fc elflodge > elflodge-pre-upgrade.dump
+```
+
+Wait for the backup command to succeed before starting the new release. Going back after migration requires this backup and the previous hub release.
+
+Use [Docker Compose `up`](https://docs.docker.com/reference/cli/docker/compose/up/) to start just the new hub and wait for it to become healthy. It migrates before it listens.
+
+```sh
+docker compose up --wait --no-deps hub
+```
+
+Runners that speak the new hub's protocol keep working and reconnect by themselves to report what finished. Targeting just the hub leaves a busy local Runner running. After a restart the Runner recovers its jobs from their journals, but a tool call cut off by the stop is reported as `interrupted`.
+
+If a command fails during the window, retry reads and calls that are safe to repeat once the hub is healthy. Retry a submission with the same IDs. For other writes, first check whether the hub committed the change before the connection closed. For example, repeating a request to create an API key can create a second key.
+
+Once the local Runner's jobs have finished, upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported, just as [Kubernetes requires the kubelet to be no newer than its API server](https://kubernetes.io/releases/version-skew-policy/#kubelet).
+
+## Upgrading on a rolling platform
+
+Stop the old hub, take a restorable Postgres backup, then start the new release. On Kubernetes, scale the hub Deployment to zero and wait for its Pod to terminate before the backup. Set the new image while scaled to zero, then scale back to one. A [`Recreate` rollout](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#recreate-deployment) starts the new Pod as soon as the old one stops, so it leaves no pause for the backup.
+
+## Upgrading a hub on Cloudflare Workers
+
+Before migrating, carry your deployed Hyperdrive binding and other edits in `wrangler.jsonc` over to the new release's `apps/hub/wrangler.jsonc`. Check the deployment from that directory first, because a failed deploy after setup leaves the old Worker on the new schema.
+
+1. Run `vp exec wrangler whoami` and confirm you are signed in to the account that runs the hub.
+2. Take the ID of the `HYPERDRIVE` binding from the new configuration and run `vp exec wrangler hyperdrive get <id>`. Confirm it points to the hub's Postgres database with caching disabled, as in [the hub's Workers setup](../apps/hub/README.md).
+3. Compare the names from `vp exec wrangler secret list` with `secrets.required` in the new configuration. Set any missing secret with `vp exec wrangler secret put <name>` before setup. Wrangler checks that the Worker can inherit those secrets at upload, which a dry run skips.
+4. Run `vp run deploy --dry-run` to build the dashboard assets and check that Wrangler can bundle the Worker with them.
+
+Back up the hub's Postgres database. With `DATABASE_URL` pointing directly to that database, run setup and deploy as soon as it succeeds:
+
+```sh
+vp run setup && vp run deploy
+```
+
+The old Worker serves on the new schema from the migration until the deployment has spread. Creating a Batch can return HTTP 500, and Runner reports can fail. Those errors clear as the new code takes over. Runners reconnect and resend outstanding reports. To go back, restore the database backup together with the old Worker version. Restoring the backup loses writes accepted after it was taken.
+
+Runner reports reach a Durable Object. By default an active object can keep running old code until it hibernates or its five-minute delay expires. Wrangler's `durable_objects.code_update_strategy` setting and its per-deploy `--durable-objects-code-update-mode` flag control [when Durable Objects adopt new code](https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/). In `deferred` mode, `max_delay` sets the maximum wait for hibernation in seconds. In `immediate` mode the active object resets onto the new code without waiting to hibernate.
 
 ## Runners on other machines
 
