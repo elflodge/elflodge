@@ -197,6 +197,9 @@ export const instructionsSchema = textSchema.check(z.minLength(1));
  */
 export const customIdSchema = textSchema.check(z.minLength(1), z.maxLength(255));
 
+// Shared with the dashboard's HTML pattern, which uses the Unicode sets flag.
+export const BATCH_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_\-]*$/v;
+
 /**
  * A Batch's ID, which names it in paths: 1 to 100 letters, digits, `_` and `-`, not beginning with
  * `-`, all of which a URL path carries as they are. Compared exactly, so `Invoices` and `invoices`
@@ -207,10 +210,7 @@ export const batchIdSchema = z
   .check(
     z.minLength(1),
     z.maxLength(100),
-    z.regex(
-      /^[A-Za-z0-9_][A-Za-z0-9_-]*$/,
-      "Must be letters, digits, `_` and `-`, not beginning with `-`",
-    ),
+    z.regex(BATCH_ID_PATTERN, "Must be letters, digits, `_` and `-`, not beginning with `-`"),
   );
 
 /**

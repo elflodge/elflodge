@@ -163,7 +163,7 @@
   --weight-mono-strong: 500; /* a job's name in the jobs list, in the mono */
   --row-day: 1.5rem; /* 24px: a day line between a list's days */
   --jobs-status: 6rem; /* "Succeeded" */
-  --jobs-beside: 10.375rem; /* "Unconfirmed since 12:30" */
+  --jobs-beside: 10.375rem; /* "Blocked: failure breaker" */
   --jobs-batch: 11.25rem; /* a Batch ID of 24 characters; a hub-made UUID is cut */
   --jobs-labels: 7.875rem; /* "team=finance +12" */
   --jobs-runner: 13rem; /* "nuc-backroom faf24790" whole; a long name not connected is cut */

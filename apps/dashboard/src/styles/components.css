@@ -741,7 +741,6 @@ p:has(> button) + .prose {
   }
   .records tr > td {
     display: block;
-    max-width: 100%;
     padding: 0;
     border: 0;
     font-size: var(--text-xs);
@@ -771,11 +770,6 @@ p:has(> button) + .prose {
     vertical-align: top;
     font-family: var(--font-sans);
     color: var(--c-ink-2);
-    font-weight: var(--weight-regular);
-  }
-  /* A value the record does not have is left out, its name with it. */
-  .records td[data-l]:empty {
-    display: none;
   }
 }
 
@@ -961,6 +955,7 @@ p mark.placeholder {
   width: 70%;
 }
 
+/* ---------- A job’s last confirmed status and the conditions reported beside it ---------- */
 .status-word {
   display: inline-flex;
   align-items: center;
@@ -1008,7 +1003,7 @@ p mark.placeholder {
   color: var(--c-failed);
 }
 
-/* ---------- Labels: key = value, in the mono, no chips; in one line, the whole ones that fit and then how many more ---------- */
+/* ---------- Labels: key = value, in the mono, no chips; in one line, the first and how many more ---------- */
 .labels {
   display: flex;
   flex-wrap: wrap;
@@ -1031,7 +1026,7 @@ p mark.placeholder {
   color: var(--c-ink-2);
   margin: 0 0.15em;
 }
-/* In one line: the whole Labels that fit, then how many more as plain text, every Label in its title. */
+/* In one line: the first Label, then how many more as plain text, every Label in its title. */
 .labels.is-line {
   flex-wrap: nowrap;
   gap: var(--space-2);
@@ -1142,6 +1137,9 @@ p mark.placeholder {
 .c-labels .labels {
   font-size: var(--text-xs);
 }
+.c-time .age {
+  white-space: nowrap;
+}
 .c-time .age,
 .c-cost .of {
   color: var(--c-ink-2);
@@ -1149,10 +1147,6 @@ p mark.placeholder {
 /* The Cost head carries the unit; a row says it only where the head is not shown. */
 .unit-inline {
   display: none;
-}
-.job-list tr.is-deleted .job-name {
-  text-decoration-line: line-through;
-  color: var(--c-ink-2);
 }
 .sk-row .sk {
   width: 9rem;
@@ -1180,10 +1174,12 @@ p mark.placeholder {
   vertical-align: bottom;
 }
 
-/* A column gives way at zero width so the day line still spans all ten columns. */
+/* The Batch beside a custom ID identifies the job on a single line. */
 .job-list .job-name + .sid {
   display: none;
 }
+/* Each tier adds the visible --jobs-* widths and space for the Job name. Container
+   conditions cannot use var(). A column at zero width still counts in the day heading’s span. */
 @container job-list (width < 97.25rem) {
   .job-list :is(th, td).c-submitter {
     width: 0;
@@ -1217,7 +1213,20 @@ p mark.placeholder {
   .job-list tbody {
     display: block;
   }
-  .job-list thead {
+  /* Keep the visible cells’ headings and row-specific empty positions in the reading order. */
+  .job-list thead,
+  .job-list tr.job-row > td.c-beside:not(:has(.beside)) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .job-list thead :is(.c-submitter, .c-labels, .c-runner, .c-tokens) {
     display: none;
   }
   .job-list tr.job-row {
@@ -1282,8 +1291,7 @@ p mark.placeholder {
     width: 5.75rem;
   }
   .job-list tr.job-row > :is(.c-submitter, .c-labels, .c-runner, .c-tokens),
-  .job-list .c-cost .of,
-  .job-list tr.job-row > .c-beside:not(:has(.beside)) {
+  .job-list .c-cost .of {
     display: none;
   }
   .job-list .job-name + .sid {
@@ -1317,7 +1325,10 @@ p mark.placeholder {
 /* Narrower than 30rem, a row with something beside its status gives up its Batch: the two would not both fit. */
 @container job-list (width < 30rem) {
   .job-list tr.job-row:has(.c-beside .beside) > .c-batch {
-    display: none;
+    position: absolute;
+    width: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 }
 /* Each line is at least 44px on touch. */
@@ -1371,6 +1382,7 @@ p mark.placeholder {
 
 .filters-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-1) 0;
@@ -1411,27 +1423,10 @@ p mark.placeholder {
 .filter-act {
   display: inline-flex;
   gap: var(--space-2);
-  margin-left: auto;
 }
 
 .filter-status .mark {
   color: var(--c-ink-2);
-}
-/* Above the disclosure tier the six checks still fit side by side when their labels go above. */
-@media (760px < width <= 62rem) {
-  .filters-row:first-child {
-    column-gap: var(--space-2);
-  }
-  .filter-status {
-    column-gap: var(--space-1);
-  }
-  .filter-status legend {
-    float: none;
-  }
-  .filters-row:first-child .filter-field {
-    display: grid;
-    gap: 0;
-  }
 }
 @media (max-width: 760px) {
   .filter-toggle {
@@ -1455,12 +1450,6 @@ p mark.placeholder {
   .filter-field > select {
     width: 100%;
     max-width: none;
-  }
-  .filter-act {
-    margin-left: 0;
-  }
-  .check {
-    min-height: var(--control-touch);
   }
 }
 

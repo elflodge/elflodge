@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/solid-query";
 import type { UseQueryResult } from "@tanstack/solid-query";
-import { Link, createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { jobStatusSchema } from "contract";
+import { Link, createFileRoute, useNavigate, useRouterState } from "@tanstack/solid-router";
+import { BATCH_ID_PATTERN, jobStatusSchema } from "contract";
 import type { JobRunner, JobsPage, ListedJob, Runner } from "contract";
 import { For, Loading, Match, Repeat, Show, Switch, createMemo, createSignal } from "solid-js";
 import * as z from "zod/mini";
@@ -22,16 +22,11 @@ import {
   formatUsd,
   timeZoneNote,
 } from "../../../format.ts";
-import { orpc } from "../../../query.ts";
+import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
-/** How many jobs a page holds: the hub's own default. */
-const PAGE = 50;
-
-/** How often the list is read again while the page is visible. */
-const REFRESH = 15_000;
-
 const STATUSES = jobStatusSchema.options;
+const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undefined);
 
 /**
  * The list's filters and its page, held in the address so that a link or a reload keeps them. A
@@ -39,19 +34,13 @@ const STATUSES = jobStatusSchema.options;
  * hub refuses, such as a Batch ID it does not allow, is the hub's to name when the list is read.
  */
 const jobsSearchSchema = z.object({
-  status: z.catch(z.optional(z.array(jobStatusSchema)), undefined),
+  status: z.catch(z.optional(z.array(jobStatusSchema).check(z.minLength(1))), undefined),
   statusUnknown: z.catch(z.optional(z.boolean()), undefined),
-  batchId: z.catch(z.optional(z.string()), undefined),
-  runnerId: z.catch(z.optional(z.string()), undefined),
-  after: z.catch(z.optional(z.string()), undefined),
+  batchId: optionalText,
+  runnerId: optionalText,
+  after: optionalText,
 });
 type JobsSearch = z.infer<typeof jobsSearchSchema>;
-
-/** The read of `GET /jobs` that `search` asks for. */
-function listInput(search: JobsSearch) {
-  // No status is any status, as for the hub; an empty list is left out rather than sent.
-  return { ...search, status: search.status?.length ? search.status : undefined, limit: PAGE };
-}
 
 /** How many of the filters `search` applies; the page it reads from is not one. */
 function filterCount(search: JobsSearch) {
@@ -69,9 +58,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs")({
   loader: async ({ context, deps }) => {
     if (!context.member) return;
     await readFromHub("The jobs", () =>
-      context.queryClient.query(
-        orpc.jobs.list.queryOptions({ input: listInput(deps), staleTime: "static" }),
-      ),
+      context.queryClient.query(orpc.jobs.list.queryOptions({ input: deps, staleTime: "static" })),
     );
   },
   // Shown while another page or other filters are read for longer than the router's wait, rather
@@ -99,7 +86,7 @@ function Reading() {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
   return (
     <>
-      <JobsHeader runners={runners.isSuccess ? runners.data : undefined} />
+      <JobsHeader runners={runners.dataUpdatedAt ? runners.data : undefined} />
       <LoadingList />
     </>
   );
@@ -120,12 +107,12 @@ function JobsHeader(props: { runners?: Runner[] }) {
 function Jobs() {
   const search = Route.useSearch();
   const jobs = useQuery(() =>
-    orpc.jobs.list.queryOptions({ input: listInput(search()), refetchInterval: REFRESH }),
+    orpc.jobs.list.queryOptions({ input: search(), refetchInterval: REFRESH_INTERVAL_MS }),
   );
   const runners = useQuery(() => orpc.runners.list.queryOptions());
   return (
     <>
-      <JobsHeader runners={runners.isSuccess ? runners.data : undefined} />
+      <JobsHeader runners={runners.dataUpdatedAt ? runners.data : undefined} />
       <Loading fallback={<LoadingList />} on={search()}>
         <Show when={jobs.isError || jobs.data.jobs.length}>
           <p class="note">{timeZoneNote()}</p>
@@ -147,7 +134,7 @@ function Jobs() {
           </a>
           <JobsTable
             jobs={jobs.data.jobs}
-            runners={runners.isSuccess ? runners.data : []}
+            runners={runners.dataUpdatedAt ? runners.data : []}
             readAt={jobs.dataUpdatedAt}
           />
           <Paging search={search()} page={jobs.data} />
@@ -161,6 +148,7 @@ function Jobs() {
 function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
   const navigate = useNavigate();
   const applied = () => filterCount(props.search);
+  const navigating = useRouterState({ select: (state) => state.status === "pending" });
 
   const [open, setOpen] = createSignal(() => applied() > 0);
 
@@ -246,7 +234,14 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
         <div class="filters-row">
           <div class="filter-field">
             <label for="jobs-batch">Batch</label>
-            <input id="jobs-batch" name="batchId" value={props.search.batchId ?? ""} />
+            <input
+              id="jobs-batch"
+              name="batchId"
+              pattern={BATCH_ID_PATTERN.source}
+              maxlength={100}
+              title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
+              value={props.search.batchId ?? ""}
+            />
           </div>
           <div class="filter-field">
             <label for="jobs-runner">Runner</label>
@@ -264,7 +259,7 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
             </select>
           </div>
           <span class="filter-act">
-            <button type="submit" class="primary">
+            <button type="submit" class="primary" disabled={navigating()}>
               Apply
             </button>
             <Show when={applied() > 0}>
@@ -343,40 +338,36 @@ function JobsTable(props: { jobs: ListedJob[]; runners: Runner[]; readAt: number
       ...props.jobs.flatMap((job) => (job.runner ? [job.runner.id] : [])),
     ]),
   );
+  const days = createMemo(() =>
+    Array.from(Map.groupBy(props.jobs, (job) => new Date(job.createdAt).setHours(0, 0, 0, 0))),
+  );
   const readDay = () => new Date(props.readAt);
   return (
     <div class="job-list-frame">
       <table class="job-list" role="table">
         <caption class="vh">Jobs</caption>
         <ListHead />
-        <tbody role="rowgroup">
-          <For each={props.jobs} keyed={(job) => job.id}>
-            {(job, index) => (
-              <>
-                <Show
-                  when={
-                    props.jobs[index() - 1]?.createdAt.toDateString() !==
-                    job().createdAt.toDateString()
-                  }
-                >
-                  <tr class="day-line" role="row">
-                    <th colspan={COLUMNS.length} scope="colgroup" role="rowheader">
-                      Created{" "}
-                      {job().createdAt.toDateString() === readDay().toDateString() && "today, "}
-                      <Instant
-                        value={job().createdAt}
-                        format={
-                          job().createdAt.getFullYear() === readDay().getFullYear() ? DAY : DAY_YEAR
-                        }
-                      />
-                    </th>
-                  </tr>
-                </Show>
-                <JobRow job={job()} runnerIds={ids()} readAt={props.readAt} />
-              </>
-            )}
-          </For>
-        </tbody>
+        <For each={days()} keyed={([day]) => day}>
+          {(group) => {
+            const day = () => new Date(group()[0]);
+            return (
+              <tbody role="rowgroup">
+                <tr class="day-line" role="row">
+                  <th colspan={COLUMNS.length} scope="rowgroup" role="rowheader">
+                    Created {day().toDateString() === readDay().toDateString() && "today, "}
+                    <Instant
+                      value={day()}
+                      format={day().getFullYear() === readDay().getFullYear() ? DAY : DAY_YEAR}
+                    />
+                  </th>
+                </tr>
+                <For each={group()[1]} keyed={(job) => job.id}>
+                  {(job) => <JobRow job={job()} runnerIds={ids()} readAt={props.readAt} />}
+                </For>
+              </tbody>
+            );
+          }}
+        </For>
       </table>
     </div>
   );
@@ -386,7 +377,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
   // The tail distinguishes jobs created together, which share their UUIDv7 timestamp prefix.
   const shortId = () => `…${props.job.id.slice(-8)}`;
   return (
-    <tr role="row" class={["job-row", { "is-deleted": !!props.job.deletedAt }]}>
+    <tr role="row" class="job-row">
       <td role="cell" class="c-status">
         <JobStatus job={props.job} />
       </td>
@@ -476,20 +467,9 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
 
 function Labels(props: { labels: NonNullable<ListedJob["labels"]> }) {
   const entries = createMemo(() => Object.entries(props.labels));
-  // The Labels column has 112px for text. Reserve the count and its gap only if more follow.
-  const count = createMemo(() => {
-    let width = 0;
-    let withCount = 1;
-    for (const [index, [key, value]] of entries().entries()) {
-      width += (index ? 8 : 0) + 7 * (key.length + 1 + value.length);
-      if (width > 112) return withCount;
-      if (width + 32 <= 112) withCount = index + 1;
-    }
-    return entries().length;
-  });
   return (
     <ul class="labels is-line">
-      <For each={entries().slice(0, count())}>
+      <Show when={entries()[0]} keyed>
         {([key, value]) => (
           <li>
             <span class="cut" title={`${key}=${value}`}>
@@ -499,15 +479,15 @@ function Labels(props: { labels: NonNullable<ListedJob["labels"]> }) {
             </span>
           </li>
         )}
-      </For>
-      <Show when={count() < entries().length}>
+      </Show>
+      <Show when={entries().length > 1}>
         <li
           class="labels-more"
           title={entries()
             .map(([key, value]) => `${key}=${value}`)
             .join(", ")}
         >
-          +{entries().length - count()}
+          +{entries().length - 1}
           <span class="vh"> more Labels</span>
         </li>
       </Show>
@@ -594,19 +574,19 @@ function NoJobs(props: { search: JobsSearch; runners: UseQueryResult<Runner[]> }
   return (
     <div class="empty">
       <Switch>
+        <Match when={props.search.after !== undefined}>
+          <h2>No older jobs</h2>
+          <p class="empty-act">
+            <Link to="/jobs" search={{ ...props.search, after: undefined }} class="stands-alone">
+              Newest jobs
+            </Link>
+          </p>
+        </Match>
         <Match when={filterCount(props.search) > 0}>
           <h2>No job matches these filters</h2>
           <p class="empty-act">
             <Link to="/jobs" search={{}} class="stands-alone">
               Clear the filters
-            </Link>
-          </p>
-        </Match>
-        <Match when={props.search.after !== undefined}>
-          <h2>No older jobs</h2>
-          <p class="empty-act">
-            <Link to="/jobs" search={{}} class="stands-alone">
-              Newest jobs
             </Link>
           </p>
         </Match>

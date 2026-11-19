@@ -120,7 +120,7 @@ test("sign-in allows keyboard retry, stays disabled during navigation and discar
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   const member = await newMember(system, "Keyboard Reader");
-  // A destination on another site is discarded, so signing in leads jobs.
+  // A destination on another site is discarded, so signing in opens the Jobs list.
   await page.goto(`${system.origin}/dashboard/sign-in?redirect=//elsewhere.example/other`);
   await page.getByLabel("Email").fill(member.email);
   const password = page.getByLabel("Password");

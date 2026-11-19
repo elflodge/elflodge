@@ -382,7 +382,7 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 
 A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. Its name column takes a fifth of the table, leaving room for the permissions. An absent name reads "Unnamed" in the secondary sans (`.unnamed`).
 
-At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them. A cell with nothing in it is left out, its name with it.
+At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
 ### Jobs list
 
@@ -390,13 +390,13 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 The frame's width sets the tiers. Below 97.25rem Submitter gives way, below 86.75rem Tokens, and below 82rem Labels. Below 74.125rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
 
-The job's name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. It becomes the link to the job when the job page exists. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`. A job without a custom ID has its short ID as its name at every width. A deleted job's row, `tr.is-deleted`, strikes through the name.
+The job's name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. It becomes the link to the job when the job page exists. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`. A job without a custom ID has its short ID as its name at every width.
 
 The Batch is a cut identifier in the mono. A submitter's name has its kind beside it in `span.unit`. A member's name is in the sans, a key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans. An absent submitter leaves the cell empty.
 
-`ul.labels.is-line` shows whole Labels as a key, an equals sign and a value. The key and sign use the secondary ink. Allow 112px for the line, 7px per character, 8px between items and 24px for the count. At least one Label shows. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
+`ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key and sign use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 
-A `tr.day-line` spans all ten columns before the first job created on each local day. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows, when present, in secondary ink with two to four decimals. On two lines the cost carries its USD unit and the budget gives way.
+Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows, when present, in secondary ink with two to four decimals. On two lines the cost carries its USD unit and the budget gives way.
 
 ### A job's status
 
@@ -410,9 +410,9 @@ The next cell holds each condition on its own line. "Status unknown" has the unk
 
 ### Filters
 
-The filters live in the address. The first `div.filters-row` holds the six status checks and Status unknown. The second holds Batch, Runner, Apply and, when a filter applies, Clear. The actions sit at the end of the row. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and starts expanded when any apply. Fields stack at full width and each checkbox label is at least 44px tall.
+The filters live in the address. The first `div.filters-row` holds the six status checks and Status unknown. The second holds Batch, Runner, Apply and, when a filter applies, Clear. Apply and Clear follow Runner. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and starts expanded when any apply. Fields stack at full width. Checkboxes use the shared touch target.
 
-The time-zone note sits below the filters when the list has jobs or a read failed. A slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
+The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
 
 ### The end of a list
 
@@ -448,7 +448,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height.
 3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.
-5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`.
+5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`. In the Jobs list a cut job name has only its title until the job page makes the name a link.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
 
 ## Adding a part

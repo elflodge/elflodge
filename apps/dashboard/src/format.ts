@@ -13,9 +13,10 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
-/** Creation days and event times in a Jobs list, where the day line supplies the date. */
+/** A local creation day, with its year when it differs from the year of the read. */
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
 export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
+/** An event time, dated when it falls outside the row group’s creation day. */
 export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
 export const DAY_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   day: "numeric",
@@ -101,11 +102,12 @@ export function formatRoles(roles: string): string {
   return ROLE_LIST.format(roles.split(","));
 }
 
-/** An amount in US dollars, such as "0.0031", without its unit, which the column head says. */
+/** An amount in US dollars, to four decimal places so a fraction of a cent remains visible. */
 export function formatUsd(amount: number): string {
   return USD.format(amount);
 }
 
+/** A budget in USD, with two to four decimal places. */
 export const USD_BUDGET = new Intl.NumberFormat(LANGUAGE, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 4,
