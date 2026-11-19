@@ -1,9 +1,10 @@
+import { Struct } from "effect";
 import { type Browser, type Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser } from "./dashboard-browser.ts";
-import { protocolClient, startedJobReport, startSystem, threeMinutesPass } from "./harness.ts";
+import { backdateJobContact, protocolClient, startedJobReport, startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
 // other sites from acting with a member's session.
@@ -219,6 +220,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
   const client = await system.clientWithNewJobsKey();
   const batch = await client.batches.create({
     agent: { outputContract: { schema: {} } },
+    // Place all seven jobs at once. The default Canary releases only the first five.
     breaker: false,
   });
   await client.batches.addJobs({
@@ -240,7 +242,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
   });
   const runner = protocolClient(socket);
   const { runs } = await runner.request("sync", { held: [], free: 7 }, 10_000);
-  const held = runs.map(({ jobId, runId }) => ({ jobId, runId }));
+  const held = runs.map(Struct.pick(["jobId", "runId"]));
   await runner.request(
     "report",
     {
@@ -252,15 +254,16 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
     10_000,
   );
   // Two starts are still confirmed. The third start and all four queued placements go unheard.
-  await threeMinutesPass(held.slice(2).map(({ jobId }) => jobId));
+  await backdateJobContact(held.slice(2).map(({ jobId }) => jobId));
   await page.clock.fastForward(5_000);
   const running = strip.getByRole("listitem").filter({ hasText: "agents running" });
   await expectBrowser(running).toHaveText("3 agents running");
+  await expectBrowser(running).not.toContainClass("hub-unknown");
   await expectBrowser(running.locator(".mark-running")).toBeVisible();
   await expectBrowser(running.locator(".mark-running")).not.toContainClass("is-out");
   await expectBrowser(strip.getByText("5 status unknown", { exact: true })).toBeVisible();
 
-  await threeMinutesPass(held.slice(0, 2).map(({ jobId }) => jobId));
+  await backdateJobContact(held.slice(0, 2).map(({ jobId }) => jobId));
   await page.clock.fastForward(5_000);
   await expectBrowser(running).toHaveText("3 agents running, status unknown");
   await expectBrowser(running).toContainClass("hub-unknown");

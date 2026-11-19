@@ -1434,6 +1434,11 @@ const LISTED_JOB_COLUMNS = [
   ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
+function countJobsWithStatus<S extends JobStatus>(status: S) {
+  return (eb: ExpressionBuilder<Database, "job">) =>
+    eb.fn.countAll<number>().filterWhere("job.status", "=", status).as(status);
+}
+
 /**
  * The Organization's unfinished jobs by recorded status, with separate counts of queued and running
  * jobs whose status the hub cannot confirm (`isStatusUnknown`).
@@ -1442,15 +1447,17 @@ export function countJobs() {
   return Db.use((database) =>
     database.query((db): Promise<JobCounts> => {
       const now = new Date();
-      const count = <S extends JobStatus>(status: S) =>
-        db.fn.countAll<number>().filterWhere("job.status", "=", status).as(status);
       // One statement, so every count is of the same moment. The partial index on unfinished jobs'
       // statuses can cover the counts by status, though Postgres still reads the rows on pages a
       // vacuum has not marked all-visible.
       const totals = db
         .selectFrom("job")
         .where("job.status", "in", UNFINISHED)
-        .select([count("queued"), count("running"), count("paused")]);
+        .select([
+          countJobsWithStatus("queued"),
+          countJobsWithStatus("running"),
+          countJobsWithStatus("paused"),
+        ]);
       const unknown = db
         .selectFrom("job")
         // A placed job has a Runner (`job_placedAt_check`). When most queued jobs are unplaced,
@@ -1474,7 +1481,7 @@ export function countJobs() {
             now,
           ),
         )
-        .select([count("queued"), count("running")]);
+        .select([countJobsWithStatus("queued"), countJobsWithStatus("running")]);
       return db
         .selectFrom(totals.as("totals"))
         .crossJoin(unknown.as("unknown"))

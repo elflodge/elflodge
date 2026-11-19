@@ -2,11 +2,11 @@ import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
 import {
   type OneJob,
+  backdateJobContact,
   protocolClient,
   startedJobReport,
   startSystem,
   submitJob,
-  threeMinutesPass,
 } from "./harness.ts";
 
 // A job sent to a Runner keeps the last status its Runner confirmed, and shows `statusUnknown` once
@@ -41,7 +41,7 @@ test("a job whose Runner goes unheard shows its status unknown, counted and list
   const { client, job, runnerId, socket, runner } = await placedJob();
   expect(await client.jobs.get({ id: job.id })).not.toHaveProperty("statusUnknown");
 
-  const since = await threeMinutesPass([job.id], runnerId);
+  const since = await backdateJobContact([job.id], runnerId);
 
   const read = await client.jobs.get({ id: job.id });
   expect(read).toMatchObject({
@@ -97,7 +97,7 @@ test("the Organization's unfinished jobs are counted by status, with those whose
   await expectChange({ queued: 1 });
 
   // Unheard before its first report: still counted as queued, and as unknown.
-  await threeMinutesPass([job.id], runnerId);
+  await backdateJobContact([job.id], runnerId);
   await expectChange({ queued: 1, unknownQueued: 1 });
 
   // Its start, reported, moves it to running and confirms it.
@@ -113,7 +113,7 @@ test("the Organization's unfinished jobs are counted by status, with those whose
   );
   await expectChange({ running: 1 });
 
-  await threeMinutesPass([job.id]);
+  await backdateJobContact([job.id]);
   await expectChange({ running: 1, unknownRunning: 1 });
 
   // A stray parameter is refused, not answered with counts that would read as the Batch's.
@@ -127,7 +127,7 @@ test("the Organization's unfinished jobs are counted by status, with those whose
 test("a job its connected Runner stops reporting shows its status unknown until it reports", async () => {
   const { client, job, socket, runner, run } = await placedJob();
 
-  const since = await threeMinutesPass([job.id]);
+  const since = await backdateJobContact([job.id]);
 
   expect(await client.jobs.get({ id: job.id })).toMatchObject({
     status: "queued",

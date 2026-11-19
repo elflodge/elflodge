@@ -80,10 +80,10 @@ export function startedJobReport({ jobId, runId }: RunRef): JobReport {
 }
 
 /**
- * Moves the jobs' placement and last report, and optionally their Runner's last contact, three
- * minutes back. Returns the time their status became unknown.
+ * Sets the jobs' placement and existing report times to three minutes before now. When given a
+ * Runner ID, also sets its last contact to that time. Returns when the jobs' status became unknown.
  */
-export async function threeMinutesPass(jobIds: string[], runnerId?: string) {
+export async function backdateJobContact(jobIds: string[], runnerId?: string) {
   await using database = openDatabase(inject("databaseUrl"));
   const db = database.withSchema(DB_SCHEMA);
   const back = new Date(Date.now() - 3 * 60_000);
@@ -93,6 +93,7 @@ export async function threeMinutesPass(jobIds: string[], runnerId?: string) {
     .updateTable("jobProgress")
     .set({ lastReportedAt: back })
     .where("jobId", "in", ids)
+    // Before the first report, placement alone determines when the job was last heard from.
     .where("lastReportedAt", "is not", null)
     .execute();
   if (runnerId !== undefined) {
