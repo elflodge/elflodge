@@ -269,7 +269,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
 
-No page uses `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
+No page uses `formatUsd`, `UtcDay`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
 
 ### Records table
 
