@@ -11,11 +11,20 @@ import {
   ControlRefused,
   IdReused,
   type JobSubmission,
+  jobStatusSchema,
   labelsSchema,
   NotFound,
 } from "contract";
 import { Array, Effect, Order } from "effect";
-import { type ExpressionBuilder, type Kysely, type NotNull, sql, type Transaction } from "kysely";
+import {
+  type Expression,
+  expressionBuilder,
+  type SqlBool,
+  type Kysely,
+  type NotNull,
+  sql,
+  type Transaction,
+} from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import * as z from "zod/mini";
 
@@ -38,6 +47,7 @@ import { InvalidInput } from "./invalid-input.ts";
 import {
   apiSubmitterOf,
   contentHashOf,
+  jobCountsByStatus,
   insertUsageRecords,
   limitProblems,
   readJobs,
@@ -78,6 +88,42 @@ function apiBreakerOf(row: { canary: number | null; maxFailurePercent: number | 
     : { canary: row.canary, maxFailurePercent: row.maxFailurePercent };
 }
 
+const BATCH_COLUMNS = [
+  "id",
+  "createdAt",
+  "labels",
+  "canary",
+  "maxFailurePercent",
+  "pausedBy",
+  "cancelledAt",
+  ...SUBMITTER_COLUMNS,
+] as const satisfies readonly (keyof BatchRow)[];
+
+function hasUnfinishedJobs(countFor: (status: JobStatus) => Expression<number>) {
+  const eb = expressionBuilder();
+  return eb.or(UNFINISHED.map((status) => eb(countFor(status), ">", 0)));
+}
+
+/**
+ * A cancel clears the pause and the Batch takes no more jobs and resumes none. It stays active
+ * until its Runners stop its unfinished jobs.
+ */
+function batchStatus(
+  cancelledAt: Expression<BatchRow["cancelledAt"]>,
+  pausedBy: Expression<BatchRow["pausedBy"]>,
+  anyUnfinishedJob: Expression<SqlBool>,
+) {
+  const eb = expressionBuilder();
+  return eb
+    .case()
+    .when(eb.and([eb(cancelledAt, "is not", null), eb.not(anyUnfinishedJob)]))
+    .then(eb.val<BatchStatus>("cancelled"))
+    .when(pausedBy, "is not", null)
+    .then(eb.val<BatchStatus>("paused"))
+    .else(eb.val<BatchStatus>("active"))
+    .end();
+}
+
 /**
  * The Batch `which`, by its `uid` or by the ID the API shows, as the API reports it, with its
  * jobs' counts and usage read from them; or nothing when there is no such Batch.
@@ -95,59 +141,40 @@ export async function readBatch(
           .selectFrom("job as j")
           .innerJoin("jobProgress as p", "p.jobId", "j.id")
           .whereRef("j.batchUid", "=", "b.uid")
-          .select((agg) => {
-            const count = (status: JobStatus) =>
-              agg.fn.countAll<number>().filterWhere("j.status", "=", status).as(status);
-            return [
-              count("queued"),
-              count("running"),
-              count("paused"),
-              count("succeeded"),
-              count("failed"),
-              count("cancelled"),
-              agg.fn
-                .countAll<number>()
-                .filterWhere(
-                  isStatusUnknown(
-                    {
-                      status: agg.ref("j.status"),
-                      placedAt: agg.ref("j.placedAt"),
-                      runnerId: agg.ref("j.runnerId"),
-                      lastReportedAt: agg.ref("p.lastReportedAt"),
-                    },
-                    now,
-                  ),
-                )
-                .as("statusUnknown"),
-              // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.
-              agg
-                .cast<number>(agg.fn.coalesce(agg.fn.sum("p.totalTokens"), agg.lit(0)), "bigint")
-                .as("totalTokens"),
-              agg.fn.coalesce(agg.fn.sum<number>("p.costUsd"), agg.lit(0)).as("costUsd"),
-            ];
-          })
+          .select((agg) => [
+            ...jobCountsByStatus(agg.ref("j.status"), jobStatusSchema.options),
+            agg.fn
+              .countAll<number>()
+              .filterWhere(
+                isStatusUnknown(
+                  {
+                    status: agg.ref("j.status"),
+                    placedAt: agg.ref("j.placedAt"),
+                    runnerId: agg.ref("j.runnerId"),
+                    lastReportedAt: agg.ref("p.lastReportedAt"),
+                  },
+                  now,
+                ),
+              )
+              .as("statusUnknown"),
+            // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.
+            agg
+              .cast<number>(agg.fn.coalesce(agg.fn.sum("p.totalTokens"), agg.lit(0)), "bigint")
+              .as("totalTokens"),
+            agg.fn.coalesce(agg.fn.sum<number>("p.costUsd"), agg.lit(0)).as("costUsd"),
+          ])
           .as("j"),
       (join) => join.onTrue(),
     )
-    .select([
-      "b.id",
-      "b.createdAt",
-      "b.labels",
-      "b.canary",
-      "b.maxFailurePercent",
-      "b.pausedBy",
-      "b.cancelledAt",
-      ...SUBMITTER_COLUMNS.map((column) => `b.${column}` as const),
-      "j.queued",
-      "j.running",
-      "j.paused",
-      "j.succeeded",
-      "j.failed",
-      "j.cancelled",
-      "j.statusUnknown",
-      "j.totalTokens",
-      "j.costUsd",
-    ])
+    .select(BATCH_COLUMNS)
+    .selectAll("j")
+    .select((eb) =>
+      batchStatus(
+        eb.ref("b.cancelledAt"),
+        eb.ref("b.pausedBy"),
+        hasUnfinishedJobs((status) => eb.ref(`j.${status}`)),
+      ).as("status"),
+    )
     .$call((query) =>
       "uid" in which
         ? query.where("b.uid", "=", which.uid)
@@ -163,41 +190,18 @@ export async function readBatch(
 }
 
 /** What `listedBatchOf` reads of a Batch: its row, and its jobs' counts. */
-interface ListedBatchRow extends Pick<BatchRow, (typeof SUBMITTER_COLUMNS)[number]> {
-  id: string;
-  createdAt: Date;
-  labels: Batch["labels"];
-  canary: number | null;
-  maxFailurePercent: number | null;
-  pausedBy: Batch["pausedBy"];
-  cancelledAt: Date | null;
-  queued: number;
-  running: number;
-  paused: number;
-  succeeded: number;
-  failed: number;
-  cancelled: number;
-  statusUnknown: number;
-}
+type ListedBatchRow = Pick<BatchRow, (typeof BATCH_COLUMNS)[number]> &
+  Batch["jobCounts"] & { status: BatchStatus; statusUnknown: number };
 
 /** A Batch as a list shows it, from its row and its jobs' counts. */
 function listedBatchOf(row: ListedBatchRow): ListedBatch {
-  const unfinished = row.queued + row.running + row.paused;
-  // A cancel clears the pause, and a cancelled Batch takes no jobs and resumes none, so every
-  // unfinished job of a cancelled Batch is one whose Runner has yet to stop it.
-  const cancelWaits = row.cancelledAt !== null && unfinished > 0;
   return {
     id: row.id,
     createdAt: row.createdAt,
-    status:
-      row.cancelledAt !== null && !cancelWaits
-        ? "cancelled"
-        : row.pausedBy !== null
-          ? "paused"
-          : "active",
+    status: row.status,
     submitter: apiSubmitterOf(row),
     pausedBy: row.pausedBy,
-    ...(cancelWaits && row.cancelledAt !== null
+    ...(row.cancelledAt !== null && row.status !== "cancelled"
       ? { pendingControl: { type: "cancel" as const, requestedAt: row.cancelledAt } }
       : {}),
     labels: row.labels,
@@ -223,30 +227,6 @@ export interface BatchListQuery {
 }
 
 /**
- * Whether a Batch's status, as `listedBatchOf` derives it, is `status`: `paused` while it is
- * paused, `cancelled` once it was cancelled and none of its jobs is unfinished, `active` otherwise.
- */
-function batchStatusIs(
-  eb: ExpressionBuilder<Database & { b: BatchRow }, "b">,
-  status: BatchStatus,
-) {
-  const unfinishedJob = eb.exists(
-    eb
-      .selectFrom("job")
-      .select("job.id")
-      .whereRef("job.batchUid", "=", "b.uid")
-      .where("job.status", "in", UNFINISHED),
-  );
-  const cancelled = eb.and([eb("b.cancelledAt", "is not", null), eb.not(unfinishedJob)]);
-  const conditions = {
-    paused: eb.and([eb("b.pausedBy", "is not", null), eb.not(cancelled)]),
-    cancelled,
-    active: eb.and([eb("b.pausedBy", "is", null), eb.not(cancelled)]),
-  };
-  return conditions[status];
-}
-
-/**
  * A page of Batches, newest first by their `uid`, which follows their creation, with their jobs'
  * counts; or `InvalidInput` naming `after` when it names no Batch.
  */
@@ -263,21 +243,30 @@ export function listBatches(query: BatchListQuery) {
         .with("page", (qb) => {
           let selection = qb
             .selectFrom("batch as b")
-            .select([
-              "b.uid",
-              "b.id",
-              "b.createdAt",
-              "b.labels",
-              "b.canary",
-              "b.maxFailurePercent",
-              "b.pausedBy",
-              "b.cancelledAt",
-              ...SUBMITTER_COLUMNS.map((column) => `b.${column}` as const),
-            ])
+            .select(BATCH_COLUMNS)
+            .select("b.uid")
             .where((eb) => {
               const filters = [];
               if (statuses.length > 0) {
-                filters.push(eb.or(statuses.map((status) => batchStatusIs(eb, status))));
+                // For a paused-only page, rule out unpaused Batches before looking at their jobs;
+                // batchStatus gives "paused" only to a Batch with `pausedBy` set.
+                if (statuses.every((status) => status === "paused")) {
+                  filters.push(eb("b.pausedBy", "is not", null));
+                }
+                const unfinishedJob = eb.exists(
+                  eb
+                    .selectFrom("job")
+                    .select("job.id")
+                    .whereRef("job.batchUid", "=", "b.uid")
+                    .where("job.status", "in", UNFINISHED),
+                );
+                filters.push(
+                  eb(
+                    batchStatus(eb.ref("b.cancelledAt"), eb.ref("b.pausedBy"), unfinishedJob),
+                    "in",
+                    statuses,
+                  ),
+                );
               }
               if (labels !== undefined && Object.keys(labels).length > 0) {
                 filters.push(eb("b.labels", "@>", labels));
@@ -317,19 +306,10 @@ export function listBatches(query: BatchListQuery) {
             .selectFrom("job as j")
             .innerJoin("shown", "shown.uid", "j.batchUid")
             .groupBy("j.batchUid")
-            .select((agg) => {
-              const count = (status: JobStatus) =>
-                agg.fn.countAll<number>().filterWhere("j.status", "=", status).as(status);
-              return [
-                "j.batchUid",
-                count("queued"),
-                count("running"),
-                count("paused"),
-                count("succeeded"),
-                count("failed"),
-                count("cancelled"),
-              ];
-            }),
+            .select((agg) => [
+              "j.batchUid",
+              ...jobCountsByStatus(agg.ref("j.status"), jobStatusSchema.options),
+            ]),
         )
         .with("unknown", (qb) =>
           qb
@@ -353,27 +333,17 @@ export function listBatches(query: BatchListQuery) {
         .selectFrom("page")
         .leftJoin("counts", "counts.batchUid", "page.uid")
         .leftJoin("unknown", "unknown.batchUid", "page.uid")
+        .selectAll("page")
         .select((eb) => {
-          const zeroed = <
-            C extends "queued" | "running" | "paused" | "succeeded" | "failed" | "cancelled",
-          >(
-            column: C,
-          ) => eb.fn.coalesce(`counts.${column}` as const, eb.lit(0)).as(column);
+          const countOrZero = (status: JobStatus) =>
+            eb.fn.coalesce(`counts.${status}` as const, eb.lit(0));
           return [
-            "page.id",
-            "page.createdAt",
-            "page.labels",
-            "page.canary",
-            "page.maxFailurePercent",
-            "page.pausedBy",
-            "page.cancelledAt",
-            ...SUBMITTER_COLUMNS.map((column) => `page.${column}` as const),
-            zeroed("queued"),
-            zeroed("running"),
-            zeroed("paused"),
-            zeroed("succeeded"),
-            zeroed("failed"),
-            zeroed("cancelled"),
+            batchStatus(
+              eb.ref("page.cancelledAt"),
+              eb.ref("page.pausedBy"),
+              hasUnfinishedJobs(countOrZero),
+            ).as("status"),
+            ...jobStatusSchema.options.map((status) => countOrZero(status).as(status)),
             eb.fn.coalesce("unknown.statusUnknown", eb.lit(0)).as("statusUnknown"),
           ];
         })

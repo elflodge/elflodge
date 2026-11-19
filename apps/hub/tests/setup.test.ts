@@ -25,8 +25,10 @@ async function setupLink() {
 /** Sets the hub up again without owner settings, which prints a new link. */
 async function newSetupLink() {
   const messages: string[] = [];
-  await setUpOrganization(inject("databaseUrl"), { owner: {}, hubUrl: system.origin }, (message) =>
-    messages.push(message),
+  await setUpOrganization(
+    inject("databaseUrl"),
+    { owner: {}, hubUrl: system.origin, canPrintSetupLink: true },
+    (message) => messages.push(message),
   );
   const link = new URL(messages.join("\n").split("\n").at(-1) ?? "");
   expect(link.origin + link.pathname).toBe(`${system.origin}/dashboard/setup`);
@@ -118,6 +120,7 @@ test("only one of the owner's settings is refused", async () => {
     setUpOrganization(inject("databaseUrl"), {
       owner: { email: NEW_OWNER.email },
       hubUrl: system.origin,
+      canPrintSetupLink: false,
     }),
   ).rejects.toThrow("Set both ADMIN_EMAIL and ADMIN_PASSWORD");
 });

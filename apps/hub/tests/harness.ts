@@ -478,7 +478,11 @@ export function startSystem(
       if (inject("hub") === "node") {
         running = await startNodeHub(databaseUrl, settings);
       } else {
-        await setUpOrganization(databaseUrl, { owner: OWNER, hubUrl: undefined }, () => {});
+        await setUpOrganization(
+          databaseUrl,
+          { owner: OWNER, hubUrl: undefined, canPrintSetupLink: false },
+          () => {},
+        );
         running = await startWorkersHub(databaseUrl, settings);
       }
       url = running.url;

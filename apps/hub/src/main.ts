@@ -117,6 +117,7 @@ Effect.gen(function* () {
           password: Option.getOrUndefined(Option.map(settings.adminPassword, Redacted.value)),
         },
         hubUrl: settings.hub.hubUrl,
+        canPrintSetupLink: true,
       });
     },
     catch: ensureError,

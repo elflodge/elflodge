@@ -213,6 +213,7 @@ test("setting up again leaves the existing Organization and owner as they are", 
     {
       owner: { email: "someone-else@example.com", password: "another password" },
       hubUrl: system.origin,
+      canPrintSetupLink: false,
     },
     (message) => messages.push(message),
   );

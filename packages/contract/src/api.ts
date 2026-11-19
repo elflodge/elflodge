@@ -144,12 +144,6 @@ export const submitterSchema = z
   });
 export type Submitter = z.infer<typeof submitterSchema>;
 
-/** Each kind of submitter, so that a filter's kinds are always those of `submitterSchema`. */
-const SUBMITTER_KINDS: { [Kind in Submitter["kind"]]: Kind } = {
-  key: KEY_SUBMITTER,
-  member: MEMBER_SUBMITTER,
-};
-
 /** What a job reports whatever its status. */
 const jobBaseSchema = z.object({
   id: jobIdSchema,
@@ -1232,7 +1226,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           submitter: z.optional(
             z
               .strictObject({
-                kind: z.enum(SUBMITTER_KINDS),
+                kind: z.enum([KEY_SUBMITTER, MEMBER_SUBMITTER]),
                 id: textSchema.check(z.minLength(1)),
               })
               .check(
