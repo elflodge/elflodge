@@ -11,10 +11,22 @@ Days are UTC days, as the API's instants are in UTC, so a day is the same for ev
 - Dating by `endedAt`: a late report changes a past day and month, the Runner's clock decides the day, and a partition by it never closes.
 - Dating by the job's `createdAt`: a long job counts on the day it was submitted, and each later end of a resumed job adds to a day long past.
 
+OpenAI's Organization [Usage][openai-usage] and [Costs][openai-cost] APIs, Anthropic's Admin [usage][admin-usage] and [cost][admin-cost] reports, and AWS Cost Explorer's [`GetCostAndUsage`][aws] place groups inside time buckets. That works for a handful of models, projects or keys. Batches and label values have no upper bound, and neither usage table needs each group's daily figures. [Anthropic's successor analytics API][analytics] ranks flat rows over the range with a page limit. [Azure Cost Management Query][azure] also returns flat rows. Elflodge reads its top groups and daily totals from the same snapshot.
+
+[openai-usage]: https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/completions
+[openai-cost]: https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs
+[admin-usage]: https://platform.claude.com/docs/en/api/beta/organization/usage_report/retrieve_messages
+[admin-cost]: https://platform.claude.com/docs/en/api/beta/organization/cost_report/retrieve
+[aws]: https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html
+[analytics]: https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api
+[azure]: https://learn.microsoft.com/en-us/rest/api/cost-management/query/usage?view=rest-cost-management-2026-06-01
+
 ## Consequences
 
-An end the hub learns of late counts on the day it learns of it, so a Runner that reconnects after midnight adds the previous day's work to the new day. The `recordedAt` index supports reads over a window of days. Each Usage record counts as one job end, including each end of a resumed job and ends of deleted jobs. The window total and every UTC day carry job ends, tokens and cost. Grouping ranks groups over the whole window by cost, then tokens, then a fixed order. The remaining groups are counted and summed in `other`. Days keep their totals even when the caller asks for groups.
+An end the hub learns of late counts on the day it learns of it, so a Runner that reconnects after midnight adds the previous day's work to the new day. The `recordedAt` index supports reads over a window of days.
 
 ## When to reconsider
 
 When callers need usage dated by when the work happened, as to compare it with a model provider's bill, which dates each call, and accept that past days can change: the record keeps `endedAt` for that.
+
+Reconsider the two tables when a chart needs to stack groups by day or a caller needs every group in the window.

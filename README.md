@@ -180,15 +180,15 @@ Two postings you can watch. Five hundred you count. With five hundred, this happ
 2. After the Canary, if more than 10% of the jobs that have ended since it began failed, the Batch pauses. This is the failure breaker. It judges from the first jobs to end, so a run of early failures pauses a large Batch quickly.
 3. `batches resume --id postings` carries on where it stopped; `batches pause`, `cancel` and `get` work the same way, as do single jobs, and ended jobs can be deleted.
 
-The hub records every job's events (what the agent did), activity, usage in tokens and cost, and output. A Batch counts its jobs by status, and jobs can be listed by status, label, Batch and custom ID:
+The hub records every job's events (what the agent did), activity, usage in tokens and cost, and output. Owners and admins can read `GET /usage` for job ends, tokens and cost over a window and on every UTC day in it, including empty days. With `groupBy`, the same read ranks groups over the whole window and adds up the rest as `other`. Each end counts on the day the hub recorded it, including a resumed job's next end and ends of deleted jobs.
+
+A Batch counts its jobs by status, and jobs can be listed by status, label, Batch and custom ID:
 
 ```sh
 npx elflodge batches get --id postings | jq -c .jobCounts   # {"queued":0,"running":0,...,"succeeded":2,...}
 npx elflodge jobs list --batch-id postings --status failed
 npx elflodge jobs list --batch-id postings --status succeeded   # listed jobs carry no output: read one with jobs get
 ```
-
-Owners and admins can read `GET /usage` for job ends, tokens and cost over a window and on every UTC day in it, including empty days. With `groupBy`, the same read ranks groups over the whole window and adds up the rest as `other`. Each end counts on the day the hub recorded it, including a resumed job's next end and ends of deleted jobs.
 
 Jobs can be added continuously (`add-jobs`, `jobs submit`) and read continuously (`jobs wait`, `jobs list`). A job's journal is on disk, so a restarted Runner recovers its jobs where they stopped. A prompt that gives wrong but valid answers passes the Canary. Read some outputs.
 

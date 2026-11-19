@@ -17,7 +17,7 @@ afterAll(() => system.stop());
 
 const AGENT = { outputContract: { schema: { type: "integer" } } };
 
-/** Both tables account for all job ends and their usage over the window. */
+/** The days add up to the window total, as do the ranked groups together with `other`. */
 function expectAddsUp(report: UsageReport) {
   function expectTotal(rows: Pick<UsageReport, "jobEnds" | "usage">[]) {
     expect(rows.reduce((sum, row) => sum + row.jobEnds, 0)).toBe(report.jobEnds);

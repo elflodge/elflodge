@@ -569,7 +569,12 @@ export const usageGroupBySchema = z.union(
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
 
-const usageCountSchema = z.object({ jobEnds: z.int(), usage: usageSchema });
+/** Job ends and the usage they account for in a window, day or group. */
+const usageCountSchema = z.object({
+  /** Each end of a job counts once, including each end after a resume. */
+  jobEnds: z.int(),
+  usage: usageSchema,
+});
 
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
@@ -578,7 +583,7 @@ const usageCountSchema = z.object({ jobEnds: z.int(), usage: usageSchema });
  * exists, as a job shows it, or null for jobs that ended before a Runner started them; `status`, the
  * status the jobs ended in; or `labelValue`, the label's value, null for jobs without that label.
  */
-const usageGroupSchema = z
+export const usageGroupSchema = z
   .union([
     z.extend(usageCountSchema, { batchId: batchIdSchema }),
     z.extend(usageCountSchema, { submitter: submitterSchema }),
@@ -592,7 +597,9 @@ const usageGroupSchema = z
 export type UsageGroup = z.infer<typeof usageGroupSchema>;
 
 const usageWindowSchema = z.extend(usageCountSchema, {
+  /** The window's first day, a UTC day. */
   from: dateSchema,
+  /** The window's last day, included. */
   to: dateSchema,
   /** Every UTC day of the window, oldest first, including days without job ends. */
   days: z.array(z.extend(usageCountSchema, { date: dateSchema })),
@@ -602,7 +609,7 @@ export const usageReportSchema = z.union([
   z
     .extend(usageWindowSchema, { groups: z.optional(z.never()), other: z.optional(z.never()) })
     .register(z.globalRegistry, {
-      id: "UsageReport",
+      id: "UngroupedUsageReport",
       description: "Without `groupBy`, job ends and model usage for the window and each day.",
     }),
   z

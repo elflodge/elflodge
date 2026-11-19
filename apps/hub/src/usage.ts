@@ -1,22 +1,19 @@
 import {
-  batchIdSchema,
-  finalJobStatusSchema,
   type Labels,
   MAX_USAGE_DAYS,
-  submitterSchema,
-  type UsageGroup,
+  usageGroupSchema,
   type UsageGroupBy,
   type UsageReport,
 } from "contract";
 import { DateTime, Duration, Effect } from "effect";
 import {
   type AbortableQueryOptions,
-  type AliasableExpression,
   type Expression,
   type ExpressionBuilder,
   expressionBuilder,
   type Kysely,
   type QueryCreator,
+  type Selectable,
   sql,
 } from "kysely";
 import { jsonArrayFrom, jsonBuildObject } from "kysely/helpers/postgres";
@@ -24,8 +21,9 @@ import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { Db } from "./db/database.ts";
-import type { BatchUid, Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
+import type { Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
+import { batchIdOf } from "./jobs.ts";
 
 // The Organization's usage, added up from its Usage records: each records what one job used up to
 // one of its ends, since its previous end, and stays when the job is deleted. A record counts on
@@ -189,6 +187,26 @@ function usageOf(totalTokens: Expression<number>, totalUsd: Expression<number>) 
   return jsonBuildObject({ totalTokens, cost: jsonBuildObject({ totalUsd }) });
 }
 
+/** Each Usage record is one job end, even when it used no tokens. */
+function recordCounts(tokens: Expression<number>, cost: Expression<number>) {
+  const eb = expressionBuilder();
+  return [
+    eb.fn.countAll<number>().as("jobEnds"),
+    eb.cast<number>(eb.fn.sum(tokens), "bigint").as("totalTokens"),
+    eb.fn.sum<number>(cost).as("costUsd"),
+  ];
+}
+
+/** The window and its remainder both sum counts, with zeros for an empty set. */
+function sumCounts(ends: Expression<number>, tokens: Expression<number>, cost: Expression<number>) {
+  const eb = expressionBuilder();
+  const sum = (value: Expression<number>) => eb.fn.coalesce(eb.fn.sum<number>(value), eb.lit(0));
+  return {
+    jobEnds: eb.cast<number>(sum(ends), "bigint"),
+    usage: usageOf(eb.cast<number>(sum(tokens), "bigint"), sum(cost)),
+  };
+}
+
 /** One statement, so the daily totals and the ranked groups count the same job ends. */
 async function selectUsage(
   db: Kysely<Database>,
@@ -204,44 +222,37 @@ async function selectUsage(
         dayOf(eb),
         "usageRecord.totalTokens",
         "usageRecord.costUsd",
-        "usageRecord.recordedAt",
-        (grouping?.key ?? eb.lit(null)).as("key"),
-        grouping?.kind?.as("kind") ?? eb.lit(null).as("kind"),
+        ...(grouping?.recordFields ?? []),
       ]),
     )
     .with("dayTotals", (qb) =>
       qb
         .selectFrom("records")
         .groupBy("day")
-        .select((eb) => [
-          "day",
-          eb.fn.countAll<number>().as("jobEnds"),
-          eb.cast<number>(eb.fn.sum("totalTokens"), "bigint").as("totalTokens"),
-          eb.fn.sum<number>("costUsd").as("costUsd"),
-        ]),
+        .select((eb) => ["day", ...recordCounts(eb.ref("totalTokens"), eb.ref("costUsd"))]),
     )
     .with("report", (qb) =>
-      qb.selectFrom("dayTotals").select((eb) => [
-        eb.cast<number>(eb.fn.coalesce(eb.fn.sum("jobEnds"), eb.lit(0)), "bigint").as("jobEnds"),
-        usageOf(
-          eb.cast<number>(eb.fn.coalesce(eb.fn.sum("totalTokens"), eb.lit(0)), "bigint"),
-          eb.fn.coalesce(eb.fn.sum<number>("costUsd"), eb.lit(0)),
-        ).as("usage"),
-        jsonArrayFrom(
-          eb
-            .selectFrom(daysOf(qb, window).as("d"))
-            .leftJoin("dayTotals as dt", "dt.day", "d.day")
-            .select((day) => [
-              "d.day as date",
-              day.fn.coalesce("dt.jobEnds", day.lit(0)).as("jobEnds"),
-              usageOf(
-                day.fn.coalesce("dt.totalTokens", day.lit(0)),
-                day.fn.coalesce("dt.costUsd", day.lit(0)),
-              ).as("usage"),
-            ])
-            .orderBy("d.day"),
-        ).as("days"),
-      ]),
+      qb.selectFrom("dayTotals").select((eb) => {
+        const totals = sumCounts(eb.ref("jobEnds"), eb.ref("totalTokens"), eb.ref("costUsd"));
+        return [
+          totals.jobEnds.as("jobEnds"),
+          totals.usage.as("usage"),
+          jsonArrayFrom(
+            eb
+              .selectFrom(daysOf(qb, window).as("d"))
+              .leftJoin("dayTotals as dt", "dt.day", "d.day")
+              .select((day) => [
+                "d.day as date",
+                day.fn.coalesce("dt.jobEnds", day.lit(0)).as("jobEnds"),
+                usageOf(
+                  day.fn.coalesce("dt.totalTokens", day.lit(0)),
+                  day.fn.coalesce("dt.costUsd", day.lit(0)),
+                ).as("usage"),
+              ])
+              .orderBy("d.day"),
+          ).as("days"),
+        ];
+      }),
     );
   if (grouping === undefined) {
     const row = await report.selectFrom("report").selectAll().executeTakeFirstOrThrow(options);
@@ -251,15 +262,12 @@ async function selectUsage(
     .with("groupTotals", (qb) =>
       qb
         .selectFrom("records")
-        .groupBy(["kind", "key"])
-        .select((eb) => [
-          "kind",
-          "key",
-          eb.fn.max("recordedAt").as("lastRecordedAt"),
-          eb.fn.countAll<number>().as("jobEnds"),
-          eb.cast<number>(eb.fn.sum("totalTokens"), "bigint").as("totalTokens"),
-          eb.fn.sum<number>("costUsd").as("costUsd"),
-        ]),
+        .groupBy(grouping.keys)
+        .select(grouping.keys)
+        .select((eb) => recordCounts(eb.ref("totalTokens"), eb.ref("costUsd")))
+        .$if(query.groupBy === "submitter", (q) =>
+          q.select((eb) => eb.fn.max("recordedAt").as("recordedAt")),
+        ),
     )
     .with("ranked", (qb) =>
       qb
@@ -269,11 +277,10 @@ async function selectUsage(
           eb.fn
             .agg<number>("row_number", [])
             .over((over) =>
-              over
-                .orderBy("costUsd", "desc")
-                .orderBy("totalTokens", "desc")
-                .orderBy("kind")
-                .orderBy("key", (order) => order.asc().nullsLast()),
+              grouping.keys.reduce(
+                (order, key) => order.orderBy(key),
+                over.orderBy("costUsd", "desc").orderBy("totalTokens", "desc"),
+              ),
             )
             .as("rank"),
         ),
@@ -286,14 +293,9 @@ async function selectUsage(
           .selectFrom("ranked as g")
           .where("g.rank", "<=", query.limit)
           .select((top) => [
-            "g.key",
-            "g.kind",
             "g.jobEnds",
             // Only groups shown need a Batch, Runner or submitter name.
-            (
-              grouping.name?.(top.ref("g.key"), top.ref("g.kind"), top.ref("g.lastRecordedAt")) ??
-              top.lit(null)
-            ).as("name"),
+            grouping.publicField,
             usageOf(top.ref("g.totalTokens"), top.ref("g.costUsd")).as("usage"),
           ])
           .orderBy("g.rank"),
@@ -304,116 +306,102 @@ async function selectUsage(
         .select((rest) =>
           jsonBuildObject({
             groups: rest.fn.countAll<number>(),
-            jobEnds: rest.cast<number>(
-              rest.fn.coalesce(rest.fn.sum("g.jobEnds"), rest.lit(0)),
-              "bigint",
-            ),
-            usage: usageOf(
-              rest.cast<number>(
-                rest.fn.coalesce(rest.fn.sum("g.totalTokens"), rest.lit(0)),
-                "bigint",
-              ),
-              rest.fn.coalesce(rest.fn.sum<number>("g.costUsd"), rest.lit(0)),
-            ),
+            ...sumCounts(rest.ref("g.jobEnds"), rest.ref("g.totalTokens"), rest.ref("g.costUsd")),
           }).as("other"),
         )
         .$asScalar()
-        .$notNull()
         .as("other"),
     ])
     .executeTakeFirstOrThrow(options);
   return {
     ...window,
     ...row,
-    groups: row.groups.map(({ jobEnds, usage, ...identity }) =>
-      grouping.display(identity, { jobEnds, usage }),
-    ),
+    // SQL widens the status to text and the submitter name to nullable for both kinds.
+    groups: z.parse(z.array(usageGroupSchema), row.groups),
   };
 }
 
-/** The columns that identify a group and what the caller sees for that identity. */
-interface Grouping {
-  key: AliasableExpression<string | null>;
-  kind?: AliasableExpression<SubmitterKind>;
-  name?: (
-    key: Expression<string | null>,
-    kind: Expression<SubmitterKind | null>,
-    lastRecordedAt: Expression<Date>,
-  ) => AliasableExpression<string | null>;
-  display: (
-    row: {
-      key: string | null;
-      kind: SubmitterKind | null;
-      name: string | null;
-    },
-    count: Pick<UsageGroup, "jobEnds" | "usage">,
-  ) => UsageGroup;
-}
+/** Columns the grouping can select from the ranked groups. */
+type GroupIdentity = Pick<
+  Selectable<Database["usageRecord"]>,
+  "batchUid" | "runnerId" | "submitterKind" | "submitterId" | "recordedAt"
+> & { status: string; labelValue: string | null };
 
-function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>): Grouping {
-  const eb = expressionBuilder<Database, "usageRecord">();
+/** Keep the record projection, grouping keys and public field together for each grouping. */
+function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>) {
+  const record = expressionBuilder<Database, "usageRecord">();
+  const top = expressionBuilder<Database & { g: GroupIdentity }, "g">();
   switch (groupBy) {
-    case "batch":
+    case "batch": {
+      const keys = ["batchUid"] as const;
+      // A Batch is never deleted, so its row names it.
       return {
-        // The row's UUID orders Batches by creation. Its public ID names it.
-        key: eb.ref("usageRecord.batchUid"),
-        name: (key) =>
-          eb
-            .selectFrom("batch")
-            .select("batch.id")
-            .where("batch.uid", "=", eb.cast<BatchUid>(key, "uuid"))
-            .$asScalar(),
-        display: ({ name }, count) => ({ ...count, batchId: z.parse(batchIdSchema, name) }),
+        keys,
+        recordFields: keys,
+        publicField: batchIdOf(top.ref("g.batchUid")).as("batchId"),
       };
-    case "submitter":
+    }
+    case "submitter": {
+      const keys = ["submitterKind", "submitterId"] as const;
+      // An earlier transaction can write later. The record ID breaks ties in recordedAt.
+      const name = records
+        .select("usageRecord.submitterName")
+        .whereRef("usageRecord.recordedAt", "=", top.ref("g.recordedAt"))
+        .whereRef("usageRecord.submitterKind", "=", top.ref("g.submitterKind"))
+        .whereRef("usageRecord.submitterId", "=", top.ref("g.submitterId"))
+        .orderBy("usageRecord.id", "desc")
+        .limit(1)
+        .$asScalar();
       return {
-        key: eb.ref("usageRecord.submitterId"),
-        kind: eb.ref("usageRecord.submitterKind"),
-        // An earlier transaction can write later. The record ID breaks ties in recordedAt.
-        name: (key, kind, lastRecordedAt) =>
-          records
-            .select("usageRecord.submitterName")
-            .where("usageRecord.recordedAt", "=", lastRecordedAt)
-            .where((named) =>
-              named.and([
-                named(key, "=", named.ref("usageRecord.submitterId")),
-                named(kind, "=", named.ref("usageRecord.submitterKind")),
-              ]),
-            )
-            .orderBy("usageRecord.id", "desc")
-            .limit(1)
-            .$asScalar(),
-        display: ({ key, kind, name }, count) => ({
-          ...count,
-          submitter: z.parse(submitterSchema, { kind, id: key, name }),
-        }),
+        keys,
+        recordFields: [...keys, "recordedAt"] as const,
+        publicField: jsonBuildObject({
+          kind: top.ref("g.submitterKind"),
+          id: top.ref("g.submitterId"),
+          name,
+        }).as("submitter"),
       };
-    case "runner":
+    }
+    case "runner": {
+      const keys = ["runnerId"] as const;
+      const id = top.ref("g.runnerId");
+      const name = top
+        .selectFrom("runner")
+        .select("runner.name")
+        .whereRef("runner.id", "=", id)
+        .$asScalar();
       return {
-        key: eb.ref("usageRecord.runnerId"),
-        name: (key) =>
-          eb
-            .selectFrom("runner")
-            .select("runner.name")
-            .where("runner.id", "=", eb.cast<RunnerId>(key, "text"))
-            .$asScalar(),
-        display: ({ key, name }, count) => ({
-          ...count,
-          runner: key === null ? null : { id: key, ...(name === null ? {} : { name }) },
-        }),
+        keys,
+        recordFields: keys,
+        publicField: top
+          .case()
+          .when(id, "is", null)
+          .then(top.lit(null))
+          .else(top.fn("json_strip_nulls", [jsonBuildObject({ id, name })]))
+          .end()
+          .as("runner"),
       };
-    case "status":
+    }
+    case "status": {
+      const keys = ["status"] as const;
+      // Equal-cost, equal-token statuses sort by their API spelling.
       return {
-        key: eb.cast<string>("usageRecord.status", "text"),
-        display: ({ key }, count) => ({ ...count, status: z.parse(finalJobStatusSchema, key) }),
+        keys,
+        recordFields: [record.cast<string>("usageRecord.status", "text").as("status")],
+        publicField: top.ref("g.status").as("status"),
       };
+    }
     default:
       return {
-        key: eb
-          .ref("usageRecord.labels", "->>")
-          .key(groupBy.slice("label:".length))
-          .$castTo<string | null>(),
-        display: ({ key }, count) => ({ ...count, labelValue: key }),
+        keys: ["labelValue"] as const,
+        recordFields: [
+          record
+            .ref("usageRecord.labels", "->>")
+            .key(groupBy.slice("label:".length))
+            .$castTo<string | null>()
+            .as("labelValue"),
+        ],
+        publicField: top.ref("g.labelValue").as("labelValue"),
       };
   }
 }
