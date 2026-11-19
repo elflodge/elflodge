@@ -2,6 +2,7 @@ import { ORPCError } from "@orpc/client";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { QueryClient } from "@tanstack/solid-query";
 import { problemOf } from "contract";
+import { createSignal } from "solid-js";
 
 import { api } from "./api-client.ts";
 
@@ -38,31 +39,39 @@ function refused(error: Error) {
 }
 
 /**
- * Remembers whose session `queryClient`'s reads were made in, and forgets them all when another
- * session is seen, so that a member never sees what was read for the one before. `sessionSeen` is
- * told the session the hub answered with, `null` for none, and says whether it changed.
+ * Follows which member is signed in, by their user ID, and forgets every read `queryClient` holds
+ * when it changes, so that a member never sees what was read for another. A new session for the
+ * same member, such as the one a password change makes, keeps them.
  */
-export function forgetReadsOnSessionChange(queryClient: QueryClient) {
+export function followMember(queryClient: QueryClient) {
+  // The member whose reads the client holds: `null` for none, `undefined` before the first answer.
+  const [confirmedMember, setConfirmedMember] = createSignal<string | null | undefined>(undefined);
   let seen: string | null | undefined;
-  return function sessionSeen(sessionId: string | null): boolean {
-    // The first session seen is the one whose reads the client will hold: it holds none before.
-    if (seen === undefined) {
-      seen = sessionId;
-      return false;
-    }
-    if (sessionId === seen) return false;
-    seen = sessionId;
-    // Removing a query cancels its read, so an answer still on its way is dropped, not held.
-    //
-    // One client for the tab, rather than one for each session, lets the router's context and the
-    // provider stay the same for the tab's life. What it leaves open: a control's answer that
-    // arrives after the session changed is written into the next member's reads. That takes the
-    // session to change, in another tab, while a control here waits for its answer. Members of a
-    // hub share its one Organization and see the same jobs, so what could pass is only what a
-    // role allows one member and not the other, or what is a member's own. A client for each
-    // session closes that, at the cost of swapping the provider and the router's context with the
-    // session, which every page then has to follow.
-    queryClient.clear();
-    return true;
+  return {
+    /** The member the hub last said is signed in, for the shell to hide another member's page. */
+    confirmedMember,
+    /**
+     * Told the member the hub answered with, `null` for none; says whether it is another than the
+     * one before, whose reads it has then forgotten.
+     */
+    memberSeen(memberId: string | null): boolean {
+      const changed = seen !== undefined && memberId !== seen;
+      seen = memberId;
+      setConfirmedMember(memberId);
+      // The first member seen is the one whose reads the client will hold: it holds none before.
+      if (!changed) return false;
+      // Removing a query cancels its read, so an answer still on its way is dropped, not held.
+      //
+      // One client for the tab, rather than one for each member, lets the router's context and the
+      // provider stay the same for the tab's life. What it leaves open: a control's answer that
+      // arrives after the member changed is written into the next member's reads. That takes the
+      // member to change, signed out and in as another here or in another tab, while a control
+      // waits for its answer. Members of a hub share its one Organization and see the same jobs,
+      // so what could pass is only what a role allows one member and not the other, or what is a
+      // member's own. A client for each member closes that, at the cost of swapping the provider
+      // and the router's context with the member, which every page then has to follow.
+      queryClient.clear();
+      return true;
+    },
   };
 }

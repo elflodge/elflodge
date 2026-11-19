@@ -12,6 +12,7 @@ import { onSettled } from "solid-js";
 import { authClient } from "../auth-client.ts";
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary.tsx";
 import { logoDark, logoLight } from "../logo.ts";
+import type { followMember } from "../query.ts";
 
 import appCss from "../styles/app.css?url";
 // The two faces are linked from here, not imported by app.css: the build's notices list the packages
@@ -19,10 +20,11 @@ import appCss from "../styles/app.css?url";
 import sansCss from "@fontsource-variable/instrument-sans/wght.css?url";
 import monoCss from "@fontsource-variable/jetbrains-mono/wght.css?url";
 
-export const Route = createRootRouteWithContext<{
-  queryClient: QueryClient;
-  sessionSeen: (sessionId: string | null) => boolean;
-}>()({
+export const Route = createRootRouteWithContext<
+  {
+    queryClient: QueryClient;
+  } & ReturnType<typeof followMember>
+>()({
   head: () => ({
     meta: [
       { charset: "utf-8" },
@@ -43,10 +45,12 @@ export const Route = createRootRouteWithContext<{
 });
 
 /**
- * Every page, following the session as Better Auth's client sees it change: signed out in another
- * tab, which it hears of, or here. What was read is then forgotten, and the router loads the page
- * again, which sends a member signed out to sign in, or shows the one signed in now. A sign-in in
- * another tab it does not hear of; the next navigation finds it (`_signed-in`).
+ * Every page, following who is signed in as Better Auth's client sees it change: signed out or in
+ * here, or signed out in another tab, which it hears of. When the member changes, what was read is
+ * forgotten and the router loads the page again, which sends a member signed out to sign in, or
+ * shows the one signed in now. A sign-in in another tab it does not hear of: it finds it when it
+ * reads the session again as the tab becomes visible, at most once every 5 seconds, or the next
+ * navigation does (`_signed-in`).
  */
 function Root() {
   const router = useRouter();
@@ -55,9 +59,11 @@ function Root() {
   // subscribes, which this does for the tab's life.
   onSettled(() =>
     authClient.useSession.subscribe((session) => {
-      // Only settled answers: a read under way, or one that failed, does not say who is signed in.
-      if (session.isPending || session.isRefetching || (session.error && session.data)) return;
-      if (context().sessionSeen(session.data?.session.id ?? null)) void router.invalidate();
+      // Only settled answers that say who is signed in: an answer, of a session or of none, or a
+      // 401. Any other failure, even with no session read before, says nothing of who it is.
+      if (session.isPending || session.isRefetching) return;
+      if (session.error && session.error.status !== 401) return;
+      if (context().memberSeen(session.data?.user.id ?? null)) void router.invalidate();
     }),
   );
   return <Outlet />;

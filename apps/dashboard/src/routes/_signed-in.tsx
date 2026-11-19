@@ -12,12 +12,16 @@ import { Notice } from "../components/Notice.tsx";
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
 // another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
-  beforeLoad: async ({ context, location, preload }) => {
+  beforeLoad: async ({ context, location, preload, abortController }) => {
     const { data, error } = await answered(authClient.getSession());
     if (error) throw unreadError("The session", failureMessage(error));
-    // Before any loader warms the cache: what was read for another session is forgotten first. A
-    // preload shows nothing, so it leaves that to the navigation.
-    if (!preload) context.sessionSeen(data?.session.id ?? null);
+    // Before any loader warms the cache: what was read for another member is forgotten first. Not
+    // by a navigation another has replaced, which the router aborts, as its answer may be older
+    // than the one the other reads. Nor by a preload, which shows nothing: the router documents no
+    // way for one to stop short, so its loaders may warm the cache with the next member's reads
+    // while it still holds the last one's. The navigation that would show them forgets them all
+    // first, and the hub answers every read for the member its cookie names anyway.
+    if (!preload && !abortController.signal.aborted) context.memberSeen(data?.user.id ?? null);
     if (!data) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
     const organizations = await answered(authClient.organization.list());
@@ -25,7 +29,7 @@ export const Route = createFileRoute("/_signed-in")({
       throw unreadError("The Organization", failureMessage(organizations.error));
     }
     // Removing a member leaves their session, which then lists no Organization.
-    return { member: data.user, organization: organizations.data[0], sessionId: data.session.id };
+    return { member: data.user, organization: organizations.data[0] };
   },
   component: SignedIn,
 });
@@ -76,11 +80,18 @@ function SignedIn() {
   }
 
   return (
-    // Keyed, so that another session's shell is drawn anew: a component still mounted would go on
-    // showing what it last read for the session before, even after the cache forgot it.
-    <Show when={context().sessionId} keyed>
-      {(_sessionId) => (
-        <>
+    // Keyed, so that another member's shell is drawn anew: a component still mounted would go on
+    // showing what it last read for the member before, even after the cache forgot it. Until the
+    // router has loaded the page for the member the hub now names, which a slow read can delay,
+    // the shell of the one before shows nothing.
+    <Show when={context().member.id} keyed>
+      {(_memberId) => (
+        <Show
+          when={
+            context().confirmedMember() === undefined ||
+            context().confirmedMember() === context().member.id
+          }
+        >
           <a class="skip" href="#main">
             Skip to the page
           </a>
@@ -126,7 +137,7 @@ function SignedIn() {
                 }}
               >
                 {/* At narrow widths the destinations fold into the menu. The router changes the page
-                      without loading it anew, which would leave the menu open. */}
+                    without loading it anew, which would leave the menu open. */}
                 <nav class="pop-nav" aria-label="Destinations">
                   <Destinations class="nav-stack" onFollow={closeMenu} />
                 </nav>
@@ -180,7 +191,7 @@ function SignedIn() {
               <Outlet />
             </InShell>
           </main>
-        </>
+        </Show>
       )}
     </Show>
   );
