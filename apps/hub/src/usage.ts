@@ -319,15 +319,20 @@ async function selectUsage(
   };
 }
 
-/** Columns the grouping can select from the ranked groups. */
+/**
+ * The columns of the ranked groups, as `g`, written out so each grouping can build its public
+ * field where it is declared. Passing the ranked columns in instead would check each name, but
+ * every grouping would take all of them; the grouping's own query, which each test runs, catches a
+ * column this grouping does not rank.
+ */
 type GroupIdentity = Pick<
   Selectable<Database["usageRecord"]>,
   "batchUid" | "runnerId" | "submitterKind" | "submitterId" | "recordedAt"
 > & { status: string; labelValue: string | null };
 
 /**
- * Each grouping declares its record fields, keys, any extra aggregate and the public field they
- * supply.
+ * Keeps each grouping's parts together: its keys, the record fields they are read from, any extra
+ * aggregate and the public field built from them.
  */
 function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>) {
   const record = expressionBuilder<Database, "usageRecord">();
