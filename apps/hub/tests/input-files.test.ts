@@ -37,6 +37,7 @@ function fileAt(filePath: string, content: string | Uint8Array) {
   return { path: filePath, content };
 }
 
+/** The digest and byte length that identify the UTF-8 content in a blob check. */
 function blobRef(content: string) {
   return { digest: digestOf(content), sizeBytes: Buffer.byteLength(content) };
 }

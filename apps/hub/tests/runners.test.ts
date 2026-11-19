@@ -60,7 +60,9 @@ test("a runner that restarts keeps its identity, listed once and seen again", as
   expect(listed).toHaveLength(before.length);
   const matches = listed.filter(({ id }) => id === runnerId);
   expect(matches).toMatchObject([{ name: hostname(), registeredAt }]);
-  expect(matches[0]?.lastSeenAt.getTime()).toBeGreaterThan(lastSeenAt.getTime());
+  const [restarted] = matches;
+  assert(restarted, "The hub did not list the restarted Runner");
+  expect(restarted.lastSeenAt.getTime()).toBeGreaterThan(lastSeenAt.getTime());
 });
 
 test("a runner whose capabilities the hub cannot read still connects, listed without it", async () => {

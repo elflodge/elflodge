@@ -29,11 +29,15 @@ export default async function setup(project: TestProject) {
     ["run", "dashboard#build"],
     { env },
   );
-  await using resources = new AsyncDisposableStack();
-  const container = resources.use(await new PostgreSqlContainer("postgres:18-alpine").start());
-  const databaseUrl = container.getConnectionUri();
-  await migrateDatabase(databaseUrl);
-  project.provide("databaseUrl", databaseUrl);
-  const teardown = resources.move();
-  return () => teardown.disposeAsync();
+  const container = await new PostgreSqlContainer("postgres:18-alpine").start();
+  try {
+    const databaseUrl = container.getConnectionUri();
+    await migrateDatabase(databaseUrl);
+    project.provide("databaseUrl", databaseUrl);
+  } catch (error) {
+    // Vitest has no teardown yet. Disposal during the rethrow preserves both errors if stop fails.
+    await using _ = container;
+    throw error;
+  }
+  return () => container[Symbol.asyncDispose]();
 }

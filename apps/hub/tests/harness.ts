@@ -402,6 +402,7 @@ export function startSystem(
     async newJobsKey() {
       return (await createApiKey()).key;
     },
+    /** Creates an API key allowed to submit, read and control jobs, and returns a client sending it. */
     async clientWithNewJobsKey() {
       return (await createApiKey()).client;
     },
