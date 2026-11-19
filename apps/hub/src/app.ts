@@ -411,8 +411,9 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
 const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] });
 const bracketNotation = new BracketNotationSerializer();
 
-// oRPC's array query style reads only bare keys and ignores bracketed ones by design
-// (middleapi/orpc#2500). Restore their names so strict input validation can name each refusal.
+// oRPC's array query style reads only bare keys, so one `status=failed` decodes as a one-element
+// list. It ignores bracketed keys by design (middleapi/orpc#2500). Restore their names so strict
+// validation can name each refused key.
 // A one-or-list schema changes the contract's input type, the client's encoding and the CLI flag.
 // Remove this if oRPC gains an option to keep or refuse bracketed names for a styled parameter.
 const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiContext> = (options) => {
