@@ -1,6 +1,6 @@
 import { type Browser, type Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser } from "./dashboard-browser.ts";
 import { startSystem } from "./harness.ts";
