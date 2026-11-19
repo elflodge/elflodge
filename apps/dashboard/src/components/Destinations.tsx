@@ -1,18 +1,11 @@
-import { Link } from "@tanstack/solid-router";
-import type { ActiveOptions } from "@tanstack/solid-router";
-
-import type { FileRouteTypes } from "../routeTree.gen.ts";
+import { Link, linkOptions } from "@tanstack/solid-router";
 
 /**
- * The pages the bar leads to, in its order. A page the bar leads to adds its line here.
- * `activeOptions` says when the entry is the current destination; by default, at its page and at
- * every page under it.
+ * The pages the bar leads to, in its order. A page the bar leads to adds its line here, checked by
+ * the router as a link's options are. `activeOptions` says when the entry is the current
+ * destination; by default, at its page and at every page under it.
  */
-const DESTINATIONS: readonly {
-  to: FileRouteTypes["to"];
-  name: string;
-  activeOptions?: ActiveOptions;
-}[] = [{ to: "/", name: "Home", activeOptions: { exact: true } }];
+const DESTINATIONS = linkOptions([{ to: "/", label: "Home", activeOptions: { exact: true } }]);
 
 /**
  * The bar's destinations as a list of links, the current one marked `aria-current="page"` by the
@@ -21,14 +14,10 @@ const DESTINATIONS: readonly {
 export function Destinations(props: { class: string; onFollow?: () => void }) {
   return (
     <ul class={props.class}>
-      {DESTINATIONS.map((destination) => (
+      {DESTINATIONS.map(({ label, ...options }) => (
         <li>
-          <Link
-            to={destination.to}
-            activeOptions={destination.activeOptions}
-            onClick={() => props.onFollow?.()}
-          >
-            {destination.name}
+          <Link {...options} onClick={() => props.onFollow?.()}>
+            {label}
           </Link>
         </li>
       ))}

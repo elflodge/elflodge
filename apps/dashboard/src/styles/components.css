@@ -225,12 +225,12 @@
 /* The bar folds in two stages. Below 60rem the Organization's name leaves it, as the menu names the
    Organization. At 52rem and below the destinations fold into the menu: above that, six destinations
    of ordinary length ("Batches", "API keys") still leave a Member's name its full width. */
-@media (max-width: 59.9375rem) {
+@media (width < 60rem) {
   .org {
     display: none;
   }
 }
-@media (max-width: 52rem) {
+@media (width <= 52rem) {
   .nav-wide {
     display: none;
   }

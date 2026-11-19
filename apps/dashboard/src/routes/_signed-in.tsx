@@ -131,7 +131,7 @@ function SignedIn() {
                   }}
                 >
                   {/* At narrow widths the destinations fold into the menu. The router changes the page
-                without loading it anew, which would leave the menu open. */}
+                      without loading it anew, which would leave the menu open. */}
                   <nav class="pop-nav" aria-label="Destinations">
                     <Destinations class="nav-stack" onFollow={closeMenu} />
                   </nav>
