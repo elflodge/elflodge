@@ -1,3 +1,4 @@
+import type { JSX } from "@solidjs/web";
 import { Link } from "@tanstack/solid-router";
 import { FAILURE_MESSAGE_MAX_LENGTH, type Job } from "contract";
 import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
@@ -15,7 +16,6 @@ import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Instant } from "./Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "./JobReferences.tsx";
-import { ResumeGuidance } from "./JobStatus.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
   return (
@@ -214,27 +214,27 @@ export function JobLimits(props: { job: Job }) {
   );
 }
 
-export function JobResult(props: { text: string; failureReason?: string }) {
+export function JobResult(props: { text: string; failure?: boolean; children?: JSX.Element }) {
   const lines = createMemo(() => props.text.split("\n").length);
   const [long, setLong] = createSignal(false);
-  const title = () => (props.failureReason ? "Failure message" : "Output");
+  const title = () => (props.failure ? "Failure message" : "Output");
   return (
     <section class="job-result" aria-labelledby="job-result">
       <div class="result-head">
         <h2 id="job-result">{title()}</h2>
-        <Show when={!props.failureReason}>
+        <Show when={!props.failure}>
           <CopyButton label="Copy Output" text={props.text} />
         </Show>
       </div>
-      <Show when={props.failureReason}>{(reason) => <ResumeGuidance reason={reason()} />}</Show>
-      <Show when={props.failureReason && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
+      {props.children}
+      <Show when={props.failure && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
         <p class="note">
           {formatCount(FAILURE_MESSAGE_MAX_LENGTH)} characters, the most the hub keeps.
         </p>
       </Show>
       <pre
         id="job-result-text"
-        class={["code", "res-preview", { wraps: !!props.failureReason }]}
+        class={["code", "res-preview", { wraps: !!props.failure }]}
         tabindex="0"
         aria-label={title()}
       >
@@ -259,9 +259,7 @@ export function JobResult(props: { text: string; failureReason?: string }) {
         <details class="disclose">
           <summary aria-controls="job-result-text">
             <span class="when-closed">
-              {props.failureReason
-                ? "Show the whole message"
-                : `Show all ${formatCount(lines())} lines`}
+              {props.failure ? "Show the whole message" : `Show all ${formatCount(lines())} lines`}
             </span>
             <span class="when-open">Show the first lines only</span>
           </summary>

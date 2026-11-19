@@ -60,16 +60,29 @@ const FAILURE_WORDS = new Map([
   ["journalLost", "its Runner’s journal of it was lost"],
 ]);
 
-export function ResumeGuidance(props: { reason: string }) {
+export function canResume(job: Job) {
+  if (job.deletedAt || job.pendingControl) return false;
+  return (
+    job.status === "paused" ||
+    ((job.status === "failed" || job.status === "cancelled") &&
+      job.startedAt !== null &&
+      job.runner !== undefined)
+  );
+}
+
+export function ResumeGuidance(props: { job: Job }) {
+  const reason = () => (props.job.status === "failed" ? props.job.failure.reason : undefined);
   return (
     <>
-      <Show when={props.reason === "journalLost"}>
+      <Show when={reason() === "journalLost"}>
         <p class="note">
-          Resume carries on only once its journal is restored on its Runner. Submitting it again
-          under a new custom ID starts it over.
+          <Show when={canResume(props.job)}>
+            Resume carries on only once its journal is restored on its Runner.{" "}
+          </Show>
+          Submitting it again under a new custom ID starts it over.
         </p>
       </Show>
-      <Show when={props.reason === "modelBudgetExceeded"}>
+      <Show when={reason() === "modelBudgetExceeded" && canResume(props.job)}>
         <p class="note">Resume asks for a larger budget.</p>
       </Show>
     </>

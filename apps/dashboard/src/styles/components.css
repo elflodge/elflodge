@@ -1141,6 +1141,9 @@ p mark.placeholder {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.job-list td.c-job {
+  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
+}
 .job-name {
   min-height: var(--target);
   align-content: center;
@@ -1636,6 +1639,7 @@ p mark.placeholder {
 }
 .job-status .note,
 .activity .note,
+.job-result .note,
 .job-controls .note {
   display: block;
 }

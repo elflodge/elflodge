@@ -9,6 +9,7 @@ import { FallbackPage } from "../../../components/FallbackPage.tsx";
 import { JobActivity } from "../../../components/JobActivity.tsx";
 import { JobControls } from "../../../components/JobControls.tsx";
 import { JobFacts, JobLimits, JobResult } from "../../../components/JobRecord.tsx";
+import { ResumeGuidance } from "../../../components/JobStatus.tsx";
 import { focusIfLost } from "../../../form.ts";
 import { timeZoneNote } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
@@ -134,7 +135,11 @@ function JobPage() {
           <JobLimits job={job()} />
           <Show when={output()}>{(text) => <JobResult text={text()} />}</Show>
           <Show when={failure()?.message}>
-            {(message) => <JobResult text={message()} failureReason={failure()?.reason} />}
+            {(message) => (
+              <JobResult text={message()} failure>
+                <ResumeGuidance job={job()} />
+              </JobResult>
+            )}
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />

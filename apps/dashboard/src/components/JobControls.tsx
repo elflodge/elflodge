@@ -7,7 +7,7 @@ import { formatUsd } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
 import { FieldError } from "./FieldError.tsx";
-import { BesideStatus, JobStatus, ResumeGuidance } from "./JobStatus.tsx";
+import { BesideStatus, JobStatus, ResumeGuidance, canResume } from "./JobStatus.tsx";
 import { Notice } from "./Notice.tsx";
 
 type Control = "pause" | "resume" | "cancel" | "delete";
@@ -85,9 +85,6 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
 
   const active = () => props.job.status === "queued" || props.job.status === "running";
   const stopped = () => props.job.status === "failed" || props.job.status === "cancelled";
-  const resume = () =>
-    !props.job.pendingControl &&
-    (props.job.status === "paused" || (stopped() && props.job.startedAt && props.job.runner));
   const spent = () =>
     props.job.modelBudgetUsd !== undefined &&
     props.job.usage.cost.totalUsd >= props.job.modelBudgetUsd;
@@ -109,14 +106,9 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
         </div>
         <BesideStatus job={props.job} detailed />
         <Show
-          when={
-            !props.job.deletedAt &&
-            props.job.status === "failed" &&
-            !props.job.failure.message &&
-            props.job.failure.reason
-          }
+          when={!props.job.deletedAt && props.job.status === "failed" && !props.job.failure.message}
         >
-          {(reason) => <ResumeGuidance reason={reason()} />}
+          <ResumeGuidance job={props.job} />
         </Show>
         <Show when={props.job.statusUnknown}>
           <p class="note">
@@ -170,7 +162,7 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
               Pause
             </button>
           </Show>
-          <Show when={resume()}>
+          <Show when={canResume(props.job)}>
             <button
               type="button"
               disabled={change.isPending}
