@@ -89,20 +89,17 @@ test("in a browser, Add Runner gives a command for another machine, and creates 
   await expectBrowser(
     dialog.getByText("Waiting for a Runner to register.", { exact: false }),
   ).toBeVisible();
-  expect(await command.innerText()).toContain("RUNNER_REGISTRATION_KEY=<a registration key>");
-  const compose = dialog.locator("details pre");
-  for (const band of [command, compose]) {
-    const text = await band.textContent();
-    expect(text).toContain("HUB_URL=<the hub's URL from that machine>");
-    expect(text).not.toContain(system.origin);
-  }
+  expect(await command.innerText()).toContain("<a registration key>");
+  const text = await command.innerText();
+  expect(text).toContain("HUB_URL=<the hub's URL from that machine>");
+  expect(text).not.toContain(system.origin);
   // Opening it created nothing.
   expect(await system.owner().apiKeys.list()).toHaveLength(before.length);
 
   await dialog.getByRole("button", { name: "Create a registration key" }).click();
   await dialog.getByText("Shown this once:").waitFor();
   await expectBrowser(dialog.getByRole("button", { name: "Copy the command" })).toBeFocused();
-  const key = /RUNNER_REGISTRATION_KEY=(\S+)/.exec(await command.innerText())?.[1] ?? "";
+  const key = await command.locator("mark.key").innerText();
   // The key in the command registers a Runner, and is an ordinary key, listed with the others.
   const { id } = await system.runnerClient({ "x-api-key": key }).register({ name: "new-host" });
   await expectBrowser(dialog.getByRole("status").filter({ hasText: "has registered." })).toHaveText(
@@ -173,7 +170,7 @@ test("in a browser, a plain member gets no owner's actions on Runners and API ke
   await page.getByRole("button", { name: "Add Runner" }).click();
   const dialog = page.getByRole("dialog", { name: "Add Runner" });
   expect(await dialog.getByLabel("The command to run on the machine").innerText()).toContain(
-    "RUNNER_REGISTRATION_KEY=<a registration key>",
+    "<a registration key>",
   );
   expect(await dialog.getByRole("button", { name: "Create a registration key" }).count()).toBe(0);
   await dialog.getByRole("button", { name: "Close" }).click();

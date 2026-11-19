@@ -1,4 +1,3 @@
-import type { JSX } from "@solidjs/web";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { Runner } from "contract";
 import { Show, createEffect, createSignal, onSettled } from "solid-js";
@@ -23,113 +22,48 @@ const REGISTRATION_KEY_LIFE_SECONDS = 24 * 60 * 60;
 const HUB_PLACEHOLDER = "<the hub's URL from that machine>";
 
 /** A piece of a command: words typed as they are, a secret, or what the reader puts in its place. */
-type Piece = string | { secret: string } | { placeholder: string };
+type Piece = { text: string; mark?: "key" | "placeholder" };
 
 /**
- * The Runner's settings, as docs/deploy.md writes them for a Runner on another machine: this hub,
- * the registration key, and OpenRouter's free models, which a reader can change for theirs.
+ * Keep this command in step with "Start a Runner on another machine" in docs/deploy.md.
+ * GitHub's self-hosted runners also take a short-lived registration token inline. The
+ * provider credential is long-lived and comes from the reader's environment.
+ * https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository
  */
-function settings(key: string | undefined, hub: Piece): Piece[] {
+function dockerCommand(key: string | undefined, hub: Piece): Piece[] {
   return [
-    `mkdir -m 700 elflodge-runner && (
+    {
+      text: `(
   set -e
+  : "\${MY_KEY:?Set MY_KEY to your OpenRouter key}"
+  mkdir -m 700 elflodge-runner
   cd elflodge-runner
   umask 077
   cat > runner.env <<'EOF'
 HUB_URL=`,
+    },
     hub,
-    "\nRUNNER_REGISTRATION_KEY=",
-    key === undefined ? { placeholder: "<a registration key>" } : { secret: key },
-    "\nRUNNER_MODEL_PROVIDER=openrouter\nRUNNER_MODEL_ID=openrouter/free\nOPENROUTER_API_KEY=",
-    { placeholder: "<your key>" },
-    "\nRUNNER_EXTENSIONS_DIR=/app/extensions\nEOF\n",
-  ];
-}
-
-/**
- * Starts the Runner with Docker, as docs/deploy.md does. `--hostname` gives the container the host's
- * name, under which the hub lists the Runner.
- */
-function dockerCommand(key: string | undefined, hub: Piece): Piece[] {
-  return [
-    ...settings(key, hub),
-    `  docker run -d --name elflodge-runner --hostname "$(uname -n)" \\
+    {
+      text: `
+RUNNER_MODEL_PROVIDER=openrouter
+RUNNER_MODEL_ID=openrouter/free
+RUNNER_EXTENSIONS_DIR=/app/extensions
+EOF
+  printf 'RUNNER_REGISTRATION_KEY=%s\\n' >> runner.env \\
+    '`,
+    },
+    { text: key ?? "<a registration key>", mark: key === undefined ? "placeholder" : "key" },
+    {
+      text: `'
+  OPENROUTER_API_KEY="$MY_KEY" \\
+  docker run -d --name elflodge-runner --hostname "$(uname -n)" \\
     --security-opt seccomp=unconfined --security-opt systempaths=unconfined \\
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \\
-    --volume runner-data:/data --env-file runner.env \\
+    --volume runner-data:/data --env-file runner.env --env OPENROUTER_API_KEY \\
     ${IMAGE}
 )`,
+    },
   ];
-}
-
-/**
- * Starts the Runner with Docker Compose, with the options of the repository's compose.yaml. Compose
- * reads the host name from its project environment whenever the Runner is recreated.
- */
-function composeCommand(key: string | undefined, hub: Piece): Piece[] {
-  return [
-    ...settings(key, hub),
-    `  printf 'RUNNER_HOSTNAME=%s\\n' "$(uname -n)" > .env
-  cat > compose.yaml <<'EOF'
-services:
-  runner:
-    image: ${IMAGE}
-    hostname: \${RUNNER_HOSTNAME}
-    security_opt:
-      - seccomp=unconfined
-      - systempaths=unconfined
-      - apparmor=unconfined
-    mem_limit: 8g
-    env_file:
-      - path: runner.env
-        format: raw
-    volumes:
-      - runner-data:/data
-    restart: unless-stopped
-volumes:
-  runner-data:
-EOF
-  docker compose up -d
-)`,
-  ];
-}
-
-/** The command as typed, for copying. */
-function commandText(pieces: Piece[]): string {
-  return pieces
-    .map((piece) =>
-      typeof piece === "string" ? piece : "secret" in piece ? piece.secret : piece.placeholder,
-    )
-    .join("");
-}
-
-/** A command to copy, with its secret and what the reader fills in marked. */
-function Command(props: {
-  pieces: Piece[];
-  label: string;
-  copyLabel: string;
-  buttonRef?: (button: HTMLButtonElement) => void;
-}) {
-  return (
-    <div class="copyable">
-      <pre class="code wraps command" tabindex="0" aria-label={props.label}>
-        {props.pieces.map((piece): JSX.Element =>
-          typeof piece === "string" ? (
-            piece
-          ) : "secret" in piece ? (
-            <mark class="key">{piece.secret}</mark>
-          ) : (
-            <mark class="placeholder">{piece.placeholder}</mark>
-          ),
-        )}
-      </pre>
-      <CopyButton
-        text={commandText(props.pieces)}
-        label={props.copyLabel}
-        buttonRef={props.buttonRef}
-      />
-    </div>
-  );
 }
 
 /**
@@ -154,13 +88,9 @@ export function AddRunner(props: {
   const { hostname, origin } = window.location;
   // The browser normalizes the URL host first: 127.1 becomes 127.0.0.1 and [0:0::1] becomes [::1].
   // localhost, its .localhost subdomains, IPv6 loopback and IPv4 127/8 all reach the container itself.
-  const loopback =
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname === "[::1]" ||
-    /^127\.\d+\.\d+\.\d+$/.test(hostname);
-  const hub = loopback ? { placeholder: HUB_PLACEHOLDER } : origin;
-  let dialog: HTMLDialogElement | undefined;
+  const loopback = /(?:^|\.)localhost\.?$|^\[::1\]$|^127\.\d+\.\d+\.\d+$/.test(hostname);
+  const hub: Piece = loopback ? { text: HUB_PLACEHOLDER, mark: "placeholder" } : { text: origin };
+  const command = () => dockerCommand(key(), hub);
   let copyCommand: HTMLButtonElement | undefined;
 
   createEffect(key, (shown) => {
@@ -176,8 +106,6 @@ export function AddRunner(props: {
         expiresIn: REGISTRATION_KEY_LIFE_SECONDS,
       });
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
-      // A key returned after this dialog closed belongs to its previous opening.
-      if (!dialog?.open || !dialog.isConnected) return;
       setKey(created.key);
     } catch (error) {
       setFailure(hubFailureMessage(error));
@@ -189,7 +117,6 @@ export function AddRunner(props: {
       class="is-wide"
       aria-labelledby="add-runner-heading"
       ref={(element) => {
-        dialog = element;
         onSettled(() => element.showModal());
       }}
       onClose={props.onClose}
@@ -235,22 +162,26 @@ export function AddRunner(props: {
             API keys lists it, where it can be revoked.
           </p>
         </Show>
-        <Command
-          pieces={dockerCommand(key(), hub)}
-          label="The command to run on the machine"
-          copyLabel="Copy the command"
-          buttonRef={(button) => {
-            copyCommand = button;
-          }}
-        />
-        <details>
-          <summary>With Docker Compose instead</summary>
-          <Command
-            pieces={composeCommand(key(), hub)}
-            label="The commands to run on the machine, with Docker Compose"
-            copyLabel="Copy the Compose commands"
+        <div class="copyable">
+          <pre
+            class="code wraps command"
+            tabindex="0"
+            aria-label="The command to run on the machine"
+          >
+            {command().map((piece) =>
+              piece.mark ? <mark class={piece.mark}>{piece.text}</mark> : piece.text,
+            )}
+          </pre>
+          <CopyButton
+            text={command()
+              .map((piece) => piece.text)
+              .join("")}
+            label="Copy the command"
+            buttonRef={(button) => {
+              copyCommand = button;
+            }}
           />
-        </details>
+        </div>
         <p>
           <Show
             when={loopback}
@@ -273,12 +204,12 @@ export function AddRunner(props: {
           says how to open the hub to one.
         </p>
         <p>
-          Its jobs run on OpenRouter's free models: put your OpenRouter key in place of{" "}
-          <mark class="placeholder">{"<your key>"}</mark>, or name another model as{" "}
+          Its jobs run on OpenRouter's free models. The command reads your OpenRouter key from the
+          shell variable <code>MY_KEY</code>. To use another model, follow{" "}
           <a href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}>
             the Runner's README
-          </a>{" "}
-          describes.
+          </a>
+          .
         </p>
         <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>

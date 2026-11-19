@@ -28,6 +28,7 @@ The hub and a Runner from their published images on one machine, as a deployment
    <!-- x-release-please-start-version -->
 
    ```sh
+   HUB=http://localhost:8787
    mkdir -m 700 elflodge && cd elflodge && (
      set -e
      umask 077
@@ -42,7 +43,7 @@ The hub and a Runner from their published images on one machine, as a deployment
    ADMIN_PASSWORD='choose-a-password'
    EOF
      docker compose up --wait hub
-   ) && HUB=http://localhost:8787
+   )
    ```
 
    <!-- x-release-please-end -->
@@ -62,15 +63,18 @@ The hub and a Runner from their published images on one machine, as a deployment
      export ELFLODGE_API_KEY
    ```
 
-3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`:
+3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`. As in the local stack, `MY_KEY` already holds the provider credential. Forward it each time you recreate the Runner:
 
    ```sh
-   cat >> .env <<'EOF'
+   (
+     set -e
+     : "${MY_KEY:?Set MY_KEY to your OpenRouter key}"
+     cat >> .env <<'EOF'
    RUNNER_MODEL_PROVIDER=openrouter
    RUNNER_MODEL_ID=openrouter/free
-   OPENROUTER_API_KEY='<your key>'
    EOF
-   docker compose up --wait runner
+     OPENROUTER_API_KEY="$MY_KEY" docker compose up --wait runner
+   )
    ```
 
    Another model goes in `RUNNER_MODEL_ID` the same way, such as `anthropic/claude-haiku-5.5` or `openai/gpt-6-luna` for real work.
@@ -103,7 +107,7 @@ Runners that speak the new hub's protocol keep working and reconnect by themselv
 
 If a command fails during the window, retry reads and calls that are safe to repeat once the hub is healthy. Retry a submission with the same IDs. For other writes, first check whether the hub committed the change before the connection closed. For example, repeating a request to create an API key can create a second key.
 
-Once the local Runner's jobs have finished, upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported, just as [Kubernetes requires the kubelet to be no newer than its API server](https://kubernetes.io/releases/version-skew-policy/#kubelet).
+Once the local Runner's jobs have finished, forward its provider credential as in step 3 and upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported, just as [Kubernetes requires the kubelet to be no newer than its API server](https://kubernetes.io/releases/version-skew-policy/#kubelet).
 
 ## Upgrading on a rolling platform
 
@@ -133,6 +137,8 @@ Runner reports reach a Durable Object. By default an active object can keep runn
 A Runner on another machine connects out to the hub at `HUB_URL`, and callers there use the same URL as `ELFLODGE_URL`. The hub speaks plain HTTP, so across a network members' passwords, session cookies and API keys would cross unencrypted. Reach it in one of three ways.
 
 **A platform's HTTPS.** Where the hub runs on Cloudflare Workers, Railway, Fly.io, Render or Kubernetes behind an ingress, or behind a Cloudflare Tunnel, the platform serves HTTPS: set `HUB_URL` to the `https://` address it gives. Behind a platform's proxy, the hub may need to be told where to find the client's address for its rate limits, with `CLIENT_IP_HEADER` or `TRUSTED_PROXIES` ([the hub's settings](../apps/hub/README.md#settings)); in Compose, set them under the hub's `environment` in `compose.override.yaml`.
+
+When the following Compose commands recreate a local Runner, forward its provider credential as in step 3.
 
 **Caddy, for the Compose deployment on a VPS or a machine of your own.** Caddy gets and renews a certificate by itself. Point a domain at this machine, open TCP ports 80 and 443 and UDP port 443, the last for HTTP/3, and add Caddy beside the hub in `compose.override.yaml`, which Compose merges into `compose.yaml`:
 
@@ -171,34 +177,38 @@ Then set `HUB_URL=https://hub.example.com` in `.env` and run `docker compose up 
 
 ### Start a Runner on another machine
 
-A Runner needs the hub's URL and a registration key, such as the one step 2 of the Compose deployment puts in `.env`, and the other machine needs the same [host requirements](#host-requirements). With Docker:
+A Runner needs the hub's URL and a registration key, such as the one step 2 of the Compose deployment puts in `.env`, and the other machine needs the same [host requirements](#host-requirements). Use a shell in which `MY_KEY` already holds your OpenRouter credential. Docker receives it by name.
 
+<!-- Keep the command in step with apps/dashboard/src/components/AddRunner.tsx. -->
 <!-- x-release-please-start-version -->
 
 ```sh
-mkdir -m 700 elflodge-runner && (
+(
   set -e
+  : "${MY_KEY:?Set MY_KEY to your OpenRouter key}"
+  mkdir -m 700 elflodge-runner
   cd elflodge-runner
   umask 077
   cat > runner.env <<'EOF'
 HUB_URL=https://hub.example.com
-RUNNER_REGISTRATION_KEY=<a registration key>
 RUNNER_MODEL_PROVIDER=openrouter
 RUNNER_MODEL_ID=openrouter/free
-OPENROUTER_API_KEY=<your key>
 RUNNER_EXTENSIONS_DIR=/app/extensions
 EOF
+  printf 'RUNNER_REGISTRATION_KEY=%s\n' >> runner.env \
+    '<a registration key>'
+  OPENROUTER_API_KEY="$MY_KEY" \
   docker run -d --name elflodge-runner --hostname "$(uname -n)" \
     --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \
-    --volume runner-data:/data --env-file runner.env \
+    --volume runner-data:/data --env-file runner.env --env OPENROUTER_API_KEY \
     ghcr.io/elflodge/elflodge-runner:0.10.0
 )
 ```
 
 <!-- x-release-please-end -->
 
-The hub lists the Runner under its host's name, which `--hostname` gives the container in place of its ID. `RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then run the `docker run` command from the `elflodge-runner` directory with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
+The hub lists the Runner under its host's name, which `--hostname` gives the container in place of its ID. `RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then run the `OPENROUTER_API_KEY=… docker run` command from the `elflodge-runner` directory with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
 
 ## Calling the API directly
 
