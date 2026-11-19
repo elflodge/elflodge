@@ -79,6 +79,15 @@
   /* ---- Outcomes. Each has its own drawn mark as well; colour never carries it alone. ---- */
   --c-succeeded: var(--brand-shape); /* what was done */
   --c-failed: light-dark(#a12c3a, #ff9c8a); /* what failed or was refused, as mark and as words */
+  --c-running: light-dark(
+    #a2552f,
+    var(--brand-lamp)
+  ); /* the running mark, the lamp lit; in light a shade darker than the lamp: at least 3.77:1 light, 4.76:1 dark */
+  --c-waiting: var(--c-ink-2); /* queued and paused: plain, as they are not alarms */
+  --c-unknown: light-dark(
+    #76570a,
+    #ebc76c
+  ); /* a status the hub cannot confirm, as mark and as words: at least 4.66:1 light, 5.70:1 dark */
 
   /* ---- Type. Two faces: the sans for the interface and sentences, the mono for data. ---- */
   --font-sans: "Instrument Sans Variable", "Instrument Sans", system-ui, sans-serif;
@@ -118,6 +127,7 @@
   --rule-heavy: 2px; /* under a heading, under the top bar */
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
+  --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
 }
 
 /* Dark: the mono drops a little weight, as light text on a dark ground reads heavier. */

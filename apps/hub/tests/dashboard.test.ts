@@ -171,6 +171,55 @@ test("in a browser, an address the dashboard has no page for shows that it was n
   await page.getByRole("navigation", { name: "Destinations" }).waitFor();
 }, 30_000);
 
+test("in a browser, the strip under the bar counts the Organization's Runners and jobs", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
+  await client.batches.addJobs({
+    id: batch.id,
+    jobs: [
+      { customId: "one", input: "One." },
+      { customId: "two", input: "Two." },
+    ],
+  });
+  const { jobCounts } = await client.jobs.counts({});
+
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await signInAt(page, "", await newMember("Strip Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  await strip.getByText(`${jobCounts.queued} queued`).waitFor();
+  await strip.getByText("0 agents running").waitFor();
+  await strip.getByText("No Runners").waitFor();
+}, 30_000);
+
+test("in a browser, signing out forgets what was read, so the next member reads afresh", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const first = await newMember("First Reader");
+  const next = await newMember("Next Reader");
+  await signInAt(page, "", first);
+  const strip = page.getByRole("region", { name: "The hub now" });
+  const queued = strip.getByText(/^[\d,]+ queued$/);
+  const before = Number((await queued.innerText()).replaceAll(",", "").split(" ")[0]);
+
+  // A job more, while what the first member read is still fresh, then the next member signs in.
+  await client.batches.addJobs({
+    id: batch.id,
+    jobs: [{ customId: "one more", input: "One more." }],
+  });
+  await page.getByRole("button", { name: first.name }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/sign-in`);
+  await page.getByLabel("Email").fill(next.email);
+  await page.getByLabel("Password").fill(next.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/`);
+  // The strip shows nothing until its read answers, which counts the new job.
+  expect(await queued.innerText()).toBe(`${before + 1} queued`);
+}, 30_000);
+
 // After the tests that add members: the owner's password change ends the owner's other sessions,
 // with which members are added.
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {

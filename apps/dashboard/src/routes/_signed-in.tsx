@@ -6,6 +6,7 @@ import { answered, attemptAuth, authClient, failureMessage, unreadError } from "
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
+import { HubStrip } from "../components/HubStrip.tsx";
 import { Notice } from "../components/Notice.tsx";
 
 // Every page but signing in and setting up is for a signed-in member. The session is read from the
@@ -174,6 +175,10 @@ function SignedIn() {
                 </div>
               </div>
             </header>
+            {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}
+            <Show when={context().organization}>
+              <HubStrip />
+            </Show>
             <main id="main" class="page">
               <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
               <InShell value={true}>

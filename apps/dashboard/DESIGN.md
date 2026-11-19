@@ -34,6 +34,7 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family in both themes.
 - **Inks** are explicit values. Text reaches 4.5:1 on every ground it is set on, in both themes.
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
+- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash; it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
 - **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size) and `--text-md` (15px, sentences that explain) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
 - **Space** is in steps of 4px: `--space-1` to `--space-4` (4 to 16px) and `--space-7` (48px). The page's side margin is `--gutter`.
@@ -106,6 +107,36 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
   - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
   - signing out fails, when the notice is in the page under the menu. The focus then goes to the Member's name, unless the Member has moved on to something else meanwhile.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
+
+### The hub strip
+
+Under the bar, for a Member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many unconfirmed. It reads `GET /runners` and `GET /jobs/counts` again every 15 seconds while the page is visible.
+
+```tsx
+<section class="hubstrip" aria-label="The hub now">
+  <ul class="hubstate">
+    <li>
+      <span class="mark mark-connected" aria-hidden="true" />
+      Runners 4 of 5 connected
+    </li>
+    <li>
+      <span class="mark mark-running" aria-hidden="true" />
+      45 agents running
+    </li>
+    <li>
+      <span class="mark mark-queued" aria-hidden="true" />
+      303 queued
+    </li>
+    <li class="hub-unknown">
+      <span class="mark mark-unknown" aria-hidden="true" />4 unconfirmed
+    </li>
+  </ul>
+</section>
+```
+
+- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, drawn as the item is.
+- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour, with the hub's words in its `title`: an earlier answer is not shown as current. The bar and the page stay.
+- At 640px and below, or with a coarse pointer, a link in it is 44px tall.
 
 ### A page
 
@@ -273,7 +304,7 @@ At 640px and below a record is a block: its identifier on a line of its own, a 4
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are four: `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; and `mark-opens`, a chevron after words that open a menu. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 

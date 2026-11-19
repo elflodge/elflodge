@@ -255,6 +255,56 @@
   }
 }
 
+/* ---------- Hub strip: under the bar, what the hub says now of the Organization's Runners and jobs ---------- */
+.hubstrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: var(--strip);
+  padding: var(--space-1) var(--gutter);
+  background: var(--c-ground-2);
+  border-bottom: var(--rule) solid var(--c-rule);
+  font-size: var(--text-xs);
+}
+.hubstate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* An item, or the link it holds to the list it counts. */
+.hubstate > li,
+.hubstate a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--c-ink);
+}
+.hubstate .mark-connected {
+  color: var(--c-succeeded);
+}
+.hubstate .mark-running {
+  color: var(--c-running);
+}
+.hubstate :is(.mark-queued, .mark-paused, .mark-disconnected) {
+  color: var(--c-waiting);
+}
+.hubstate .hub-unknown {
+  color: var(--c-unknown);
+}
+.hubstate .hub-failed {
+  color: var(--c-failed);
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .hubstate a {
+    min-height: var(--control-touch);
+  }
+}
+
 /* ---------- Page: the main region ---------- */
 .page {
   padding: var(--space-3) var(--gutter) var(--space-7);
@@ -344,6 +394,27 @@
 }
 .mark-succeeded {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M1.75%206.4%204.7%209.3%2010.4%202.9%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.9%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+}
+/* A job's status and a Runner's connection: queued, a ring; running, a lit bar; paused, two bars; a
+   status the hub cannot confirm, a broken ring round a dot; connected, a filled dot; not connected, a
+   hollow one. */
+.mark-queued {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.25%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-running {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Crect%20x%3D%223.5%22%20y%3D%221%22%20width%3D%225%22%20height%3D%2210%22%20rx%3D%22.6%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-paused {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Crect%20x%3D%222.25%22%20y%3D%222%22%20width%3D%222.75%22%20height%3D%228%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%222%22%20width%3D%222.75%22%20height%3D%228%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-unknown {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%20stroke-dasharray%3D%222.1%201.35%22%2F%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%221.3%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-connected {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.6%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-disconnected {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
 }
 /* What a field holds that the hub refused: a warning triangle, beside the words under the field. */
 .mark-error {

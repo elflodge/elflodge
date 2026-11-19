@@ -29,6 +29,13 @@ const USD = new Intl.NumberFormat(LANGUAGE, {
   maximumFractionDigits: 4,
 });
 
+const PLURAL = new Intl.PluralRules(LANGUAGE);
+
+/** `one` or `other`, the word that goes with `count`, such as "1 agent" and "2 agents". */
+export function plural(count: number, one: string, other: string): string {
+  return PLURAL.select(count) === "one" ? one : other;
+}
+
 /** A count, such as of tokens or of jobs: "12,279". */
 export function formatCount(count: number): string {
   return COUNT.format(count);
