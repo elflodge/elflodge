@@ -1613,8 +1613,11 @@ p mark.placeholder {
 .record-with-aside h2 {
   margin-bottom: var(--space-2);
 }
-.facts-aside {
-  /* A tall column of job labels can take the scroll anchor from the Event being read beside it. */
+/* Tall job labels beside the timeline, or a sliver of the jump row below the earlier
+   button, can take the browser's scroll anchor from the Event the reader scrolled to. */
+.facts-aside,
+.events-edge-note,
+.jump-row {
   overflow-anchor: none;
 }
 .facts-aside .labels {

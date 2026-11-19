@@ -63,8 +63,8 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const ownerLifetime = new AbortController();
   onCleanup(() => ownerLifetime.abort());
   const [direction, setDirection] = createSignal<PagingDirection>("earlier");
-  const [pendingCommand, setPendingCommand] = createSignal<PagingDirection | "start" | "latest">();
-  const [jumpFailure, setJumpFailure] = createSignal<{ error: Error; failedAt: number }>();
+  const [isReadingPage, setReadingPage] = createSignal(false);
+  const [jumpFailure, setJumpFailure] = createSignal<{ side: PagingDirection; error: Error }>();
   const history = useInfiniteQuery(() => ({
     ...historyOptions(job().id, direction()),
     enabled: enabled(),
@@ -186,10 +186,10 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     return Math.max(arrival, pages()[0]?.events.at(-1)?.id ?? arrival);
   }
 
-  async function jump(next: PagingDirection) {
-    if (!enabled() || pendingCommand()) return false;
-    setPendingCommand(next === "later" ? "start" : "latest");
-    setJumpFailure(undefined);
+  async function jump(side: PagingDirection) {
+    if (!enabled() || isReadingPage()) return false;
+    setReadingPage(true);
+    const next = side === "earlier" ? "later" : "earlier";
     try {
       const previousHistoryError = history.error;
       const previousFollowError = follow.error;
@@ -207,8 +207,9 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       const cursor =
         next === "earlier" ? target : firstPage?.hasMore ? undefined : firstPage?.events.at(-1)?.id;
       // The previous refusal can remain visible until the new rows arrive.
+      const historyRereadFailed = () => history.isError && history.error !== previousHistoryError;
       const rereadFailed = () =>
-        (history.isError && history.error !== previousHistoryError) ||
+        historyRereadFailed() ||
         (cursor !== undefined &&
           tailCursor() === cursor &&
           follow.isError &&
@@ -222,19 +223,19 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         },
         { signal: ownerLifetime.signal },
       );
+      if (historyRereadFailed()) throw history.error;
+      setJumpFailure(undefined);
       return enabled() && !rereadFailed();
     } catch (error) {
-      if (!ownerLifetime.signal.aborted)
-        setJumpFailure({ error: asError(error), failedAt: Date.now() });
+      if (!ownerLifetime.signal.aborted) setJumpFailure({ side, error: asError(error) });
       return false;
     } finally {
-      setPendingCommand(undefined);
+      setReadingPage(false);
     }
   }
   async function readPage(side: PagingDirection) {
-    if (!enabled() || pendingCommand() || !hasPage(side)) return undefined;
-    setJumpFailure(undefined);
-    setPendingCommand(side);
+    if (!enabled() || isReadingPage() || !hasPage(side)) return undefined;
+    setReadingPage(true);
     // Disable the button and clear its refusal before a retry suspends the history read.
     flush();
     try {
@@ -245,14 +246,21 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       if ("promise" in history) await history.promise;
       return result.data.pages.at(-1);
     } finally {
-      setPendingCommand(undefined);
+      setJumpFailure(undefined);
+      setReadingPage(false);
     }
   }
   function failure() {
     const readAt = Math.max(follow.dataUpdatedAt, history.dataUpdatedAt);
-    const failed = jumpFailure();
-    if (failed) return { ...failed, readAt };
-    const read = history.isError && !history.isFetchNextPageError ? history : follow;
+    // A failed Latest can also be the history query currently on screen. The edge
+    // reports that request; an independent failure to follow still belongs here.
+    const read =
+      history.isError &&
+      !isReadingPage() &&
+      !history.isFetchNextPageError &&
+      history.error !== jumpFailure()?.error
+        ? history
+        : follow;
     return read.isError ? { error: read.error, failedAt: read.errorUpdatedAt, readAt } : undefined;
   }
 
@@ -263,15 +271,20 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     hasPage,
     usedUp: (side: PagingDirection) =>
       direction() === side && pages().length > 1 && !history.hasNextPage,
-    pageError: () =>
-      !pendingCommand() && history.isFetchNextPageError ? history.error : undefined,
+    pageError: (side: PagingDirection) => {
+      const failed = jumpFailure();
+      if (failed?.side === side) return failed.error;
+      return direction() === side && !isReadingPage() && history.isFetchNextPageError
+        ? history.error
+        : undefined;
+    },
     isAtLatest: () => !!pages().length && !hasPage("later") && !followed()?.hasMore,
     isLoading: () => history.isPending,
-    pendingCommand,
+    isReadingPage,
     failure,
     readPage,
-    readFromStart: () => jump("later"),
-    readLatest: () => jump("earlier"),
+    readFromStart: () => jump("earlier"),
+    readLatest: () => jump("later"),
   };
 }
 

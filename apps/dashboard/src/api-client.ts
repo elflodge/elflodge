@@ -26,6 +26,11 @@ export function hubFailureMessage(caught: unknown): string {
   return "The connection to the hub failed. Please try again.";
 }
 
+/** Finish a failure notice with the hub's words when it supplied any. */
+export function failureDetailSuffix(detail: string): string {
+  return detail.trim() ? `: ${detail}` : ".";
+}
+
 /** The page keeps the failure it received even if another reader has already retried the query. */
 export class HubReadError extends Error {
   readonly failedAt = Date.now();
@@ -35,7 +40,7 @@ export class HubReadError extends Error {
 
   constructor(what: string, cause: unknown) {
     const detail = hubFailureMessage(cause);
-    super(`${what} could not be read: ${detail}`, { cause });
+    super(`${what} could not be read${failureDetailSuffix(detail)}`, { cause });
     this.what = what;
     this.detail = detail;
   }

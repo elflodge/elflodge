@@ -302,6 +302,7 @@ test("a member can retry a refused earlier page from its own box", async () => {
   try {
     await page.keyboard.press("Enter");
     await expectBrowser(earlier).toBeDisabled();
+    await expectBrowser(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
     await expectBrowser(box.getByRole("alert")).toHaveCount(0);
   } finally {
     retry.resolve();

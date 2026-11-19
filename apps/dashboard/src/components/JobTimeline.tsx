@@ -2,7 +2,7 @@ import { Link } from "@tanstack/solid-router";
 import { JOB_PAUSED, JOB_RECOVERED, JOB_RESUMED, JOB_SUCCEEDED, type Job } from "contract";
 import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-js";
 
-import { hubFailureMessage } from "../api-client.ts";
+import { failureDetailSuffix, hubFailureMessage } from "../api-client.ts";
 import { DAY_YEAR, TIME_SECONDS, formatCount, plural } from "../format.ts";
 import type { ReadJobEvent } from "../job-event-record.ts";
 import type { JobEvents, PagingDirection } from "../job-events.ts";
@@ -75,10 +75,14 @@ function PageEdge(props: {
   events: JobEvents;
   at?: Date;
   read: (direction: PagingDirection) => Promise<HTMLElement | null>;
+  jump: () => Promise<void>;
   timeline: () => HTMLOListElement | undefined;
 }) {
   const earlier = () => props.direction === "earlier";
-  const usedUp = () => props.events.usedUp(props.direction);
+  const hasPage = () => props.events.hasPage(props.direction);
+  const error = () => props.events.pageError(props.direction);
+  const retryJump = () => !hasPage() && !!error();
+  const usedUp = () => props.events.usedUp(props.direction) && !retryJump();
   const edgeTime = createMemo<Date | undefined>((previous) => (usedUp() ? previous : props.at));
   let box: HTMLDivElement | undefined;
   async function read(button: HTMLButtonElement) {
@@ -95,7 +99,7 @@ function PageEdge(props: {
     }
   }
   return (
-    <Show when={props.events.hasPage(props.direction) || usedUp()}>
+    <Show when={hasPage() || usedUp() || error()}>
       <div
         class="events-edge-note"
         tabindex={earlier() && usedUp() ? "-1" : undefined}
@@ -106,7 +110,7 @@ function PageEdge(props: {
       >
         <div aria-hidden={usedUp() ? "true" : undefined}>
           <Show
-            when={props.events.pageError()}
+            when={error()}
             fallback={
               <p>
                 <Show
@@ -125,18 +129,19 @@ function PageEdge(props: {
               </p>
             }
           >
-            {(error) => (
+            {(failure) => (
               <Notice role="alert">
-                The {props.direction} Events could not be read: {hubFailureMessage(error())}
+                The {props.direction} Events could not be read
+                {failureDetailSuffix(hubFailureMessage(failure()))}
               </Notice>
             )}
           </Show>
           <button
             type="button"
-            disabled={props.events.pendingCommand() === props.direction}
-            onClick={(e) => void read(e.currentTarget)}
+            disabled={props.events.isReadingPage()}
+            onClick={(e) => void (retryJump() ? props.jump() : read(e.currentTarget))}
           >
-            Show {props.direction} Events
+            {retryJump() ? (earlier() ? "Start" : "Latest") : `Show ${props.direction} Events`}
           </button>
         </div>
         <Show when={earlier() && usedUp()}>
@@ -199,8 +204,18 @@ export function JobTimeline(props: {
     }
   }
   async function jump(toStart: boolean) {
-    if (toStart && events.hasPage("earlier") && !(await events.readFromStart())) return;
-    if (!toStart && !events.isAtLatest() && !(await events.readLatest())) return;
+    if (
+      toStart &&
+      (events.hasPage("earlier") || events.pageError("earlier")) &&
+      !(await events.readFromStart())
+    )
+      return;
+    if (
+      !toStart &&
+      (!events.isAtLatest() || events.pageError("later")) &&
+      !(await events.readLatest())
+    )
+      return;
     flush();
     setAddition(undefined);
     if (toStart) reveal(shownNumber(rows(), false) ?? heading ?? null);
@@ -208,7 +223,7 @@ export function JobTimeline(props: {
   }
 
   async function extend(direction: PagingDirection) {
-    if (events.pendingCommand()) return null;
+    if (events.isReadingPage()) return null;
     const previous = last()?.id;
     const page = await events.readPage(direction);
     flush();
@@ -302,7 +317,15 @@ export function JobTimeline(props: {
           Loading Events
         </p>
       </Show>
-      <Show when={!rows().length && !events.isLoading() && !events.failure()}>
+      <Show
+        when={
+          !rows().length &&
+          !events.isLoading() &&
+          !events.failure() &&
+          !events.pageError("earlier") &&
+          !events.pageError("later")
+        }
+      >
         <div class="empty">
           <h3>
             {props.job.status === "cancelled" && !props.job.startedAt
@@ -318,6 +341,7 @@ export function JobTimeline(props: {
       </Show>
       <PageEdge
         direction="earlier"
+        jump={() => jump(true)}
         events={events}
         at={earlierTime()}
         read={extend}
@@ -326,11 +350,7 @@ export function JobTimeline(props: {
       <Show when={rows().length}>
         <nav class="jump-row" aria-label="Go to a moment of the job">
           <span>Go to</span>
-          <button
-            type="button"
-            disabled={events.pendingCommand() === "start"}
-            onClick={() => void jump(true)}
-          >
+          <button type="button" disabled={events.isReadingPage()} onClick={() => void jump(true)}>
             Start
           </button>
           <For each={moments()} keyed={(row) => row.id}>
@@ -346,11 +366,7 @@ export function JobTimeline(props: {
           <JumpGroup name="sub-agent" multiple="sub-agents" rows={subAgents()} content />
           <JumpGroup name="compaction" multiple="compactions" rows={compactions()} content />
           <JumpGroup name="error" multiple="errors" rows={errors()} />
-          <button
-            type="button"
-            disabled={events.pendingCommand() === "latest"}
-            onClick={() => void jump(false)}
-          >
+          <button type="button" disabled={events.isReadingPage()} onClick={() => void jump(false)}>
             Latest
           </button>
         </nav>
@@ -417,6 +433,7 @@ export function JobTimeline(props: {
       />
       <PageEdge
         direction="later"
+        jump={() => jump(false)}
         events={events}
         at={laterTime()}
         read={extend}
