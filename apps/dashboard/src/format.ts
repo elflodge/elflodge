@@ -1,8 +1,9 @@
 /**
- * How the dashboard writes times and figures, with the platform's `Intl`. In British English, the
- * language of the page, so that a date reads "18 Nov 2026", a time "15:41" and a figure "12,279"
- * wherever the reader is, and the widths the pages are laid out for hold. An instant is written in
- * the reader's own time zone, which `Intl` takes from the browser.
+ * How the dashboard writes times and figures, with the platform's `Intl`. The pages are in English;
+ * British English writes a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41",
+ * which no reader takes for another day or hour, and a figure as "12,279". It is fixed rather than
+ * taken from the browser, so the widths the pages are laid out for hold for every reader. An instant
+ * is written in the reader's own time zone, which `Intl` takes from the browser.
  */
 const LANGUAGE = "en-GB";
 
@@ -14,6 +15,16 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
 
 /** An instant's time alone, such as "15:41", where its day is said nearby. */
 export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
+
+/** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
+export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZoneName: "short",
+});
+
+/** An instant in full, to the second and with its time zone: "Wednesday, 18 November 2026 at 15:41:22 CET". */
+export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeStyle: "long" });
 
 /**
  * A calendar day the hub counts in UTC, such as a day of usage: "18 Nov 2026". Written in UTC, so

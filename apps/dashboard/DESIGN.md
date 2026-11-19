@@ -255,9 +255,9 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 ### Times and figures
 
-`src/format.ts` writes them with the platform's `Intl`, in British English, the page's language, so a date reads "18 Nov 2026", a time "15:41" and a figure "12,279" for every reader, and the widths a page is laid out for hold.
+`src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
 
-- **An instant** is an `Instant` (`src/components/Time.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`); `format={TIME}` shows the time alone where its day is said nearby.
+- **An instant** is an `Instant` (`src/components/Time.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`); `format={TIME}` shows the time alone where its day is said nearby. Its `title` gives it in full, to the second and with the zone (`FULL`). The page names the zone once: a list's column head, such as "Created (CET)", or, for an instant alone, `format={TIME_ZONED}`, "15:41 CET".
 - **A day the hub counts in UTC**, such as a day of usage, given as `YYYY-MM-DD`, is a `UtcDay`, written as that UTC day wherever the reader is. Say once, near it, that the days are UTC days.
 - **A count**, of tokens or of jobs, is `formatCount`; **an amount in US dollars** is `formatUsd`, to four decimals, since a job often costs a fraction of a cent. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
 

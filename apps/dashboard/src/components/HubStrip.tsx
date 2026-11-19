@@ -3,7 +3,7 @@ import type { UseQueryResult } from "@tanstack/solid-query";
 import { useQuery } from "@tanstack/solid-query";
 import { Errored, Loading, Show } from "solid-js";
 
-import { TIME, formatCount, plural } from "../format.ts";
+import { TIME_ZONED, formatCount, plural } from "../format.ts";
 import { orpc } from "../query.ts";
 import { Instant } from "./Time.tsx";
 
@@ -117,7 +117,8 @@ function Read<T>(props: {
 }
 
 /**
- * What the strip could not read, and when. The hub's words are left out: the strip has room for one
+ * What the strip could not read, and when, with the reader's time zone, which nothing near it says.
+ * The hub's words are left out: the strip has room for one
  * short line.
  */
 function Failed(props: { query: UseQueryResult; what: string }) {
@@ -126,7 +127,7 @@ function Failed(props: { query: UseQueryResult; what: string }) {
       <span class="mark mark-failed" aria-hidden="true" />
       <span>
         {props.what} could not be read at{" "}
-        <Instant value={new Date(props.query.errorUpdatedAt || Date.now())} format={TIME} />.
+        <Instant value={new Date(props.query.errorUpdatedAt || Date.now())} format={TIME_ZONED} />.
       </span>
     </li>
   );
