@@ -33,7 +33,7 @@ Pages are written as semantic HTML in JSX with these classes, and with no inline
 Each colour is written once, as `light-dark(light, dark)`. The page follows the system setting; `data-theme="light"` or `"dark"` on `<html>` forces one, and the brand mark in the page follows it. The favicon follows the system setting, since it sits in the browser's tab and not in the page. The dashboard has no theme switch.
 
 - **Brand:** `--brand-ground`, `--brand-shape`, `--brand-lamp`. Nothing replaces them.
-- **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family in both themes.
+- **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family. The code band (`--c-sunk`) mixes them in light and uses a darker ground in dark, where the mix cannot sink below the page. On the band, `--c-ink` measures 11.40:1 in light and 12.20:1 in dark. A placeholder's `--c-ink-3` outline measures 3.47:1 and 6.54:1 respectively.
 - **Inks** are explicit values. Text reaches 4.5:1 on every ground it is set on, in both themes.
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
 - **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
@@ -57,7 +57,7 @@ With no class at all:
 - **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
 - **`dialog`** and **`[popover]`** are paper with an edge and a shadow.
 
-No page has a table, a `dl`, `details`, `progress` or a `dialog` yet.
+No page has `progress` yet.
 
 ## Parts
 
@@ -141,7 +141,7 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
 </section>
 ```
 
-- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall.
+- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall. The Runners item leads to the Runners page.
 - The running mark takes the lamp's colour only while the hub can confirm that at least one job is running. At zero it is plain, as queued and paused are. When every job counted as running has its status unknown, nothing is known to be live: the item is `li.hub-unknown`, with `mark-unknown` in place of the running mark, and says so: "3 agents running, status unknown". The count stays the hub's, which counts such a job under the last status its Runner confirmed. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
 - A read's items show only while its last answer is less than 15 seconds old, so an earlier answer is never shown as current. When they give way, one line in their place says why. While the browser reports that it is offline, no read is made, and one line replaces every item at once, whatever their age: "The hub cannot be read: this browser is offline." It carries no time, being true for as long as it shows. Otherwise, if the latest read to finish failed, the line says what could not be read and when, drawn like the offline line in the failed colour: "The job counts could not be read at 15:41 CET." The time is the latest failure's, and the line stays while the reads go on failing. If none has failed, as when the hub is slow to answer or the page has just come back into view, the line gives the time of the last answer, in `--c-unknown` with the unknown mark (`li.hub-unknown`): "The job counts have not been read since 15:41 CET." Until a read's first answer there is no time to give, and its items are not there. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
 - At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
@@ -156,7 +156,38 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
 </div>
 ```
 
-Sentences that explain are `p.prose`: 15px, at most 72 characters a line.
+A page's controls, such as the one action it exists for, go at the heading's end in `div.controls`; when the line is too narrow for both, they go under it.
+
+```tsx
+<div class="head">
+  <h1>Runners</h1>
+  <div class="controls">
+    <button type="button" class="primary">
+      Add Runner
+    </button>
+  </div>
+</div>
+```
+
+Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line that explains the part it stands under; `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
+
+`ul.plain` lists items one under another, without bullets, as several values of one fact.
+
+### Empty
+
+A list with nothing in it says what belongs there and the way to it: `div.empty` holds an `h2` naming what is missing, a `p` that says how it comes, and a `p.empty-act` with the way on only where the head does not already have it.
+
+```tsx
+<div class="empty">
+  <h2>No jobs yet</h2>
+  <p>A Runner runs the jobs submitted to this hub.</p>
+  <p class="empty-act">
+    <Link class="stands-alone" to="/runners">
+      View Runners
+    </Link>
+  </p>
+</div>
+```
 
 ### A page without the shell
 
@@ -226,11 +257,13 @@ When the hub refuses what one field holds, say so under that field, as a `FieldE
 
 which draws `p.field-error`: the error mark and the words, small, in the failed colour.
 
-Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength`: it cuts what is typed or pasted instead of refusing it, so a longest length is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
+Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
+
+Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. The API-key name displays its 32-character limit and sets `maxlength` to match. Elsewhere a longest length is the hub's to refuse, since `maxlength` cuts what is typed or pasted. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
 
-One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button.
+One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button. When an action removes its focused control, the notice can take focus: pass `focusRef` to focus its element after rendering. This gives it `tabindex="-1"` so it stays outside the tab order.
 
 ```tsx
 <Notice role="alert">The new password and its confirmation differ.</Notice>
@@ -248,7 +281,32 @@ which draw
 
 ### Buttons
 
-A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu.
+A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu. `.danger` is a destructive control, its words and edge in the failed colour; `.danger.is-fill`, filled, is the button in a dialog that confirms it.
+
+### Dialogs
+
+A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). "Keep it" comes first and has the focus. The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
+
+```tsx
+<dialog aria-labelledby="remove-h">
+  <form method="dialog">
+    <h2 class="dialog-h" id="remove-h">
+      Remove <span class="mono">lodge-01</span> <span class="sid">03326db5</span>?
+    </h2>
+    <div class="dialog-b">
+      <p>Its key stops working and its connection is dropped at once.</p>
+    </div>
+    <div class="dialog-f">
+      <button value="keep" autofocus>
+        Keep it
+      </button>
+      <button type="button" class="danger is-fill">
+        Remove lodge-01 03326db5
+      </button>
+    </div>
+  </form>
+</dialog>
+```
 
 ### Mono
 
@@ -258,6 +316,8 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 <span class="mono">robin@example.com</span>
 ```
 
+`span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. It is the ID's first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`).
+
 An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
 ### Times and figures
@@ -265,6 +325,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 `src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
 
 - **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An instant alone on a page that has the note carries none.
+- **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
 
 ```tsx
@@ -274,11 +335,11 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
 
-No page uses `.note`, `timeZoneNote()`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
+A Runner's model has its thinking level beside it in `span.unit`, such as "thinking low".
 
 ### Records table
 
-Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole above 640px and carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
+Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. Above 640px the cell keeps its value whole, except for lists of permissions, which can wrap. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
 
 ```tsx
 <table class="records" role="table">
@@ -308,11 +369,33 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 </table>
 ```
 
+A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. Its name column takes a fifth of the table, leaving room for the permissions. An absent name reads "Unnamed" in the secondary sans (`.unnamed`).
+
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
+
+### Command to copy, and a secret shown once
+
+What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered Runner appears. The line keeps its `role="status"` from the start. When a Runner registers, the line names it and its short ID beside the succeeded mark. Its contents are empty during a failed read. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
+
+```tsx
+<div class="copyable">
+  <pre class="code command" tabindex="0" aria-label="The new API key">
+    <mark class="key">{key}</mark>
+  </pre>
+  <CopyButton text={key} label="Copy the key" />
+</div>
+<p class="shown-once" role="note"><b>Shown this once:</b> copy it now. …</p>
+```
+
+### Runner record
+
+The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another.
+
+A direct visit stays blank until the first Runners read finishes because the router awaits the loader before mounting the shell. On navigation from another dashboard page, a slow first read shows three placeholder records in `ul.runners[aria-busy="true"]`, with a hidden status reading "Loading Runners". The records are hidden from assistive technology. Each `span.sk` is a line on `--c-skeleton`; `.is-title` and `.is-short` stand in for the name and connection, and `.is-part` for a shorter fact.
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-pending`, an hourglass for something awaited; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 

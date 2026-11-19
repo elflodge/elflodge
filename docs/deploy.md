@@ -23,21 +23,27 @@ On Ubuntu 24.04, let the Runner's job sandboxes create user namespaces before st
 
 The hub and a Runner from their published images on one machine, as a deployment that other machines' Runners and callers can reach once the hub is opened to them, as [Runners on other machines](#runners-on-other-machines) shows. It needs Docker Engine 29 or later and Compose 5 or later, `curl`, `jq` and `openssl`, and on Ubuntu 24.04 the host setting in [Host requirements](#host-requirements). Use current patch releases of [Docker Engine](https://docs.docker.com/engine/install/) and [Compose](https://docs.docker.com/compose/install/).
 
-1. **Start the hub.** It creates its owner from these settings on its first start and serves the API and the dashboard at `http://localhost:8787`. To create the owner in the dashboard instead, leave `ADMIN_EMAIL` and `ADMIN_PASSWORD` out: `docker compose logs hub` then shows a setup link, and step 2 uses the email and password you choose there. For an existing installation, follow [Upgrading the Compose hub](#upgrading-the-compose-hub).
+1. **Start the hub.** It creates its owner from these settings on its first start and serves the API and the dashboard at `http://localhost:8787`. To create the owner in the dashboard instead, leave `ADMIN_EMAIL` and `ADMIN_PASSWORD` out: `docker compose logs hub` then shows a setup link, and step 2 uses the email and password you choose there. For an existing installation, follow [Upgrading the Compose hub](#upgrading-the-compose-hub). Continue to step 2 only after the command succeeds in its new private directory. If the hub fails to start, `docker compose logs hub` shows why.
 
    <!-- x-release-please-start-version -->
 
    ```sh
-   curl -fsSLO https://raw.githubusercontent.com/elflodge/elflodge/v0.10.0/compose.yaml
-   cat > .env <<EOF
-   BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-   POSTGRES_PASSWORD=$(openssl rand -hex 24)
-   ADMIN_EMAIL=you@example.com
-   ADMIN_PASSWORD=choose-a-password
-   EOF
-   # Returns once the hub has migrated its database and created its owner from these settings; if the hub itself fails, `docker compose logs hub` says why
-   docker compose up --wait hub
    HUB=http://localhost:8787
+   mkdir -m 700 elflodge && cd elflodge && (
+     set -e
+     umask 077
+     curl -fsSLO \
+       https://raw.githubusercontent.com/elflodge/elflodge/v0.10.0/compose.yaml
+     auth_secret=$(openssl rand -base64 32)
+     db_password=$(openssl rand -hex 24)
+     printf 'BETTER_AUTH_SECRET=%s\n' "$auth_secret" > .env
+     printf 'POSTGRES_PASSWORD=%s\n' "$db_password" >> .env
+     cat >> .env <<'EOF'
+   ADMIN_EMAIL=you@example.com
+   ADMIN_PASSWORD='choose-a-password'
+   EOF
+     docker compose up --wait hub
+   )
    ```
 
    <!-- x-release-please-end -->
@@ -49,23 +55,27 @@ The hub and a Runner from their published images on one machine, as a deployment
      -d '{"email":"you@example.com","password":"choose-a-password"}' "$HUB/api/auth/sign-in/email"
    # The key Runners register with, kept in .env for the Runner
    key=$(curl -sS --fail-with-body -b cookies -H 'content-type: application/json' \
-     -d '{"name":"runners","permissions":{"runner":["register"]}}' "$HUB/api-keys" | jq -er .key) &&
-     echo "RUNNER_REGISTRATION_KEY=$key" >> .env
+     -d '{"name":"runners","expiresIn":86400,"permissions":{"runner":["register"]}}' "$HUB/api-keys" | jq -er .key) &&
+     printf 'RUNNER_REGISTRATION_KEY=%s\n' "$key" >> .env
    # A key for submitting and controlling jobs, for the command
    ELFLODGE_API_KEY=$(curl -sS --fail-with-body -b cookies -H 'content-type: application/json' \
      -d '{"name":"jobs","permissions":{"job":["create","read","pause","resume","cancel","delete"]}}' "$HUB/api-keys" | jq -er .key) &&
      export ELFLODGE_API_KEY
    ```
 
-3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`:
+3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`. In Bash or zsh, run `read -rs MY_KEY` on its own, paste the OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The command below saves it in the private `.env` so recreating the Runner keeps it. A variable exported in the shell, such as `OPENROUTER_API_KEY`, takes precedence over the same name in `.env`, so unset it before running Compose, including for upgrades.
 
    ```sh
-   cat >> .env <<EOF
+   (
+     set -e
+     : "${MY_KEY:?Set MY_KEY to your OpenRouter key}"
+     cat >> .env <<'EOF'
    RUNNER_MODEL_PROVIDER=openrouter
    RUNNER_MODEL_ID=openrouter/free
-   OPENROUTER_API_KEY=<your key>
    EOF
-   docker compose up --wait runner
+     printf 'OPENROUTER_API_KEY=%s\n' "$MY_KEY" >> .env
+     docker compose up --wait runner
+   )
    ```
 
    Another model goes in `RUNNER_MODEL_ID` the same way, such as `anthropic/claude-haiku-5.5` or `openai/gpt-6-luna` for real work.
@@ -166,28 +176,40 @@ Then set `HUB_URL=https://hub.example.com` in `.env` and run `docker compose up 
 
 ### Start a Runner on another machine
 
-A Runner needs the hub's URL and a registration key, such as the one step 2 of the Compose deployment puts in `.env`, and the other machine needs the same [host requirements](#host-requirements). With Docker:
+The new host needs the hub's URL and must meet the [host requirements](#host-requirements). Create a fresh registration key with **Add Runner** in the dashboard; it expires after one day. Registered Runners keep using their own keys.
 
+In Bash or zsh on that machine, run `read -rs MY_KEY` on its own, paste your OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The following command saves it in the private `runner.env`.
+
+<!-- Keep the command in step with apps/dashboard/src/components/AddRunner.tsx. -->
 <!-- x-release-please-start-version -->
 
 ```sh
-cat > runner.env <<EOF
+(
+  set -e
+  : "${MY_KEY:?Set MY_KEY to your OpenRouter key}"
+  mkdir -m 700 elflodge-runner
+  cd elflodge-runner
+  umask 077
+  cat > runner.env <<'EOF'
 HUB_URL=https://hub.example.com
-RUNNER_REGISTRATION_KEY=<a registration key>
 RUNNER_MODEL_PROVIDER=openrouter
 RUNNER_MODEL_ID=openrouter/free
-OPENROUTER_API_KEY=<your key>
 RUNNER_EXTENSIONS_DIR=/app/extensions
 EOF
-docker run -d --name elflodge-runner --hostname "$(uname -n)" --security-opt seccomp=unconfined \
-  --security-opt systempaths=unconfined --security-opt apparmor=unconfined --memory 8g \
-  --restart unless-stopped --volume runner-data:/data --env-file runner.env \
-  ghcr.io/elflodge/elflodge-runner:0.10.0
+  printf 'RUNNER_REGISTRATION_KEY=%s\n' >> runner.env \
+    '<a registration key>'
+  printf 'OPENROUTER_API_KEY=%s\n' "$MY_KEY" >> runner.env
+  docker run -d --name elflodge-runner --hostname "$(uname -n)" \
+    --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
+    --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \
+    --volume runner-data:/data --env-file runner.env \
+    ghcr.io/elflodge/elflodge-runner:0.10.0
+)
 ```
 
 <!-- x-release-please-end -->
 
-The hub lists the Runner under its host's name, which `--hostname` gives the container in place of its ID. `RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then the `docker run` line with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
+The hub lists the Runner under its host's name, which `--hostname` gives the container in place of its ID. `RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then run the `docker run` command from the `elflodge-runner` directory with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
 
 ## Calling the API directly
 

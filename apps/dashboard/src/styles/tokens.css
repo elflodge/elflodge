@@ -2,7 +2,8 @@
    Colours are written once each with light-dark(light, dark): the page follows the system setting,
    and data-theme="light" or "dark" on <html> forces one.
    A neutral that sits between the page and the brand's green (a rule, a band, an edge) is written as a
-   mix of the two brand colours, so it moves with them; text inks are explicit values, each checked for AA. */
+   mix of the two brand colours. The code band (--c-sunk) has an explicit dark ground below the page.
+   Text inks are explicit values, each checked for AA. */
 
 :root {
   color-scheme: light dark;
@@ -33,6 +34,15 @@
     var(--brand-ground),
     var(--brand-shape) 8%
   ); /* a band set apart from the page; a control that cannot act */
+  --c-skeleton: color-mix(
+    in oklab,
+    var(--brand-ground),
+    var(--brand-shape) 13%
+  ); /* loading placeholders */
+  --c-sunk: light-dark(
+    color-mix(in oklab, var(--brand-ground), var(--brand-shape) 5%),
+    #212c25
+  ); /* code; dark sinks below the page, which no mix of the two reaches */
   --c-paper: light-dark(#f8f3e8, #314238); /* raised: fields, buttons, dialogs, popovers */
   --c-lamp-wash: color-mix(
     in oklab,
@@ -41,7 +51,7 @@
   ); /* ground of what is live, and of marked text */
   --c-failed-wash: light-dark(#f3d9d2, #45302d); /* ground of a refusal and of an invalid field */
 
-  /* ---- Ink. Text colours, each AA on --c-ground, --c-ground-2 and --c-paper. ---- */
+  /* ---- Ink. Text colours, each AA on --c-ground, --c-ground-2, --c-paper and --c-sunk. ---- */
   --c-ink: light-dark(#1e2a22, #e7eee1); /* body text, figures */
   --c-ink-2: light-dark(#4d594d, #b3c4ae); /* secondary text: labels of facts, units, notes */
   --c-link: var(--brand-shape); /* links */
@@ -50,6 +60,11 @@
     currentColor 38%,
     transparent
   ); /* resting underline of a link or menu action */
+  --c-danger-hover: color-mix(
+    in oklab,
+    var(--c-failed) 86%,
+    var(--c-ink)
+  ); /* destructive confirmation under the pointer */
   --c-primary-hover: color-mix(
     in oklab,
     var(--brand-shape) 86%,
@@ -58,7 +73,7 @@
   --c-on-shape: var(--brand-ground); /* text on a --brand-shape fill (the primary button) */
 
   /* ---- Lines that are not text: 3:1 where they must be seen, quieter where they only separate.
-     Measured on --c-ground, -ground-2, -paper, -lamp-wash and -failed-wash, in both themes. ---- */
+     Measured on --c-ground, -ground-2, -paper, -sunk, -lamp-wash and -failed-wash, in both themes. ---- */
   --c-ink-3: color-mix(
     in oklab,
     var(--brand-ground),

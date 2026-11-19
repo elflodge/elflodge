@@ -281,7 +281,7 @@ textarea:disabled {
   border-color: var(--c-rule);
   cursor: not-allowed;
 }
-[aria-invalid="true"] {
+:is(input, select, textarea)[aria-invalid="true"] {
   border-color: var(--c-failed);
   background: var(--c-failed-wash);
 }
@@ -303,6 +303,7 @@ details > summary {
   cursor: pointer;
 }
 summary {
+  padding-block: calc((var(--control) - 1lh) / 2);
   color: var(--c-link);
   font-weight: var(--weight-medium);
 }
@@ -318,6 +319,9 @@ progress {
 }
 
 dialog {
+  text-align: start;
+  white-space: normal;
+  font-size: var(--text-sm);
   background: var(--c-paper);
   color: var(--c-ink);
   border: var(--rule) solid var(--c-field-edge);
@@ -341,9 +345,11 @@ dialog::backdrop {
 @media (max-width: 640px), (pointer: coarse) {
   button,
   input:not([type="checkbox"], [type="radio"], [type="file"]),
-  select,
-  summary {
+  select {
     min-height: var(--control-touch);
+  }
+  summary {
+    padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
   button {
     padding: 0 var(--space-4);

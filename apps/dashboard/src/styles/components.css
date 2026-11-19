@@ -37,6 +37,22 @@
   background: transparent;
   border-color: transparent;
 }
+/* A destructive control: its words and edge in the failed colour. Filled, it confirms in a dialog. */
+.danger {
+  color: var(--c-failed);
+  border-color: currentColor;
+}
+.danger.is-fill:not(:disabled) {
+  background: var(--c-failed);
+  color: var(--c-paper);
+  border-color: var(--c-failed);
+}
+/* Hover moves the fill toward the ink, darker in light and lighter in dark. */
+@media (hover: hover) {
+  .danger.is-fill:hover:not(:disabled) {
+    background: var(--c-danger-hover);
+  }
+}
 
 /* ---------- The shell: a top bar, then the page full width ---------- */
 .topbar {
@@ -345,11 +361,45 @@
   border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
 }
 
-/* ---------- Page head: the page's heading, with a heavy rule under it ---------- */
+/* ---------- Page head: the page's heading, with a heavy rule under it, and the page's controls at its end ---------- */
 .head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
   padding-bottom: var(--space-3);
   border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
   margin-bottom: var(--space-4);
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------- Plain list: items one under another, without bullets, as in a ruled fact's value ---------- */
+.plain {
+  list-style: none;
+  padding: 0;
+}
+
+/* ---------- Empty: what belongs here, and the way to it ---------- */
+.empty {
+  padding: var(--space-4) 0;
+  max-width: 40rem;
+}
+.empty h2 {
+  font-size: var(--text-md);
+}
+.empty p {
+  color: var(--c-ink-2);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+  margin-top: var(--space-1);
+}
+.empty .empty-act {
+  margin-top: var(--space-3);
 }
 
 /* ---------- Prose: sentences that explain, at a readable measure ---------- */
@@ -381,6 +431,10 @@
 .field-error {
   color: var(--c-failed);
 }
+.note.is-unknown {
+  color: var(--c-unknown);
+}
+.note > .mark,
 .field-error > .mark {
   align-self: center;
 }
@@ -451,6 +505,9 @@
 .mark-unknown {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%20stroke-dasharray%3D%222.1%201.35%22%2F%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%221.3%22%2F%3E%3C%2Fsvg%3E");
 }
+.mark-pending {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.75%201.25h6.5M2.75%2010.75h6.5M3.6%201.6%208.4%2010.4M8.4%201.6%203.6%2010.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");
+}
 .mark-connected {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.6%22%2F%3E%3C%2Fsvg%3E");
 }
@@ -518,6 +575,18 @@
 .field > label {
   font-weight: var(--weight-medium);
 }
+/* Checkboxes of one kind, such as a resource's permissions: their legend, then the boxes on a line that wraps. */
+.check-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
+}
+.check-group > legend {
+  float: left;
+  width: 100%;
+  color: var(--c-ink-2);
+  font-weight: var(--weight-regular);
+}
 .check {
   display: inline-flex;
   align-items: center;
@@ -584,6 +653,13 @@ thead .unit {
    At 640px and below a record is a block: the identifier on its own line, then each other value after its name
    and unit (data-l), the column heads hidden but read. The table carries explicit roles, since the block layout
    drops a table's implicit ones. */
+.records + .prose,
+p:has(> button) + .prose {
+  margin-top: var(--space-4);
+}
+.records.is-narrow {
+  max-width: 64rem;
+}
 .records td.is-id {
   padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
   width: 100%;
@@ -591,7 +667,7 @@ thead .unit {
 }
 /* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
    It stays a block, so its value can be cut at its end, and is padded to the height. */
-.records td.is-id > a.cut {
+.records td.is-id > :is(a, span).cut {
   display: block;
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
@@ -599,12 +675,34 @@ thead .unit {
   .records td.is-id {
     padding-block: 0;
   }
-  .records td.is-id > a.cut {
+  .records td.is-id > :is(a, span).cut {
     padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
 }
+/* A missing name is a description, while the name itself is data. */
+.unnamed {
+  font-family: var(--font-sans);
+  color: var(--c-ink-2);
+}
+/* The record's one action, such as Revoke, at the line's end. */
+.records tr:has(> td.is-act:last-child) > td {
+  vertical-align: middle;
+}
+.records td.is-act {
+  text-align: end;
+  padding-block: var(--space-1);
+}
 .records :is(th, td):not(.is-id) {
   white-space: nowrap;
+}
+@media (min-width: 641px) {
+  /* Leave room for a list of permissions to use the line before it wraps. */
+  .records.is-narrow td.is-id {
+    width: 20%;
+  }
+}
+.records td > ul.plain {
+  white-space: normal;
 }
 @media (max-width: 640px) {
   /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
@@ -645,6 +743,10 @@ thead .unit {
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  .records td[data-l] > ul.plain {
+    display: inline-block;
+    vertical-align: top;
+  }
   .records td[data-l]::before {
     /* Firefox before 128 needs the first declaration. The real header already names the cell. */
     content: attr(data-l);
@@ -656,4 +758,186 @@ thead .unit {
     font-family: var(--font-sans);
     color: var(--c-ink-2);
   }
+}
+
+/* ---------- Short ID: an ID's first characters beside a name that can repeat, such as a Runner's host name ---------- */
+.sid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-mono);
+  color: var(--c-ink-2);
+  white-space: nowrap;
+}
+
+/* ---------- Dialog parts: a heading under a heavy rule, the body, the actions ----------
+   A long name in the heading or a button, such as a host name, wraps, so it stays inside the dialog. */
+dialog.is-wide {
+  width: 44rem;
+}
+.dialog-h {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
+  overflow-wrap: anywhere;
+}
+.dialog-b {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.dialog-b > .notice {
+  margin: 0;
+}
+.dialog-f {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--rule) solid var(--c-rule);
+}
+.dialog-f button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+/* ---------- Code: typed text set apart on a band; it scrolls in its own block and never widens the page ---------- */
+.code {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3);
+  background: var(--c-sunk);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+  line-height: var(--leading);
+  white-space: pre;
+}
+/* Wrapped instead, at any character: a command whose lines are long, with a key that has no space to break at. */
+.code.wraps {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Command to copy, and a secret shown once: the secret marked, what the reader fills in outlined ---------- */
+.copyable {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+/* Selected whole with one press, where copying is not allowed. */
+.command {
+  user-select: all;
+  -webkit-user-select: all;
+}
+mark.key {
+  background: var(--c-lamp-wash);
+}
+mark.placeholder {
+  background: transparent;
+  outline: var(--rule) dashed var(--c-ink-3);
+  outline-offset: 1px;
+}
+p mark.placeholder {
+  white-space: nowrap;
+  margin-inline: var(--space-1);
+}
+.copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+.copy > [role="status"] {
+  color: var(--c-ink-2);
+  font-size: var(--text-xs);
+}
+.shown-once {
+  padding: var(--space-2) var(--space-3);
+  background: var(--c-lamp-wash);
+  border-left: var(--rule-heavy) solid var(--c-rule-strong);
+}
+.waiting-line {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding-top: var(--space-3);
+  border-top: var(--rule) solid var(--c-rule);
+}
+
+/* ---------- Runner record: one ruled entry a Runner: who it is and whether it is connected, what its jobs can do, its controls ---------- */
+.runners {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.runner {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 2fr) auto;
+  gap: var(--space-2) var(--space-7);
+  padding: var(--space-3) 0;
+  border-bottom: var(--rule) solid var(--c-rule);
+}
+.runner > dl {
+  align-self: start;
+}
+.runner-id {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+}
+.runner-name {
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+.conn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--weight-strong);
+}
+.conn .mark-connected {
+  color: var(--c-succeeded);
+}
+.conn.is-off,
+.conn.is-off .mark {
+  color: var(--c-unknown);
+}
+.runner dt,
+.runner dd {
+  padding-block: 2px;
+}
+.runner-ctl {
+  display: flex;
+  align-items: flex-start;
+}
+@media (max-width: 900px) {
+  .runner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Loading placeholders: the shape of a record while the first read is pending ---------- */
+.sk {
+  display: block;
+  max-width: 100%;
+  height: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--c-skeleton);
+}
+.sk + .sk {
+  margin-top: var(--space-2);
+}
+.sk.is-title {
+  width: 12rem;
+  height: 1.25rem;
+  margin-block: var(--space-1);
+}
+.sk.is-short {
+  width: 6rem;
+}
+.sk.is-part {
+  width: 70%;
 }

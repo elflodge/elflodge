@@ -1,6 +1,7 @@
 import type { JSX } from "@solidjs/web";
 import type { UseQueryResult } from "@tanstack/solid-query";
 import { focusManager, onlineManager, useQuery } from "@tanstack/solid-query";
+import { Link } from "@tanstack/solid-router";
 import { Errored, Loading, Match, Show, Switch, createMemo, from } from "solid-js";
 
 import { TIME_ZONED, formatCount, plural } from "../format.ts";
@@ -43,16 +44,21 @@ export function HubStrip() {
               const noneConnected = () => list().length > 0 && connected() === 0;
               return (
                 <li class={{ "hub-unknown": noneConnected() }}>
-                  <span
-                    class={[
-                      "mark",
-                      { "mark-connected": connected() > 0, "mark-disconnected": connected() === 0 },
-                    ]}
-                    aria-hidden="true"
-                  />
-                  {list().length === 0
-                    ? "No Runners"
-                    : `Runners ${formatCount(connected())} of ${formatCount(list().length)} connected`}
+                  <Link to="/runners">
+                    <span
+                      class={[
+                        "mark",
+                        {
+                          "mark-connected": connected() > 0,
+                          "mark-disconnected": connected() === 0,
+                        },
+                      ]}
+                      aria-hidden="true"
+                    />
+                    {list().length === 0
+                      ? "No Runners"
+                      : `Runners ${formatCount(connected())} of ${formatCount(list().length)} connected`}
+                  </Link>
                 </li>
               );
             }}

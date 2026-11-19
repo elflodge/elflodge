@@ -2,7 +2,7 @@ import { apiKey } from "@better-auth/api-key";
 import type { BetterAuthOptions } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
-import { KEY_PERMISSIONS } from "contract";
+import { GRANTABLE_KEY_PERMISSIONS } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
@@ -15,16 +15,13 @@ import { ac, roles } from "./access.ts";
 
 /**
  * The permissions a member may grant an API key, as a role whose `authorize` checks a request. A
- * Runner's own key, with `RUNNER_KEY_PERMISSIONS`, is created only by the hub when the Runner
+ * Runner's own key, with `RUNNER_KEY_ROLE`, is created only by the hub when the Runner
  * registers.
  */
-export const GRANTABLE_KEY_PERMISSIONS = ac.newRole({
-  runner: ["register", "read"],
-  job: KEY_PERMISSIONS.job,
-});
+export const GRANTABLE_KEY_ROLE = ac.newRole(GRANTABLE_KEY_PERMISSIONS);
 
 /** The permissions of a Runner's own key, which the hub creates when the Runner registers. */
-export const RUNNER_KEY_PERMISSIONS = ac.newRole({ runner: ["actAs"] });
+export const RUNNER_KEY_ROLE = ac.newRole({ runner: ["actAs"] });
 
 /** The `value` of a setup link's `verification` row, by which a new link revokes older ones. */
 export const SETUP_LINK_VALUE = "hub-setup";

@@ -21,6 +21,7 @@ export {
   Forbidden,
   getAccess,
   HubNotSetUp,
+  GRANTABLE_KEY_PERMISSIONS,
   KEY_PERMISSIONS,
   type KeyPermissions,
   NotFound,
