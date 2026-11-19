@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -90,18 +91,15 @@ describe("the Runner's command line", () => {
     });
   });
 
-  it("says what to do when the hub refuses its registration key, and exits 1", async () => {
+  it("says what to do when the hub refuses its registration key, and exits 1", async ({
+    signal,
+  }) => {
     const hub = createServer((_request, response) => {
       response.writeHead(401, { "content-type": "application/problem+json" });
       response.end(JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }));
     });
-    await new Promise<void>((resolve, reject) => {
-      hub.once("error", reject);
-      hub.listen(0, "127.0.0.1", () => {
-        hub.off("error", reject);
-        resolve();
-      });
-    });
+    hub.listen(0, "127.0.0.1");
+    await once(hub, "listening");
     hub.on("error", (error) => {
       throw error;
     });
@@ -117,7 +115,7 @@ describe("the Runner's command line", () => {
     await expect(
       promisify(execFile)(process.execPath, ["--conditions=@elflodge/source", main], {
         // A Runner that retried rather than refusing would never exit.
-        timeout: 30_000,
+        signal,
         env: {
           PATH: process.env.PATH,
           HUB_URL: `http://127.0.0.1:${port}`,
