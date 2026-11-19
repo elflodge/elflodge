@@ -29,11 +29,14 @@ import {
   type JobStatus,
   type NewJob,
   type RunnerId,
+  type SubmitterKind,
   type UsageRecordId,
+  type UserId,
 } from "./db/types.ts";
 import { lockHeldBlobs, storeInputFiles, unheldFileProblems } from "./input-files.ts";
 import { InvalidInput } from "./invalid-input.ts";
 import {
+  apiSubmitterOf,
   contentHashOf,
   insertUsageRecords,
   limitProblems,
@@ -41,6 +44,8 @@ import {
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
+  SUBMITTER_COLUMNS,
+  submitterColumns,
   UNFINISHED,
   USAGE_COPIED_COLUMNS,
 } from "./jobs.ts";
@@ -132,6 +137,7 @@ export async function readBatch(
       "b.maxFailurePercent",
       "b.pausedBy",
       "b.cancelledAt",
+      ...SUBMITTER_COLUMNS.map((column) => `b.${column}` as const),
       "j.queued",
       "j.running",
       "j.paused",
@@ -157,7 +163,7 @@ export async function readBatch(
 }
 
 /** What `listedBatchOf` reads of a Batch: its row, and its jobs' counts. */
-interface ListedBatchRow {
+interface ListedBatchRow extends Pick<BatchRow, (typeof SUBMITTER_COLUMNS)[number]> {
   id: string;
   createdAt: Date;
   labels: Batch["labels"];
@@ -189,6 +195,7 @@ function listedBatchOf(row: ListedBatchRow): ListedBatch {
         : row.pausedBy !== null
           ? "paused"
           : "active",
+    submitter: apiSubmitterOf(row),
     pausedBy: row.pausedBy,
     ...(cancelWaits && row.cancelledAt !== null
       ? { pendingControl: { type: "cancel" as const, requestedAt: row.cancelledAt } }
@@ -262,6 +269,7 @@ export function listBatches(query: BatchListQuery) {
               "b.maxFailurePercent",
               "b.pausedBy",
               "b.cancelledAt",
+              ...SUBMITTER_COLUMNS.map((column) => `b.${column}` as const),
             ]);
           if (statuses.length > 0) {
             selection = selection.where((eb) =>
@@ -350,6 +358,7 @@ export function listBatches(query: BatchListQuery) {
             "page.maxFailurePercent",
             "page.pausedBy",
             "page.cancelledAt",
+            ...SUBMITTER_COLUMNS.map((column) => `page.${column}` as const),
             zeroed("queued"),
             zeroed("running"),
             zeroed("paused"),
@@ -456,9 +465,7 @@ export function createBatch(
             labels: creation.labels,
             ...breaker,
             canaryPlacesLeft: breaker.canary ?? 0,
-            submitterKeyId: submitter.keyId,
-            submitterKeyName: submitter.keyName,
-            submitterMemberId: submitter.memberId,
+            ...submitterColumns(submitter),
             createdAt: now,
             pausedBy: null,
             pausedAt: null,
@@ -705,7 +712,9 @@ async function insertJobs(
   submitter: Submitter,
 ) {
   const jobStatus = sql.id(DB_SCHEMA, "jobStatus");
+  const submitterKind = sql.id(DB_SCHEMA, "submitterKind");
   const now = new Date();
+  const recorded = submitterColumns(submitter);
   await trx
     .with("inserted", (qb) =>
       qb
@@ -722,9 +731,8 @@ async function insertJobs(
           "runTimeoutSeconds",
           "modelBudgetUsd",
           "inCanary",
-          "submitterKeyId",
-          "submitterKeyName",
-          "submitterMemberId",
+          ...SUBMITTER_COLUMNS,
+          "keyCreatorUserId",
           "createdAt",
         ])
         .expression(
@@ -747,9 +755,14 @@ async function insertJobs(
                 "batch.runTimeoutSeconds",
                 "batch.modelBudgetUsd",
                 eb.cast<boolean>(field("inCanary"), "boolean").as("inCanary"),
-                eb.val(submitter.keyId).as("submitterKeyId"),
-                eb.cast<string | null>(eb.val(submitter.keyName), "text").as("submitterKeyName"),
-                eb.val(submitter.memberId).as("submitterMemberId"),
+                eb
+                  .cast<SubmitterKind>(eb.val(recorded.submitterKind), submitterKind)
+                  .as("submitterKind"),
+                eb.cast<string>(eb.val(recorded.submitterId), "text").as("submitterId"),
+                eb.cast<string | null>(eb.val(recorded.submitterName), "text").as("submitterName"),
+                eb
+                  .cast<UserId | null>(eb.val(recorded.keyCreatorUserId), "text")
+                  .as("keyCreatorUserId"),
                 eb.cast<Date>(eb.val(now), "timestamptz").as("createdAt"),
               ];
             }),

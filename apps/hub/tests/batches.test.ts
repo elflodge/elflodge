@@ -55,13 +55,24 @@ async function post(path: string, body: unknown) {
   });
 }
 
-test("an ID used again with the same content returns what it named, and with other content is refused", async () => {
-  const client = await system.clientWithNewJobsKey();
+test("an ID used again with the same content returns what it named, whoever repeats it, and with other content is refused", async () => {
+  const { id: keyId, key } = await system.owner().apiKeys.create({
+    name: "invoices",
+    permissions: { job: ["create", "read", "cancel"] },
+  });
+  const client = system.client({ "x-api-key": key });
+  const byKey = { kind: "key", id: keyId, name: "invoices" };
+  const { client: member, userId } = await system.addMember({
+    email: "retrier@example.com",
+    password: "a member's own long password",
+    name: "Rae Retrier",
+  });
   const creation = { id: "invoices-2026-10", agent: AGENT, breaker: false } as const;
   const batch = await client.batches.create(creation);
   expect(batch).toMatchObject({ id: "invoices-2026-10", status: "active", breaker: false });
-  // The script runs again, from the start: the same Batch.
-  expect((await client.batches.create(creation)).id).toBe(batch.id);
+  // The script runs again, from the start, by a member: the same Batch, still the key's, as IDs
+  // belong to the Organization.
+  expect(await member.batches.create(creation)).toMatchObject({ id: batch.id, submitter: byKey });
   await expect(client.batches.create({ ...creation, breaker: true })).rejects.toMatchObject({
     code: "UNPROCESSABLE_CONTENT",
   });
@@ -90,8 +101,9 @@ test("an ID used again with the same content returns what it named, and with oth
     ["a", true],
     ["b", true],
   ]);
-  // Again, with a job the Batch lacks: the jobs it has are returned, and only the one it lacks added.
-  const again = await client.batches.addJobs({
+  // Again, by the member, with a job the Batch lacks: the jobs it has are returned as the key added
+  // them, and only the one it lacks added, as the member's.
+  const again = await member.batches.addJobs({
     id: batch.id,
     jobs: [jobNamed("a"), jobNamed("c"), jobNamed("b")],
   });
@@ -101,6 +113,12 @@ test("an ID used again with the same content returns what it named, and with oth
     ["b", false],
   ]);
   expect(again.jobs[0]?.job.id).toBe(first.jobs[0]?.job.id);
+  expect(again.jobs.map(({ job }) => job.submitter)).toEqual([
+    byKey,
+    { kind: "member", id: userId, name: "Rae Retrier" },
+    byKey,
+  ]);
+  expect(again.batch.submitter).toEqual(byKey);
   expect(again.batch.jobCounts).toMatchObject({ queued: 3 });
 
   // A custom ID used for a job with other content refuses the whole add, naming each such job.

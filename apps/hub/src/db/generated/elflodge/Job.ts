@@ -5,14 +5,14 @@ import type { JsonValue, Labels } from "contract";
 import type { Brand } from "effect";
 import type { ColumnType, Selectable, Insertable, Updateable } from "kysely";
 
-import type { ApikeyId } from "./Apikey.js";
 import type { BatchUid } from "./Batch.js";
 import type { default as JobControl } from "./JobControl.js";
 import type { default as JobFailureReason } from "./JobFailureReason.js";
 import type { default as JobStatus } from "./JobStatus.js";
-import type { MemberId } from "./Member.js";
 import type { OrganizationId } from "./Organization.js";
 import type { RunnerId } from "./Runner.js";
+import type { default as SubmitterKind } from "./SubmitterKind.js";
+import type { UserId } from "./User.js";
 
 /** Identifier type for elflodge.job */
 export type JobId = Brand.Branded<string, "elflodge.job">;
@@ -31,11 +31,11 @@ export default interface JobTable {
 
   contentHash: ColumnType<string, string, string>;
 
-  submitterKeyId: ColumnType<ApikeyId, ApikeyId, ApikeyId>;
+  submitterId: ColumnType<string, string, string>;
 
-  submitterKeyName: ColumnType<string | null, string | null, string | null>;
+  submitterName: ColumnType<string | null, string | null, string | null>;
 
-  submitterMemberId: ColumnType<MemberId, MemberId, MemberId>;
+  keyCreatorUserId: ColumnType<UserId | null, UserId | null, UserId | null>;
 
   createdAt: ColumnType<Date, Date | string, Date | string>;
 
@@ -76,6 +76,8 @@ export default interface JobTable {
   inCanary: ColumnType<boolean, boolean | undefined, boolean>;
 
   labels: ColumnType<Labels, Labels, Labels>;
+
+  submitterKind: ColumnType<SubmitterKind, SubmitterKind, SubmitterKind>;
 }
 
 export type Job = Selectable<JobTable>;

@@ -150,7 +150,10 @@ test("usage adds up by day and by group, counting each end of a resumed job once
 
   // A deleted job's use stays, under the key that submitted it, whose name stays once revoked.
   await owner.apiKeys.revoke({ id: support.id });
-  expectUsage((await owner.usage.get({ keyId: support.id })).usage, deletedUsage);
+  expectUsage(
+    (await owner.usage.get({ submitter: { kind: "key", id: support.id } })).usage,
+    deletedUsage,
+  );
   const bySubmitter = await owner.usage.get({ groupBy: "submitter" });
   expectAddsUp(bySubmitter);
   expect(bySubmitter.groups).toEqual(
@@ -191,11 +194,13 @@ test("usage adds up by day and by group, counting each end of a resumed job once
     returning "recordedAt"
   `.execute(db);
   const day = rows[0]?.recordedAt.toISOString().slice(0, 10);
-  const moved = await owner.usage.get({ keyId: support.id });
+  const moved = await owner.usage.get({ submitter: { kind: "key", id: support.id } });
   expect(moved.days.filter((each) => each.usage.totalTokens > 0)).toEqual([
     { date: day, usage: deletedUsage },
   ]);
-  expect((await owner.usage.get({ keyId: support.id, from: report.to })).usage).toEqual(zero);
+  expect(
+    (await owner.usage.get({ submitter: { kind: "key", id: support.id }, from: report.to })).usage,
+  ).toEqual(zero);
 
   // Every day shows the window's top Batch, even the day it used nothing, with the rest as `other`.
   expect(resumedUsage.cost.totalUsd).toBeGreaterThan(deletedUsage.cost.totalUsd);
@@ -210,6 +215,58 @@ test("usage adds up by day and by group, counting each end of a resumed job once
     other: { usage: deletedUsage },
   });
 }, 30_000);
+
+test("usage by submitter tells a member's jobs from a key's", async () => {
+  const labels = { suite: "submitters" };
+  const key = await newKey("intake");
+  const { client: member, userId } = await system.addMember({
+    email: "intake@example.com",
+    password: "a member's own long password",
+    name: "Ira Intake",
+  });
+  // Each cancels a job no Runner was sent, held by its paused Batch: an end with a Usage record.
+  for (const client of [key.client, member]) {
+    const batch = await client.batches.create({ agent: AGENT, labels, breaker: false });
+    await client.batches.pause({ id: batch.id });
+    const { jobs } = await client.batches.addJobs({
+      id: batch.id,
+      jobs: [{ customId: "intake", input: "Never mind." }],
+    });
+    await client.jobs.cancel({ id: jobs[0]?.job.id ?? "" });
+  }
+
+  const bySubmitter = await system.owner().usage.get({ groupBy: "submitter", labels });
+  expect(bySubmitter.groups).toHaveLength(2);
+  expect(bySubmitter.groups).toEqual(
+    expect.arrayContaining([
+      { submitter: { kind: "key", id: key.id, name: "intake" }, usage: zero },
+      { submitter: { kind: "member", id: userId, name: "Ira Intake" }, usage: zero },
+    ]),
+  );
+
+  // A filter by submitter keeps one of them, by its kind and ID, as the query string names it.
+  const byMember = await system.hub.fetch(
+    `/usage?groupBy=submitter&labels[suite]=submitters&submitter[kind]=member&submitter[id]=${userId}`,
+    { headers: { cookie: system.ownerCookie() } },
+  );
+  expect(byMember.status).toBe(200);
+  expect(await byMember.json()).toMatchObject({
+    groups: [{ submitter: { kind: "member", id: userId, name: "Ira Intake" }, usage: zero }],
+  });
+  const byKey = await system
+    .owner()
+    .usage.get({ groupBy: "submitter", labels, submitter: { kind: "key", id: key.id } });
+  expect(byKey.groups).toEqual([
+    { submitter: { kind: "key", id: key.id, name: "intake" }, usage: zero },
+  ]);
+  const unknownKind = await system.hub.fetch(
+    `/usage?submitter[kind]=team&submitter[id]=${key.id}`,
+    {
+      headers: { cookie: system.ownerCookie() },
+    },
+  );
+  expect(unknownKind.status).toBe(400);
+});
 
 test("a window that ends before it starts, is longer than 400 days or starts before year 1 is refused naming the field given", async () => {
   const owner = system.owner();
@@ -229,7 +286,7 @@ test("a window that ends before it starts, is longer than 400 days or starts bef
 });
 
 test("a member whose role does not allow reading usage is refused", async () => {
-  const member = await system.addMember({
+  const { client: member } = await system.addMember({
     email: "member@example.com",
     password: "a long enough password",
     name: "Member",

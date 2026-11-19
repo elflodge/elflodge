@@ -25,6 +25,7 @@ test("jobs submit retries an add whose connection dropped with the ID it created
           id,
           createdAt: new Date().toISOString(),
           status: "active",
+          submitter: { kind: "key", id: "key-1", name: "jobs" },
           pausedBy: null,
           labels: {},
           breaker: false,

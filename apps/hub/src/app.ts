@@ -247,7 +247,10 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       }),
       upload: os.blobs.upload.effect(function* ({ input, errors }) {
         const { params, headers, body } = input;
-        return yield* uploadBlob(params.digest, headers["content-length"], body).pipe(
+        // The `octet-stream` hint has oRPC hand over the body as a stream, whatever sent it; the
+        // `Blob` branch only narrows the type the contract shares with clients.
+        const stream = body instanceof Blob ? body.stream() : body;
+        return yield* uploadBlob(params.digest, headers["content-length"], stream).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, { params, headers }, problems)),
           ),
@@ -256,16 +259,16 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     batches: {
       create: os.batches.create.effect(function* ({ input, context, errors }) {
-        const key = yield* callerKey(context.caller);
-        return yield* createBatch(input, submitterOf(key), yield* JobLimitSettings).pipe(
+        const submitter = yield* submitterOf(context.caller);
+        return yield* createBatch(input, submitter, yield* JobLimitSettings).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
         );
       }),
       addJobs: os.batches.addJobs.effect(function* ({ input, context, errors }) {
-        const key = yield* callerKey(context.caller);
-        const added = yield* addJobs(input.id, input.jobs, submitterOf(key)).pipe(
+        const submitter = yield* submitterOf(context.caller);
+        const added = yield* addJobs(input.id, input.jobs, submitter).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
@@ -351,12 +354,12 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     usage: {
       get: os.usage.get.effect(function* ({ input, context, errors }) {
-        const { status, keyId, runnerId, ...rest } = input;
-        // The IDs enter the hub here.
+        const { status, runnerId, ...rest } = input;
+        // The IDs enter the hub here; a submitter's ID stays text, as its column holds a key's or
+        // a user's.
         const query = {
           ...rest,
           statuses: status ?? [],
-          keyId: keyId === undefined ? undefined : ApikeyId(keyId),
           runnerId: runnerId === undefined ? undefined : RunnerId(runnerId),
         };
         return yield* readUsage(context.headers, query).pipe(

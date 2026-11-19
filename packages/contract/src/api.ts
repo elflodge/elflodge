@@ -24,16 +24,7 @@ import {
   strictOutputContractSchema,
   textSchema,
 } from "./job.ts";
-import {
-  byAnyone,
-  byKey,
-  byKeyOrMember,
-  byMember,
-  forAnyone,
-  forMembers,
-  forOrganization,
-  NotFound,
-} from "./procedure.ts";
+import { byAnyone, byKeyOrMember, byMember, forAnyone, forMembers, NotFound } from "./procedure.ts";
 import {
   failureSchema,
   jobActivitySchema,
@@ -122,6 +113,43 @@ export type Usage = z.infer<typeof usageSchema>;
 /** Any JSON value, such as a job's output: what its Output contract's schema accepts. */
 export type { JsonValue } from "type-fest";
 
+/** The `kind` of a submitter that is an API key. */
+export const KEY_SUBMITTER = "key";
+/** The `kind` of a submitter that is a member, who submitted with their session. */
+export const MEMBER_SUBMITTER = "member";
+
+/** Who submitted a Batch or a job, by `kind`: an API key or a member. */
+export const submitterSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal(KEY_SUBMITTER),
+      /** The key's ID. */
+      id: z.string(),
+      /** The key's name as it was at submission, which stays once the key is revoked. */
+      name: z.nullable(z.string()),
+    }),
+    z.object({
+      kind: z.literal(MEMBER_SUBMITTER),
+      /** The member's user ID, as Better Auth's organization routes give a member's `userId`. */
+      id: z.string(),
+      /** The member's name as it was at submission, which stays once the member leaves. */
+      name: z.string(),
+    }),
+  ])
+  // One entry, as a second `register` would replace the first's description.
+  .register(z.globalRegistry, {
+    id: "Submitter",
+    description:
+      "Who submitted a Batch or a job, by `kind`: `key`, an API key, or `member`, a member signed in with their session. New kinds may be added, so a client should expect a `kind` it does not know.",
+  });
+export type Submitter = z.infer<typeof submitterSchema>;
+
+/** Each kind of submitter, so that a filter's kinds are always those of `submitterSchema`. */
+const SUBMITTER_KINDS: { [Kind in Submitter["kind"]]: Kind } = {
+  key: KEY_SUBMITTER,
+  member: MEMBER_SUBMITTER,
+};
+
 /** What a job reports whatever its status. */
 const jobBaseSchema = z.object({
   id: jobIdSchema,
@@ -173,6 +201,8 @@ const jobBaseSchema = z.object({
   batchId: z.optional(batchIdSchema),
   /** The caller's own ID for the job, unique in its Batch. Absent once the job is deleted. */
   customId: z.optional(z.string()),
+  /** Who added the job to its Batch, as recorded then. Absent once the job is deleted. */
+  submitter: z.optional(submitterSchema),
   /** The job's labels, its Batch's included. Absent once the job is deleted, as its content is. */
   labels: z.optional(labelsSchema),
   /**
@@ -388,6 +418,8 @@ export const batchSchema = z
      * job has ended. A Batch has no status of its own for having no unfinished job: `jobCounts` tells.
      */
     status: batchStatusSchema,
+    /** Who created the Batch, as recorded then; each of its jobs records who added it. */
+    submitter: submitterSchema,
     /** Who paused the Batch, a caller or its failure breaker; null while it is not paused. */
     pausedBy: z.nullable(z.enum(["caller", "breaker"])),
     /** A cancel waiting for its jobs' Runners to stop them, present only while it waits. */
@@ -539,28 +571,6 @@ export const usageGroupBySchema = z.union(
   { error: "Must be `batch`, `submitter`, `runner`, `status` or `label:` and a label key" },
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
-
-/** The `kind` of a submitter that is an API key. */
-export const KEY_SUBMITTER = "key";
-
-/** Who submitted a job: today always an API key, by `kind`, as other kinds may be added. */
-export const submitterSchema = z
-  .discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal(KEY_SUBMITTER),
-      /** The key's ID. */
-      id: z.string(),
-      /** The key's name as its jobs recorded it, which stays once the key is revoked. */
-      name: z.nullable(z.string()),
-    }),
-  ])
-  // One entry, as a second `register` would replace the first's description.
-  .register(z.globalRegistry, {
-    id: "Submitter",
-    description:
-      "Who submitted a job, by `kind`: `key`, an API key. New kinds may be added, so a client should expect a `kind` it does not know.",
-  });
-export type Submitter = z.infer<typeof submitterSchema>;
 
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
@@ -774,7 +784,7 @@ export const apiContract = {
       .input(z.strictObject({ id: z.string() })),
   },
   blobs: {
-    check: forOrganization
+    check: forMembers
       .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
@@ -782,7 +792,7 @@ export const apiContract = {
           path: "/blobs/check",
           description: `Answers, for each file named by \`digest\` and \`sizeBytes\`, in the order given, whether the Organization holds that Blob: \`stored: true\` when it uploaded it in the last seven days or one of its jobs uses it, so jobs may name it without uploading it again; otherwise \`stored: false\` and where to upload it. At most ${MAX_FILES_PER_CHECK} files per request. A file whose size is not that of the Blob the Organization holds with its digest is refused.`,
         }),
-        ...byKey({ job: ["create"] }),
+        ...byKeyOrMember({ job: ["create"] }),
       )
       .input(
         z.strictObject({
@@ -796,7 +806,7 @@ export const apiContract = {
         }),
       )
       .output(z.object({ files: z.array(blobCheckSchema) })),
-    upload: forOrganization
+    upload: forMembers
       .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
@@ -807,18 +817,21 @@ export const apiContract = {
           requestBodyHint: "octet-stream",
           description: `Uploads a file's bytes as the request's body, at most ${MAX_FILE_BYTES / 1024 / 1024} MiB, with \`Content-Length\`, under its \`digest\`, and answers once the hub has checked the bytes' size and SHA-256 and stored them as a Blob. The Organization then holds the Blob for seven days, renewed by each upload of it, and as long as any of its jobs uses it after that. Bytes whose size or SHA-256 differ from what the request names are refused, and nothing is stored.`,
         }),
-        ...byKey({ job: ["create"] }),
+        ...byKeyOrMember({ job: ["create"] }),
       )
       .input(
         z.object({
           params: z.strictObject({ digest: digestSchema }),
           headers: z.object({
-            // Coerced from the header's text by the hub's coercion plugin.
+            // Coerced from the header's text by the hub's coercion plugin. A browser sends its own,
+            // from a `Blob` body, and drops one its caller sets.
             "content-length": fileSizeBytesSchema.check(z.describe("The file's size in bytes.")),
           }),
-          // A stream of the request's bytes, which oRPC hands over without reading it first; its
-          // JSON Schema is a file's.
-          body: z.instanceof(ReadableStream<Uint8Array>).check(
+          // The request's bytes: a stream, as a program reading a file sends them, or a `Blob`,
+          // such as a `File`, as a browser sends them: the browser knows a `Blob`'s size and sends
+          // the `Content-Length` the hub requires. The hub reads either as a stream, which oRPC
+          // hands over without reading it first. Its JSON Schema is a file's.
+          body: z.union([z.instanceof(ReadableStream<Uint8Array>), z.instanceof(Blob)]).check(
             z.meta({
               type: "string",
               format: "binary",
@@ -830,7 +843,7 @@ export const apiContract = {
       .output(blobRefSchema),
   },
   batches: {
-    create: forOrganization
+    create: forMembers
       .errors({ BAD_REQUEST: {}, [IdReused.code]: IdReused })
       .meta(
         // One status, 200, whether the Batch is new or a retry's, as for an add: no caller acts on
@@ -842,11 +855,11 @@ export const apiContract = {
           description:
             "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. Add its jobs with `POST /batches/{id}/jobs`. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Its `id`, given or made, names it in every call. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
         }),
-        ...byKey({ job: ["create"] }),
+        ...byKeyOrMember({ job: ["create"] }),
       )
       .input(batchCreationSchema)
       .output(batchSchema),
-    addJobs: forOrganization
+    addJobs: forMembers
       .errors({
         BAD_REQUEST: {},
         [NotFound.code]: NotFound,
@@ -859,7 +872,7 @@ export const apiContract = {
           path: "/batches/{id}/jobs",
           description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} per request, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing: any problem refuses the whole request, naming every problem with its path, such as \`jobs[17].input\`: 400 when any job is invalid, then 409 when the Batch is cancelled, then 422 for each \`customId\` the Batch already has for a job with other content. A job whose \`customId\` the Batch already has with the same content is returned as it is, with \`created: false\`, so an add can be retried safely, and a whole Batch added again to add only the jobs it lacks; a new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
         }),
-        ...byKey({ job: ["create"] }),
+        ...byKeyOrMember({ job: ["create"] }),
       )
       .input(
         z.extend(batchRefSchema, {
@@ -1184,7 +1197,7 @@ export const apiContract = {
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`keyId\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
+          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -1209,7 +1222,7 @@ export const apiContract = {
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `submitter` for who submitted the jobs, as an API key, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),
@@ -1228,8 +1241,17 @@ export const apiContract = {
           batchId: z.optional(
             batchIdSchema.check(z.describe("The ID of the Batch the jobs belong to.")),
           ),
-          keyId: z.optional(
-            textSchema.check(z.describe("The ID of the API key that submitted the jobs.")),
+          submitter: z.optional(
+            z
+              .strictObject({
+                kind: z.enum(SUBMITTER_KINDS),
+                id: textSchema.check(z.minLength(1)),
+              })
+              .check(
+                z.describe(
+                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`, as `submitter[kind]=member&submitter[id]=…`. A later kind of submitter joins as one more `kind` value.",
+                ),
+              ),
           ),
           runnerId: z.optional(
             textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),

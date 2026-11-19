@@ -42,6 +42,7 @@ function batchOf(id: string, jobCounts: Partial<Record<string, number>> = {}) {
     id,
     createdAt: new Date().toISOString(),
     status: "active",
+    submitter: { kind: "key", id: "key-1", name: "jobs" },
     pausedBy: null,
     labels: {},
     breaker: { canary: 5, maxFailurePercent: 10 },
