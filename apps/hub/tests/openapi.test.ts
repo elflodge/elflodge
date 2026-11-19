@@ -65,9 +65,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
           },
         },
       },
-      // The job list and counts both advertise a 400 response.
-      "/jobs": { get: { responses: { 400: {} } } },
-      "/jobs/counts": { get: { responses: { 400: {} } } },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
       "/runners": { get: { security: [{ session: [] }] } },
       // An object in the query string, as `submitter[kind]=member&submitter[id]=…`.
@@ -89,7 +86,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
     },
   });
 
-  // A call a member may make answers 403 to a signed-in account that is not a member.
   const operations = Object.values<OpenAPIV3_2.PathItemObject>(document.paths).flatMap((path) =>
     [
       path.get,
@@ -104,6 +100,17 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       ...Object.values(path.additionalOperations ?? {}),
     ].filter((operation) => operation !== undefined),
   );
+
+  // A call with query or body input advertises the 400 a caller gets for invalid input.
+  for (const operation of operations.filter(
+    (each) =>
+      each.requestBody !== undefined ||
+      each.parameters?.some((param) => "in" in param && param.in === "query"),
+  )) {
+    expect(operation.responses, operation.operationId).toHaveProperty("400");
+  }
+
+  // A call a member may make answers 403 to a signed-in account that is not a member.
   for (const operation of operations.filter((each) =>
     each.security?.some((scheme) => "session" in scheme),
   )) {

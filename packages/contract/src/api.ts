@@ -740,7 +740,7 @@ export const apiContract = {
       .output(z.array(runnerSchema)),
     // Removing a Runner ends the jobs it held that have not ended.
     delete: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "DELETE",
@@ -788,7 +788,7 @@ export const apiContract = {
       .meta(openapi({ method: "GET", path: "/api-keys" }), ...byMember)
       .output(z.array(apiKeySchema)),
     revoke: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(openapi({ method: "DELETE", path: "/api-keys/{id}" }), ...byMember)
       .input(z.strictObject({ id: z.string() })),
   },
@@ -941,7 +941,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     pause: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -954,7 +954,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     resume: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -967,7 +967,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     cancel: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "POST",
@@ -990,7 +990,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     pause: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -1037,7 +1037,7 @@ export const apiContract = {
       )
       .output(jobSchema),
     cancel: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "POST",
@@ -1051,7 +1051,7 @@ export const apiContract = {
       .output(jobSchema),
     // Deletion removes content and records the host file purge still owed.
     delete: forMembers
-      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "DELETE",
@@ -1064,7 +1064,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     events: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "GET",
