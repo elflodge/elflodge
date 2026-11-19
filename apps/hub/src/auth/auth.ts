@@ -5,7 +5,14 @@ import { isAPIError } from "better-auth/api";
 // same static roles using only the role and permissions available to the hub's guard.
 import { clientSideHasPermission } from "better-auth/client/plugins";
 import type { RoleStatements } from "better-auth/plugins/access";
-import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
+import {
+  type Access,
+  errorCodeOf,
+  Forbidden,
+  HubNotSetUp,
+  permissionNames,
+  Unauthorized,
+} from "contract";
 import { Cause, Context, Effect, Layer, type Types } from "effect";
 import ensureError from "ensure-error";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
@@ -144,10 +151,8 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
 /** Check the role from this request's session against the Organization's static permissions. */
 export function requireRolePermission(role: string, permissions: RolePermissions) {
   if (clientSideHasPermission({ role, permissions, options: { ac, roles } })) return Effect.void;
-  const required = Object.entries(permissions).map(
-    ([resource, actions]) => `${actions.join(" and ")} permission on ${resource}`,
-  );
-  return Effect.fail(new Forbidden({ message: `This call requires ${required.join(" and ")}.` }));
+  const required = permissionNames(permissions).map((name) => `the ${name} permission`);
+  return Effect.fail(new Forbidden({ message: `This call requires ${required.join(" and ")}` }));
 }
 
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */

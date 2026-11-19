@@ -279,6 +279,6 @@ test("a member whose role does not allow reading usage is refused", async () => 
   await expect(member.usage.get({})).rejects.toMatchObject({
     code: "FORBIDDEN",
     defined: true,
-    cause: { status: 403, detail: "This call requires read permission on usage." },
+    cause: { status: 403, detail: expect.stringContaining("usage:read") },
   });
 });

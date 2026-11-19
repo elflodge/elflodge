@@ -100,10 +100,10 @@ test("key management refusals tell a member which permission their role needs", 
     name: "Member",
   });
   await expect(member.apiKeys.list()).rejects.toMatchObject({
-    cause: { status: 403, detail: "This call requires read permission on apiKey." },
+    cause: { status: 403, detail: expect.stringContaining("apiKey:read") },
   });
   await expect(member.runners.delete({ id: crypto.randomUUID() })).rejects.toMatchObject({
-    cause: { status: 403, detail: "This call requires delete permission on apiKey." },
+    cause: { status: 403, detail: expect.stringContaining("apiKey:delete") },
   });
 });
 

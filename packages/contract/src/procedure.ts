@@ -82,9 +82,9 @@ const [accessMeta, getAccess] = defineMeta("access", (incoming: Access) => incom
 /** The access a procedure declares; the hub refuses to run a procedure that declares none. */
 export { getAccess };
 
-/** A key's permissions as OpenAPI role names, `resource:action`, such as `job:pause`. */
-function roleNamesOf(permissions: KeyPermissions) {
-  return Object.entries<string[]>(permissions).flatMap(([resource, actions]) =>
+/** Permission names as used in OpenAPI and role refusals, such as `job:pause`. */
+export function permissionNames(permissions: Record<string, readonly string[]>) {
+  return Object.entries(permissions).flatMap(([resource, actions]) =>
     actions.map((action) => `${resource}:${action}`),
   );
 }
@@ -96,7 +96,7 @@ function roleNamesOf(permissions: KeyPermissions) {
  */
 function calledBy(access: Access) {
   const security: Record<string, string[]>[] = [];
-  if (access.key) security.push({ apiKey: roleNamesOf(access.key) });
+  if (access.key) security.push({ apiKey: permissionNames(access.key) });
   if (access.member) security.push({ session: [] });
   return [accessMeta(access), openapi.spec((operation) => ({ ...operation, security }))] as const;
 }

@@ -801,7 +801,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/api-keys",
           description:
-            "Lists all of the Organization's unexpired API keys. Only owners and admins may list them. Other members are refused with 403.",
+            "Lists the Organization's unexpired API keys other than Runners' own. Only owners and admins may list them. Other members are refused with 403.",
         }),
         ...byMember,
       )

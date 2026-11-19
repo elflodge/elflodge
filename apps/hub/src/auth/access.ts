@@ -10,6 +10,7 @@ import { KEY_PERMISSIONS } from "contract";
 /** What an API key or a member's role may do, in Better Auth's `{ resource: actions }` shape. */
 const statements = {
   ...defaultStatements,
+  // The key routes require a member's session so an API key cannot manage other keys.
   // The hub lists API keys for members whose role grants apiKey:read. Better Auth checks the
   // signed-in member's permissions when it creates or deletes a key on their behalf.
   apiKey: ["create", "read", "update", "delete"],
