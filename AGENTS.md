@@ -30,6 +30,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 - Before writing the queries that use a schema change, show the maintainer its tables, columns and constraints, one table per message, and wait for approval.
 - Until a migration is released, it is edited in place; no fix-up migration follows it.
+- A migration must make the previous release's writes fail wherever they would record the wrong data on the new schema. On Workers the old hub can still serve briefly after setup. For example, drop the `key` default on `submitterKind` once it has filled existing rows so each new write must name its submitter kind.
 - Every foreign key states, in the migration, what deleting the parent means for the row. Where the row must outlive the parent, the parent's ID is copied and not referenced, as a job's Runner and `keyCreatorUserId` are; `kanel.config.cjs` keeps such a column typed as the parent's ID. A column that copies IDs from several tables stays unbranded, as `submitterId` holds an API key's ID or a user's ID.
 - Every nullable column states, in the migration, why it can be null. A counter or flag is not null with a database default.
 - A column carrying a protocol field uses the field's name. A column nothing reads yet holds only a fact that could not be recorded later, such as who submitted a job.
