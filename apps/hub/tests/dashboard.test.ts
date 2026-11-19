@@ -204,7 +204,7 @@ test("in a browser, a failed read of the counts says so in the strip, not with t
     route.fulfill({
       status: 503,
       contentType: "application/problem+json",
-      body: JSON.stringify({ title: "Service Unavailable", status: 503 }),
+      body: JSON.stringify({ type: "about:blank", title: "Service Unavailable", status: 503 }),
     }),
   );
   await strip.getByText(/^The job counts could not be read at /).waitFor({ timeout: 45_000 });
