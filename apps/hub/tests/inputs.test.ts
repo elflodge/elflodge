@@ -1,5 +1,5 @@
 import { getOpenAPIMeta } from "@orpc/openapi";
-import { walkProcedureContractsSync } from "@orpc/server";
+import { walkProcedureContractsAsync } from "@orpc/server";
 import { apiContract } from "contract";
 import { expect, test } from "vite-plus/test";
 
@@ -8,8 +8,7 @@ import { expect, test } from "vite-plus/test";
 // The Runner's own calls ignore unknown fields instead, as the Runner protocol does (ADR 0026).
 
 test("every public call declares BAD_REQUEST and refuses a parameter it does not define", async () => {
-  const checks: Promise<void>[] = [];
-  walkProcedureContractsSync({ apiContract }, (procedure, path) => {
+  await walkProcedureContractsAsync(apiContract, async (procedure, path) => {
     const name = path.join(".");
     const { inputSchemas = [], errorMap } = procedure["~orpc"];
     expect(inputSchemas, name).not.toHaveLength(0);
@@ -21,13 +20,9 @@ test("every public call declares BAD_REQUEST and refuses a parameter it does not
         getOpenAPIMeta(procedure)?.inputStructure === "detailed"
           ? { params: { strayParameter: 1 } }
           : { strayParameter: 1 };
-      checks.push(
-        Promise.resolve(schema["~standard"].validate(stray)).then((result) => {
-          const messages = (result.issues ?? []).map((issue) => issue.message);
-          expect(messages.join("\n"), name).toContain('"strayParameter"');
-        }),
-      );
+      const result = await schema["~standard"].validate(stray);
+      const messages = (result.issues ?? []).map((issue) => issue.message);
+      expect(messages.join("\n"), name).toContain("strayParameter");
     }
   });
-  await Promise.all(checks);
 });

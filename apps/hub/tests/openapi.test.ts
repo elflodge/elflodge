@@ -65,7 +65,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
           },
         },
       },
-      "/jobs/counts": { get: {} },
       "/setup": { post: { responses: { 422: {} } } },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
       "/runners": { get: { security: [{ apiKey: ["runner:read"] }, { session: [] }] } },

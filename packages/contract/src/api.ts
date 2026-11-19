@@ -1,4 +1,4 @@
-import { error } from "@orpc/contract";
+import { error, oc } from "@orpc/contract";
 import { openapi } from "@orpc/openapi";
 import * as z from "zod/mini";
 
@@ -683,16 +683,19 @@ const labelFilterSchema = z.optional(
     .check(z.describe("Label key/value pairs that must all match.")),
 );
 
+// Optional because released calls such as `client.runners.list()` take no argument.
+const noQueryParametersSchema = z.optional(z.strictObject({}));
+
 /**
  * The hub's public HTTP API, for people and their programs. Callers sign in as a member or send an
  * API key in `x-api-key`. A Runner's own calls are `runnerHttpContract`'s.
  *
  * Inputs are strict: a parameter the API does not define, in a body or a read's query string, is
- * refused with 400 naming it (ADR 0010). Writes take no query parameters. oRPC passes only the
- * upload's query string to its schema, where the outer object drops it. Answers and the upload's
- * headers stay open so the hub can add fields without breaking callers.
+ * refused with 400 naming it (ADR 0010). Writes define no query parameters, and their query strings
+ * are ignored. oRPC omits them from compact inputs, and the upload's schema drops its query string.
+ * Answers and the upload's headers stay open so the hub can add fields without breaking callers.
  */
-export const apiContract = {
+export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
   setup: {
     get: forAnyone
       .meta(
@@ -704,7 +707,7 @@ export const apiContract = {
         }),
         ...byAnyone,
       )
-      .input(z.optional(z.strictObject({})))
+      .input(noQueryParametersSchema)
       .output(z.object({ needed: z.boolean() })),
     complete: forAnyone
       .errors({
@@ -742,7 +745,7 @@ export const apiContract = {
         }),
         ...byKeyOrMember({ runner: ["read"] }),
       )
-      .input(z.optional(z.strictObject({})))
+      .input(noQueryParametersSchema)
       .output(z.array(runnerSchema)),
     // Removing a Runner ends the jobs it held that have not ended.
     delete: forMembers
@@ -791,7 +794,7 @@ export const apiContract = {
       .output(createdKeySchema),
     list: forMembers
       .meta(openapi({ method: "GET", path: "/api-keys" }), ...byMember)
-      .input(z.optional(z.strictObject({})))
+      .input(noQueryParametersSchema)
       .output(z.array(apiKeySchema)),
     revoke: forMembers
       .errors({ [NotFound.code]: NotFound })
@@ -1173,7 +1176,7 @@ export const apiContract = {
       )
       // Strict, so a stray parameter such as `batchId` is refused rather than answered with the
       // Organization's counts, which would read as the Batch's (ADR 0010).
-      .input(z.strictObject({}))
+      .input(noQueryParametersSchema)
       .output(jobCountsSchema),
   },
   usage: {
@@ -1247,4 +1250,4 @@ export const apiContract = {
       )
       .output(usageReportSchema),
   },
-};
+});
