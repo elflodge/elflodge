@@ -3,10 +3,11 @@ import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { defineConfig } from "vite-plus";
 
-import { DASHBOARD_BASE, SCALAR_ASSETS } from "../hub/src/dashboard.ts";
+import { DASHBOARD_ASSETS, DASHBOARD_BASE, SCALAR_DIRECTORY } from "../hub/src/dashboard.ts";
 
 export default defineConfig({
   base: DASHBOARD_BASE,
+  build: { assetsDir: DASHBOARD_ASSETS },
   environments: {
     client: {
       build: {
@@ -34,15 +35,13 @@ export default defineConfig({
     host: "127.0.0.1",
   },
   plugins: [
-    // /docs loads Scalar's published browser bundle on its own, outside the dashboard's module graph.
+    // Copy the installed bundle from node_modules to its versioned URL. Using public/ would
+    // require committing a second copy of the multi-megabyte script or staging it before each build.
     viteStaticCopy({
       targets: [
         {
-          src: [
-            "node_modules/@scalar/api-reference/dist/browser/standalone.js",
-            "scalar/THIRD_PARTY_NOTICES.txt",
-          ],
-          dest: SCALAR_ASSETS,
+          src: "node_modules/@scalar/api-reference/dist/browser/standalone.js",
+          dest: SCALAR_DIRECTORY,
           rename: { stripBase: true },
         },
       ],

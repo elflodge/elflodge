@@ -9,6 +9,7 @@ import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn, isPlainObject, setOwn } from "@orpc/shared";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
+import type { ReferenceProps } from "@scalar/api-reference";
 import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
@@ -56,7 +57,7 @@ import {
   listBatches,
 } from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
-import { DASHBOARD_BASE, SCALAR_ASSETS } from "./dashboard.ts";
+import { DASHBOARD_BASE, SCALAR_DIRECTORY } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
 import { ApikeyId, EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
@@ -453,16 +454,18 @@ const api = new OpenAPIHandler(router, {
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
           generateOpenAPIDocument,
         ),
-      providerScriptUrl: `${DASHBOARD_BASE}${SCALAR_ASSETS}/standalone.js`,
+      providerScriptUrl: `${DASHBOARD_BASE}${SCALAR_DIRECTORY}/standalone.js`,
       providerConfig: {
         withDefaultFonts: false,
         telemetry: false,
+        // Scalar's redirectToProxy treats an empty string as a direct request.
         proxyUrl: "",
         agent: { disabled: true },
         mcp: { disabled: true },
+        // The hosted client link sends the document URL to client.scalar.com.
         hideClientButton: true,
         showDeveloperTools: "never",
-      },
+      } satisfies ReferenceProps["configuration"],
       docsPath: "/docs",
     }),
   ],
@@ -644,6 +647,11 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
 
   // Both spellings oRPC matches, so a trailing `/` keeps the upload's limit.
   app.on("PUT", ["/blobs/:digest", "/blobs/:digest/"], (c) => serve(c, uploads));
+  // Following a link in the reference must keep the hub's address private.
+  app.on("GET", ["/docs", "/docs/"], async (c, next) => {
+    await next();
+    c.header("Referrer-Policy", "no-referrer");
+  });
   app.all("*", (c) => serve(c, api));
 
   return app;

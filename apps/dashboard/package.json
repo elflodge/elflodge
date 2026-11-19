@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "build": "vp build",
-    "notices": "node scripts/scalar-notices.mjs"
+    "build": "vp build"
   },
   "dependencies": {
     "@better-fetch/fetch": "catalog:",
@@ -15,6 +14,7 @@
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/tanstack-query": "catalog:",
+    "@scalar/api-reference": "catalog:",
     "@solidjs/web": "catalog:",
     "@tanstack/solid-query": "catalog:",
     "@tanstack/solid-router": "catalog:",
@@ -26,9 +26,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@scalar/api-reference": "1.76.0",
     "@solidjs/vite-plugin": "catalog:",
-    "pacote": "catalog:",
     "typescript": "catalog:",
     "vite-plugin-static-copy": "catalog:",
     "vite-plus": "catalog:"
