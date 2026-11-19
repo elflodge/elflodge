@@ -39,14 +39,13 @@ export const HubNotSetUp = error("SERVICE_UNAVAILABLE", { message: "The hub is n
 /** A call naming a Runner, an API key or a job the hub does not have. */
 export const NotFound = error("NOT_FOUND");
 
-/**
- * Every HTTP call, the API's and the Runner's, that needs a caller. Every call says who may make it
- * (`byKey`, or `byMember` or `byKeyOrMember` on `forMembers`), and the hub refuses anyone else
- * with `UNAUTHORIZED`, or a signed-in account that is not a member with `FORBIDDEN`.
- */
+/** The Runner's HTTP calls require an API key with the permissions declared by `byKey`. */
 export const api = oc.errors({ [Unauthorized.code]: Unauthorized });
+
+// Every public call validates its input and lists that refusal in the OpenAPI document.
+const publicProcedure = oc.errors({ BAD_REQUEST: {} });
 /** The calls anyone may make (`byAnyone`), which the hub never refuses as `UNAUTHORIZED`. */
-export const forAnyone = oc;
+export const forAnyone = publicProcedure;
 /**
  * How the OpenAPI document describes an API key, sent in `x-api-key`. A call's security lists the
  * permissions the key needs as role names.
@@ -99,8 +98,9 @@ export const byKeyOrMember = (permissions: KeyPermissions) =>
 /** For the calls a hub answers before it has members, such as setting it up. */
 export const byAnyone = calledBy({ anyone: true });
 
+const organizationErrors = { [Unauthorized.code]: Unauthorized, [HubNotSetUp.code]: HubNotSetUp };
 /** Calls that act for the Organization, which exists once the hub is set up. */
-export const forOrganization = api.errors({ [HubNotSetUp.code]: HubNotSetUp });
+export const forOrganization = oc.errors(organizationErrors);
 /**
  * The calls a signed-in member may make (`byMember` or `byKeyOrMember`). On a member's session,
  * the hub answers 401 when there is no valid session, which signing in can fix, and 403 to an
@@ -109,4 +109,7 @@ export const forOrganization = api.errors({ [HubNotSetUp.code]: HubNotSetUp });
  * also takes a key (`byKeyOrMember`), a key sent with it is checked in place of the session, and
  * one not valid for the call gets 401.
  */
-export const forMembers = forOrganization.errors({ [Forbidden.code]: Forbidden });
+export const forMembers = publicProcedure.errors({
+  ...organizationErrors,
+  [Forbidden.code]: Forbidden,
+});

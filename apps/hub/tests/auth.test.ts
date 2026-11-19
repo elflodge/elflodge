@@ -61,6 +61,18 @@ test("API errors are RFC 9457 Problem Details", async () => {
   });
 });
 
+test("reads that take no query parameters answer 400 naming an unknown parameter", async () => {
+  for (const path of ["/setup", "/runners", "/api-keys"]) {
+    const response = await system.hub.fetch(`${path}?strayParameter=1`, {
+      headers: path === "/setup" ? {} : { cookie: system.ownerCookie() },
+    });
+    expect(response.status, path).toBe(400);
+    expect(await response.json(), path).toMatchObject({
+      detail: expect.stringContaining('"strayParameter"'),
+    });
+  }
+});
+
 test("a member removed from the Organization is refused, though their session lasts", async () => {
   const email = "removed@example.com";
   const { client: asMember, cookie } = await system.addMember({ email, name: "Removed" });
