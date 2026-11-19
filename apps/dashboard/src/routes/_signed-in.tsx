@@ -14,7 +14,9 @@ import { Notice } from "../components/Notice.tsx";
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ context, location, preload, abortController }) => {
     const { data, error } = await answered(authClient.getSession());
-    if (error) throw unreadError("The session", failureMessage(error));
+    // A 401, as when the session was deleted while being renewed, says no one is signed in, as
+    // __root.tsx reads it too; any other failure says nothing of who is.
+    if (error && error.status !== 401) throw unreadError("The session", failureMessage(error));
     // Before any loader warms the cache: what was read for another member is forgotten first. Not
     // by a navigation another has replaced, which the router aborts, as its answer may be older
     // than the one the other reads. Nor by a preload, which shows nothing: the router documents no
