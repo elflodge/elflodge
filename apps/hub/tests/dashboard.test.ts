@@ -253,28 +253,32 @@ test("in a browser, a session that ends or changes in another tab is followed", 
   const other = await context.newPage();
   const dashboard = `${system.origin}/dashboard`;
 
-  // Signed out in the other tab, this one leaves the shell for signing in without a reload. Here,
-  // the first read of the session after the sign-out, which tells this tab of it, answers at once,
-  // and the router's, which then loads the page for signing in, is slow. So the first member's page
-  // is seen to go as soon as this tab hears of the sign-out, before the router shows the next page.
-  await signInAt(page, "", first);
-  await other.goto(`${dashboard}/`);
-  await other.getByRole("button", { name: first.name }).click();
-  let sessionReads = 0;
-  await page.route("**/api/auth/get-session*", async (route) => {
-    sessionReads += 1;
-    if (sessionReads > 1) await new Promise((resolve) => setTimeout(resolve, 3_000));
+  // Signed out in the other tab, this one leaves the shell for signing in without a reload. It has
+  // not opened the page for signing in yet, whose read of the hub is held here, so the first
+  // member's page is seen to go as soon as this tab hears of the sign-out, before the router can
+  // show the next page.
+  await signInAt(other, "", first);
+  await page.goto(`${dashboard}/`);
+  await page.getByRole("button", { name: first.name }).waitFor();
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`${system.origin}/setup`, async (route) => {
+    await released;
     await route.continue();
   });
+  await other.getByRole("button", { name: first.name }).click();
   await other.getByRole("button", { name: "Sign out" }).click();
   await other.waitForURL(`${dashboard}/sign-in`);
   const signInHeading = page.getByRole("heading", { name: "Sign in to Elflodge" });
   await page
     .getByRole("button", { name: first.name })
-    .waitFor({ state: "detached", timeout: 2_500 });
+    .waitFor({ state: "detached", timeout: 5_000 });
   expect(await signInHeading.count()).toBe(0);
-  await signInHeading.waitFor({ timeout: 10_000 });
-  await page.unroute("**/api/auth/get-session*");
+  release();
+  await signInHeading.waitFor({ timeout: 5_000 });
+  await page.unroute(`${system.origin}/setup`);
 
   // Signed in as the next member in the other tab, over this one's session, this one shows the next
   // member at its next navigation, with what it reads afresh rather than the first member's reads.
@@ -342,10 +346,15 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await current.fill(OWNER.password);
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password").fill(password);
-  await page.getByRole("button", { name: "Change password" }).click();
-  await page.getByRole("status").waitFor();
   // The change makes a new session for the same member, which the page reads; it stays, and so does
   // what it said.
+  const sessionRead = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/auth/get-session") && response.request().method() === "GET",
+  );
+  await page.getByRole("button", { name: "Change password" }).click();
+  await page.getByRole("status").waitFor();
+  await sessionRead;
   await page.waitForLoadState("networkidle");
   expect(await page.getByRole("status").innerText()).toMatch(/^Your password is changed/);
 
