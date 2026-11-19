@@ -23,9 +23,13 @@ export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId
   return (
     <>
       <Show when={opening().kind === JOB_RESUMED && props.run.previousEnd}>
-        {(end) => <li class="run-gap">{wordsBetween(end(), opening(), "gap")}</li>}
+        {(end) => (
+          <li class="run-gap" tabindex="-1">
+            {wordsBetween(end(), opening(), "gap")}
+          </li>
+        )}
       </Show>
-      <li class="run-h">
+      <li class="run-h" tabindex="-1">
         <h3>
           {opening().lifecycle.runHeading}{" "}
           <Instant value={opening().at} format={DATE_TIME_SECONDS} />

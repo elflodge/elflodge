@@ -22,7 +22,7 @@ export interface LoadedRun {
 }
 
 /** Derive only the relationships witnessed by the loaded Events, which may begin or end inside a run. */
-export function groupJobEvents(events: ReadJobEvent[]) {
+export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number | undefined) {
   const runIds = new Set<string>();
   const headings = new Map<number, LoadedRun>();
   const dayLines = new Set<number>();
@@ -82,12 +82,20 @@ export function groupJobEvents(events: ReadJobEvent[]) {
       awaitingInput = false;
     }
   }
+  // Earlier history expands below the paging button. A newly revealed opening or previous end
+  // belongs in the timeline without adding to the sentence or timeout above it.
+  const forHead = (event?: TimedEvent) =>
+    event && firstHeadEventId !== undefined && event.id >= firstHeadEventId ? event : undefined;
   return {
     events,
     shortRunIds: shortIds([...runIds]),
     headings,
     currentRun,
-    countFrom,
+    sentenceRun:
+      currentRun && forHead(currentRun.opening)
+        ? { ...currentRun, previousEnd: forHead(currentRun.previousEnd) }
+        : undefined,
+    countFrom: forHead(countFrom),
     dayLines,
     subAgents,
     userLabels,

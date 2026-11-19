@@ -1,7 +1,17 @@
 import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { jobRefSchema, problemOf } from "contract";
-import { Match, Show, Switch, createMemo, createSignal, latest, mapArray, onSettled } from "solid-js";
+import {
+  Match,
+  Show,
+  Switch,
+  createMemo,
+  createSignal,
+  deep,
+  latest,
+  mapArray,
+  onSettled,
+} from "solid-js";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -104,7 +114,7 @@ function JobPage() {
   const waitingForRead = () => !fresh() || read.isPaused;
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
-  const job = () => latest(() => read.data);
+  const job = createMemo(() => latest(() => deep(read.data)));
   const running = () =>
     current() && job().status === "running" && !job().statusUnknown && !job().deletedAt;
   const jobEvents = useJobEvents(
@@ -116,7 +126,7 @@ function JobPage() {
     () => read.dataUpdatedAt,
   );
   const events = mapArray(jobEvents.events, readJobEvent, { keyed: true });
-  const groups = createMemo(() => groupJobEvents(events()));
+  const groups = createMemo(() => groupJobEvents(events(), jobEvents.firstHeadEventId()));
   const stopped = () => {
     const record = job();
     return (
@@ -168,7 +178,14 @@ function JobPage() {
           <span class="whole-id">{job().customId?.trim() ? job().customId : job().id}</span>
         </h1>
       </div>
-      <Show when={!job().deletedAt && (running() || job().status === "paused") && jobEvents.isAtLatest() && groups().currentRun}>
+      <Show
+        when={
+          !job().deletedAt &&
+          (running() || job().status === "paused") &&
+          jobEvents.isAtLatest() &&
+          groups().sentenceRun
+        }
+      >
         {(run) => <RunSentence run={run()} job={job()} />}
       </Show>
       <p class="note">{timeZoneNote()}</p>
@@ -223,12 +240,7 @@ function JobPage() {
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />
         <Show when={!job().deletedAt}>
-          <JobTimeline
-            job={job()}
-            running={running()}
-            events={jobEvents}
-            groups={groups()}
-          />
+          <JobTimeline job={job()} running={running()} events={jobEvents} groups={groups()} />
         </Show>
       </div>
     </Show>

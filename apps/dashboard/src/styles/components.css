@@ -1613,6 +1613,10 @@ p mark.placeholder {
 .record-with-aside h2 {
   margin-bottom: var(--space-2);
 }
+.facts-aside {
+  /* A tall column of job labels can take the scroll anchor from the Event being read beside it. */
+  overflow-anchor: none;
+}
 .facts-aside .labels {
   display: grid;
 }
@@ -1886,14 +1890,28 @@ p mark.placeholder {
   justify-content: center;
 }
 .events-edge-note {
+  --edge-control: var(--control);
+  display: grid;
+}
+.events-edge-note > * {
+  grid-area: 1 / 1;
+}
+.events-edge-note > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: minmax(var(--control), auto);
   column-gap: var(--space-3);
-  align-items: center;
+  align-items: start;
 }
-.events-edge-note[aria-hidden] {
-  /* Removing the lower box would shorten the scroll range if the filter hid every addition. */
+.events-edge-note > p,
+.events-edge-note > div > p,
+.events-edge-note .notice {
+  padding-block: calc((var(--edge-control) - 1lh) / 2);
+}
+.events-edge-note .notice {
+  margin: 0;
+}
+.events-edge-note[aria-hidden],
+.events-edge-note > [aria-hidden] {
   visibility: hidden;
 }
 
@@ -2020,7 +2038,7 @@ p mark.placeholder {
 }
 @media (max-width: 640px), (pointer: coarse) {
   .events-edge-note {
-    grid-template-rows: minmax(var(--control-touch), auto);
+    --edge-control: var(--control-touch);
   }
   .seg label {
     min-height: var(--control-touch);
@@ -2030,12 +2048,6 @@ p mark.placeholder {
   }
   .jump-row button {
     min-width: var(--control-touch);
-  }
-}
-@media (max-width: 360px) {
-  .events-edge-note {
-    /* At this width the timestamped edge note wraps to three lines beside the button. */
-    grid-template-rows: minmax(max(var(--control-touch), 3lh), auto);
   }
 }
 @media (max-width: 640px) {

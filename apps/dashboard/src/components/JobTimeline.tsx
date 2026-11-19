@@ -1,25 +1,18 @@
 import { Link } from "@tanstack/solid-router";
-import {
-  JOB_PAUSED,
-  JOB_RECOVERED,
-  JOB_RESUMED,
-  JOB_SUCCEEDED,
-  problemOf,
-  type Job,
-} from "contract";
+import { JOB_PAUSED, JOB_RECOVERED, JOB_RESUMED, JOB_SUCCEEDED, type Job } from "contract";
 import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
-import { focusIfLost } from "../form.ts";
 import { DAY_YEAR, TIME_SECONDS, formatCount, plural } from "../format.ts";
 import type { ReadJobEvent } from "../job-event-record.ts";
-import type { JobEvents } from "../job-events.ts";
+import type { JobEvents, PagingDirection } from "../job-events.ts";
 import type { JobEventGroups } from "../job-runs.ts";
 import { FailedReadNotice } from "./FailedReadNotice.tsx";
 import { Instant } from "./Instant.tsx";
 import { JobActivity } from "./JobActivity.tsx";
 import { JobEventRow } from "./JobEventRow.tsx";
 import { RunHeading } from "./JobRun.tsx";
+import { Notice } from "./Notice.tsx";
 
 function linkTo(id?: number) {
   return id === undefined ? null : document.getElementById(`event-${id}`);
@@ -64,54 +57,93 @@ function JumpGroup(props: {
   );
 }
 
+function firstAddedItem(previous: number | undefined, lastAdded: number | undefined) {
+  const end = linkTo(lastAdded)?.closest("li");
+  if (!end) return null;
+  let item = linkTo(previous)?.closest("li")?.nextElementSibling;
+  while (item instanceof HTMLElement) {
+    if (item.getClientRects().length)
+      return item.querySelector<HTMLAnchorElement>(".ev-id") ?? item;
+    if (item === end) break;
+    item = item.nextElementSibling;
+  }
+  return null;
+}
+
 function PageEdge(props: {
-  direction: "earlier" | "later";
+  direction: PagingDirection;
+  events: JobEvents;
   at?: Date;
-  error?: Error | null;
-  pending: boolean;
-  read: (button: HTMLButtonElement) => Promise<void>;
+  read: (direction: PagingDirection) => Promise<HTMLElement | null>;
+  timeline: () => HTMLOListElement | undefined;
 }) {
   const earlier = () => props.direction === "earlier";
+  const usedUp = () => props.events.usedUp(props.direction);
+  const edgeTime = createMemo<Date | undefined>((previous) => (usedUp() ? previous : props.at));
+  let box: HTMLDivElement | undefined;
+  async function read(button: HTMLButtonElement) {
+    const hadFocus = document.activeElement === button;
+    const firstAdded = await props.read(props.direction);
+    const active = document.activeElement;
+    if (
+      hadFocus &&
+      box?.isConnected &&
+      (active === button || !active || active === document.body)
+    ) {
+      const target = firstAdded ?? (usedUp() ? (earlier() ? box : props.timeline()) : button);
+      target?.focus({ preventScroll: true });
+    }
+  }
   return (
-    <div class="events-edge-note">
-      <Show
-        when={props.error}
-        fallback={
-          <p>
-            <Show
-              when={props.at}
-              fallback={earlier() ? "Earlier Events are not shown." : "Later Events are not shown."}
-            >
-              {(at) => (
-                <>
-                  Events {earlier() ? "before" : "after"}{" "}
-                  <Instant value={at()} format={TIME_SECONDS} /> are not shown.
-                </>
-              )}
-            </Show>
-          </p>
-        }
-      >
-        {(error) => {
-          const detail = () => problemOf(error())?.detail;
-          return (
-            <p role="alert">
-              The {props.direction} Events could not be read
-              <Show when={detail()} fallback=".">
-                {(message) => `: ${message()}`}
-              </Show>
-            </p>
-          );
+    <Show when={props.events.hasPage(props.direction) || usedUp()}>
+      <div
+        class="events-edge-note"
+        tabindex={earlier() && usedUp() ? "-1" : undefined}
+        aria-hidden={!earlier() && usedUp() ? "true" : undefined}
+        ref={(el) => {
+          box = el;
         }}
-      </Show>
-      <button
-        type="button"
-        disabled={props.pending}
-        onClick={(e) => void props.read(e.currentTarget)}
       >
-        Show {props.direction} Events
-      </button>
-    </div>
+        <div aria-hidden={usedUp() ? "true" : undefined}>
+          <Show
+            when={props.events.pageError()}
+            fallback={
+              <p>
+                <Show
+                  when={edgeTime()}
+                  fallback={
+                    earlier() ? "Earlier Events are not shown." : "Later Events are not shown."
+                  }
+                >
+                  {(at) => (
+                    <>
+                      Events {earlier() ? "before" : "after"}{" "}
+                      <Instant value={at()} format={TIME_SECONDS} /> are not shown.
+                    </>
+                  )}
+                </Show>
+              </p>
+            }
+          >
+            {(error) => (
+              <Notice role="alert">
+                The {props.direction} Events could not be read: {hubFailureMessage(error())}
+              </Notice>
+            )}
+          </Show>
+          <button
+            type="button"
+            disabled={props.events.pendingCommand() === props.direction}
+            onClick={(e) => void read(e.currentTarget)}
+          >
+            Show {props.direction} Events
+          </button>
+        </div>
+        <Show when={earlier() && usedUp()}>
+          <p>There are no earlier Events.</p>
+        </Show>
+      </div>
+    </Show>
   );
 }
 
@@ -129,7 +161,6 @@ export function JobTimeline(props: {
   const running = () => props.running && events.isAtLatest();
   let timeline: HTMLOListElement | undefined;
   let heading: HTMLHeadingElement | undefined;
-  let startNote: HTMLDivElement | undefined;
   const [addition, setAddition] = createSignal<{ newest?: number; sentence: string }>();
   let endMarker: HTMLDivElement | undefined;
   const arrivals = events.liveEvents;
@@ -168,7 +199,7 @@ export function JobTimeline(props: {
     }
   }
   async function jump(toStart: boolean) {
-    if (toStart && events.hasEarlier() && !(await events.readFromStart())) return;
+    if (toStart && events.hasPage("earlier") && !(await events.readFromStart())) return;
     if (!toStart && !events.isAtLatest() && !(await events.readLatest())) return;
     flush();
     setAddition(undefined);
@@ -176,34 +207,27 @@ export function JobTimeline(props: {
     else goToEnd();
   }
 
-  async function extend(earlier: boolean, button: HTMLButtonElement) {
-    if (events.isFetchingPage()) return;
-    const hadFocus = document.activeElement === button;
-    const page = await (earlier ? events.readEarlier() : events.readLater());
+  async function extend(direction: PagingDirection) {
+    if (events.pendingCommand()) return null;
+    const previous = last()?.id;
+    const page = await events.readPage(direction);
     flush();
-    if (!timeline?.isConnected) return;
-    if (page) {
-      const count = page.events.length;
-      setAddition({
-        newest: last()?.id,
-        sentence: `${formatCount(count)} ${earlier ? "earlier" : "later"} ${plural(count, "Event", "Events")} added.`,
-      });
-    }
-    if (!hadFocus) return;
-    const next = !earlier && page ? shownNumber(page.events, false) : null;
-    const target = next ?? (button.isConnected ? button : earlier ? startNote : timeline);
-    if (document.activeElement === button && target !== button)
-      target?.focus({ preventScroll: true });
-    else focusIfLost(target, { preventScroll: true });
+    if (!page || !timeline?.isConnected) return null;
+    const count = page.events.length;
+    setAddition({
+      newest: last()?.id,
+      sentence: `${formatCount(count)} ${direction} ${plural(count, "Event", "Events")} added.`,
+    });
+    return direction === "later" ? firstAddedItem(previous, page.events.at(-1)?.id) : null;
   }
 
   const readCount = () => {
     const count = formatCount(rows().length);
     const range = events.isAtLatest()
-      ? events.hasEarlier()
+      ? events.hasPage("earlier")
         ? "The latest "
         : "All "
-      : events.hasEarlier()
+      : events.hasPage("earlier")
         ? ""
         : "The first ";
     const total = `${range}${count} read`;
@@ -292,10 +316,21 @@ export function JobTimeline(props: {
           </Show>
         </div>
       </Show>
+      <PageEdge
+        direction="earlier"
+        events={events}
+        at={earlierTime()}
+        read={extend}
+        timeline={() => timeline}
+      />
       <Show when={rows().length}>
         <nav class="jump-row" aria-label="Go to a moment of the job">
           <span>Go to</span>
-          <button type="button" disabled={events.isFetchingPage()} onClick={() => void jump(true)}>
+          <button
+            type="button"
+            disabled={events.pendingCommand() === "start"}
+            onClick={() => void jump(true)}
+          >
             Start
           </button>
           <For each={moments()} keyed={(row) => row.id}>
@@ -311,34 +346,14 @@ export function JobTimeline(props: {
           <JumpGroup name="sub-agent" multiple="sub-agents" rows={subAgents()} content />
           <JumpGroup name="compaction" multiple="compactions" rows={compactions()} content />
           <JumpGroup name="error" multiple="errors" rows={errors()} />
-          <button type="button" disabled={events.isFetchingPage()} onClick={() => void jump(false)}>
+          <button
+            type="button"
+            disabled={events.pendingCommand() === "latest"}
+            onClick={() => void jump(false)}
+          >
             Latest
           </button>
         </nav>
-      </Show>
-      <Show
-        when={events.hasEarlier()}
-        fallback={
-          <Show when={events.pagedToEnd() === "desc"}>
-            <div
-              class="events-edge-note"
-              tabindex="-1"
-              ref={(el) => {
-                startNote = el;
-              }}
-            >
-              <p>There are no earlier Events.</p>
-            </div>
-          </Show>
-        }
-      >
-        <PageEdge
-          direction="earlier"
-          at={earlierTime()}
-          pending={events.isFetchingPage()}
-          error={events.pageError()}
-          read={(button) => extend(true, button)}
-        />
       </Show>
       <ol
         class="timeline"
@@ -353,7 +368,7 @@ export function JobTimeline(props: {
             <>
               <Show when={props.groups.dayLines.has(row().id) && row().at}>
                 {(at) => (
-                  <li class="day-line">
+                  <li class="day-line" tabindex="-1">
                     <Instant value={at()} format={DAY_YEAR} />
                   </li>
                 )}
@@ -400,22 +415,13 @@ export function JobTimeline(props: {
           endMarker = el;
         }}
       />
-      <Show
-        when={events.hasLater()}
-        fallback={
-          <Show when={events.pagedToEnd() === "asc"}>
-            <div class="events-edge-note" aria-hidden="true" />
-          </Show>
-        }
-      >
-        <PageEdge
-          direction="later"
-          at={laterTime()}
-          pending={events.isFetchingPage()}
-          error={events.pageError()}
-          read={(button) => extend(false, button)}
-        />
-      </Show>
+      <PageEdge
+        direction="later"
+        events={events}
+        at={laterTime()}
+        read={extend}
+        timeline={() => timeline}
+      />
       <div role="status" aria-atomic="true" class="new-events">
         <Show when={unread().length}>
           <>

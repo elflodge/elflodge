@@ -255,7 +255,7 @@ test("a member reads earlier Events from the same button until reaching the star
     0,
   );
   await page.keyboard.press("Tab");
-  await expectBrowser(page.locator("#event-30")).toBeFocused();
+  await expectBrowser(page.getByRole("button", { name: "Start", exact: true })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Enter");
   await expectBrowser(count).toHaveText("4 earlier Events added. All 204 read.");
@@ -306,14 +306,17 @@ test("a member can retry a refused earlier page from its own box", async () => {
   } finally {
     retry.resolve();
   }
-  await expectBrowser(box).toHaveText("There are no earlier Events.");
+  await expectBrowser(box.getByText("There are no earlier Events.", { exact: true })).toBeVisible();
   await expectBrowser(box).toBeFocused();
 }, 30_000);
 
 test("a member can read from the start and request the next page in order", async () => {
-  const { id } = await jobWithHistory(102);
+  const { id, report } = await jobWithHistory(102);
   const page = await openAsMember("First Events", `jobs/${id}`);
   const jumps = page.getByRole("navigation", { name: "Go to" });
+  await page.locator("#event-1020").waitFor();
+  await report([message(1030)]);
+  await expectBrowser(page.locator("#event-1030")).toBeAttached({ timeout: 12_000 });
   await jumps.getByText("Start", { exact: true }).click();
   const numbers = page.locator("ol.timeline .ev-id");
   await expectBrowser(numbers.first()).toHaveText("1");
@@ -324,10 +327,10 @@ test("a member can read from the start and request the next page in order", asyn
   await expectBrowser(recordsAndErrors).toBeChecked();
   await expectBrowser(page.locator("ol.timeline")).toBeFocused();
   await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText(
-    "4 later Events added. All 104 read.",
+    "5 later Events added. All 105 read.",
   );
-  await expectBrowser(numbers.last()).toHaveText("1020");
-  await expectBrowser(numbers).toHaveCount(104);
+  await expectBrowser(numbers.last()).toHaveText("1030");
+  await expectBrowser(numbers).toHaveCount(105);
 }, 30_000);
 
 test("a member reading earlier Events can jump to new ones, and following ends after the final Event", async () => {

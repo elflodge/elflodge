@@ -4,14 +4,17 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/solid-query";
+import { FINAL_JOB_STATUSES, asError, type Job, type JobEventsPage } from "contract";
 import {
-  FINAL_JOB_STATUSES,
-  asError,
-  type Job,
-  type JobEventOrder,
-  type JobEventsPage,
-} from "contract";
-import { createEffect, createMemo, createSignal, flush, onCleanup, resolve, until } from "solid-js";
+  createEffect,
+  createMemo,
+  createSignal,
+  deep,
+  flush,
+  latest,
+  onCleanup,
+  until,
+} from "solid-js";
 
 import { readJobEvent } from "./job-event-record.ts";
 import { JOB_LIFECYCLE } from "./job-lifecycle.ts";
@@ -19,6 +22,8 @@ import { REFRESH_INTERVAL_MS, orpc, refused } from "./query.ts";
 
 // The contract allows at most 100 Events per read.
 const PAGE_SIZE = 100;
+
+export type PagingDirection = "earlier" | "later";
 
 type FollowedPage = JobEventsPage & { endedAt?: number };
 
@@ -35,11 +40,11 @@ function closingTime(page: JobEventsPage) {
   return closing?.lifecycle?.finalStatus === page.status ? closing.at?.getTime() : undefined;
 }
 
-function historyOptions(id: string, order: JobEventOrder) {
+function historyOptions(id: string, direction: PagingDirection) {
   return orpc.jobs.events.infiniteOptions({
     input: (after: number) => ({
       id,
-      order,
+      order: direction === "earlier" ? "desc" : "asc",
       after,
       limit: PAGE_SIZE,
     }),
@@ -57,32 +62,35 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const client = useQueryClient();
   const ownerLifetime = new AbortController();
   onCleanup(() => ownerLifetime.abort());
-  const [order, setOrder] = createSignal<JobEventOrder>("desc");
-  const [readingPage, setReadingPage] = createSignal(false);
+  const [direction, setDirection] = createSignal<PagingDirection>("earlier");
+  const [pendingCommand, setPendingCommand] = createSignal<PagingDirection | "start" | "latest">();
   const [jumpFailure, setJumpFailure] = createSignal<{ error: Error; failedAt: number }>();
   const history = useInfiniteQuery(() => ({
-    ...historyOptions(job().id, order()),
+    ...historyOptions(job().id, direction()),
     enabled: enabled(),
     refetchInterval: (query) =>
       query.state.error && !refused(query.state.error) && !query.state.data
         ? REFRESH_INTERVAL_MS
         : false,
   }));
-  const pages = () => (history.dataUpdatedAt ? history.data.pages : []);
+  // The journal stays readable while either Events request is pending and the job read expires.
+  const pages = createMemo(() =>
+    history.dataUpdatedAt ? latest(() => deep(history.data.pages)) : [],
+  );
   const historyEvents = createMemo(() => {
     const events = pages().flatMap((page) => page.events);
-    return order() === "desc" ? events.toReversed() : events;
+    return direction() === "earlier" ? events.toReversed() : events;
   });
-  const hasLater = () => order() === "asc" && history.hasNextPage;
+  const hasPage = (side: PagingDirection) => direction() === side && history.hasNextPage;
   const tailCursor = () =>
-    pages().length && !hasLater() ? (historyEvents().at(-1)?.id ?? 0) : undefined;
+    pages().length && !hasPage("later") ? (historyEvents().at(-1)?.id ?? 0) : undefined;
 
   const follow = useQuery(() => {
     const cursor = tailCursor();
     const id = job().id;
     const input = { id, order: "asc" as const, after: cursor, limit: PAGE_SIZE };
     const mayFollow = enabled() && cursor !== undefined;
-    const last = order() === "asc" && cursor !== undefined ? pages().at(-1) : undefined;
+    const last = direction() === "later" && cursor !== undefined ? pages().at(-1) : undefined;
     const endedAt = last && closingTime(last);
     const initial: FollowedPage = {
       events: [],
@@ -94,6 +102,9 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       enabled: ({ state }) =>
         mayFollow &&
         (state.error ? !refused(state.error) : !state.data || !isFinalPage(state.data)),
+      // Start can turn off the follower after it has shown live Events. An empty
+      // placeholder lets Solid commit the new history while there is no cursor to follow.
+      placeholderData: cursor === undefined ? initial : undefined,
       // An old page can arrive after another run has ended. Only its own closing Event
       // identifies which ending it shows. Without one, read forward to confirm its cursor.
       initialData:
@@ -134,6 +145,9 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       refetchInterval: REFRESH_INTERVAL_MS,
     };
   });
+  const followed = createMemo(() =>
+    follow.dataUpdatedAt ? latest(() => deep(follow.data)) : undefined,
+  );
   // A job can end and resume between two job reads, even ending again with the same status.
   createEffect(jobReadAt, (readAt) => {
     if (
@@ -153,13 +167,28 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       void follow.refetch();
   });
   const liveEvents = createMemo(() =>
-    tailCursor() !== undefined && follow.dataUpdatedAt ? follow.data.events : [],
+    tailCursor() !== undefined ? (followed()?.events ?? []) : [],
   );
   const events = createMemo(() => historyEvents().concat(liveEvents()));
 
-  async function jump(next: JobEventOrder) {
-    if (!enabled() || readingPage()) return false;
-    setReadingPage(true);
+  const arrivalFirstId = createMemo<number | undefined>(
+    (first) =>
+      first ??
+      (direction() === "earlier"
+        ? (pages()[0]?.events.at(-1)?.id ?? liveEvents()[0]?.id)
+        : undefined),
+  );
+  // Latest may replace the arrival page after more than a page of live Events. Walking
+  // back past that new page must not reveal an older run opening above the button.
+  function firstHeadEventId() {
+    const arrival = arrivalFirstId();
+    if (arrival === undefined || direction() !== "earlier") return arrival;
+    return Math.max(arrival, pages()[0]?.events.at(-1)?.id ?? arrival);
+  }
+
+  async function jump(next: PagingDirection) {
+    if (!enabled() || pendingCommand()) return false;
+    setPendingCommand(next === "later" ? "start" : "latest");
     setJumpFailure(undefined);
     try {
       const previousHistoryError = history.error;
@@ -170,13 +199,13 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         pages: 1,
       });
       if (ownerLifetime.signal.aborted) return false;
-      setOrder(next);
+      setDirection(next);
       // Query resolves the read before Solid commits the new rows. Focus belongs to the
       // requested end, even when an ascending read has already added a newer Event there.
       const firstPage = answer.pages[0];
       const target = firstPage?.events[0]?.id;
       const cursor =
-        next === "desc" ? target : firstPage?.hasMore ? undefined : firstPage?.events.at(-1)?.id;
+        next === "earlier" ? target : firstPage?.hasMore ? undefined : firstPage?.events.at(-1)?.id;
       // The previous refusal can remain visible until the new rows arrive.
       const rereadFailed = () =>
         (history.isError && history.error !== previousHistoryError) ||
@@ -187,7 +216,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       await until(
         () => {
           if (!enabled() || rereadFailed() || target === undefined) return true;
-          return next === "asc"
+          return next === "later"
             ? events().at(0)?.id === target
             : (events().at(-1)?.id ?? 0) >= target;
         },
@@ -199,26 +228,26 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         setJumpFailure({ error: asError(error), failedAt: Date.now() });
       return false;
     } finally {
-      setReadingPage(false);
+      setPendingCommand(undefined);
     }
   }
-  async function extend(direction: JobEventOrder) {
-    if (!enabled() || order() !== direction || isFetchingPage() || !history.hasNextPage)
-      return undefined;
+  async function readPage(side: PagingDirection) {
+    if (!enabled() || pendingCommand() || !hasPage(side)) return undefined;
     setJumpFailure(undefined);
-    setReadingPage(true);
+    setPendingCommand(side);
     // Disable the button and clear its refusal before a retry suspends the history read.
     flush();
     try {
       const result = await history.fetchNextPage();
       if (!result.isSuccess || ownerLifetime.signal.aborted) return undefined;
       // Query's response can arrive before Solid has committed the replacement for the button.
-      return (await resolve(() => history.data)).pages.at(-1);
+      // Solid Query exposes the settled value as promise, which its infinite result type omits.
+      if ("promise" in history) await history.promise;
+      return result.data.pages.at(-1);
     } finally {
-      setReadingPage(false);
+      setPendingCommand(undefined);
     }
   }
-  const isFetchingPage = () => readingPage() || history.isFetching;
   function failure() {
     const readAt = Math.max(follow.dataUpdatedAt, history.dataUpdatedAt);
     const failed = jumpFailure();
@@ -230,19 +259,19 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   return {
     events,
     liveEvents,
-    hasEarlier: () => order() === "desc" && history.hasNextPage,
-    pagedToEnd: () => (pages().length > 1 && !history.hasNextPage ? order() : undefined),
-    hasLater,
-    pageError: () => (!readingPage() && history.isFetchNextPageError ? history.error : undefined),
-    isAtLatest: () =>
-      !!pages().length && !hasLater() && !(follow.dataUpdatedAt && follow.data.hasMore),
+    firstHeadEventId,
+    hasPage,
+    usedUp: (side: PagingDirection) =>
+      direction() === side && pages().length > 1 && !history.hasNextPage,
+    pageError: () =>
+      !pendingCommand() && history.isFetchNextPageError ? history.error : undefined,
+    isAtLatest: () => !!pages().length && !hasPage("later") && !followed()?.hasMore,
     isLoading: () => history.isPending,
-    isFetchingPage,
+    pendingCommand,
     failure,
-    readEarlier: () => extend("desc"),
-    readLater: () => extend("asc"),
-    readFromStart: () => jump("asc"),
-    readLatest: () => jump("desc"),
+    readPage,
+    readFromStart: () => jump("later"),
+    readLatest: () => jump("earlier"),
   };
 }
 

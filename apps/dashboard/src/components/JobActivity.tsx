@@ -29,7 +29,8 @@ export function JobActivity(props: { job: Job; atEnd?: boolean }) {
   return (
     <section class="activity" aria-labelledby={props.atEnd ? "latest-activity" : "job-activity"}>
       <Heading id={props.atEnd ? "latest-activity" : "job-activity"}>
-        {props.atEnd && <span class="mark mark-running" aria-hidden="true" />} Latest activity recorded by the hub
+        {props.atEnd && <span class="mark mark-running" aria-hidden="true" />} Latest activity
+        recorded by the hub
       </Heading>
       <Show when={props.job.lastReportedAt} fallback={<p>No report recorded yet for this run.</p>}>
         {(report) => (
