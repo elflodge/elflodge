@@ -10,6 +10,8 @@ import * as NodeRuntime from "@effect/platform-node-shared/NodeRuntime";
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { writeFile } from "atomically";
+import { createAuthClient } from "better-auth/client";
+import { setCookieToHeader } from "better-auth/cookies";
 import {
   apiContract,
   asError,
@@ -33,7 +35,6 @@ import {
   Runtime,
   Stream,
 } from "effect";
-import { Cookies } from "effect/http";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import ensureError from "ensure-error";
 import envPaths from "env-paths";
@@ -503,10 +504,7 @@ const lockState = Effect.acquireRelease(
   (release) => Effect.tryPromise(() => release()).pipe(Effect.ignore),
 );
 
-function stackClient(
-  port: number,
-  headers: Record<string, string>,
-): ContractRouterClient<typeof apiContract> {
+function stackClient(port: number, headers: Headers): ContractRouterClient<typeof apiContract> {
   return createORPCClient(
     createProblemDetailsLink(apiContract, { origin: hubUrl(port), url: "/", headers }),
   );
@@ -520,21 +518,24 @@ function signIn(state: State) {
   return Effect.tryPromise({
     try: async (signal) => {
       const url = hubUrl(state.port);
-      const response = await fetch(`${url}/api/auth/sign-in/email`, {
-        signal,
-        method: "POST",
-        // Better Auth refuses a sign-in from fetch without an origin it trusts, as it guards
-        // against cross-site requests; the hub trusts its own URL.
-        headers: { "content-type": "application/json", origin: url },
-        body: JSON.stringify({ email: OWNER_EMAIL, password: state.ownerPassword }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          `The hub refused the owner's sign-in (HTTP ${response.status}): ${await response.text()}`,
-        );
-      }
-      const cookie = Cookies.toCookieHeader(Cookies.fromSetCookie(response.headers.getSetCookie()));
-      return stackClient(state.port, { cookie });
+      // The hub trusts its own origin for sign-in and subsequent requests with the session cookie.
+      const headers = new Headers({ origin: url });
+      const auth = createAuthClient({ baseURL: url, fetchOptions: { headers } });
+      await auth.signIn.email(
+        { email: OWNER_EMAIL, password: state.ownerPassword },
+        {
+          signal,
+          onSuccess: setCookieToHeader(headers),
+          onResponse: async ({ response }) => {
+            if (!response.ok) {
+              throw new Error(
+                `The hub refused the owner's sign-in (HTTP ${response.status}): ${await response.text()}`,
+              );
+            }
+          },
+        },
+      );
+      return stackClient(state.port, headers);
     },
     catch: asError,
   });
@@ -827,7 +828,7 @@ function start(version: string, flags: StartFlags) {
  */
 function readRunnerCapabilities({ port, runnerReadKey }: StateWithReadKey) {
   return Effect.gen(function* () {
-    const client = stackClient(port, { "x-api-key": runnerReadKey });
+    const client = stackClient(port, new Headers({ "x-api-key": runnerReadKey }));
     const name = (yield* dockerOutput([
       "compose",
       "--project-name",
