@@ -509,7 +509,7 @@ export function submitterColumns(
 
 /** The submitter `row`'s columns record, as the API shows it. */
 export function apiSubmitterOf(row: Pick<JobRow, (typeof SUBMITTER_COLUMNS)[number]>) {
-  // The row type allows a null name for either kind. Only an API key can have one.
+  // The row type allows null for either kind, but only an API key's name may be null.
   return z.parse(submitterSchema, {
     kind: row.submitterKind,
     id: row.submitterId,
@@ -1435,10 +1435,15 @@ const LISTED_JOB_COLUMNS = [
   ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
-export function countJobsWithStatus(column: Expression<JobStatus>) {
+/** A filtered job count for each requested status, with the status as its column name. */
+export function jobCountsByStatus<S extends JobStatus>(
+  column: Expression<JobStatus>,
+  statuses: readonly S[],
+) {
   const eb = expressionBuilder();
-  return <S extends JobStatus>(status: S) =>
-    eb.fn.countAll<number>().filterWhere(column, "=", status).as(status);
+  return statuses.map((status) =>
+    eb.fn.countAll<number>().filterWhere(column, "=", status).as(status),
+  );
 }
 
 /**
@@ -1455,7 +1460,7 @@ export function countJobs() {
       const totals = db
         .selectFrom("job")
         .where("job.status", "in", UNFINISHED)
-        .select((eb) => UNFINISHED.map(countJobsWithStatus(eb.ref("job.status"))));
+        .select((eb) => jobCountsByStatus(eb.ref("job.status"), UNFINISHED));
       const unknown = db
         .selectFrom("job")
         // A placed job has a Runner (`job_placedAt_check`). When most queued jobs are unplaced,
@@ -1479,7 +1484,7 @@ export function countJobs() {
             now,
           ),
         )
-        .select((eb) => QUEUED_OR_RUNNING.map(countJobsWithStatus(eb.ref("job.status"))));
+        .select((eb) => jobCountsByStatus(eb.ref("job.status"), QUEUED_OR_RUNNING));
       return db
         .selectFrom(totals.as("totals"))
         .crossJoin(unknown.as("unknown"))

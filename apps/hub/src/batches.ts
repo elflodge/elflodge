@@ -47,7 +47,7 @@ import { InvalidInput } from "./invalid-input.ts";
 import {
   apiSubmitterOf,
   contentHashOf,
-  countJobsWithStatus,
+  jobCountsByStatus,
   insertUsageRecords,
   limitProblems,
   readJobs,
@@ -99,16 +99,24 @@ const BATCH_COLUMNS = [
   ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (keyof BatchRow)[];
 
-/** A cancelled Batch takes no more jobs and resumes none. Its cancel waits for unfinished jobs. */
+function hasUnfinishedJobs(countFor: (status: JobStatus) => Expression<number>) {
+  const eb = expressionBuilder();
+  return eb.or(UNFINISHED.map((status) => eb(countFor(status), ">", 0)));
+}
+
+/**
+ * A cancel clears the pause and the Batch takes no more jobs and resumes none. It stays active
+ * until its Runners stop its unfinished jobs.
+ */
 function batchStatus(
   cancelledAt: Expression<BatchRow["cancelledAt"]>,
   pausedBy: Expression<BatchRow["pausedBy"]>,
-  hasUnfinishedJobs: Expression<SqlBool>,
+  unfinished: Expression<SqlBool>,
 ) {
   const eb = expressionBuilder();
   return eb
     .case()
-    .when(eb.and([eb(cancelledAt, "is not", null), eb.not(hasUnfinishedJobs)]))
+    .when(eb.and([eb(cancelledAt, "is not", null), eb.not(unfinished)]))
     .then(eb.val<BatchStatus>("cancelled"))
     .when(pausedBy, "is not", null)
     .then(eb.val<BatchStatus>("paused"))
@@ -134,7 +142,7 @@ export async function readBatch(
           .innerJoin("jobProgress as p", "p.jobId", "j.id")
           .whereRef("j.batchUid", "=", "b.uid")
           .select((agg) => [
-            ...jobStatusSchema.options.map(countJobsWithStatus(agg.ref("j.status"))),
+            ...jobCountsByStatus(agg.ref("j.status"), jobStatusSchema.options),
             agg.fn
               .countAll<number>()
               .filterWhere(
@@ -164,7 +172,7 @@ export async function readBatch(
       batchStatus(
         eb.ref("b.cancelledAt"),
         eb.ref("b.pausedBy"),
-        eb.or(UNFINISHED.map((status) => eb(`j.${status}`, ">", 0))),
+        hasUnfinishedJobs((status) => eb.ref(`j.${status}`)),
       ).as("status"),
     )
     .$call((query) =>
@@ -240,6 +248,10 @@ export function listBatches(query: BatchListQuery) {
             .where((eb) => {
               const filters = [];
               if (statuses.length > 0) {
+                // For a paused-only page, rule out unpaused Batches before looking at their jobs.
+                if (statuses.every((status) => status === "paused")) {
+                  filters.push(eb("b.pausedBy", "is not", null));
+                }
                 const unfinishedJob = eb.exists(
                   eb
                     .selectFrom("job")
@@ -295,7 +307,7 @@ export function listBatches(query: BatchListQuery) {
             .groupBy("j.batchUid")
             .select((agg) => [
               "j.batchUid",
-              ...jobStatusSchema.options.map(countJobsWithStatus(agg.ref("j.status"))),
+              ...jobCountsByStatus(agg.ref("j.status"), jobStatusSchema.options),
             ]),
         )
         .with("unknown", (qb) =>
@@ -322,15 +334,15 @@ export function listBatches(query: BatchListQuery) {
         .leftJoin("unknown", "unknown.batchUid", "page.uid")
         .selectAll("page")
         .select((eb) => {
-          const count = (status: JobStatus) =>
+          const countOrZero = (status: JobStatus) =>
             eb.fn.coalesce(`counts.${status}` as const, eb.lit(0));
           return [
             batchStatus(
               eb.ref("page.cancelledAt"),
               eb.ref("page.pausedBy"),
-              eb.or(UNFINISHED.map((status) => eb(count(status), ">", 0))),
+              hasUnfinishedJobs(countOrZero),
             ).as("status"),
-            ...jobStatusSchema.options.map((status) => count(status).as(status)),
+            ...jobStatusSchema.options.map((status) => countOrZero(status).as(status)),
             eb.fn.coalesce("unknown.statusUnknown", eb.lit(0)).as("statusUnknown"),
           ];
         })
