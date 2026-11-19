@@ -65,6 +65,12 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
   const { page, scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
+  const script = await system.hub.fetch(scriptPath);
+  expect(script.status).toBe(200);
+  expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
+    expect.arrayContaining(["max-age=31536000", "immutable"]),
+  );
+
   const missingPath = "/dashboard/assets/missing.js";
   const missing = await page.evaluate(async (path) => {
     const response = await fetch(path);
@@ -79,8 +85,6 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
 
   const navigation = await page.goto(`${system.origin}${missingPath}`);
   if (inject("hub") === "workers") {
-    const script = await system.hub.fetch(scriptPath);
-    expect(script.status).toBe(200);
     for (const vary of [script.headers.get("vary"), navigation?.headers().vary, missing.vary]) {
       expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
     }
