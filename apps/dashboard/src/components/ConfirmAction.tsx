@@ -15,6 +15,7 @@ import { Notice } from "./Notice.tsx";
 export function ConfirmAction(props: {
   /** The words on the button that opens the dialog, such as "Remove". */
   trigger: string;
+  disabled?: boolean;
   /** The button's whole name, which starts with its words and names what it acts on. */
   triggerLabel: string;
   heading: JSX.Element;
@@ -62,6 +63,7 @@ export function ConfirmAction(props: {
         type="button"
         class="danger"
         aria-label={props.triggerLabel}
+        disabled={props.disabled}
         onClick={() => {
           setFailure(undefined);
           // Clear the previous refusal before the browser opens and announces the dialog.

@@ -184,7 +184,7 @@ function RunnerList(props: {
           const sid = () => props.shortId(runner());
           const label = () => `${runner().name} ${sid()}`;
           return (
-            <li class="runner">
+            <li class="runner" id={runner().id}>
               <div class="runner-id">
                 <h2 class="runner-name">
                   <span class="mono">{runner().name}</span> <span class="sid">{sid()}</span>

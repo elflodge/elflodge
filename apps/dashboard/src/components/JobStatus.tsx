@@ -1,7 +1,7 @@
 import type { BlockedBy, Job, JobStatus as Status, ListedJob, StatusUnknownReason } from "contract";
 import { Show } from "solid-js";
 
-import { FULL } from "../format.ts";
+import { FULL, TIME_SECONDS } from "../format.ts";
 import { Instant } from "./Instant.tsx";
 
 /** Each status's word, as a job's status and a filter by it say it. */
@@ -50,7 +50,17 @@ export function JobStatus(props: { job: ListedJob | Job }) {
   );
 }
 
-export function BesideStatus(props: { job: ListedJob | Job }) {
+const FAILURE_WORDS = new Map([
+  ["modelFailed", "the model’s provider failed the call"],
+  ["noOutput", "its agent ended without an accepted Output"],
+  ["runTimedOut", "a run went past its run timeout"],
+  ["modelBudgetExceeded", "its model calls’ cost reached its model budget"],
+  ["runFaulted", "its run broke on its Runner"],
+  ["runnerRemoved", "its Runner was removed before it ended"],
+  ["journalLost", "its Runner’s journal of it was lost"],
+]);
+
+export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
   return (
     <>
       <Show when={props.job.statusUnknown}>
@@ -61,7 +71,17 @@ export function BesideStatus(props: { job: ListedJob | Job }) {
           >
             <span class="mark mark-unknown" aria-hidden="true" />
             <span>
-              Status unknown<span class="condition-detail">{UNKNOWN_WORDS[unknown().reason]}</span>
+              Status unknown
+              <Show
+                when={props.detailed}
+                fallback={<span class="condition-detail">{UNKNOWN_WORDS[unknown().reason]}</span>}
+              >
+                {" "}
+                since <Instant value={unknown().since} format={TIME_SECONDS} />:{" "}
+                {unknown().reason === "runnerDisconnected"
+                  ? "its Runner is not connected"
+                  : "its Runner has not reported it"}
+              </Show>
             </span>
           </span>
         )}
@@ -72,9 +92,18 @@ export function BesideStatus(props: { job: ListedJob | Job }) {
             <span class="mark mark-pending" aria-hidden="true" />
             <span>
               {CONTROL_WORDS[control().type]}
-              <span class="condition-detail">
-                <Instant value={control().requestedAt} />
-              </span>
+              <Show
+                when={props.detailed}
+                fallback={
+                  <span class="condition-detail">
+                    <Instant value={control().requestedAt} />
+                  </span>
+                }
+              >
+                {" "}
+                <Instant value={control().requestedAt} format={TIME_SECONDS} />, waiting for its
+                Runner{control().type === "delete" ? " to delete its files" : ""}
+              </Show>
             </span>
           </span>
         )}
@@ -91,6 +120,9 @@ export function BesideStatus(props: { job: ListedJob | Job }) {
         {(reason) => (
           <span class="beside">
             <code>{reason()}</code>
+            <Show when={props.detailed && FAILURE_WORDS.get(reason())}>
+              {(words) => <>: {words()}</>}
+            </Show>
           </span>
         )}
       </Show>

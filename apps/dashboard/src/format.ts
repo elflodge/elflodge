@@ -116,3 +116,20 @@ export const USD_BUDGET = new Intl.NumberFormat(LANGUAGE, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 4,
 });
+
+const HOURS = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "hour" });
+const MINUTES = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "minute" });
+const SECONDS = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "second" });
+const UNITS = new Intl.ListFormat(LANGUAGE, { type: "unit", style: "narrow" });
+
+/** A length in whole seconds, including the seconds left after whole hours and minutes. */
+export function duration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor(whole / 60) % 60;
+  const parts = [];
+  if (hours) parts.push(HOURS.format(hours));
+  if (minutes) parts.push(MINUTES.format(minutes));
+  if (whole % 60 || !parts.length) parts.push(SECONDS.format(whole % 60));
+  return UNITS.format(parts);
+}

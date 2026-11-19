@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute } from "@tanstack/solid-router";
-import type { JobRunner, JobsPage, ListedJob, Runner } from "contract";
+import type { JobsPage, ListedJob, Runner } from "contract";
 import { For, Match, Repeat, Show, Switch, createMemo } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
+import { JobSubmitter, RunnerOfJob } from "../../../components/JobReferences.tsx";
 import { BesideStatus, JobStatus } from "../../../components/JobStatus.tsx";
 import {
   DAY,
@@ -209,9 +210,9 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       </td>
       <td role="cell" class="c-job">
         <span class="cell-line">
-          <span class="cut mono job-name" title={props.job.customId}>
+          <Link class="cut mono job-name" to="/jobs/$id" params={{ id: props.job.id }}>
             {props.job.customId}
-          </span>
+          </Link>
           <span class="sid" title={props.job.id}>
             {shortId()}
           </span>
@@ -224,16 +225,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       </td>
       <td role="cell" class="c-submitter">
         <span class="cell-line">
-          <span
-            title={props.job.submitter.name || "Unnamed"}
-            class={{
-              mono: props.job.submitter.kind === "key" && !!props.job.submitter.name,
-              unnamed: props.job.submitter.kind === "key" && !props.job.submitter.name,
-            }}
-          >
-            {props.job.submitter.name || "Unnamed"}
-          </span>{" "}
-          <span class="unit">{props.job.submitter.kind}</span>
+          <JobSubmitter submitter={props.job.submitter} inList />
         </span>
       </td>
       <td role="cell" class="c-labels">
@@ -293,25 +285,6 @@ function Labels(props: { labels: ListedJob["labels"] }) {
         </li>
       </Show>
     </ul>
-  );
-}
-
-/** The Runner a job was last sent to, and whether it is connected. */
-function RunnerOfJob(props: { runner: JobRunner; shortId: string }) {
-  return (
-    <span class="runner-ref">
-      <span class="cut mono" title={props.runner.name}>
-        {props.runner.name}
-      </span>
-      <span class="sid" title={props.runner.id}>
-        {props.shortId}
-      </span>
-      <span
-        class={["mark", props.runner.connected ? "mark-connected" : "mark-disconnected"]}
-        aria-hidden="true"
-      />
-      <span class="vh">{props.runner.connected ? "connected" : "not connected"}</span>
-    </span>
   );
 }
 

@@ -394,7 +394,7 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
 
-Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
+Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as `a.cut.mono.job-name`. It opens the job, where the heading gives the whole name. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
 The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
 
@@ -409,6 +409,20 @@ Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scop
   </th>
 </tr>
 ```
+
+### Job page
+
+`h1.subject` gives the kind in `span.kind` above the whole custom ID in the strong mono, wrapping at any character. A deleted job uses its full ID. The zone note applies to all times on the page.
+
+`div.job-layout` puts the working record in `div.job-body` and a ruled `dl` in `aside.facts-aside`. At 1000px and below the facts follow the working record. In the facts, `.selectable` selects the whole ID, Labels occupy one line each, and `span.sub` gives a second line. The Batch’s “its jobs” link applies its ID as a Jobs filter. A Runner’s name links to its record by fragment.
+
+`div.job-status[role=status][tabindex="-1"]` holds the large status word (`.status-lg`), every condition in full, and the reason a failed or cancelled job cannot resume. Only applicable controls show. In `.job-controls`, a `.ctl` keeps a destructive button beside its visible `.consequence`. A pending request disables the visible buttons and the status says “Working…”. A successful control focuses the status or the deletion notice. A spent budget opens a dialog for the new amount in USD. A confirmed deletion shows the bare record until the hub gives 404.
+
+`section.activity` on the lamp wash belongs only to a running job whose status is known. Group its model call, tools and compactions by conversation. Each start and duration is measured at the report. Its age is measured at the read.
+
+`.limits` sets each `.limit` beside the other or stacks them on a phone. A `.limit-value` gives the limit with its unit. A native, named `meter` in `.scale` measures cost against the lifetime budget. Its accessible value text carries the full cost even above budget. `.is-over` strikes the end tick when the limit is reached. Only a timed-out run has a full timeout scale. A deleted job keeps its cost and tokens.
+
+`section.job-result` shows Output as indented JSON, or a wrapping failure message. Its `.result-head` holds the heading and Output’s copy button. The complete text stays in one `pre.code.res-preview`. When the rendered text exceeds eight lines, `details.disclose` switches between the preview and full height. Its summary names the available action through `.when-closed` and `.when-open`.
 
 ### A job's status
 
@@ -492,7 +506,7 @@ What a person copies to run elsewhere, such as the command that starts a Runner,
 
 ### Runner record
 
-The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another. While visible, the page reads the list again at the hub strip's `REFRESH_INTERVAL_MS` interval from `src/query.ts`.
+The Runners page lists each Runner as `li.runner` in `ul.runners`, with the Runner’s full ID as its fragment target: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another. While visible, the page reads the list again at the hub strip's `REFRESH_INTERVAL_MS` interval from `src/query.ts`.
 
 A direct visit stays blank until the first Runners read finishes because the router awaits the loader before mounting the shell. On navigation from another dashboard page, a slow first read shows three placeholder records in `ul.runners[aria-busy="true"]`, with a hidden status reading "Loading Runners". The records are hidden from assistive technology. Each `span.sk` is a line on `--c-skeleton`; `.is-title` and `.is-short` stand in for the name and connection, and `.is-part` for a shorter fact.
 
@@ -506,7 +520,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height.
 3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.
-5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`. In the Jobs list a cut job name or Batch ID has its full value in its title.
+5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`. In the Jobs list the name links to the full job heading. A cut Batch ID has its full value in its title.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
 
 ## Adding a part
