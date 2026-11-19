@@ -5,6 +5,8 @@ import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
 import { startSystem } from "./harness.ts";
 
+// The hub's OpenAPI document, as callers in other languages read it.
+
 const system = startSystem();
 
 beforeAll(() => system.start());

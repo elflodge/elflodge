@@ -295,7 +295,7 @@ export async function readInput(argv: readonly string[]): Promise<string[]> {
   return argv.toSpliced(option.index, option.inlineValue ? 1 : 2, "--json", json);
 }
 
-// Shell examples belong in the CLI because the HTTP reference shares the contract's descriptions.
+// Shell examples belong in the CLI because the OpenAPI document shares the contract's descriptions.
 const commandExamples = new Map<AnyProcedureContract, string>([
   [
     apiContract.jobs.list,

@@ -436,6 +436,8 @@ const uploads = new OpenAPIHandler(router, {
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
+const OPENAPI_SPEC_PATH = "/spec.json";
+
 const api = new OpenAPIHandler(router, {
   errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
@@ -445,7 +447,10 @@ const api = new OpenAPIHandler(router, {
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
     new OpenAPIReferenceHandlerPlugin({
-      allow: ({ request }) => matchesHttpPath(request.url, "/spec.json"),
+      specPath: OPENAPI_SPEC_PATH,
+      // oRPC has no spec-only mode. Without this guard, moving the dashboard redirect would
+      // expose the plugin's default reference page at `/`, which loads Scalar from a CDN.
+      allow: ({ request }) => matchesHttpPath(request.url, OPENAPI_SPEC_PATH),
       // The document names the session cookie of the deployment that serves the request.
       spec: ({ context }) =>
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(

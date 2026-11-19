@@ -194,7 +194,7 @@ Jobs can be added continuously (`add-jobs`, `jobs submit`) and read continuously
 
 Underneath, it is a plain job queue whose worker happens to think: an HTTP API on Postgres (Node or Docker, or Cloudflare Workers with Postgres through Hyperdrive), and Runners that connect out to it. The repository is `elflodge/elflodge`: TypeScript on Effect, oRPC, Hono and Zod, with Pi and sandbox-runtime inside. The CLI, the npm package `elflodge`, only calls the hub's HTTP API.
 
-So can anything else. Your hub serves an OpenAPI 3.2 document at `/spec.json`. The document lists the public calls you can make with an HTTP client.
+So can anything else. Your hub serves an OpenAPI 3.2 document at `/spec.json`.
 
 ```sh
 eval "$(npx elflodge stack env)"   # exports ELFLODGE_URL and ELFLODGE_API_KEY
