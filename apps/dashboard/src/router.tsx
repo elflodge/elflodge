@@ -14,6 +14,7 @@ export function getRouter() {
     // Match the hub's query spelling: every value is text, and a repeated key is an ordered list.
     // The router's JSON default converts 2026, 1e3 and true. Its parseSearchWith helper runs
     // after qss converts primitives, and stringifySearchWith encodes one value per key.
+    // Effect UrlParams adds 5.6 kB gzipped to a client that otherwise loads no Effect modules.
     // query-string adds 3.7 kB gzipped and a null case for a bare key, which here is empty text.
     parseSearch: (search) => {
       const params = new URLSearchParams(search);

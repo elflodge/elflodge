@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/solid-query";
-import type { UseQueryResult } from "@tanstack/solid-query";
 import { Link, createFileRoute } from "@tanstack/solid-router";
 import type { JobRunner, JobsPage, ListedJob, Runner } from "contract";
 import { For, Match, Repeat, Show, Switch, createMemo } from "solid-js";
@@ -11,6 +10,7 @@ import { BesideStatus, JobStatus } from "../../../components/JobStatus.tsx";
 import {
   DAY,
   DAY_YEAR,
+  LOCAL_ISO_DATE,
   DAY_TIME,
   TIME,
   USD_BUDGET,
@@ -21,7 +21,7 @@ import {
 } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
-import { type JobsSearch, filterCount } from "./jobs.tsx";
+import { type JobsSearch, availableRunners, filterCount } from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/jobs/")({
   // A different set of filters or cursor needs its own list read.
@@ -69,13 +69,21 @@ function Jobs() {
           readAt={jobs.dataUpdatedAt}
         />
       </Show>
-      <Show when={jobs.data.jobs.length} fallback={<NoJobs search={search()} runners={runners} />}>
+      <Show
+        when={jobs.data.jobs.length}
+        fallback={
+          <NoJobs
+            search={search()}
+            runners={runners.isError ? undefined : availableRunners(runners)}
+          />
+        }
+      >
         <a class="vh skip-list" href="#jobs-end">
           Skip to the end of the list
         </a>
         <JobsTable
           jobs={jobs.data.jobs}
-          runners={runners.dataUpdatedAt ? runners.data : []}
+          runners={availableRunners(runners) ?? []}
           readAt={jobs.dataUpdatedAt}
         />
         <Paging search={search()} page={jobs.data} />
@@ -165,10 +173,11 @@ function JobsTable(props: { jobs: ListedJob[]; runners: Runner[]; readAt: number
                 <tr class="day-line" role="row">
                   <th colspan={COLUMNS.length} scope="rowgroup" role="rowheader">
                     Created {day().toDateString() === readDay().toDateString() && "today, "}
-                    <Instant
-                      value={day()}
-                      format={day().getFullYear() === readDay().getFullYear() ? DAY : DAY_YEAR}
-                    />
+                    <time datetime={LOCAL_ISO_DATE.format(day())}>
+                      {(day().getFullYear() === readDay().getFullYear() ? DAY : DAY_YEAR).format(
+                        day(),
+                      )}
+                    </time>
                   </th>
                 </tr>
                 <For each={group()[1]} keyed={(job) => job.id}>
@@ -245,7 +254,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       <td role="cell" class="c-cost num">
         <Show when={props.job.startedAt}>
           {formatUsd(props.job.usage.cost.totalUsd)}
-          <span class="unit-inline"> USD</span>
+          <span class="unit-inline"> USD, est.</span>
           <span class="of"> of {USD_BUDGET.format(props.job.modelBudgetUsd)}</span>
         </Show>
       </td>
@@ -354,11 +363,8 @@ function Paging(props: { search: JobsSearch; page: JobsPage }) {
  * What an empty list means, and what to do next: clear the filters that match nothing, or, on an
  * empty hub, connect a Runner first, then submit a Batch.
  */
-function NoJobs(props: { search: JobsSearch; runners: UseQueryResult<Runner[]> }) {
-  // A Runner list that could not be read says nothing of whether one is connected; the strip says
-  // that it could not be read.
-  const noneConnected = () =>
-    !props.runners.isError && props.runners.data?.every((runner) => !runner.connected);
+function NoJobs(props: { search: JobsSearch; runners: Runner[] | undefined }) {
+  const noneConnected = () => props.runners?.every((runner) => !runner.connected);
   return (
     <div class="empty">
       <Switch>

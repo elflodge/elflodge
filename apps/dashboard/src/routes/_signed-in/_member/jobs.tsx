@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery, type UseQueryResult } from "@tanstack/solid-query";
 import {
   Link,
   Outlet,
@@ -11,7 +11,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
-import { createFormAction, fieldText } from "../../../form.ts";
+import { createFormAction } from "../../../form.ts";
 import { formatCount } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
@@ -67,6 +67,11 @@ export const Route = createFileRoute("/_signed-in/_member/jobs")({
   component: Jobs,
 });
 
+// Reading data before the first Runner answer suspends the Jobs page, even after its own list arrived.
+export function availableRunners(query: UseQueryResult<Runner[]>) {
+  return query.dataUpdatedAt ? query.data : undefined;
+}
+
 function Jobs() {
   const search = Route.useSearch();
   const listFailed = useChildMatches({
@@ -79,7 +84,7 @@ function Jobs() {
         <div class="head">
           <h1>Jobs</h1>
         </div>
-        <Filters search={search()} runners={runners.dataUpdatedAt ? runners.data : []} />
+        <Filters search={search()} runners={availableRunners(runners) ?? []} />
       </Show>
       <Outlet />
     </>
@@ -91,27 +96,19 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
   const navigate = useNavigate();
   const applied = () => filterCount(props.search);
 
-  const [open, setOpen] = createSignal<boolean>();
+  const [open, setOpen] = createSignal(() => applied() > 0);
 
-  const { pending, onSubmit } = createFormAction((element) => {
+  const { pending, onSubmit } = createFormAction(async (element) => {
     const form = new FormData(element);
-    const chosen = form.getAll("status");
-    const batchId = fieldText(form, "batchId").trim();
-    const runnerId = fieldText(form, "runnerId");
-    const status = STATUSES.filter((value) => chosen.includes(value));
-    setOpen(true);
-    return navigate({
-      to: "/jobs",
-      search: {
-        status: status.length > 0 ? status : undefined,
-        statusUnknown: fieldText(form, "statusUnknown") || undefined,
-        batchId: batchId || undefined,
-        runnerId: runnerId || undefined,
-      },
+    const search = jobsSearchSchema.parse({
+      ...Object.fromEntries(form),
+      status: form.getAll("status"),
     });
+    await navigate({ to: "/jobs", search });
+    setOpen(true);
   });
 
-  const expanded = () => open() ?? (pending() || applied() > 0);
+  const expanded = () => pending() || open();
 
   const runnerIds = createMemo(() => shortIds(props.runners.map(({ id }) => id)));
   const runnerLabel = (runner: Runner) =>

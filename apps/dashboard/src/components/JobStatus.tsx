@@ -16,7 +16,7 @@ export const STATUS_WORDS: Record<Status, string> = {
 const BLOCKED_WORDS: Record<BlockedBy, string> = {
   batchPausedByCaller: "Blocked: Batch paused",
   batchPausedByBreaker: "Blocked: failure breaker",
-  batchCanary: "Blocked: Canary running",
+  batchCanary: "Waiting for Canary",
 };
 
 const UNKNOWN_WORDS: Record<StatusUnknownReason, string> = {

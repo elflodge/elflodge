@@ -13,12 +13,15 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
+/** The local calendar date in the YYYY-MM-DD form HTML time elements take. */
+export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" });
+
 /** A local creation day in the year of the read. */
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
 /** A local creation day outside the year of the read. */
 export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
-/** An event time, dated when it falls outside the row group’s creation day. */
 export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
+/** An event time, dated when it falls outside the row group’s creation day. */
 export const DAY_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   day: "numeric",
   month: "short",
