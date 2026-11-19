@@ -56,7 +56,7 @@ import {
   listBatches,
 } from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
-import { DASHBOARD_BASE } from "./dashboard.ts";
+import { DASHBOARD_BASE, SCALAR_ASSETS } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
 import { ApikeyId, EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
@@ -447,14 +447,22 @@ const api = new OpenAPIHandler(router, {
     // The OpenAPI document at `/spec.json`, oRPC's default, and a browsable reference of it at
     // `/docs`, as `/` leads to the dashboard (ADR 0043). The document names the session cookie of
     // the hub's deployment, so it is generated from the request's services. The reference page runs
-    // on the origin where members sign in and must also work offline.
+    // on the origin where members sign in. Keep readers' requests and credentials on that origin.
     new OpenAPIReferenceHandlerPlugin({
       spec: ({ context }) =>
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
           generateOpenAPIDocument,
         ),
-      providerScriptUrl: `${DASHBOARD_BASE}scalar/standalone.js`,
-      providerConfig: { withDefaultFonts: false, telemetry: false },
+      providerScriptUrl: `${DASHBOARD_BASE}${SCALAR_ASSETS}/standalone.js`,
+      providerConfig: {
+        withDefaultFonts: false,
+        telemetry: false,
+        proxyUrl: "",
+        agent: { disabled: true },
+        mcp: { disabled: true },
+        hideClientButton: true,
+        showDeveloperTools: "never",
+      },
       docsPath: "/docs",
     }),
   ],

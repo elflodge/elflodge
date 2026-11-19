@@ -103,16 +103,25 @@ test("the hub's root leads to the dashboard, and /docs renders using only the hu
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   const externalRequests: string[] = [];
-  await page.route(
+  await page.context().route(
     (url) => /^https?:$/.test(url.protocol) && url.origin !== system.origin,
     (route) => {
       externalRequests.push(route.request().url());
       return route.abort();
     },
   );
+  const script = page.waitForResponse((response) => response.url().endsWith("/standalone.js"));
   await page.goto(`${system.origin}/docs`);
+  expect((await script).headers()["cache-control"]).toContain("max-age=31536000");
   await page.getByRole("heading", { name: "Elflodge", exact: true }).waitFor();
   await page.evaluate("document.fonts.ready");
+  expect(
+    await page.getByRole("button", { name: /Ask AI|Explore Scalar|Generate SDK/i }).count(),
+  ).toBe(0);
+  await page.getByRole("button", { name: "Test Request (get /setup)", exact: true }).click();
+  const result = page.waitForResponse(`${system.origin}/setup`);
+  await page.getByRole("button", { name: "Send get request to /setup", exact: true }).click();
+  expect(await (await result).json()).toEqual({ needed: false });
   expect(externalRequests).toEqual([]);
 });
 

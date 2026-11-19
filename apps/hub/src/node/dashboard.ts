@@ -3,7 +3,7 @@ import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 
-import { DASHBOARD_BASE } from "../dashboard.ts";
+import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../dashboard.ts";
 
 /**
  * Serves the dashboard under its base path from the build at `root`. A hub run from source has
@@ -14,22 +14,16 @@ export function dashboardFiles(root: string) {
     new Hono()
       // The base path without its `/`, redirected as Workers Static Assets redirect it, query kept.
       .get("/", (c) => c.redirect(DASHBOARD_BASE + new URL(c.req.url).search, 307))
-      .on(
-        "GET",
-        ["/assets/*", "/scalar/*"],
+      .get(
+        `/${DASHBOARD_ASSETS}/*`,
         serveStatic({
           root,
           // The path under the base path, with its leading `/`.
           rewriteRequestPath: (requestPath) => requestPath.slice(DASHBOARD_BASE.length - 1),
-          // Vite names each file under `assets` by a hash of its content, so a browser may keep it
-          // for a year, as `_headers` tells Workers.
+          // Vite's content hashes and Scalar's package version let browsers reuse these assets
+          // for a year, as the dashboard's _headers tells Workers.
           onFound: (_found, c) => {
-            c.header(
-              "Cache-Control",
-              c.req.path.startsWith(`${DASHBOARD_BASE}assets/`)
-                ? "public, max-age=31536000, immutable"
-                : "no-cache",
-            );
+            c.header("Cache-Control", "public, max-age=31536000, immutable");
           },
         }),
         // A missing asset, such as a script of an earlier build that an open page asks for, is a 404:

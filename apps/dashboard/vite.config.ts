@@ -3,11 +3,10 @@ import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { defineConfig } from "vite-plus";
 
+import { DASHBOARD_BASE, SCALAR_ASSETS } from "../hub/src/dashboard.ts";
+
 export default defineConfig({
-  // Where the hub serves the dashboard (ADR 0043); TanStack Start derives the router's basepath from
-  // it. It is repeated in `apps/hub/src/dashboard.ts` for the Node hub, and in
-  // `apps/hub/wrangler.jsonc` and `public/_headers` for the Workers hub.
-  base: "/dashboard/",
+  base: DASHBOARD_BASE,
   environments: {
     client: {
       build: {
@@ -39,8 +38,11 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: "node_modules/@scalar/api-reference/dist/browser/standalone.js",
-          dest: "scalar",
+          src: [
+            "node_modules/@scalar/api-reference/dist/browser/standalone.js",
+            "scalar/THIRD_PARTY_NOTICES.txt",
+          ],
+          dest: SCALAR_ASSETS,
           rename: { stripBase: true },
         },
       ],
