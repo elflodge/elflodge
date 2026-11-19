@@ -11,16 +11,20 @@ export function CopyButton(props: {
   label: string;
   buttonRef?: (button: HTMLButtonElement) => void;
 }) {
-  const [result, setResult] = createSignal<"copied" | "refused">();
+  const [result, setResult] = createSignal<{ text: string; message: string }>();
 
   async function copy() {
+    const text = props.text;
     try {
       // Absent outside a secure context, which the catch also takes.
-      await navigator.clipboard.writeText(props.text);
-      setResult("copied");
+      await navigator.clipboard.writeText(text);
+      setResult({ text, message: "Copied." });
     } catch (error) {
       console.error(asError(error));
-      setResult("refused");
+      setResult({
+        text,
+        message: "This browser did not allow copying here: select the text and copy it.",
+      });
     }
   }
 
@@ -34,13 +38,7 @@ export function CopyButton(props: {
         {props.label}
       </button>
       {/* In the page from the start, so that a screen reader says what is written into it. */}
-      <span role="status">
-        {result() === "copied"
-          ? "Copied."
-          : result() === "refused"
-            ? "This browser did not allow copying here: select the text and copy it."
-            : ""}
-      </span>
+      <span role="status">{result()?.text === props.text ? result()?.message : ""}</span>
     </p>
   );
 }

@@ -8,7 +8,6 @@
     "build": "vp build"
   },
   "dependencies": {
-    "@better-auth/core": "catalog:",
     "@better-fetch/fetch": "catalog:",
     "@fontsource-variable/instrument-sans": "catalog:",
     "@fontsource-variable/jetbrains-mono": "catalog:",

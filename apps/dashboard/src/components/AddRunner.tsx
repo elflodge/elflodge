@@ -1,11 +1,11 @@
-import { isLoopbackHost } from "@better-auth/core/utils/host";
 import type { JSX } from "@solidjs/web";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { Runner } from "contract";
-import { Show, createSignal, flush, onSettled } from "solid-js";
+import { Show, createEffect, createSignal, onSettled } from "solid-js";
 
 import { version } from "../../package.json";
 import { api, hubFailureMessage } from "../api-client.ts";
+import { createFormAction } from "../form.ts";
 import { orpc } from "../query.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Notice } from "./Notice.tsx";
@@ -31,7 +31,12 @@ type Piece = string | { secret: string } | { placeholder: string };
  */
 function settings(key: string | undefined, hub: Piece): Piece[] {
   return [
-    "cat > runner.env <<EOF\nHUB_URL=",
+    `mkdir -m 700 elflodge-runner && (
+  set -e
+  cd elflodge-runner
+  umask 077
+  cat > runner.env <<'EOF'
+HUB_URL=`,
     hub,
     "\nRUNNER_REGISTRATION_KEY=",
     key === undefined ? { placeholder: "<a registration key>" } : { secret: key },
@@ -48,39 +53,44 @@ function settings(key: string | undefined, hub: Piece): Piece[] {
 function dockerCommand(key: string | undefined, hub: Piece): Piece[] {
   return [
     ...settings(key, hub),
-    `docker run -d --name elflodge-runner --hostname "$(uname -n)" \\
-  --security-opt seccomp=unconfined --security-opt systempaths=unconfined \\
-  --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \\
-  --volume runner-data:/data --env-file runner.env \\
-  ${IMAGE}`,
+    `  docker run -d --name elflodge-runner --hostname "$(uname -n)" \\
+    --security-opt seccomp=unconfined --security-opt systempaths=unconfined \\
+    --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \\
+    --volume runner-data:/data --env-file runner.env \\
+    ${IMAGE}
+)`,
   ];
 }
 
 /**
- * Starts the Runner with Docker Compose, with the options of the repository's compose.yaml. The
- * file is written by the shell, which puts the host's name in it, as Compose cannot.
+ * Starts the Runner with Docker Compose, with the options of the repository's compose.yaml. Compose
+ * reads the host name from its project environment whenever the Runner is recreated.
  */
 function composeCommand(key: string | undefined, hub: Piece): Piece[] {
   return [
     ...settings(key, hub),
-    `cat > compose.yaml <<EOF
+    `  printf 'RUNNER_HOSTNAME=%s\\n' "$(uname -n)" > .env
+  cat > compose.yaml <<'EOF'
 services:
   runner:
     image: ${IMAGE}
-    hostname: $(uname -n)
+    hostname: \${RUNNER_HOSTNAME}
     security_opt:
       - seccomp=unconfined
       - systempaths=unconfined
       - apparmor=unconfined
     mem_limit: 8g
-    env_file: runner.env
+    env_file:
+      - path: runner.env
+        format: raw
     volumes:
       - runner-data:/data
     restart: unless-stopped
 volumes:
   runner-data:
 EOF
-docker compose up -d`,
+  docker compose up -d
+)`,
   ];
 }
 
@@ -138,17 +148,26 @@ export function AddRunner(props: {
 }) {
   const queryClient = useQueryClient();
   const [key, setKey] = createSignal<string>();
-  const [pending, setPending] = createSignal(false);
+  const { pending, onSubmit } = createFormAction(createKey);
   const [failure, setFailure] = createSignal<string>();
 
   const { hostname, origin } = window.location;
-  const loopback = isLoopbackHost(hostname);
+  // The browser normalizes the URL host first: 127.1 becomes 127.0.0.1 and [0:0::1] becomes [::1].
+  // localhost, its .localhost subdomains, IPv6 loopback and IPv4 127/8 all reach the container itself.
+  const loopback =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "[::1]" ||
+    /^127\.\d+\.\d+\.\d+$/.test(hostname);
   const hub = loopback ? { placeholder: HUB_PLACEHOLDER } : origin;
   let dialog: HTMLDialogElement | undefined;
   let copyCommand: HTMLButtonElement | undefined;
 
+  createEffect(key, (shown) => {
+    if (shown) copyCommand?.focus();
+  });
+
   async function createKey() {
-    setPending(true);
     setFailure(undefined);
     try {
       const created = await api.apiKeys.create({
@@ -157,14 +176,11 @@ export function AddRunner(props: {
         expiresIn: REGISTRATION_KEY_LIFE_SECONDS,
       });
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
+      // A key returned after this dialog closed belongs to its previous opening.
       if (!dialog?.open || !dialog.isConnected) return;
       setKey(created.key);
-      flush();
-      copyCommand?.focus();
     } catch (error) {
-      if (dialog?.open && dialog.isConnected) setFailure(hubFailureMessage(error));
-    } finally {
-      setPending(false);
+      setFailure(hubFailureMessage(error));
     }
   }
 
@@ -178,122 +194,118 @@ export function AddRunner(props: {
       }}
       onClose={props.onClose}
     >
-      <form method="dialog">
-        <h2 class="dialog-h" id="add-runner-heading">
-          Add Runner
-        </h2>
-        <div class="dialog-b">
-          <p>Run this on the machine that will run jobs. It needs Docker.</p>
-          <Show
-            when={key()}
-            fallback={
-              <Show
-                when={props.managesKeys}
-                fallback={
-                  <p>
-                    Put a registration key you hold in place of{" "}
-                    <mark class="placeholder">{"<a registration key>"}</mark>. Owners and admins
-                    create them.
-                  </p>
-                }
-              >
-                <div>
-                  <p>
-                    The Runner registers with a registration key. Create one that expires in a day,
-                    or put in one you hold.
-                  </p>
-                  <Show when={failure()}>
-                    {(message) => <Notice role="alert">{message()}</Notice>}
-                  </Show>
-                  <p>
-                    <button type="button" disabled={pending()} onClick={() => void createKey()}>
-                      Create a registration key
-                    </button>
-                  </p>
-                </div>
-              </Show>
-            }
-          >
-            <p class="shown-once" role="note">
-              <b>Shown this once:</b> the registration key in the command. Until it expires, in a
-              day, anyone with it can register a Runner for{" "}
-              {props.organizationName ?? "the Organization"}. API keys lists it, where it can be
-              revoked.
-            </p>
-          </Show>
-          <Command
-            pieces={dockerCommand(key(), hub)}
-            label="The command to run on the machine"
-            copyLabel="Copy the command"
-            buttonRef={(button) => {
-              copyCommand = button;
-            }}
-          />
-          <details>
-            <summary>With Docker Compose instead</summary>
-            <Command
-              pieces={composeCommand(key(), hub)}
-              label="The commands to run on the machine, with Docker Compose"
-              copyLabel="Copy the Compose commands"
-            />
-          </details>
-          <p>
+      <h2 class="dialog-h" id="add-runner-heading">
+        Add Runner
+      </h2>
+      <div class="dialog-b">
+        <p>Run this on the machine that will run jobs. It needs Docker.</p>
+        <Show
+          when={key()}
+          fallback={
             <Show
-              when={loopback}
+              when={props.managesKeys}
               fallback={
-                <>
-                  <code>HUB_URL</code> is this page's address; change it if the Runner's machine
-                  reaches the hub at another.
-                </>
+                <p>
+                  Put a registration key you hold in place of{" "}
+                  <mark class="placeholder">{"<a registration key>"}</mark>. Owners and admins
+                  create them.
+                </p>
               }
             >
-              This page's address, <code>{origin}</code>, reaches the hub only from this machine. In
-              place of <mark class="placeholder">{HUB_PLACEHOLDER}</mark>, put the address the
-              Runner's machine reaches it at;{" "}
-              <a
-                href={`https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`}
-              >
-                Runners on other machines
-              </a>{" "}
-              says how to open the hub to one.
+              <div>
+                <p>
+                  The Runner registers with a registration key. Create one that expires in a day, or
+                  put in one you hold.
+                </p>
+                <Show when={failure()}>
+                  {(message) => <Notice role="alert">{message()}</Notice>}
+                </Show>
+                <form onSubmit={onSubmit}>
+                  <button type="submit" disabled={pending()}>
+                    Create a registration key
+                  </button>
+                </form>
+              </div>
             </Show>
+          }
+        >
+          <p class="shown-once" role="note">
+            <b>Shown this once:</b> the registration key in the command. Until it expires, in a day,
+            anyone with it can register a Runner for {props.organizationName ?? "the Organization"}.
+            API keys lists it, where it can be revoked.
           </p>
-          <p>
-            Its jobs run on OpenRouter's free models: put your OpenRouter key in place of{" "}
-            <mark class="placeholder">{"<your key>"}</mark>, or name another model as{" "}
-            <a href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}>
-              the Runner's README
-            </a>{" "}
-            describes.
-          </p>
+        </Show>
+        <Command
+          pieces={dockerCommand(key(), hub)}
+          label="The command to run on the machine"
+          copyLabel="Copy the command"
+          buttonRef={(button) => {
+            copyCommand = button;
+          }}
+        />
+        <details>
+          <summary>With Docker Compose instead</summary>
+          <Command
+            pieces={composeCommand(key(), hub)}
+            label="The commands to run on the machine, with Docker Compose"
+            copyLabel="Copy the Compose commands"
+          />
+        </details>
+        <p>
+          <Show
+            when={loopback}
+            fallback={
+              <>
+                <code>HUB_URL</code> is this page's address; change it if the Runner's machine
+                reaches the hub at another.{" "}
+              </>
+            }
+          >
+            This page's address, <code>{origin}</code>, reaches the hub only from this machine. In
+            place of <mark class="placeholder">{HUB_PLACEHOLDER}</mark>, put the address the
+            Runner's machine reaches it at;{" "}
+          </Show>
+          <a
+            href={`https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`}
+          >
+            Runners on other machines
+          </a>{" "}
+          says how to open the hub to one.
+        </p>
+        <p>
+          Its jobs run on OpenRouter's free models: put your OpenRouter key in place of{" "}
+          <mark class="placeholder">{"<your key>"}</mark>, or name another model as{" "}
+          <a href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}>
+            the Runner's README
+          </a>{" "}
+          describes.
+        </p>
+        <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>
+            <span
+              class={props.registered ? "mark mark-succeeded" : "mark mark-pending"}
+              aria-hidden="true"
+            />
             <Show
               when={props.registered}
               fallback={
-                <p class="waiting-line">
-                  <span class="mark mark-pending" aria-hidden="true" />
-                  <span>
-                    Waiting for a Runner to register. It will be listed here under its machine's
-                    name.
-                  </span>
-                </p>
+                <span>
+                  Waiting for a Runner to register. It will be listed here under its machine's name.
+                </span>
               }
             >
               {(runner) => (
-                <p class="waiting-line" role="status">
-                  <span class="mark mark-succeeded" aria-hidden="true" />
-                  <span>
-                    <span class="mono">{runner().name}</span>{" "}
-                    <span class="sid">{props.shortId(runner())}</span> has registered.
-                  </span>
-                </p>
+                <span>
+                  <span class="mono">{runner().name}</span>{" "}
+                  <span class="sid">{props.shortId(runner())}</span> has registered.
+                </span>
               )}
             </Show>
           </Show>
-        </div>
-        <div class="dialog-f">
-          <button value="close">Close</button>
-        </div>
+        </p>
+      </div>
+      <form class="dialog-f" method="dialog">
+        <button value="close">Close</button>
       </form>
     </dialog>
   );
