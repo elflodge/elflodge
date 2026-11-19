@@ -798,7 +798,9 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       .meta(openapi({ method: "POST", path: "/api-keys" }), ...byMember)
       .input(
         z.strictObject({
-          // OpenAPI counts code points. Better Auth and the form count UTF-16 code units.
+          // Better Auth and the form count UTF-16 code units, while Zod's maxLength and JSON Schema
+          // count code points. maxLength puts the limit in the document, the length check refuses
+          // what the hub would, and abort keeps a long plain name to one refusal.
           name: z
             .string()
             .check(
