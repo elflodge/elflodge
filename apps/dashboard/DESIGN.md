@@ -412,7 +412,12 @@ The next cell holds each condition on its own line. "Status unknown" has the unk
 
 ### Filters
 
-The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. The second holds Batch, Runner, Apply and, when a filter applies, Clear. Apply and Clear follow Runner. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and opens when any apply on navigation. Applying from the open panel keeps it open, including when the last filter is cleared. Fields stack at full width. Checkboxes use the shared touch target.
+The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. The second holds Batch, Runner, Apply and, when a filter applies, Clear. Apply and Clear follow Runner. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Focus leaves Apply while the button is disabled and returns when the read finishes. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
+
+1. The panel starts closed on arrival, including at a filtered address.
+2. Pressing Filters toggles the panel.
+3. Pressing Apply or Clear immediately closes the panel and focuses Filters.
+4. List links, paging, Back, and the success or failure of a read leave the panel as the reader set it.
 
 The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
 

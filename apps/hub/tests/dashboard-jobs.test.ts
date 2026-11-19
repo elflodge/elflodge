@@ -80,17 +80,24 @@ test("in a browser, filters held in the address narrow the list, and a reload ke
   await client.jobs.cancel({ id: cancelled.job.id });
 
   const page = await newPage();
+  await page.setViewportSize({ width: 390, height: 844 });
   await signInAt(system, page, "jobs", await newMember(system, "Filter Reader"));
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByRole("checkbox", { name: "Cancelled" }).check();
   await page.getByLabel("Batch").fill(batch.id);
   await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(/status=/);
 
-  /** Expects the list to show job b alone, cancelled, with the filters that say so. */
+  const filters = page.getByRole("button", { name: "Filters (2 applied)", exact: true });
+  await expectBrowser(filters).toBeFocused();
+
+  /** The list and its closed panel show the filters survived submission or reload. */
   async function expectFiltered() {
     await expectBrowser(rows(page)).toHaveCount(1);
     await expectBrowser(rows(page).getByText("b", { exact: true })).toBeVisible();
     await expectBrowser(rows(page).getByText("Cancelled", { exact: true })).toBeVisible();
+    await expectBrowser(filters).toHaveAttribute("aria-expanded", "false");
+    await filters.click();
     await expectBrowser(page.getByRole("checkbox", { name: "Cancelled" })).toBeChecked();
     await expectBrowser(page.getByLabel("Batch")).toHaveValue(batch.id);
   }

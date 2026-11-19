@@ -7,7 +7,7 @@ import {
   useNavigate,
 } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, jobStatusSchema, type Runner } from "contract";
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
@@ -80,12 +80,12 @@ function Jobs() {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
   return (
     <>
-      <Show when={!listFailed()}>
+      <div hidden={listFailed()}>
         <div class="head">
           <h1>Jobs</h1>
         </div>
         <Filters search={search()} runners={availableRunners(runners) ?? []} />
-      </Show>
+      </div>
       <Outlet />
     </>
   );
@@ -96,19 +96,24 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
   const navigate = useNavigate();
   const applied = () => filterCount(props.search);
 
-  const [open, setOpen] = createSignal(() => applied() > 0);
+  const [open, setOpen] = createSignal(false);
+  let toggle: HTMLButtonElement | undefined;
 
-  const { pending, onSubmit } = createFormAction(async (element) => {
+  function closeFilters() {
+    // Close in a separate flush so navigation cannot hold the panel open until its read settles.
+    onFlush(() => setOpen(false));
+    toggle?.focus();
+  }
+
+  const { pending, onSubmit } = createFormAction((element) => {
     const form = new FormData(element);
+    closeFilters();
     const search = jobsSearchSchema.parse({
       ...Object.fromEntries(form),
       status: form.getAll("status"),
     });
-    await navigate({ to: "/jobs", search });
-    setOpen(true);
+    return navigate({ to: "/jobs", search });
   });
-
-  const expanded = () => pending() || open();
 
   const runnerIds = createMemo(() => shortIds(props.runners.map(({ id }) => id)));
   const runnerLabel = (runner: Runner) =>
@@ -125,9 +130,12 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
       <button
         type="button"
         class="filter-toggle"
-        aria-expanded={expanded() ? "true" : "false"}
+        aria-expanded={open() ? "true" : "false"}
         aria-controls="jobs-filters"
-        onClick={() => setOpen(!expanded())}
+        ref={(element) => {
+          toggle = element;
+        }}
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
       >
         Filters
         <Show when={applied() > 0}> ({formatCount(applied())} applied)</Show>
@@ -204,7 +212,7 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
               Apply
             </button>
             <Show when={applied() > 0}>
-              <Link to="/jobs" search={{}} class="stands-alone">
+              <Link to="/jobs" search={{}} class="stands-alone" onClick={closeFilters}>
                 Clear
               </Link>
             </Show>
