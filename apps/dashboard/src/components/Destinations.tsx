@@ -8,6 +8,7 @@ import { Show } from "solid-js";
  */
 const DESTINATIONS = linkOptions([
   { to: "/jobs", label: "Jobs", activeOptions: { includeSearch: false } },
+  { to: "/batches", label: "Batches", activeOptions: { includeSearch: false } },
   { to: "/runners", label: "Runners", activeOptions: { includeSearch: false } },
   { to: "/api-keys", label: "API keys", activeOptions: { includeSearch: false } },
   { to: "/organization", label: "Organization", activeOptions: { includeSearch: false } },

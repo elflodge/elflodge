@@ -388,6 +388,110 @@ A record with no page of its own, such as an API key, has its identifier as a `s
 
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
+### Batches list
+
+Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator’s name can wrap. This table folds at 50rem to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
+
+An active Batch may take jobs even when all of its jobs have ended. Its mark is the filled dot in the hood’s green. A waiting cancel or a pause’s cause appears under the status word in the list.
+
+```tsx
+<td role="cell" data-l="Status">
+  <span class="batch-status">
+    <span class="status-word s-active">
+      <span class="mark mark-active" aria-hidden="true" />
+      Active
+    </span>
+    <span class="beside">
+      <span class="mark mark-pending" aria-hidden="true" />
+      Cancel asked
+    </span>
+  </span>
+</td>
+```
+
+### Parent links
+
+Above a record heading, `nav.crumbs` lists its parents in order. The heading names the current record. A Batch has one parent link, Batches. A job has Jobs and its Batch while the job read holds the Batch ID. A long ID fits on one line with its whole value in the title.
+
+```tsx
+<nav class="crumbs" aria-label="Where this is">
+  <ol>
+    <li>
+      <Link class="stands-alone" to="/jobs">
+        Jobs
+      </Link>
+    </li>
+    <li>
+      <span aria-hidden="true">/</span>
+      <Link class="cut mono" to="/batches/$id" params={{ id }} title={id}>
+        {id}
+      </Link>
+    </li>
+  </ol>
+</nav>
+```
+
+### Ledger
+
+A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The last cell holds the way to the records counted by the row when there are any. The total goes under the double rule in `tfoot`.
+
+```tsx
+<table class="ledger">
+  <caption class="vh">Jobs by status</caption>
+  <thead>
+    <tr>
+      <th scope="col">Status</th>
+      <th scope="col" class="num">
+        Jobs
+      </th>
+      <th scope="col">Share</th>
+      <th scope="col">
+        <span class="vh">Jobs list</span>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th scope="row">
+        <JobStatus job={queuedJob} />
+      </th>
+      <td class="num">3</td>
+      <td>
+        <meter
+          min={0}
+          max={12}
+          value={3}
+          aria-label="Share of queued jobs"
+          aria-valuetext="3 of 12 jobs"
+        />
+      </td>
+      <td>
+        <Link class="stands-alone" to="/jobs" search={{ batchId: id, status: ["queued"] }}>
+          See them<span class="vh">: its queued jobs</span>
+        </Link>
+      </td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <th scope="row">
+        <Link class="stands-alone" to="/jobs" search={{ batchId: id }}>
+          All its jobs
+        </Link>
+      </th>
+      <td class="num">12</td>
+      <td colspan={2} />
+    </tr>
+  </tfoot>
+</table>
+```
+
+### Batch page
+
+The subject, zone, status, control row and facts use the job page’s parts. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
+
+Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens. Its cost and tokens come from its present jobs. Facts give the full ID, creation time, creator, Labels for every job and the failure breaker settings.
+
 ### Jobs list
 
 `div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Headers and cells share these classes in column order: `c-status`, `c-beside`, `c-job`, `c-batch`, `c-submitter`, `c-labels`, `c-runner`, `c-time`, `c-tokens` and `c-cost`. The last two headings give Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
@@ -396,7 +500,7 @@ Each tier allows 15.375rem for the Job column and adds the fixed widths of its v
 
 Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as `a.cut.mono.job-name`. Its title gives the whole name, and it opens the job. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
-The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
+The Batch is a cut mono link to its page. On a touch screen its target is at least 44px tall. A Batch that gave way to the condition becomes visible on keyboard focus. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
 
 `ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key (`span.lk`) and sign (`span.leq`) use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 
@@ -414,7 +518,7 @@ Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scop
 
 `h1.subject` gives the kind in `span.kind` above the whole custom ID in the strong mono, wrapping at any character. On a missing job, `code.job-address` wraps the identifier from the address the same way. Whitespace in the custom ID is preserved. A deleted job or a name made entirely of whitespace uses the full job ID for its heading. The zone note applies to all times on the page.
 
-`div.record-with-aside` puts the working record in `div.record-sections` and a ruled `dl` in `aside.facts-aside`. At 62.5rem and below the facts follow the working record. In the facts, `.selectable` selects the whole ID, Labels occupy one line each, and `span.sub` gives a second line. The Batch’s “its jobs” link follows its ID on the same line, wrapping below a long ID, and applies the ID as a Jobs filter. A Runner’s name links to its record by fragment.
+`div.record-with-aside` puts the working record in `div.record-sections` and a ruled `dl` in `aside.facts-aside`. At 62.5rem and below the facts follow the working record. In the facts, `.selectable` selects the whole ID, Labels occupy one line each, and `span.sub` gives a second line. The Batch ID links to its page. The “its jobs” link follows on the same line, wrapping below a long ID, and applies the ID as a Jobs filter. A Runner’s name links to its record by fragment.
 
 `div.job-status[role=status][tabindex="-1"]` holds the large status word (`.status-lg`), every condition in full, and the reason a failed or cancelled job cannot resume. Only applicable controls show. The buttons share a row in `.job-controls`. Below the row, each `p.note` names its control, flush left in button order. The button names its note through `aria-describedby`. A pending request disables the visible buttons and the status says “Working…”. A successful control focuses the status or the deletion notice. A spent budget opens a dialog for the new amount in USD. The budget field is read-only during its request. It describes a refused amount and receives focus if submission lost it. A member who moved focus to Close keeps it there. A conflict appears in the dialog notice. Resume’s note explains a spent budget or a lost journal. A Batch that is cancelled or being cancelled hides Resume. The status explains why, using the last successful Batch read. Polling can withdraw a trigger while its dialog is open. The dialog keeps the entered value, explains whether the action is still available, and returns focus to the status if the trigger is gone. A confirmed deletion shows the bare record until the hub gives 404.
 

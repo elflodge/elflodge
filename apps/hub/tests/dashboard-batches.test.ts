@@ -1,0 +1,143 @@
+import type { Browser } from "playwright";
+import { expect as expectBrowser } from "playwright/test";
+import { afterAll, beforeAll, onTestFinished, test } from "vite-plus/test";
+
+import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
+import { startSystem } from "./harness.ts";
+
+const system = startSystem();
+const agent = { outputContract: { schema: {} } };
+let browser: Browser;
+beforeAll(async () => {
+  await system.start();
+  browser = await launchDashboardBrowser(system);
+});
+afterAll(async () => {
+  await browser?.close();
+  await system.stop();
+});
+
+async function open(name: string, path: string) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  onTestFinished(() => page.close());
+  await signInAt(system, page, path, await newMember(system, name));
+  return page;
+}
+
+test("a member pages through Batches matching a status and a Label, including after a reload", async () => {
+  const client = system.owner();
+  const labels = { "example.com/team": "East & West" };
+  const create = (id: string) => client.batches.create({ id, agent, labels });
+  for (let i = 0; i < 51; i++) await create(`statements-${i}`);
+  const paused = await create("paused-statements");
+  await client.batches.pause({ id: paused.id });
+  await client.batches.create({ id: "other-team", agent, labels: { "example.com/team": "West" } });
+
+  const page = await open("Batch reader", "batches");
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Active" }).check();
+  await page.getByLabel("Label key").fill("example.com/team");
+  await page.getByLabel("Label value").fill("East & West");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expectBrowser(page.getByRole("button", { name: "Filters (2 applied)" })).toBeFocused();
+  const links = page.getByRole("table", { name: "Batches" }).getByRole("link");
+  await expectBrowser(links).toHaveCount(50);
+  await expectBrowser(links.first()).toHaveText("statements-50");
+  await page.getByRole("link", { name: "Older Batches" }).click();
+  await expectBrowser(links).toHaveText(["statements-0"]);
+  await page.reload();
+  await expectBrowser(links).toHaveText(["statements-0"]);
+  await page.getByRole("link", { name: "Newest Batches" }).click();
+  await expectBrowser(links.first()).toHaveText("statements-50");
+}, 60_000);
+
+test("a member sees a Batch control in flight and its result on the record and list", async () => {
+  const { id } = await system.owner().batches.create({ id: "november-control", agent });
+  const page = await open("Batch operator", "batches");
+  const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: id }) });
+  await row.getByRole("link").click();
+  const pause = page.getByRole("button", { name: "Pause", exact: true });
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/batches/${id}/pause`, async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await pause.click();
+    await expectBrowser(pause).toBeDisabled();
+    await expectBrowser(
+      page.getByRole("button", { name: `Cancel the Batch ${id}` }),
+    ).toBeDisabled();
+    await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toBeVisible();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(page.getByRole("status").filter({ hasText: "By a caller" })).toBeFocused();
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  await expectBrowser(row).toContainText("by a caller");
+  await row.getByRole("link").click();
+  await page.getByRole("button", { name: "Resume" }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Active" })).toBeFocused();
+}, 30_000);
+
+test("cancelling a Batch asks first and removes its controls once final", async () => {
+  const { id } = await system.owner().batches.create({ id: "withdrawn", agent });
+  const page = await open("Batch cancellation", `batches/${id}`);
+  await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
+  const dialog = page.getByRole("dialog");
+  await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
+  await expectBrowser(page.getByRole("main").getByRole("button")).toHaveCount(0);
+}, 30_000);
+
+test("a Batch ledger opens the jobs it counts and a job links back to the Batch", async () => {
+  const client = system.owner();
+  const { id } = await client.batches.create({ id: "MixedCase-2026", agent, breaker: false });
+  const { jobs } = await client.batches.addJobs({
+    id,
+    jobs: [
+      { customId: "keep", input: "Read." },
+      { customId: "stop", input: "Read." },
+    ],
+  });
+  const stopped = jobs.find(({ job }) => job.customId === "stop");
+  if (!stopped) throw new Error("The Batch has no stop job");
+  await client.jobs.cancel({ id: stopped.job.id });
+  const page = await open("Ledger reader", `batches/${id}`);
+  await page.getByRole("link", { name: /See them.*its queued jobs/ }).click();
+  const table = page.getByRole("table", { name: "Jobs" });
+  await expectBrowser(table.getByRole("link", { name: "stop" })).toHaveCount(0);
+  await expectBrowser(table.getByRole("link", { name: id })).toHaveAttribute(
+    "href",
+    `/dashboard/batches/${id}`,
+  );
+  await table.getByRole("link", { name: "keep" }).click();
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: id })
+    .click();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(id);
+}, 30_000);
+
+test("a member sees when the Canary is holding queued jobs", async () => {
+  const client = system.owner();
+  const { id } = await client.batches.create({
+    id: "release-check",
+    agent,
+    breaker: { canary: 1, maxFailurePercent: 100 },
+  });
+  await client.batches.addJobs({
+    id,
+    jobs: [
+      { customId: "first", input: "Read." },
+      { customId: "next", input: "Read." },
+    ],
+  });
+  const page = await open("Canary reader", `batches/${id}`);
+  const status = page.getByRole("status").filter({ hasText: "Active" });
+  await expectBrowser(status).toContainText("Jobs waiting for its Canary");
+}, 30_000);

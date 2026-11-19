@@ -224,9 +224,14 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
         </span>
       </td>
       <td role="cell" class="c-batch">
-        <span class="cut mono" title={props.job.batchId}>
+        <Link
+          to="/batches/$id"
+          params={{ id: props.job.batchId }}
+          class="cut mono"
+          title={props.job.batchId}
+        >
           {props.job.batchId}
-        </span>
+        </Link>
       </td>
       <td role="cell" class="c-submitter">
         <span class="cell-line">
