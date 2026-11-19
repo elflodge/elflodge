@@ -502,14 +502,15 @@ export const batchRefSchema = z.strictObject({
  * A job as a list reports it: without its content, so without its output, its failure's message
  * and its activity. Read the job for those.
  */
-const listedJobBaseSchema = z.extend(z.omit(jobBaseSchema, { activity: true }), {
-  // Only a deleted job's detail loses these fields. The list reads the job table.
-  batchId: batchIdSchema,
-  customId: customIdSchema,
-  labels: labelsSchema,
-  submitter: submitterSchema,
-  runTimeoutSeconds: z.int(),
-  modelBudgetUsd: modelBudgetUsdSchema,
+const listedJobBaseSchema = z.required(z.omit(jobBaseSchema, { activity: true }), {
+  // Deletion removes the job's row, so only a deleted job's detail, read from its deletion
+  // snapshot, lacks these. The list reads the job table.
+  batchId: true,
+  customId: true,
+  labels: true,
+  submitter: true,
+  runTimeoutSeconds: true,
+  modelBudgetUsd: true,
 });
 export const listedJobSchema = z
   .discriminatedUnion("status", [
