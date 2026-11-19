@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
 import { KEY_PERMISSIONS } from "contract";
-import { For, Loading, Show, createSignal } from "solid-js";
+import { For, Loading, Show, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
@@ -10,7 +10,7 @@ import { CopyButton } from "../../../components/CopyButton.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText } from "../../../form.ts";
-import { TIME_ZONED, timeZoneNote } from "../../../format.ts";
+import { TIME_SECONDS, timeZoneNote } from "../../../format.ts";
 import { canManageKeys } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
 
@@ -26,12 +26,12 @@ export const Route = createFileRoute("/_signed-in/_member/api-keys")({
 
 /**
  * The permissions a member may grant a key, by resource, as the hub allows them: registering
- * Runners, and every job call. The hub refuses any other, such as `runner: actAs`, which only a
- * Runner's own key holds, created by the hub when the Runner registers.
+ * and listing Runners, and every job call. Only the Runner's own key, created by the hub when it
+ * registers, holds `runner: actAs`.
  */
 const GRANTABLE = [
   { resource: "job", legend: "Jobs", actions: KEY_PERMISSIONS.job },
-  { resource: "runner", legend: "Runners", actions: ["register"] },
+  { resource: "runner", legend: "Runners", actions: ["register", "read"] },
 ] as const;
 
 /** How long a new key may live, as the hub allows: from a day to a year, or for good. */
@@ -50,7 +50,7 @@ function ApiKeys() {
     const { membership } = context();
     return membership.status === "member" && canManageKeys(membership.role);
   };
-  let createKey: HTMLDialogElement | undefined;
+  const [creating, setCreating] = createSignal(false);
 
   return (
     <Loading fallback={null}>
@@ -58,7 +58,7 @@ function ApiKeys() {
         <h1>API keys</h1>
         <Show when={managesKeys()}>
           <div class="controls">
-            <button type="button" class="primary" onClick={() => createKey?.showModal()}>
+            <button type="button" class="primary" onClick={() => setCreating(true)}>
               Create key
             </button>
           </div>
@@ -74,12 +74,14 @@ function ApiKeys() {
         }
       >
         <KeyList />
-        <CreateKey
-          dialogRef={(element) => {
-            createKey = element;
-          }}
-        />
+        <Show when={creating()}>
+          <CreateKey onClose={() => setCreating(false)} />
+        </Show>
       </Show>
+      <p class="prose">
+        The <a href="/spec.json">OpenAPI document</a> describes the hub's API as JSON, for an API
+        client or a code generator to read.
+      </p>
     </Loading>
   );
 }
@@ -100,13 +102,16 @@ function KeyList() {
 
   return (
     <>
+      <Show when={keys.isError || keys.data?.length}>
+        <p class="note">{timeZoneNote()}</p>
+      </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
         <Notice role="alert">
           The API keys could not be read at{" "}
-          <Instant value={new Date(keys.errorUpdatedAt)} format={TIME_ZONED} />:{" "}
+          <Instant value={new Date(keys.errorUpdatedAt)} format={TIME_SECONDS} />:{" "}
           {hubFailureMessage(keys.error)} What is shown is from the read at{" "}
-          <Instant value={new Date(keys.dataUpdatedAt)} format={TIME_ZONED} />.
+          <Instant value={new Date(keys.dataUpdatedAt)} format={TIME_SECONDS} />.
         </Notice>
       </Show>
       <Show when={keys.data}>
@@ -123,7 +128,6 @@ function KeyList() {
               </div>
             }
           >
-            <p class="note">{timeZoneNote()}</p>
             <KeyTable keys={list()} revoke={revoke} />
           </Show>
         )}
@@ -137,7 +141,7 @@ function KeyList() {
  * which the hub gives only in its answer. The key is held here alone, and forgotten when the dialog
  * closes.
  */
-function CreateKey(props: { dialogRef: (element: HTMLDialogElement) => void }) {
+function CreateKey(props: { onClose: () => void }) {
   const queryClient = useQueryClient();
   let dialog: HTMLDialogElement | undefined;
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
@@ -163,10 +167,11 @@ function CreateKey(props: { dialogRef: (element: HTMLDialogElement) => void }) {
         permissions,
         ...(expiresIn === undefined ? {} : { expiresIn }),
       });
-      setCreated({ name, key });
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
+      if (!dialog?.open || !dialog.isConnected) return;
+      setCreated({ name, key });
     } catch (error) {
-      setFailure(hubFailureMessage(error));
+      if (dialog?.open && dialog.isConnected) setFailure(hubFailureMessage(error));
     } finally {
       setPending(false);
     }
@@ -178,12 +183,9 @@ function CreateKey(props: { dialogRef: (element: HTMLDialogElement) => void }) {
       aria-labelledby="create-key-heading"
       ref={(element) => {
         dialog = element;
-        props.dialogRef(element);
+        onSettled(() => element.showModal());
       }}
-      onClose={() => {
-        setCreated(undefined);
-        setFailure(undefined);
-      }}
+      onClose={props.onClose}
     >
       <Show
         when={created()}
@@ -246,7 +248,13 @@ function CreateKey(props: { dialogRef: (element: HTMLDialogElement) => void }) {
                 <pre class="code wraps command" tabindex="0" aria-label="The new API key">
                   <mark class="key">{shown().key}</mark>
                 </pre>
-                <CopyButton text={shown().key} label="Copy the key" />
+                <CopyButton
+                  text={shown().key}
+                  label="Copy the key"
+                  buttonRef={(button) => {
+                    onSettled(() => button.focus());
+                  }}
+                />
               </div>
               <p class="shown-once" role="note">
                 <b>Shown this once:</b> copy it now. The hub keeps only its hash, and this page will
@@ -265,7 +273,7 @@ function CreateKey(props: { dialogRef: (element: HTMLDialogElement) => void }) {
 
 function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<string | undefined> }) {
   return (
-    <table class="records" role="table">
+    <table class="records is-narrow" role="table">
       <caption class="vh">API keys</caption>
       <thead role="rowgroup">
         <tr role="row">
@@ -297,7 +305,7 @@ function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<stri
             return (
               <tr role="row">
                 <td role="cell" class="is-id">
-                  <span class="cut mono" title={name()}>
+                  <span class={key().name === null ? "cut unnamed" : "cut mono"} title={name()}>
                     {name()}
                   </span>
                 </td>
@@ -319,7 +327,8 @@ function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<stri
                     triggerLabel={`Revoke ${label()}`}
                     heading={
                       <>
-                        Revoke <span class="mono">{name()}</span>{" "}
+                        Revoke{" "}
+                        <span class={key().name === null ? "unnamed" : "mono"}>{name()}</span>{" "}
                         <span class="sid">{key().start ?? ""}</span>?
                       </>
                     }

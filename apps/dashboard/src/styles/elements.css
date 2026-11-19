@@ -318,6 +318,9 @@ progress {
 }
 
 dialog {
+  text-align: start;
+  white-space: normal;
+  font-size: var(--text-sm);
   background: var(--c-paper);
   color: var(--c-ink);
   border: var(--rule) solid var(--c-field-edge);

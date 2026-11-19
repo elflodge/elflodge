@@ -13,6 +13,24 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
+/** Second-precision instants where the page already names the reader's zone. */
+export const TIME_SECONDS = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "medium" });
+export const DATE_TIME_SECONDS = new Intl.DateTimeFormat(LANGUAGE, {
+  dateStyle: "medium",
+  timeStyle: "medium",
+});
+
+const RELATIVE = new Intl.RelativeTimeFormat(LANGUAGE, { style: "short" });
+
+/** Elapsed at the read that reported it. Different clocks can put contact just ahead of the read. */
+export function elapsedSince(contact: Date, readAt: number): string {
+  const seconds = Math.max(0, Math.floor((readAt - contact.getTime()) / 1000));
+  if (seconds < 60) return RELATIVE.format(-seconds, "second");
+  if (seconds < 3600) return RELATIVE.format(-Math.floor(seconds / 60), "minute");
+  if (seconds < 86400) return RELATIVE.format(-Math.floor(seconds / 3600), "hour");
+  return RELATIVE.format(-Math.floor(seconds / 86400), "day");
+}
+
 /** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
 export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
   hour: "2-digit",

@@ -6,7 +6,11 @@ import { createSignal } from "solid-js";
  * the browser does not allow it, as on a page served over plain HTTP from another machine, it says
  * to select the text and copy it, which the text beside it allows.
  */
-export function CopyButton(props: { text: string; label: string }) {
+export function CopyButton(props: {
+  text: string;
+  label: string;
+  buttonRef?: (button: HTMLButtonElement) => void;
+}) {
   const [result, setResult] = createSignal<"copied" | "refused">();
 
   async function copy() {
@@ -22,7 +26,11 @@ export function CopyButton(props: { text: string; label: string }) {
 
   return (
     <p class="copy">
-      <button type="button" onClick={() => void copy()}>
+      <button
+        type="button"
+        ref={(element) => props.buttonRef?.(element)}
+        onClick={() => void copy()}
+      >
         {props.label}
       </button>
       {/* In the page from the start, so that a screen reader says what is written into it. */}

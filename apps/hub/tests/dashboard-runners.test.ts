@@ -1,4 +1,5 @@
 import type { Browser, Page } from "playwright";
+import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser } from "./dashboard-browser.ts";
@@ -61,22 +62,30 @@ test("in a browser, the Runners page lists a registered Runner by its name and s
   await page.getByRole("heading", { name: `lodge-01 ${id.slice(0, 8)}` }).waitFor();
 }, 30_000);
 
-test("in a browser, Add Runner gives a command naming this hub, and creates a key only when asked", async () => {
+test("in a browser, Add Runner gives a command for another machine, and creates a key only when asked", async () => {
   const before = await system.owner().apiKeys.list();
   const page = await signedInAt("runners");
-  await page.getByRole("button", { name: "Add Runner" }).first().click();
+  await page.getByRole("button", { name: "Add Runner" }).click();
   const dialog = page.getByRole("dialog", { name: "Add Runner" });
   const command = dialog.getByLabel("The command to run on the machine");
-  expect(await command.innerText()).toContain(`HUB_URL=${system.origin}\n`);
+  expect(await command.innerText()).toContain("HUB_URL=<the hub's URL from that machine>\n");
+  await expectBrowser(
+    dialog.getByText("Waiting for a Runner to register.", { exact: false }),
+  ).toBeVisible();
   expect(await command.innerText()).toContain("RUNNER_REGISTRATION_KEY=<a registration key>");
   // Opening it created nothing.
   expect(await system.owner().apiKeys.list()).toHaveLength(before.length);
 
   await dialog.getByRole("button", { name: "Create a registration key" }).click();
   await dialog.getByText("Shown this once:").waitFor();
+  await expectBrowser(dialog.getByRole("button", { name: "Copy the command" })).toBeFocused();
   const key = /RUNNER_REGISTRATION_KEY=(\S+)/.exec(await command.innerText())?.[1] ?? "";
   // The key in the command registers a Runner, and is an ordinary key, listed with the others.
-  await system.runnerClient({ "x-api-key": key }).register({ name: "new-host" });
+  const { id } = await system.runnerClient({ "x-api-key": key }).register({ name: "new-host" });
+  await expectBrowser(dialog.getByRole("status").filter({ hasText: "has registered." })).toHaveText(
+    `new-host ${id.slice(0, 8)} has registered.`,
+    { timeout: 10_000 },
+  );
   const created = (await system.owner().apiKeys.list()).filter(
     (listed) => !before.some((earlier) => earlier.id === listed.id),
   );
@@ -95,7 +104,7 @@ test("in a browser, removing a Runner takes it off the list", async () => {
     .getByRole("button", { name: `Remove retired-host ${id.slice(0, 8)}` })
     .click();
   await record.waitFor({ state: "detached" });
-  await page.getByRole("status").filter({ hasText: "is removed" }).waitFor();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is removed" })).toBeFocused();
   expect(await system.findRunner(id)).toBeUndefined();
 }, 30_000);
 
@@ -105,10 +114,14 @@ test("in a browser, a new API key is shown once", async () => {
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Name").fill("nightly report");
   await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
+  await dialog.getByRole("group", { name: "Runners" }).getByLabel("read").check();
   await dialog.getByRole("button", { name: "Create key" }).click();
+  await expectBrowser(dialog.getByRole("button", { name: "Copy the key" })).toBeFocused();
   const key = (await dialog.getByLabel("The new API key").innerText()).trim();
   // The key holds what was granted.
-  await system.client({ "x-api-key": key }).jobs.counts({});
+  const client = system.client({ "x-api-key": key });
+  await client.jobs.counts({});
+  await client.runners.list();
   const row = page.getByRole("row").filter({ hasText: "nightly report" });
   await row.getByText("job: read").waitFor();
   // Closing the dialog forgets it.
@@ -119,6 +132,56 @@ test("in a browser, a new API key is shown once", async () => {
   await row.waitFor();
   expect(await page.content()).not.toContain(key);
 }, 30_000);
+
+test.each([
+  { path: "api-keys", opener: "Create key", submit: "Create key" },
+  { path: "runners", opener: "Add Runner", submit: "Create a registration key" },
+])(
+  "a key requested on $path never appears in a reopened dialog",
+  async ({ path, opener, submit }) => {
+    const page = await signedInAt(path);
+    const open = page.getByRole("button", { name: opener, exact: true });
+    await open.click();
+    const dialog = page.getByRole("dialog");
+    if (path === "api-keys") {
+      await dialog.getByLabel("Name").fill("late answer");
+      await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
+    }
+
+    const release = Promise.withResolvers<void>();
+    await page.route("**/api-keys", async (route) => {
+      if (route.request().method() === "POST") await release.promise;
+      await route.continue();
+    });
+    const request = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().endsWith("/api-keys"),
+    );
+    const answer = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().endsWith("/api-keys"),
+    );
+    try {
+      await dialog.getByRole("button", { name: submit }).click();
+      await request;
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "hidden" });
+      await open.click();
+      await expectBrowser(dialog.getByRole("button", { name: submit })).toBeEnabled();
+    } finally {
+      release.resolve();
+    }
+    const response = await answer;
+    expect(response.ok()).toBe(true);
+    await response.finished();
+    if (path === "api-keys")
+      await page
+        .getByRole("row", { includeHidden: true })
+        .filter({ hasText: "late answer" })
+        .waitFor();
+    await expectBrowser(dialog.locator("mark.key")).toHaveCount(0);
+    await expectBrowser(dialog.getByRole("button", { name: submit })).toBeEnabled();
+  },
+  30_000,
+);
 
 test("in a browser, a revoked API key leaves the list and stops working", async () => {
   const { key } = await system.owner().apiKeys.create({
@@ -150,7 +213,7 @@ test("in a browser, a plain member gets no owner's actions on Runners and API ke
   expect(await record.getByRole("button", { name: /^Remove / }).count()).toBe(0);
 
   // Add Runner gives the command, for a key the member holds.
-  await page.getByRole("button", { name: "Add Runner" }).first().click();
+  await page.getByRole("button", { name: "Add Runner" }).click();
   const dialog = page.getByRole("dialog", { name: "Add Runner" });
   expect(await dialog.getByLabel("The command to run on the machine").innerText()).toContain(
     "RUNNER_REGISTRATION_KEY=<a registration key>",

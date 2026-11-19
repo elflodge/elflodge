@@ -33,6 +33,10 @@
     var(--brand-ground),
     var(--brand-shape) 8%
   ); /* a band set apart from the page; a control that cannot act */
+  --c-sunk: light-dark(
+    color-mix(in oklab, var(--brand-ground), var(--brand-shape) 5%),
+    #212c25
+  ); /* code, tool results, JSON; dark sinks below the page, which no mix of the two reaches */
   --c-paper: light-dark(#f8f3e8, #314238); /* raised: fields, buttons, dialogs, popovers */
   --c-lamp-wash: color-mix(
     in oklab,

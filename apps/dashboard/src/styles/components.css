@@ -505,6 +505,9 @@
 .mark-unknown {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%20stroke-dasharray%3D%222.1%201.35%22%2F%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%221.3%22%2F%3E%3C%2Fsvg%3E");
 }
+.mark-pending {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.75%201.25h6.5M2.75%2010.75h6.5M3.6%201.6%208.4%2010.4M8.4%201.6%203.6%2010.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");
+}
 .mark-connected {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.6%22%2F%3E%3C%2Fsvg%3E");
 }
@@ -650,6 +653,9 @@ thead .unit {
    At 640px and below a record is a block: the identifier on its own line, then each other value after its name
    and unit (data-l), the column heads hidden but read. The table carries explicit roles, since the block layout
    drops a table's implicit ones. */
+.records.is-narrow {
+  max-width: 64rem;
+}
 .records td.is-id {
   padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
   width: 100%;
@@ -657,7 +663,7 @@ thead .unit {
 }
 /* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
    It stays a block, so its value can be cut at its end, and is padded to the height. */
-.records td.is-id > a.cut {
+.records td.is-id > :is(a, span).cut {
   display: block;
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
@@ -665,19 +671,22 @@ thead .unit {
   .records td.is-id {
     padding-block: 0;
   }
-  .records td.is-id > a.cut {
+  .records td.is-id > :is(a, span).cut {
     padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
 }
-/* A record with no page of its own, such as an API key, has its identifier as text. */
-.records td.is-id > span.cut {
-  display: block;
+/* A missing name is a description, while the name itself is data. */
+.unnamed {
+  font-family: var(--font-sans);
+  color: var(--c-ink-2);
 }
 /* The record's one action, such as Revoke, at the line's end. */
+.records tr:has(> td.is-act:last-child) > td {
+  vertical-align: middle;
+}
 .records td.is-act {
   text-align: end;
-  padding-block: 0;
-  vertical-align: middle;
+  padding-block: var(--space-1);
 }
 .records :is(th, td):not(.is-id) {
   white-space: nowrap;
@@ -720,6 +729,10 @@ thead .unit {
     text-align: start;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+  .records td[data-l] > ul.plain {
+    display: inline-block;
+    vertical-align: top;
   }
   .records td[data-l]::before {
     /* Firefox before 128 needs the first declaration. The real header already names the cell. */
@@ -782,7 +795,7 @@ dialog.is-wide {
   max-width: 100%;
   overflow-x: auto;
   padding: var(--space-2) var(--space-3);
-  background: var(--c-ground-2);
+  background: var(--c-sunk);
   border-radius: var(--radius);
   font-size: var(--text-xs);
   line-height: var(--leading);
@@ -827,7 +840,13 @@ mark.placeholder {
   padding: var(--space-2) var(--space-3);
   background: var(--c-lamp-wash);
   border-left: var(--rule-heavy) solid var(--c-rule-strong);
-  max-width: var(--measure);
+}
+.waiting-line {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding-top: var(--space-3);
+  border-top: var(--rule) solid var(--c-rule);
 }
 
 /* ---------- Runner record: one ruled entry a Runner: who it is and whether it is connected, what its jobs can do, its controls ---------- */

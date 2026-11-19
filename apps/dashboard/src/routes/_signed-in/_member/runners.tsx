@@ -1,14 +1,21 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { Runner, RunnerCapabilities } from "contract";
-import { For, Loading, Show, createSignal } from "solid-js";
+import { For, Loading, Show, createMemo, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { TIME_ZONED, formatCount, plural, timeZoneNote } from "../../../format.ts";
+import {
+  DATE_TIME_SECONDS,
+  TIME_SECONDS,
+  elapsedSince,
+  formatCount,
+  plural,
+  timeZoneNote,
+} from "../../../format.ts";
 import { canManageKeys } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
@@ -36,10 +43,12 @@ function Runners() {
     return current !== undefined && canManageKeys(current.role);
   };
   const [removed, setRemoved] = createSignal<string>();
-  let addRunner: HTMLDialogElement | undefined;
+  const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
+  const ids = createMemo(() => shortIds(runners.data.map((runner) => runner.id)));
+  const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
 
   function openAddRunner() {
-    addRunner?.showModal();
+    setRunnersAtOpen(new Set(ids().keys()));
   }
 
   async function remove(runner: Runner, label: string) {
@@ -65,15 +74,30 @@ function Runners() {
           </button>
         </div>
       </div>
-      <Show when={removed()}>{(message) => <Notice role="status">{message()}</Notice>}</Show>
+      <p class="note">
+        {timeZoneNote()} Connected means the hub has heard from the Runner in about the last two
+        minutes.
+      </p>
+      <Show when={removed()} keyed>
+        {(message) => (
+          <Notice
+            role="status"
+            focusRef={(element) => {
+              onSettled(() => element.focus());
+            }}
+          >
+            {message}
+          </Notice>
+        )}
+      </Show>
       <Loading fallback={null}>
         {/* A read after the first that failed: what is shown is from an earlier one. */}
         <Show when={runners.isError}>
           <Notice role="alert">
             The Runners could not be read at{" "}
-            <Instant value={new Date(runners.errorUpdatedAt)} format={TIME_ZONED} />:{" "}
+            <Instant value={new Date(runners.errorUpdatedAt)} format={TIME_SECONDS} />:{" "}
             {hubFailureMessage(runners.error)} What is shown is from the read at{" "}
-            <Instant value={new Date(runners.dataUpdatedAt)} format={TIME_ZONED} />.
+            <Instant value={new Date(runners.dataUpdatedAt)} format={TIME_SECONDS} />.
           </Notice>
         </Show>
         <Show when={runners.data}>
@@ -87,26 +111,32 @@ function Runners() {
                     A Runner is a machine that runs jobs. Add one with the command Add Runner gives,
                     and it is listed here once it registers.
                   </p>
-                  <p class="empty-act">
-                    <button type="button" class="primary" onClick={openAddRunner}>
-                      Add Runner
-                    </button>
-                  </p>
                 </div>
               }
             >
-              <RunnerList runners={list()} managesKeys={managesKeys()} remove={remove} />
+              <RunnerList
+                runners={list()}
+                managesKeys={managesKeys()}
+                remove={remove}
+                readAt={runners.dataUpdatedAt}
+                shortId={shortId}
+              />
             </Show>
           )}
         </Show>
       </Loading>
-      <AddRunner
-        organizationName={member()?.organization.name}
-        managesKeys={managesKeys()}
-        dialogRef={(element) => {
-          addRunner = element;
-        }}
-      />
+      <Show when={runnersAtOpen()}>
+        {(atOpen) => (
+          <AddRunner
+            organizationName={member()?.organization.name}
+            managesKeys={managesKeys()}
+            registered={runners.data.find((runner) => !atOpen().has(runner.id))}
+            readFailed={runners.isError}
+            shortId={shortId}
+            onClose={() => setRunnersAtOpen(undefined)}
+          />
+        )}
+      </Show>
     </>
   );
 }
@@ -126,87 +156,92 @@ function removalSummary(label: string, ended: number, filesLeft: number): string
 
 function RunnerList(props: {
   runners: Runner[];
+  readAt: number;
+  shortId: (runner: Runner) => string;
   managesKeys: boolean;
   remove: (runner: Runner, label: string) => Promise<string | undefined>;
 }) {
-  // Names are host names, which can repeat, so each goes with a short ID, longer where two collide.
-  const short = () => shortIds(props.runners.map((runner) => runner.id));
   return (
-    <>
-      <p class="note">{timeZoneNote()}</p>
-      <ul class="runners">
-        {/* Keyed by ID, so that a read again keeps each record, and a dialog open in it. */}
-        <For each={props.runners} keyed={(runner) => runner.id}>
-          {(runner) => {
-            const sid = () => short().get(runner().id) ?? runner().id;
-            const label = () => `${runner().name} ${sid()}`;
-            return (
-              <li class="runner">
-                <div class="runner-id">
-                  <h2 class="runner-name">
-                    <span class="mono">{runner().name}</span> <span class="sid">{sid()}</span>
-                  </h2>
-                  <Show
-                    when={runner().connected}
-                    fallback={
+    <ul class="runners">
+      {/* Keyed by ID, so that a read again keeps each record, and a dialog open in it. */}
+      <For each={props.runners} keyed={(runner) => runner.id}>
+        {(runner) => {
+          const sid = () => props.shortId(runner());
+          const label = () => `${runner().name} ${sid()}`;
+          return (
+            <li class="runner">
+              <div class="runner-id">
+                <h2 class="runner-name">
+                  <span class="mono">{runner().name}</span> <span class="sid">{sid()}</span>
+                </h2>
+                <Show
+                  when={runner().connected}
+                  fallback={
+                    <>
+                      <p class="conn is-off">
+                        <span class="mark mark-disconnected" aria-hidden="true" />
+                        Not connected
+                      </p>
+                      <p class="note is-unknown">
+                        <span class="mark mark-unknown" aria-hidden="true" />
+                        <span>Its unfinished jobs show status unknown.</span>
+                      </p>
+                    </>
+                  }
+                >
+                  <p class="conn">
+                    <span class="mark mark-connected" aria-hidden="true" />
+                    Connected
+                  </p>
+                </Show>
+                <dl>
+                  <dt>Last contact</dt>
+                  <dd>
+                    {elapsedSince(runner().lastSeenAt, props.readAt)},{" "}
+                    {runner().lastSeenAt.toDateString() ===
+                    new Date(props.readAt).toDateString() ? (
                       <>
-                        <p class="conn is-off">
-                          <span class="mark mark-disconnected" aria-hidden="true" />
-                          Not connected
-                        </p>
-                        <p class="note is-unknown">
-                          <span class="mark mark-unknown" aria-hidden="true" />
-                          <span>Its unfinished jobs are unconfirmed.</span>
-                        </p>
+                        at <Instant value={runner().lastSeenAt} format={TIME_SECONDS} />
+                      </>
+                    ) : (
+                      <Instant value={runner().lastSeenAt} format={DATE_TIME_SECONDS} />
+                    )}
+                  </dd>
+                  <dt>Registered</dt>
+                  <dd>
+                    <Instant value={runner().registeredAt} />
+                  </dd>
+                </dl>
+              </div>
+              <Capabilities capabilities={runner().capabilities} />
+              <Show when={props.managesKeys}>
+                <div class="runner-ctl">
+                  <ConfirmAction
+                    trigger="Remove"
+                    triggerLabel={`Remove ${label()}`}
+                    heading={
+                      <>
+                        Remove <span class="mono">{runner().name}</span>{" "}
+                        <span class="sid">{sid()}</span>?
                       </>
                     }
+                    confirm={`Remove ${label()}`}
+                    act={() => props.remove(runner(), label())}
                   >
-                    <p class="conn">
-                      <span class="mark mark-connected" aria-hidden="true" />
-                      Connected
+                    <p>Its key stops working and its connection is dropped at once.</p>
+                    <p>
+                      <b>Every job it holds that has not ended, ends now</b>: failed as{" "}
+                      <code>runnerRemoved</code>, or cancelled where a cancel was waiting. None of
+                      them can be resumed, and they may still run on the host unseen.
                     </p>
-                  </Show>
-                  <dl>
-                    <dt>Last seen</dt>
-                    <dd>
-                      <Instant value={runner().lastSeenAt} />
-                    </dd>
-                    <dt>Registered</dt>
-                    <dd>
-                      <Instant value={runner().registeredAt} />
-                    </dd>
-                  </dl>
+                  </ConfirmAction>
                 </div>
-                <Capabilities capabilities={runner().capabilities} />
-                <Show when={props.managesKeys}>
-                  <div class="runner-ctl">
-                    <ConfirmAction
-                      trigger="Remove"
-                      triggerLabel={`Remove ${label()}`}
-                      heading={
-                        <>
-                          Remove <span class="mono">{runner().name}</span>{" "}
-                          <span class="sid">{sid()}</span>?
-                        </>
-                      }
-                      confirm={`Remove ${label()}`}
-                      act={() => props.remove(runner(), label())}
-                    >
-                      <p>Its key stops working and its connection is dropped at once.</p>
-                      <p>
-                        <b>Every job it holds that has not ended, ends now</b>: failed as{" "}
-                        <code>runnerRemoved</code>, or cancelled where a cancel was waiting. None of
-                        them can be resumed, and they may still run on the host unseen.
-                      </p>
-                    </ConfirmAction>
-                  </div>
-                </Show>
-              </li>
-            );
-          }}
-        </For>
-      </ul>
-    </>
+              </Show>
+            </li>
+          );
+        }}
+      </For>
+    </ul>
   );
 }
 
@@ -252,14 +287,29 @@ function Capabilities(props: { capabilities: RunnerCapabilities | null }) {
 }
 
 /** Whether jobs may search the web, and through whom, as the Runner reported it. */
-function webSearchWords(webSearch: RunnerCapabilities["webSearch"]): string {
+function webSearchWords(webSearch: RunnerCapabilities["webSearch"]) {
   if (webSearch === undefined) return "Not reported";
   if (!webSearch.enabled) return "Off";
-  const providers =
-    webSearch.allowedProviders === undefined
-      ? "On, any provider"
-      : `On, only ${webSearch.allowedProviders.join(", ")}`;
-  return webSearch.openai?.mayUseApiKey === false
-    ? `${providers}; OpenAI searches never paid by an API key`
-    : providers;
+  return (
+    <>
+      {webSearch.allowedProviders === undefined ? (
+        "On, any provider"
+      ) : (
+        <>
+          On, only{" "}
+          {webSearch.allowedProviders.map((provider, i) => (
+            <>
+              {i > 0 ? ", " : ""}
+              <code>{provider}</code>
+            </>
+          ))}
+        </>
+      )}
+      {webSearch.openai === undefined
+        ? ""
+        : webSearch.openai.mayUseApiKey
+          ? "; OpenAI searches may be paid by an API key"
+          : "; OpenAI searches never paid by an API key"}
+    </>
+  );
 }
