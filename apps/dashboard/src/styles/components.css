@@ -1126,8 +1126,11 @@ p mark.placeholder {
 .cell-line > .cut {
   flex: 0 1 auto;
 }
-.cell-line > :is(.sid, .unit) {
+.cell-line > .sid {
   flex: none;
+}
+.c-submitter .cell-line {
+  display: block;
 }
 .job-list td.c-submitter {
   white-space: normal;
@@ -1183,9 +1186,9 @@ p mark.placeholder {
 .job-list .job-name + .sid {
   display: none;
 }
-/* Each tier adds the visible --jobs-* widths and 15.875rem for the Job name. Container
+/* Each tier adds the visible --jobs-* widths and 15.375rem for the Job name. Container
    conditions cannot use var(). A column at zero width still counts in the day heading’s span. */
-@container job-list (width < 97.75rem) {
+@container job-list (width < 97.25rem) {
   .job-list .c-submitter > .cell-line {
     display: none;
   }
@@ -1196,7 +1199,7 @@ p mark.placeholder {
     visibility: hidden;
   }
 }
-@container job-list (width < 87.25rem) {
+@container job-list (width < 86.75rem) {
   .job-list :is(th, td).c-tokens {
     width: 0;
     padding: 0;
@@ -1204,7 +1207,7 @@ p mark.placeholder {
     visibility: hidden;
   }
 }
-@container job-list (width < 82.5rem) {
+@container job-list (width < 82rem) {
   .job-list :is(th, td).c-labels {
     width: 0;
     padding: 0;
@@ -1216,7 +1219,7 @@ p mark.placeholder {
 /* Two lines a job. Line 1: its status and name. Line 2: what stands beside its status, its Batch, its time, its cost.
    The row is a wrapping flex line; its ::before, a full-width item between the two, breaks it.
  */
-@container job-list (width < 74.625rem) {
+@container job-list (width < 74.125rem) {
   .job-list,
   .job-list tbody {
     display: block;
@@ -1341,7 +1344,7 @@ p mark.placeholder {
 }
 /* Each line is at least 44px on touch. */
 @media (max-width: 640px), (pointer: coarse) {
-  @container job-list (width < 74.625rem) {
+  @container job-list (width < 74.125rem) {
     .job-list tr.job-row {
       padding: 0;
       align-items: center;
@@ -1358,7 +1361,7 @@ p mark.placeholder {
 }
 /* Coarse pointers keep the same line height on wide screens. */
 @media (pointer: coarse) {
-  @container job-list (width >= 74.625rem) {
+  @container job-list (width >= 74.125rem) {
     .job-list tr.job-row > td {
       height: var(--control-touch);
       vertical-align: middle;

@@ -390,11 +390,11 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 `div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Its columns are Status, Beside the status, Job, Batch, Submitter, Labels, Runner, Time, Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
 
-The frame's width sets the tiers. Below 97.75rem Submitter gives way, below 87.25rem Tokens, and below 82.5rem Labels. Below 74.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
+Each tier allows 15.375rem for the Job name and adds the fixed widths of its visible columns. The frame's width sets the tier. Below 97.25rem Submitter gives way, below 86.75rem Tokens, and below 82rem Labels. Below 74.125rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
 
 The job's name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. It becomes the link to the job when the job page exists. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
-The Batch is a cut identifier in the mono. A submitter's name wraps in full and has its kind beside it in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans. An absent submitter leaves the cell empty.
+The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans. An absent submitter leaves the cell empty.
 
 `ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key and sign use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 

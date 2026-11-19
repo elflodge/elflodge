@@ -430,7 +430,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
                 }}
               >
                 {submitter().name ?? "Unnamed"}
-              </span>
+              </span>{" "}
               <span class="unit">{submitter().kind}</span>
             </span>
           )}
