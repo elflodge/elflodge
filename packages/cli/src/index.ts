@@ -18,6 +18,7 @@ import { getDotPath } from "@standard-schema/utils";
 import {
   agentSchema,
   apiContract,
+  asError,
   type Batch,
   batchCreationSchema,
   batchIdSchema,
@@ -98,8 +99,9 @@ const settingsFromEnv = Config.all({
 
 /**
  * Where the hub is and the API key to call it with, read when a command runs, not for `--help`:
- * from the environment, or, when neither is set there, the hub `elflodge stack` runs and the key it
- * made, together, so a key never goes to a hub it was not made for.
+ * from the environment, or, when neither setting is set, from the local stack. The stack uses
+ * its jobs key by default and its listing key for a call that requires `runner:read`. The hub
+ * and key come from the same source so the command sends the key only to its own hub.
  */
 const settings = Effect.fn(function* (permissions?: KeyPermissions) {
   const url = yield* Config.option(Config.String("ELFLODGE_URL"));
@@ -1367,5 +1369,5 @@ export function runElflodgeCli(version: string, argv: readonly string[], logger?
 
 /** What the command prints for `error`: its message, which is the hub's Problem Details for its errors. */
 export function formatError(error: unknown): string {
-  return ensureError(error).message;
+  return asError(error).message;
 }

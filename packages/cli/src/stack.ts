@@ -12,6 +12,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 import { writeFile } from "atomically";
 import {
   apiContract,
+  asError,
   createProblemDetailsLink,
   KEY_PERMISSIONS,
   type KeyPermissions,
@@ -46,8 +47,9 @@ import * as z from "zod/mini";
 // the same jobs, keys and Runner, with any sign-in the Runner holds, across starts.
 
 /**
- * The stack has its own Compose project so it can run alongside the `elflodge` deployment.
- * Tests set `ELFLODGE_STACK_PROJECT` to keep their containers apart from a contributor's stack.
+ * The Compose project, apart from the Compose deployment's `elflodge`, so neither touches the
+ * other. `ELFLODGE_STACK_PROJECT` names another, so the repository's tests never touch a
+ * contributor's own.
  */
 const PROJECT = process.env["ELFLODGE_STACK_PROJECT"] ?? "elflodge-stack";
 
@@ -154,9 +156,7 @@ function secret() {
   return randomBytes(24).toString("hex");
 }
 
-/**
- * The hub `elflodge stack` runs and the key it made, for commands run without their own settings.
- */
+/** The local hub and the key for the requested permissions, defaulting to the jobs key. */
 export function savedHub(
   permissions?: KeyPermissions,
 ): Effect.Effect<{ url: URL; apiKey: string } | undefined, Error> {
@@ -515,14 +515,16 @@ function stackClient(
 /** Signs in as the owner to create the stack's missing keys. */
 function signIn(state: State) {
   // Setup or the first start after an upgrade normally signs in once as the hub comes up, before
-  // anyone uses the dashboard, so a failed attempt waits for the next start.
+  // anyone uses the dashboard, so a 429 from Better Auth's sign-in rate limit waits for the next
+  // start instead of an immediate retry.
   return Effect.tryPromise({
     try: async (signal) => {
       const url = hubUrl(state.port);
       const response = await fetch(`${url}/api/auth/sign-in/email`, {
         signal,
         method: "POST",
-        // Better Auth checks the origin of a sign-in made with fetch.
+        // Better Auth refuses a sign-in from fetch without an origin it trusts, as it guards
+        // against cross-site requests; the hub trusts its own URL.
         headers: { "content-type": "application/json", origin: url },
         body: JSON.stringify({ email: OWNER_EMAIL, password: state.ownerPassword }),
       });
@@ -534,35 +536,50 @@ function signIn(state: State) {
       const cookie = Cookies.toCookieHeader(Cookies.fromSetCookie(response.headers.getSetCookie()));
       return stackClient(state.port, { cookie });
     },
-    catch: (cause) => (cause instanceof Error ? cause : ensureError(cause)),
+    catch: asError,
   });
+}
+
+type StateWithReadKey = State & { runnerReadKey: string };
+
+function hasReadKey(state: State): state is StateWithReadKey {
+  return state.runnerReadKey !== undefined;
 }
 
 /** Creates missing keys, saving a new registration key before asking the hub for the next key. */
 function createMissingKeys(state: State) {
   return Effect.gen(function* () {
-    if (state.registrationKey && state.apiKey && state.runnerReadKey) return state;
+    if (state.registrationKey && state.apiKey && hasReadKey(state)) return state;
     const client = yield* signIn(state);
-    const create = (name: string, permissions: Record<string, string[]>) =>
+    const create = (input: Parameters<typeof client.apiKeys.create>[0]) =>
       Effect.tryPromise({
-        try: (signal) => client.apiKeys.create({ name, permissions }, { signal }),
-        catch: (cause) => (cause instanceof Error ? cause : ensureError(cause)),
-      });
+        try: (signal) => client.apiKeys.create(input, { signal }),
+        catch: asError,
+      }).pipe(Effect.tapError(() => say(`Could not create the "${input.name}" key.`)));
     if (state.registrationKey === undefined) {
-      const { key } = yield* create("elflodge stack runners", { runner: ["register"] });
+      const { key } = yield* create({
+        name: "elflodge stack runners",
+        permissions: { runner: ["register"] },
+      });
       state = { ...state, registrationKey: key };
       yield* writeState(state);
     }
     if (state.apiKey === undefined) {
-      const { key } = yield* create("elflodge stack jobs", {
-        job: [...KEY_PERMISSIONS.job],
-        runner: ["read"],
+      const { key } = yield* create({
+        name: "elflodge stack jobs",
+        permissions: {
+          job: [...KEY_PERMISSIONS.job],
+          runner: ["read"],
+        },
       });
       return { ...state, apiKey: key, runnerReadKey: key };
     }
-    if (state.runnerReadKey !== undefined) return state;
+    if (hasReadKey(state)) return state;
     // Grants are fixed, and stack env may already have given the jobs key to other clients.
-    const { key } = yield* create("elflodge stack runner listing", { runner: ["read"] });
+    const { key } = yield* create({
+      name: "elflodge stack runner listing",
+      permissions: { runner: ["read"] },
+    });
     return { ...state, runnerReadKey: key };
   });
 }
@@ -753,9 +770,8 @@ function start(version: string, flags: StartFlags) {
       state = keys.success;
     } else if (state.registrationKey === undefined || state.apiKey === undefined) {
       // A fresh stack still needs its registration and jobs keys to be usable.
-      yield* Effect.fail(
-        new Error(capabilityReadFailure(state, keys.failure), { cause: keys.failure }),
-      );
+      yield* say("The Runner has not started. The next stack start will try again.");
+      yield* Effect.fail(keys.failure);
     }
     yield* compose([
       "up",
@@ -805,15 +821,13 @@ function start(version: string, flags: StartFlags) {
 }
 
 /**
- * The Runner reports its container hostname in its hello. If several Runners used the same name,
- * take the one heard from most recently. Null means the hub has no readable capabilities for it;
- * undefined means no Runner had that name.
+ * Reads the capabilities of the stack's Runner, which reports its container hostname in its hello.
+ * If several Runners used that name, take the one heard from most recently. Null means the hub
+ * has no readable capabilities for it; undefined means no Runner had that name.
  */
-function readRunnerCapabilities(state: State) {
+function readRunnerCapabilities({ port, runnerReadKey }: StateWithReadKey) {
   return Effect.gen(function* () {
-    if (!state.runnerReadKey)
-      return yield* Effect.fail(new Error("the stack has no Runner read key"));
-    const client = stackClient(state.port, { "x-api-key": state.runnerReadKey });
+    const client = stackClient(port, { "x-api-key": runnerReadKey });
     const name = (yield* dockerOutput([
       "compose",
       "--project-name",
@@ -827,7 +841,7 @@ function readRunnerCapabilities(state: State) {
     ])).trim();
     const runners = yield* Effect.tryPromise({
       try: (signal) => client.runners.list(undefined, { signal }),
-      catch: (cause) => (cause instanceof Error ? cause : ensureError(cause)),
+      catch: asError,
     });
     const ours = runners.filter((runner) => runner.name === name);
     return Array.isReadonlyArrayNonEmpty(ours)
@@ -946,7 +960,7 @@ export function runToEnd(
           // Set before trpc-cli exits, as `runElflodgeCli` keeps a code already set: 124 for a
           // timed-out wait, say, rather than trpc-cli's 1.
           process.exitCode = Runtime.getErrorExitCode(Cause.squash(exit.cause));
-          reject(ensureError(Cause.squash(exit.cause)));
+          reject(asError(Cause.squash(exit.cause)));
         }
       },
     });

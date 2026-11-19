@@ -1,9 +1,7 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
-import { apiContract, createProblemDetailsLink } from "contract";
-
-import { asError } from "./error.ts";
+import { apiContract, asError, createProblemDetailsLink } from "contract";
 
 /**
  * The hub's API, on the page's own origin, which serves it (ADR 0043): its calls go to paths the
