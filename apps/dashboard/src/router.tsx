@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { createRouter } from "@tanstack/solid-router";
+import { createRouter, defaultParseSearch, stringifySearchWith } from "@tanstack/solid-router";
 
 import { DefaultCatchBoundary } from "./components/DefaultCatchBoundary.tsx";
 import { NotFound } from "./components/NotFound.tsx";
@@ -10,6 +10,13 @@ export function getRouter() {
   const queryClient = createQueryClient();
   const router = createRouter({
     routeTree,
+    // Batch IDs compare as text. JSON decoding would turn the ID 1e3 into the number 1000.
+    parseSearch: (search) => {
+      const filters = defaultParseSearch(search);
+      if ("batchId" in filters) filters.batchId = new URLSearchParams(search).get("batchId");
+      return filters;
+    },
+    stringifySearch: stringifySearchWith(JSON.stringify),
     context: { queryClient },
     // Every page, and every route's component, has the client.
     Wrap: (props) => (

@@ -99,9 +99,9 @@ test("in a browser, filters held in the address narrow the list, and a reload ke
   await expectFiltered();
 }, 30_000);
 
-test("in a browser, the list is read a page at a time, newest first", async () => {
+test("in a browser, a link reads the exact Batch a page at a time, newest first", async () => {
   const client = await system.clientWithNewJobsKey();
-  const batch = await client.batches.create({ agent: AGENT, breaker: false });
+  const batch = await client.batches.create({ id: "1e3", agent: AGENT, breaker: false });
   const customIds = Array.from({ length: 51 }, (_, index) => `page-${index}`);
   await client.batches.addJobs({
     id: batch.id,
