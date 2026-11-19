@@ -257,7 +257,7 @@ export function listBatches(query: BatchListQuery) {
       const { statuses, labels, after, limit } = query;
       const now = new Date();
       // Include the cursor itself, ahead of the page and regardless of its filters. An empty
-      // filtered page then still tells us whether the cursor existed in this statement's snapshot.
+      // filtered page then still shows whether the cursor existed in this statement's snapshot.
       const offset = after === undefined ? 0 : 1;
       const rows = await db
         .with("page", (qb) => {
