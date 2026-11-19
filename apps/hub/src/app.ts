@@ -34,6 +34,7 @@ import {
 import { except } from "hono/combine";
 import { csrf } from "hono/csrf";
 
+import { listApiKeys } from "./api-keys.ts";
 import {
   Auth,
   authenticate,
@@ -221,15 +222,8 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         return { id: key.id, key: key.key };
       }),
       list: os.apiKeys.list.effect(function* ({ context }) {
-        const { organization } = yield* callerMember(context.caller);
-        const auth = yield* Auth;
-        const { apiKeys } = yield* auth.call((betterAuth) =>
-          betterAuth.api.listApiKeys({
-            headers: context.headers,
-            query: { organizationId: organization.id, configId: API_KEY_CONFIG },
-          }),
-        );
-        return apiKeys;
+        const { organization, role } = yield* callerMember(context.caller);
+        return yield* listApiKeys(organization.id, role);
       }),
       revoke: os.apiKeys.revoke.effect(function* ({ input, context }) {
         const auth = yield* Auth;

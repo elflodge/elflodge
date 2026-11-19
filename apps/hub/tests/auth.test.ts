@@ -1,6 +1,8 @@
 import { RUNNER_NOT_FOUND } from "contract";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
+import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
+import { ApikeyId, type ApikeyUpdate } from "../src/db/types.ts";
 import { resetPassword, setUpOrganization } from "../src/setup.ts";
 import { OWNER, startSystem } from "./harness.ts";
 
@@ -115,6 +117,38 @@ test("a member creates and lists keys, and a revoked key is refused at once", as
     code: "UNAUTHORIZED",
   });
 });
+
+test("a member can list every live service key in an Organization with over 100 keys", async () => {
+  const owner = system.owner();
+  const registration = await system.createRegistrationKey();
+  const expectedIds = (await owner.apiKeys.list()).map((key) => key.id);
+  await system.runnerClient({ "x-api-key": registration }).register({ name: "host" });
+
+  const create = (name: string) =>
+    owner.apiKeys.create({ name, permissions: { runner: ["read"] } });
+  for (let i = 0; i < 100; i++) {
+    const { id } = await create(`service ${i}`);
+    expectedIds.push(id);
+  }
+  const expired = await create("expired");
+  const disabled = await create("disabled");
+  // The hub has no call to disable a key or move its expiry into the past.
+  await using database = openDatabase(inject("databaseUrl"));
+  const db = database.withSchema(DB_SCHEMA);
+  await db
+    .updateTable("apikey")
+    .set({ expiresAt: new Date(0) } satisfies ApikeyUpdate)
+    .where("id", "=", ApikeyId(expired.id))
+    .execute();
+  await db
+    .updateTable("apikey")
+    .set({ enabled: false } satisfies ApikeyUpdate)
+    .where("id", "=", ApikeyId(disabled.id))
+    .execute();
+
+  const listed = await owner.apiKeys.list();
+  expect(listed.map((key) => key.id).toSorted()).toEqual(expectedIds.toSorted());
+}, 30_000);
 
 test("a key cannot reach member operations or permissions it was not granted", async () => {
   const registrationKey = await system.createRegistrationKey();
