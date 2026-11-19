@@ -1,7 +1,7 @@
 import {
   type Labels,
   MAX_USAGE_DAYS,
-  usageGroupSchema,
+  usageGroupsSchema,
   type UsageGroupBy,
   type UsageReport,
 } from "contract";
@@ -13,7 +13,6 @@ import {
   expressionBuilder,
   type Kysely,
   type QueryCreator,
-  type Selectable,
   sql,
 } from "kysely";
 import { jsonArrayFrom, jsonBuildObject } from "kysely/helpers/postgres";
@@ -21,7 +20,7 @@ import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { Db } from "./db/database.ts";
-import type { Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
+import type { BatchUid, Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
 import { batchIdOf } from "./jobs.ts";
 
@@ -265,9 +264,7 @@ async function selectUsage(
         .groupBy(grouping.keys)
         .select(grouping.keys)
         .select((eb) => recordCounts(eb.ref("totalTokens"), eb.ref("costUsd")))
-        .$if(query.groupBy === "submitter", (q) =>
-          q.select((eb) => eb.fn.max("recordedAt").as("recordedAt")),
-        ),
+        .select((eb) => grouping.aggregate?.(eb.ref("recordedAt")) ?? []),
     )
     .with("ranked", (qb) =>
       qb
@@ -295,7 +292,13 @@ async function selectUsage(
           .select((top) => [
             "g.jobEnds",
             // Only groups shown need a Batch, Runner or submitter name.
-            grouping.publicField,
+            grouping.publicField({
+              batchUid: top.ref("g.batchUid"),
+              runnerId: top.ref("g.runnerId"),
+              submitterKind: top.ref("g.submitterKind"),
+              submitterId: top.ref("g.submitterId"),
+              recordedAt: top.ref("g.recordedAt"),
+            }),
             usageOf(top.ref("g.totalTokens"), top.ref("g.costUsd")).as("usage"),
           ])
           .orderBy("g.rank"),
@@ -317,69 +320,73 @@ async function selectUsage(
     ...window,
     ...row,
     // SQL widens the status to text and the submitter name to nullable for both kinds.
-    groups: z.parse(z.array(usageGroupSchema), row.groups),
+    groups: z.parse(usageGroupsSchema, row.groups),
   };
 }
-
-/** Columns the grouping can select from the ranked groups. */
-type GroupIdentity = Pick<
-  Selectable<Database["usageRecord"]>,
-  "batchUid" | "runnerId" | "submitterKind" | "submitterId" | "recordedAt"
-> & { status: string; labelValue: string | null };
 
 /** Keep the record projection, grouping keys and public field together for each grouping. */
 function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>) {
   const record = expressionBuilder<Database, "usageRecord">();
-  const top = expressionBuilder<Database & { g: GroupIdentity }, "g">();
   switch (groupBy) {
     case "batch": {
+      // The UUIDv7 breaks ties in Batch creation order (ADR 0036).
       const keys = ["batchUid"] as const;
       // A Batch is never deleted, so its row names it.
       return {
         keys,
         recordFields: keys,
-        publicField: batchIdOf(top.ref("g.batchUid")).as("batchId"),
+        publicField: ({ batchUid }: { batchUid: Expression<BatchUid> }) =>
+          batchIdOf(batchUid).as("batchId"),
       };
     }
     case "submitter": {
       const keys = ["submitterKind", "submitterId"] as const;
-      // An earlier transaction can write later. The record ID breaks ties in recordedAt.
-      const name = records
-        .select("usageRecord.submitterName")
-        .whereRef("usageRecord.recordedAt", "=", top.ref("g.recordedAt"))
-        .whereRef("usageRecord.submitterKind", "=", top.ref("g.submitterKind"))
-        .whereRef("usageRecord.submitterId", "=", top.ref("g.submitterId"))
-        .orderBy("usageRecord.id", "desc")
-        .limit(1)
-        .$asScalar();
       return {
         keys,
         recordFields: [...keys, "recordedAt"] as const,
-        publicField: jsonBuildObject({
-          kind: top.ref("g.submitterKind"),
-          id: top.ref("g.submitterId"),
-          name,
-        }).as("submitter"),
+        aggregate: (recordedAt: Expression<Date>) => [record.fn.max(recordedAt).as("recordedAt")],
+        publicField: ({
+          submitterKind,
+          submitterId,
+          recordedAt,
+        }: {
+          submitterKind: Expression<SubmitterKind>;
+          submitterId: Expression<string>;
+          recordedAt: Expression<Date>;
+        }) => {
+          // An older transaction can write a higher ID. Choose the latest recordedAt first, then
+          // the highest record ID among ends recorded at that time.
+          const name = records
+            .select("usageRecord.submitterName")
+            .whereRef("usageRecord.recordedAt", "=", recordedAt)
+            .whereRef("usageRecord.submitterKind", "=", submitterKind)
+            .whereRef("usageRecord.submitterId", "=", submitterId)
+            .orderBy("usageRecord.id", "desc")
+            .limit(1)
+            .$asScalar();
+          return jsonBuildObject({ kind: submitterKind, id: submitterId, name }).as("submitter");
+        },
       };
     }
     case "runner": {
       const keys = ["runnerId"] as const;
-      const id = top.ref("g.runnerId");
-      const name = top
-        .selectFrom("runner")
-        .select("runner.name")
-        .whereRef("runner.id", "=", id)
-        .$asScalar();
       return {
         keys,
         recordFields: keys,
-        publicField: top
-          .case()
-          .when(id, "is", null)
-          .then(top.lit(null))
-          .else(top.fn("json_strip_nulls", [jsonBuildObject({ id, name })]))
-          .end()
-          .as("runner"),
+        publicField: ({ runnerId }: { runnerId: Expression<RunnerId | null> }) => {
+          const name = record
+            .selectFrom("runner")
+            .select("runner.name")
+            .whereRef("runner.id", "=", runnerId)
+            .$asScalar();
+          return record
+            .case()
+            .when(runnerId, "is", null)
+            .then(record.lit(null))
+            .else(record.fn("json_strip_nulls", [jsonBuildObject({ id: runnerId, name })]))
+            .end()
+            .as("runner");
+        },
       };
     }
     case "status": {
@@ -388,7 +395,7 @@ function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>
       return {
         keys,
         recordFields: [record.cast<string>("usageRecord.status", "text").as("status")],
-        publicField: top.ref("g.status").as("status"),
+        publicField: () => "g.status" as const,
       };
     }
     default:
@@ -398,10 +405,9 @@ function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>
           record
             .ref("usageRecord.labels", "->>")
             .key(groupBy.slice("label:".length))
-            .$castTo<string | null>()
             .as("labelValue"),
         ],
-        publicField: top.ref("g.labelValue").as("labelValue"),
+        publicField: () => "g.labelValue" as const,
       };
   }
 }

@@ -6,12 +6,13 @@
 
 Days are UTC days, as the API's instants are in UTC, so a day is the same for every caller. Should Usage records grow large enough to be partitioned by month, the partitions would be keyed by the same time: one keyed by `recordedAt` takes rows after its month has passed only from transactions that began before its end, while one keyed by `endedAt` could take a late report's at any time.
 
+Each UTC day carries only its totals, and a grouped read uses the same snapshot to rank groups over the whole window and sum those beyond the limit as `other`.
+
 ## Considered options
 
 - Dating by `endedAt`: a late report changes a past day and month, the Runner's clock decides the day, and a partition by it never closes.
 - Dating by the job's `createdAt`: a long job counts on the day it was submitted, and each later end of a resumed job adds to a day long past.
-
-OpenAI's Organization [Usage][openai-usage] and [Costs][openai-cost] APIs, Anthropic's Admin [usage][admin-usage] and [cost][admin-cost] reports, and AWS Cost Explorer's [`GetCostAndUsage`][aws] place groups inside time buckets. That works for a handful of models, projects or keys. Batches and label values have no upper bound, and neither usage table needs each group's daily figures. [Anthropic's successor analytics API][analytics] ranks flat rows over the range with a page limit. [Azure Cost Management Query][azure] also returns flat rows. Elflodge reads its top groups and daily totals from the same snapshot.
+- Putting groups inside each day follows the bucketed reports from OpenAI's Organization [Usage][openai-usage] and [Costs][openai-cost] APIs, Anthropic's Admin [usage][admin-usage] and [cost][admin-cost] reports, and AWS Cost Explorer's [`GetCostAndUsage`][aws]. This can work for a handful of models, projects or keys. Batches and label values have no upper bound, and ranking them over the window needs only one total per group. [Anthropic's successor analytics API][analytics] ranks flat rows over the range with a page limit. [Azure Cost Management Query][azure] also returns flat rows.
 
 [openai-usage]: https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/completions
 [openai-cost]: https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs
@@ -29,4 +30,4 @@ An end the hub learns of late counts on the day it learns of it, so a Runner tha
 
 When callers need usage dated by when the work happened, as to compare it with a model provider's bill, which dates each call, and accept that past days can change: the record keeps `endedAt` for that.
 
-Reconsider the two tables when a chart needs to stack groups by day or a caller needs every group in the window.
+Reconsider the grouping when a chart needs to stack groups by day or a caller needs every group in the window.

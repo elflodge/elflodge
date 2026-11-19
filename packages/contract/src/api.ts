@@ -595,6 +595,7 @@ export const usageGroupSchema = z
   ])
   .register(z.globalRegistry, { id: "UsageGroup" });
 export type UsageGroup = z.infer<typeof usageGroupSchema>;
+export const usageGroupsSchema = z.array(usageGroupSchema);
 
 const usageWindowSchema = z.extend(usageCountSchema, {
   /** The window's first day, a UTC day. */
@@ -615,7 +616,7 @@ export const usageReportSchema = z.union([
   z
     .extend(usageWindowSchema, {
       /** At most `limit` groups, highest cost first, then most tokens, then in a fixed order. */
-      groups: z.array(usageGroupSchema),
+      groups: usageGroupsSchema,
       /** The remaining groups counted and summed, all zeros when none remain. */
       other: z.extend(usageCountSchema, { groups: z.int() }),
     })
