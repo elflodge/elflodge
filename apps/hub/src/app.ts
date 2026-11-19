@@ -1,10 +1,13 @@
 import { catchORPCErrorCode, middlewareGen, type WithEffectContext } from "@orpc/effect";
 import "@orpc/effect/extensions/effect";
 import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
+import { BracketNotationSerializer, getOpenAPIMeta } from "@orpc/openapi";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { implement, ValidationError } from "@orpc/server";
 import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
+import type { StandardHandlerInterceptor } from "@orpc/server/standard";
+import { isPlainObject } from "@orpc/shared";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import {
   apiContract,
@@ -394,6 +397,33 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
 // A query string's values arrive as text; this turns them into what the input's schema expects,
 // such as `after=42` into a number.
 const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] });
+const bracketNotation = new BracketNotationSerializer();
+
+// A single bare status must read as a list, which oRPC's default query decoding refuses.
+// Remove this when oRPC preserves bracketed names on array-style parameters for strict validation.
+const preserveBracketedQueryNames: StandardHandlerInterceptor<ApiContext> = (options) => {
+  const meta = getOpenAPIMeta(options.procedure);
+  const styles = meta?.queryStyles;
+  if (!styles) return options.next();
+  return options.next({
+    ...options,
+    decodeInput: async () => {
+      const input = await options.decodeInput();
+      if (!isPlainObject(input)) return input;
+      const query = meta.inputStructure === "detailed" ? input.query : input;
+      if (!isPlainObject(query)) return input;
+      const url = new URL(options.request.url, "http://localhost");
+      for (const name of url.searchParams.keys()) {
+        const [root = name] = bracketNotation.parsePath(name);
+        if (root !== name && styles[root] === "array" && !Object.hasOwn(query, name)) {
+          // The strict schema needs only the missing name to report an unknown parameter.
+          query[name] = undefined;
+        }
+      }
+      return input;
+    },
+  });
+};
 
 // The same router behind two handlers, as oRPC's request limit is one per handler: uploads, whose
 // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
@@ -401,12 +431,14 @@ const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSche
 const uploads = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
+  interceptors: [preserveBracketedQueryNames],
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
 const api = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
+  interceptors: [preserveBracketedQueryNames],
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
