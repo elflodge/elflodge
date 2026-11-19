@@ -1,12 +1,14 @@
 import solid from "@solidjs/vite-plugin";
 import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 import { defineConfig } from "vite-plus";
 
+import { DASHBOARD_ASSETS, DASHBOARD_BASE, SCALAR_DIRECTORY } from "../hub/src/dashboard.ts";
+
 export default defineConfig({
-  // Where the hub serves the dashboard (ADR 0043); TanStack Start derives the router's basepath from
-  // it. It is repeated in `apps/hub/src/dashboard.ts` for the Node hub, and in
-  // `apps/hub/wrangler.jsonc` and `public/_headers` for the Workers hub.
-  base: "/dashboard/",
+  // TanStack Start derives the router's basepath from this Vite base.
+  base: DASHBOARD_BASE,
+  build: { assetsDir: DASHBOARD_ASSETS },
   environments: {
     client: {
       build: {
@@ -34,6 +36,18 @@ export default defineConfig({
     host: "127.0.0.1",
   },
   plugins: [
+    // Scalar's exports omit dist/browser, so the standalone script cannot be imported. Copy it from
+    // the installed package to its versioned URL. Using public/ would mean committing a second
+    // copy of the multi-megabyte script or staging it before each build.
+    viteStaticCopy({
+      targets: [
+        {
+          src: "node_modules/@scalar/api-reference/dist/browser/standalone.js",
+          dest: SCALAR_DIRECTORY,
+          rename: { stripBase: true },
+        },
+      ],
+    }),
     tanstackStart({
       // The hub serves a static shell (ADR 0043). Cloudflare's single-page-application handling
       // serves `index.html` for an unmatched navigation, so Start must write the shell at that path.

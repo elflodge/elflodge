@@ -9,6 +9,7 @@ import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn, isPlainObject, setOwn } from "@orpc/shared";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
+import type { ReferenceProps } from "@scalar/api-reference";
 import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
@@ -56,7 +57,7 @@ import {
   listBatches,
 } from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
-import { DASHBOARD_BASE } from "./dashboard.ts";
+import { DASHBOARD_ASSETS, DASHBOARD_BASE, SCALAR_DIRECTORY } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
 import { ApikeyId, EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
@@ -447,15 +448,28 @@ const api = new OpenAPIHandler(router, {
     // The OpenAPI document at `/spec.json`, oRPC's default, and a browsable reference of it at
     // `/docs`, as `/` leads to the dashboard (ADR 0043). The document names the session cookie of
     // the hub's deployment, so it is generated from the request's services. The reference page runs
-    // on the origin where members sign in, so its script is pinned to a version rather than whatever
-    // the CDN serves as latest.
+    // on the origin where members sign in. Keep readers' requests and credentials on that origin.
     new OpenAPIReferenceHandlerPlugin({
       spec: ({ context }) =>
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
           generateOpenAPIDocument,
         ),
-      providerScriptUrl: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.75.1",
+      providerScriptUrl: `${DASHBOARD_BASE}${SCALAR_DIRECTORY}/standalone.js`,
+      providerConfig: {
+        withDefaultFonts: false,
+        telemetry: false,
+        // Scalar's redirectToProxy treats an empty string as a direct request.
+        proxyUrl: "",
+        agent: { disabled: true },
+        mcp: { disabled: true },
+        // The hosted client link sends the document URL to client.scalar.com.
+        hideClientButton: true,
+        // Scalar offers hosted SDK generation in the developer tools on local hubs.
+        showDeveloperTools: "never",
+      } satisfies ReferenceProps["configuration"],
       docsPath: "/docs",
+      // Following a link in the reference must keep the hub's address private.
+      docsHead: '<meta name="referrer" content="no-referrer">',
     }),
   ],
 });
@@ -593,7 +607,7 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
     app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
   } else {
     // Static Assets applies _headers to the shell it serves for a navigation to this same URL.
-    app.get(`${DASHBOARD_BASE}assets/*`, async (c) => {
+    app.get(`${DASHBOARD_BASE}${DASHBOARD_ASSETS}/*`, async (c) => {
       const response = await c.notFound();
       response.headers.append("Vary", "Sec-Fetch-Mode");
       return response;

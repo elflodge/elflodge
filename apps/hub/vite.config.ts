@@ -1,6 +1,8 @@
 import { externals } from "nf3/plugin";
 import { configDefaults, defaultServerConditions, defineConfig } from "vite-plus";
 
+import { DASHBOARD_ASSETS } from "./src/dashboard.ts";
+
 export default defineConfig({
   // The tests start a Runner in this process, which loads the extension adapter's source under the
   // condition its exports give it in the workspace (ADR 0006).
@@ -31,7 +33,7 @@ export default defineConfig({
       {
         from: [
           "../dashboard/dist/client/index.html",
-          "../dashboard/dist/client/assets",
+          `../dashboard/dist/client/${DASHBOARD_ASSETS}`,
           "../dashboard/dist/client/THIRD_PARTY_NOTICES.md",
         ],
         to: "dist/dashboard",
