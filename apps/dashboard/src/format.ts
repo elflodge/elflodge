@@ -23,11 +23,16 @@ export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
   timeZoneName: "short",
 });
 
-/** The note a page shows once beside its instants, valid on both sides of a clock change. */
-export function timeZoneNote(): string {
-  const format = new Intl.DateTimeFormat(LANGUAGE, { timeZoneName: "longGeneric" });
+function zoneName(timeZoneName: "longGeneric" | "short"): string {
+  const format = new Intl.DateTimeFormat(LANGUAGE, { timeZoneName });
   const zone = format.formatToParts().find((part) => part.type === "timeZoneName");
-  return `Times are shown in ${zone?.value ?? format.resolvedOptions().timeZone}.`;
+  return zone?.value ?? format.resolvedOptions().timeZone;
+}
+
+/** Name the zone once above a list. Intl can give an offset even for UTC, whose short name is UTC. */
+export function timeZoneNote(): string {
+  const generic = zoneName("longGeneric");
+  return `Times are in ${generic.startsWith("GMT") ? zoneName("short") : generic}.`;
 }
 
 /** An instant in full, to the second and with its time zone: "Wednesday, 18 November 2026 at 15:41:22 CET". */

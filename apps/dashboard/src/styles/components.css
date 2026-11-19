@@ -356,6 +356,15 @@
   margin-top: 0;
 }
 
+/* ---------- Note: a small line that explains the part it stands under or beside ---------- */
+.note {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  color: var(--c-ink-2);
+  font-size: var(--text-xs);
+}
+
 /* ---------- A link standing alone, outside a sentence: a target of its own, full size at narrow widths or on touch ---------- */
 .stands-alone {
   display: inline-flex;

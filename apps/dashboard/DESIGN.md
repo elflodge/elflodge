@@ -110,6 +110,8 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 
 ### The hub strip
 
+The strip is part of the shell: it is on every page inside it, an account page such as Change password included, so a page begins at the same height everywhere.
+
 Under the bar, for a member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again every 15 seconds while the page is visible.
 
 ```tsx
@@ -126,6 +128,9 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
     <li>
       <span class="mark mark-queued" aria-hidden="true" />
       303 queued
+    </li>
+    <li>
+      <span class="mark mark-paused" aria-hidden="true" />3 paused
     </li>
     <li class="hub-unknown">
       <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
@@ -257,12 +262,12 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
 
-- **An instant** is an `Instant` (`src/components/Time.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`); `format={TIME}` shows the time alone where its day is said nearby. Its `title` gives it in full, to the second and with the zone (`FULL`). A page that writes instants names the zone once in a note line. `timeZoneNote()` in `src/format.ts` uses Intl's `longGeneric` zone name, for example "Times are shown in Pacific Time." The strip gives an isolated failure its zone inline with `format={TIME_ZONED}`, "15:41 CET".
+- **An instant** is an `Instant` (`src/components/Time.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`); `format={TIME}` shows the time alone where its day is said nearby. Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An instant alone on a page that has the note carries none.
 - **A day the hub counts in UTC**, such as a day of usage, given as `YYYY-MM-DD`, is a `UtcDay`, written as that UTC day wherever the reader is. Say once, near it, that the days are UTC days.
 - **A count**, of tokens or of jobs, is `formatCount`; **an amount in US dollars** is `formatUsd`, to four decimals, since a job often costs a fraction of a cent. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
 
 ```tsx
-<p><small>{timeZoneNote()}</small></p>
+<p class="note">{timeZoneNote()}</p>
 <Instant value={job.createdAt} />
 <UtcDay value={day.date} />
 <td class="num">{formatUsd(usage.cost.totalUsd)}</td>
@@ -270,7 +275,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
 
-No page uses `timeZoneNote()`, `TIME`, `formatUsd`, `UtcDay`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
+No page uses `.note`, `timeZoneNote()`, `TIME`, `formatUsd`, `UtcDay`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
 
 ### Records table
 
