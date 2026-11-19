@@ -1,10 +1,10 @@
 import { action, createEffect, createOptimistic } from "solid-js";
 
 /** Restore keyboard focus when it is lost or the focused element is hidden. */
-export function focusIfLost(target: HTMLElement | null | undefined) {
+export function focusIfLost(target: HTMLElement | null | undefined, options?: FocusOptions) {
   const active = document.activeElement;
   if (active === document.body || !active?.checkVisibility({ visibilityProperty: true }))
-    target?.focus();
+    target?.focus(options);
 }
 
 /** Closing the dialog can return focus to its trigger until a later read drops the row. */

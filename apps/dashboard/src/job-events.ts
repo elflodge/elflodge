@@ -11,7 +11,7 @@ import {
   type JobEventOrder,
   type JobEventsPage,
 } from "contract";
-import { createEffect, createMemo, createSignal, onCleanup, until } from "solid-js";
+import { createEffect, createMemo, createSignal, flush, onCleanup, resolve, until } from "solid-js";
 
 import { readJobEvent } from "./job-event-record.ts";
 import { JOB_LIFECYCLE } from "./job-lifecycle.ts";
@@ -58,7 +58,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const ownerLifetime = new AbortController();
   onCleanup(() => ownerLifetime.abort());
   const [order, setOrder] = createSignal<JobEventOrder>("desc");
-  const [switching, setSwitching] = createSignal(false);
+  const [readingPage, setReadingPage] = createSignal(false);
   const [jumpFailure, setJumpFailure] = createSignal<{ error: Error; failedAt: number }>();
   const history = useInfiniteQuery(() => ({
     ...historyOptions(job().id, order()),
@@ -158,8 +158,8 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const events = createMemo(() => historyEvents().concat(liveEvents()));
 
   async function jump(next: JobEventOrder) {
-    if (!enabled() || switching()) return false;
-    setSwitching(true);
+    if (!enabled() || readingPage()) return false;
+    setReadingPage(true);
     setJumpFailure(undefined);
     try {
       const previousHistoryError = history.error;
@@ -199,21 +199,31 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         setJumpFailure({ error: asError(error), failedAt: Date.now() });
       return false;
     } finally {
-      setSwitching(false);
+      setReadingPage(false);
     }
   }
   async function extend(direction: JobEventOrder) {
     if (!enabled() || order() !== direction || isFetchingPage() || !history.hasNextPage)
-      return false;
+      return undefined;
     setJumpFailure(undefined);
-    return (await history.fetchNextPage()).isSuccess;
+    setReadingPage(true);
+    // Disable the button and clear its refusal before a retry suspends the history read.
+    flush();
+    try {
+      const result = await history.fetchNextPage();
+      if (!result.isSuccess || ownerLifetime.signal.aborted) return undefined;
+      // Query's response can arrive before Solid has committed the replacement for the button.
+      return (await resolve(() => history.data)).pages.at(-1);
+    } finally {
+      setReadingPage(false);
+    }
   }
-  const isFetchingPage = () => history.isFetching || switching();
+  const isFetchingPage = () => readingPage() || history.isFetching;
   function failure() {
     const readAt = Math.max(follow.dataUpdatedAt, history.dataUpdatedAt);
     const failed = jumpFailure();
     if (failed) return { ...failed, readAt };
-    const read = history.isError ? history : follow;
+    const read = history.isError && !history.isFetchNextPageError ? history : follow;
     return read.isError ? { error: read.error, failedAt: read.errorUpdatedAt, readAt } : undefined;
   }
 
@@ -221,7 +231,9 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     events,
     liveEvents,
     hasEarlier: () => order() === "desc" && history.hasNextPage,
+    pagedToEnd: () => (pages().length > 1 && !history.hasNextPage ? order() : undefined),
     hasLater,
+    pageError: () => (!readingPage() && history.isFetchNextPageError ? history.error : undefined),
     isAtLatest: () =>
       !!pages().length && !hasLater() && !(follow.dataUpdatedAt && follow.data.hasMore),
     isLoading: () => history.isPending,

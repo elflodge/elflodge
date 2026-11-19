@@ -1,8 +1,16 @@
 import { Link } from "@tanstack/solid-router";
-import { JOB_PAUSED, JOB_RECOVERED, JOB_RESUMED, JOB_SUCCEEDED, type Job } from "contract";
+import {
+  JOB_PAUSED,
+  JOB_RECOVERED,
+  JOB_RESUMED,
+  JOB_SUCCEEDED,
+  problemOf,
+  type Job,
+} from "contract";
 import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
+import { focusIfLost } from "../form.ts";
 import { DAY_YEAR, TIME_SECONDS, formatCount, plural } from "../format.ts";
 import type { ReadJobEvent } from "../job-event-record.ts";
 import type { JobEvents } from "../job-events.ts";
@@ -56,6 +64,57 @@ function JumpGroup(props: {
   );
 }
 
+function PageEdge(props: {
+  direction: "earlier" | "later";
+  at?: Date;
+  error?: Error | null;
+  pending: boolean;
+  read: (button: HTMLButtonElement) => Promise<void>;
+}) {
+  const earlier = () => props.direction === "earlier";
+  return (
+    <div class="events-edge-note">
+      <Show
+        when={props.error}
+        fallback={
+          <p>
+            <Show
+              when={props.at}
+              fallback={earlier() ? "Earlier Events are not shown." : "Later Events are not shown."}
+            >
+              {(at) => (
+                <>
+                  Events {earlier() ? "before" : "after"}{" "}
+                  <Instant value={at()} format={TIME_SECONDS} /> are not shown.
+                </>
+              )}
+            </Show>
+          </p>
+        }
+      >
+        {(error) => {
+          const detail = () => problemOf(error())?.detail;
+          return (
+            <p role="alert">
+              The {props.direction} Events could not be read
+              <Show when={detail()} fallback=".">
+                {(message) => `: ${message()}`}
+              </Show>
+            </p>
+          );
+        }}
+      </Show>
+      <button
+        type="button"
+        disabled={props.pending}
+        onClick={(e) => void props.read(e.currentTarget)}
+      >
+        Show {props.direction} Events
+      </button>
+    </div>
+  );
+}
+
 const MOMENTS: ReadonlySet<string> = new Set([JOB_PAUSED, JOB_RESUMED, JOB_RECOVERED]);
 
 export function JobTimeline(props: {
@@ -66,11 +125,12 @@ export function JobTimeline(props: {
 }) {
   const events = props.events;
   const rows = () => props.groups.events;
-  const first = () => rows().at(0);
   const last = () => rows().at(-1);
   const running = () => props.running && events.isAtLatest();
   let timeline: HTMLOListElement | undefined;
   let heading: HTMLHeadingElement | undefined;
+  let startNote: HTMLDivElement | undefined;
+  const [addition, setAddition] = createSignal<{ newest?: number; sentence: string }>();
   let endMarker: HTMLDivElement | undefined;
   const arrivals = events.liveEvents;
   const [unread, setUnread] = createSignal<readonly { id: number }[]>([]);
@@ -111,75 +171,44 @@ export function JobTimeline(props: {
     if (toStart && events.hasEarlier() && !(await events.readFromStart())) return;
     if (!toStart && !events.isAtLatest() && !(await events.readLatest())) return;
     flush();
+    setAddition(undefined);
     if (toStart) reveal(shownNumber(rows(), false) ?? heading ?? null);
     else goToEnd();
   }
 
   async function extend(earlier: boolean, button: HTMLButtonElement) {
-    const edge = earlier ? first()?.id : last()?.id;
-    const list = timeline;
-    if (edge === undefined || !list || list.dataset.paging !== undefined) return;
-    const focused = document.activeElement;
-    const anchor = earlier
-      ? (shownNumber(rows(), false) ?? document.getElementById("latest"))
-      : null;
-    const top = anchor?.getBoundingClientRect().top;
-    let expectedScrollY = window.scrollY;
-    // Suspend native anchoring to distinguish a reader scroll from an anchoring adjustment.
-    // The browser can still clamp the offset when the last paging control disappears.
-    // Restore anchoring on a reader scroll or before the correction’s queued event is delivered.
-    // Safari 17.5 predates native anchoring (Safari 27) and uses the same measured correction.
-    // https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
-    list.dataset.paging = "keep-position";
-    const observeScroll = () => {
-      const y = window.scrollY;
-      if (y === expectedScrollY || list.dataset.paging === "reader-scrolled") return;
-      const root = document.documentElement;
-      const bottom = root.scrollHeight - root.clientHeight;
-      if (expectedScrollY > bottom && Math.abs(y - bottom) < 1) expectedScrollY = y;
-      else list.dataset.paging = "reader-scrolled";
-    };
-    window.addEventListener("scroll", observeScroll);
-    let added: boolean;
-    try {
-      added = await (earlier ? events.readEarlier() : events.readLater());
-      flush();
-      if (anchor && added) {
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
-      }
-      observeScroll();
-      if (
-        !list.isConnected ||
-        list.dataset.paging === "reader-scrolled" ||
-        (document.activeElement !== focused && document.activeElement !== document.body)
-      )
-        return;
-      if (added && anchor?.isConnected && top !== undefined)
-        window.scrollBy(0, anchor.getBoundingClientRect().top - top);
-    } finally {
-      window.removeEventListener("scroll", observeScroll);
-      delete list.dataset.paging;
+    if (events.isFetchingPage()) return;
+    const hadFocus = document.activeElement === button;
+    const page = await (earlier ? events.readEarlier() : events.readLater());
+    flush();
+    if (!timeline?.isConnected) return;
+    if (page) {
+      const count = page.events.length;
+      setAddition({
+        newest: last()?.id,
+        sentence: `${formatCount(count)} ${earlier ? "earlier" : "later"} ${plural(count, "Event", "Events")} added.`,
+      });
     }
-    const addedNumber =
-      added &&
-      shownNumber(
-        rows().filter((row) => (earlier ? row.id < edge : row.id > edge)),
-        earlier,
-      );
-    if (addedNumber && !earlier) {
-      reveal(addedNumber);
-    } else {
-      const fallback = button.isConnected ? button : (shownNumber(rows(), !earlier) ?? heading);
-      (addedNumber || fallback)?.focus({ preventScroll: true });
-    }
+    if (!hadFocus) return;
+    const next = !earlier && page ? shownNumber(page.events, false) : null;
+    const target = next ?? (button.isConnected ? button : earlier ? startNote : timeline);
+    if (document.activeElement === button && target !== button)
+      target?.focus({ preventScroll: true });
+    else focusIfLost(target, { preventScroll: true });
   }
 
   const readCount = () => {
     const count = formatCount(rows().length);
-    if (events.isAtLatest()) return `${events.hasEarlier() ? "The latest" : "All"} ${count} read`;
-    return events.hasEarlier() ? `${count} read` : `The first ${count} read`;
+    const range = events.isAtLatest()
+      ? events.hasEarlier()
+        ? "The latest "
+        : "All "
+      : events.hasEarlier()
+        ? ""
+        : "The first ";
+    const total = `${range}${count} read`;
+    const added = addition();
+    return added && added.newest === last()?.id ? `${added.sentence} ${total}.` : total;
   };
   const earlierTime = () => rows().find((row) => row.at)?.at;
   const laterTime = () => rows().findLast((row) => row.at)?.at;
@@ -287,25 +316,29 @@ export function JobTimeline(props: {
           </button>
         </nav>
       </Show>
-      <Show when={events.hasEarlier()}>
-        <div class="events-edge-note">
-          <p>
-            <Show when={earlierTime()} fallback="Earlier Events are not shown.">
-              {(at) => (
-                <>
-                  Events before <Instant value={at()} format={TIME_SECONDS} /> are not shown.
-                </>
-              )}
-            </Show>
-          </p>
-          <button
-            type="button"
-            disabled={events.isFetchingPage()}
-            onClick={(e) => void extend(true, e.currentTarget)}
-          >
-            Show earlier Events
-          </button>
-        </div>
+      <Show
+        when={events.hasEarlier()}
+        fallback={
+          <Show when={events.pagedToEnd() === "desc"}>
+            <div
+              class="events-edge-note"
+              tabindex="-1"
+              ref={(el) => {
+                startNote = el;
+              }}
+            >
+              <p>There are no earlier Events.</p>
+            </div>
+          </Show>
+        }
+      >
+        <PageEdge
+          direction="earlier"
+          at={earlierTime()}
+          pending={events.isFetchingPage()}
+          error={events.pageError()}
+          read={(button) => extend(true, button)}
+        />
       </Show>
       <ol
         class="timeline"
@@ -367,25 +400,21 @@ export function JobTimeline(props: {
           endMarker = el;
         }}
       />
-      <Show when={events.hasLater()}>
-        <div class="events-edge-note">
-          <p>
-            <Show when={laterTime()} fallback="Later Events are not shown.">
-              {(at) => (
-                <>
-                  Events after <Instant value={at()} format={TIME_SECONDS} /> are not shown.
-                </>
-              )}
-            </Show>
-          </p>
-          <button
-            type="button"
-            disabled={events.isFetchingPage()}
-            onClick={(e) => void extend(false, e.currentTarget)}
-          >
-            Show later Events
-          </button>
-        </div>
+      <Show
+        when={events.hasLater()}
+        fallback={
+          <Show when={events.pagedToEnd() === "asc"}>
+            <div class="events-edge-note" aria-hidden="true" />
+          </Show>
+        }
+      >
+        <PageEdge
+          direction="later"
+          at={laterTime()}
+          pending={events.isFetchingPage()}
+          error={events.pageError()}
+          read={(button) => extend(false, button)}
+        />
       </Show>
       <div role="status" aria-atomic="true" class="new-events">
         <Show when={unread().length}>

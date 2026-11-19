@@ -240,63 +240,74 @@ test("a member opens the latest hundred Events in journal order, with their orig
   );
 }, 30_000);
 
-test("walking back keeps the first Event in place and focuses the nearest addition", async () => {
-  const { id } = await jobWithHistory(102);
+test("a member reads earlier Events from the same button until reaching the start", async () => {
+  const { id } = await jobWithHistory(202);
   const page = await openAsMember("Earlier Events", `jobs/${id}`);
   const earlier = page.getByRole("button", { name: "Show earlier Events" });
-  const first = page.locator("#event-30");
   await earlier.focus();
-  const top = await first.evaluate((el) => el.getBoundingClientRect().top);
+  const top = await earlier.evaluate((button) => button.getBoundingClientRect().top);
   await page.keyboard.press("Enter");
-  await expectBrowser(page.locator("#event-20")).toBeFocused();
+  const count = page.locator(".tl-head [role=status]");
+  await expectBrowser(count).toHaveText("100 earlier Events added. The latest 200 read.");
+  await expectBrowser(earlier).toBeFocused();
+  expect(await earlier.evaluate((button) => button.getBoundingClientRect().top)).toBeCloseTo(
+    top,
+    0,
+  );
+  await page.keyboard.press("Tab");
+  await expectBrowser(page.locator("#event-30")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Enter");
+  await expectBrowser(count).toHaveText("4 earlier Events added. All 204 read.");
+  await expectBrowser(
+    page.locator(".events-edge-note").filter({ hasText: "There are no earlier Events." }),
+  ).toBeFocused();
   await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
-  const after = await first.evaluate((el) => el.getBoundingClientRect().top);
-  expect(Math.abs(after - top)).toBeLessThan(1);
 }, 30_000);
 
-test("scrolling during an earlier read leaves scrolling and focus with the reader", async () => {
+test("a member can retry a refused earlier page from its own box", async () => {
   const { id } = await jobWithHistory(102);
-  const page = await openAsMember("Reading another Event", `jobs/${id}`);
-  // Without browser anchoring, any correction by the dashboard changes scrollY.
-  await page.addStyleTag({ content: "body { overflow-anchor: none }" });
+  const page = await openAsMember("Retry earlier Events", `jobs/${id}`);
   const earlier = page.getByRole("button", { name: "Show earlier Events" });
-  await earlier.evaluate((button) => {
-    button.scrollIntoView({ block: "center" });
-    button.focus({ preventScroll: true });
-  });
-  const requested = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  await page.route(`**/jobs/${id}/events?*`, async (route) => {
-    const query = new URL(route.request().url()).searchParams;
-    if (query.get("order") === "desc" && query.get("after") === "30") {
-      requested.resolve();
-      await release.promise;
-    }
+  const retry = Promise.withResolvers<void>();
+  const earlierPage = (url: URL) =>
+    url.pathname.endsWith(`/jobs/${id}/events`) &&
+    url.searchParams.get("order") === "desc" &&
+    url.searchParams.get("after") === "30";
+  await page.route(
+    earlierPage,
+    (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          status: 403,
+          title: "Forbidden",
+          detail: "Access to these Events was refused.",
+        },
+      }),
+    { times: 1 },
+  );
+  await earlier.click();
+  const box = page.locator(".events-edge-note");
+  await expectBrowser(box.getByRole("alert")).toHaveText(
+    "The earlier Events could not be read: Access to these Events was refused.",
+  );
+  await expectBrowser(earlier).toBeFocused();
+  await page.route(earlierPage, async (route) => {
+    await retry.promise;
     await route.continue();
   });
-  const reading = page.locator("#event-260");
-  await page.keyboard.press("Enter");
-  let chosenScroll: number;
   try {
-    await requested.promise;
-    chosenScroll = await reading.evaluate((el) => {
-      el.scrollIntoView({ block: "center" });
-      return el.ownerDocument.documentElement.scrollTop;
-    });
+    await page.keyboard.press("Enter");
+    await expectBrowser(earlier).toBeDisabled();
+    await expectBrowser(box.getByRole("alert")).toHaveCount(0);
   } finally {
-    release.resolve();
+    retry.resolve();
   }
-  await expectBrowser(earlier).toHaveCount(0);
-  await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
-  const scrollAfterLayout = await page.locator("html").evaluate(async (root) => {
-    const view = root.ownerDocument.defaultView;
-    await new Promise<void>((resolve) =>
-      view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())),
-    );
-    return root.scrollTop;
-  });
-  expect(scrollAfterLayout).toBe(chosenScroll);
-  await expectBrowser(page.locator("body")).toBeFocused();
+  await expectBrowser(box).toHaveText("There are no earlier Events.");
+  await expectBrowser(box).toBeFocused();
 }, 30_000);
 
 test("a member can read from the start and request the next page in order", async () => {
@@ -311,7 +322,10 @@ test("a member can read from the start and request the next page in order", asyn
   await page.getByText("Runner’s records and errors", { exact: true }).click();
   await page.getByRole("button", { name: "Show later Events" }).click();
   await expectBrowser(recordsAndErrors).toBeChecked();
-  await expectBrowser(page.locator("#event-2")).toBeFocused();
+  await expectBrowser(page.locator("ol.timeline")).toBeFocused();
+  await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText(
+    "4 later Events added. All 104 read.",
+  );
   await expectBrowser(numbers.last()).toHaveText("1020");
   await expectBrowser(numbers).toHaveCount(104);
 }, 30_000);
