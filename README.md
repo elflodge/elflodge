@@ -188,6 +188,8 @@ npx elflodge jobs list --batch-id postings --status failed
 npx elflodge jobs list --batch-id postings --status succeeded   # listed jobs carry no output: read one with jobs get
 ```
 
+Owners and admins can read `GET /usage` for job ends, tokens and cost over a window and on every UTC day in it, including empty days. With `groupBy`, the same read ranks groups over the whole window and adds up the rest as `other`. Each end counts on the day the hub recorded it, including a resumed job's next end and ends of deleted jobs.
+
 Jobs can be added continuously (`add-jobs`, `jobs submit`) and read continuously (`jobs wait`, `jobs list`). A job's journal is on disk, so a restarted Runner recovers its jobs where they stopped. A prompt that gives wrong but valid answers passes the Canary. Read some outputs.
 
 ## Read it before you run it

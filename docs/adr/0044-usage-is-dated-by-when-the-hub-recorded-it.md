@@ -13,7 +13,7 @@ Days are UTC days, as the API's instants are in UTC, so a day is the same for ev
 
 ## Consequences
 
-An end the hub learns of late counts on the day it learns of it, so a Runner that reconnects after midnight adds the previous day's work to the new day. A read covers a window of days by an index on `recordedAt`.
+An end the hub learns of late counts on the day it learns of it, so a Runner that reconnects after midnight adds the previous day's work to the new day. The `recordedAt` index supports reads over a window of days. Each Usage record counts as one job end, including each end of a resumed job and ends of deleted jobs. The window total and every UTC day carry job ends, tokens and cost. Grouping ranks groups over the whole window by cost, then tokens, then a fixed order. The remaining groups are counted and summed in `other`. Days keep their totals even when the caller asks for groups.
 
 ## When to reconsider
 

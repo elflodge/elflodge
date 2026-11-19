@@ -569,6 +569,8 @@ export const usageGroupBySchema = z.union(
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
 
+const usageCountSchema = z.object({ jobEnds: z.int(), usage: usageSchema });
+
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
  * ID; `submitter`, who submitted the jobs, with the name its latest record in the window holds,
@@ -578,46 +580,44 @@ export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
  */
 const usageGroupSchema = z
   .union([
-    z.object({ batchId: batchIdSchema, usage: usageSchema }),
-    z.object({ submitter: submitterSchema, usage: usageSchema }),
-    z.object({
+    z.extend(usageCountSchema, { batchId: batchIdSchema }),
+    z.extend(usageCountSchema, { submitter: submitterSchema }),
+    z.extend(usageCountSchema, {
       runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
-      usage: usageSchema,
     }),
-    z.object({ status: finalJobStatusSchema, usage: usageSchema }),
-    z.object({ labelValue: z.nullable(z.string()), usage: usageSchema }),
+    z.extend(usageCountSchema, { status: finalJobStatusSchema }),
+    z.extend(usageCountSchema, { labelValue: z.nullable(z.string()) }),
   ])
   .register(z.globalRegistry, { id: "UsageGroup" });
 export type UsageGroup = z.infer<typeof usageGroupSchema>;
 
-/** Model usage over a window of days: in total, each day's and, when grouped, each group's. */
-export const usageReportSchema = z
-  .object({
-    /** The window's first day, a UTC day. */
-    from: dateSchema,
-    /** The window's last day, included. */
-    to: dateSchema,
-    usage: usageSchema,
-    /**
-     * With `groupBy`, the groups that cost the most over the window, at most `limit`, the costliest
-     * first; between groups that cost the same, the one with more tokens first, then in a fixed order.
-     */
-    groups: z.optional(z.array(usageGroupSchema)),
-    /** With `groupBy`, how many groups are not in `groups`, and their usage together. */
-    other: z.optional(z.object({ groups: z.int(), usage: usageSchema })),
-    /** Every day of the window, oldest first, days without usage included. */
-    days: z.array(
-      z.object({
-        date: dateSchema,
-        usage: usageSchema,
-        /** With `groupBy`, the window's `groups`, in its order, each with the day's usage. */
-        groups: z.optional(z.array(usageGroupSchema)),
-        /** With `groupBy`, the day's usage of the groups not in `groups`. */
-        other: z.optional(z.object({ usage: usageSchema })),
-      }),
-    ),
-  })
-  .register(z.globalRegistry, { id: "UsageReport" });
+const usageWindowSchema = z.extend(usageCountSchema, {
+  from: dateSchema,
+  to: dateSchema,
+  /** Every UTC day of the window, oldest first, including days without job ends. */
+  days: z.array(z.extend(usageCountSchema, { date: dateSchema })),
+});
+
+export const usageReportSchema = z.union([
+  z
+    .extend(usageWindowSchema, { groups: z.optional(z.never()), other: z.optional(z.never()) })
+    .register(z.globalRegistry, {
+      id: "UsageReport",
+      description: "Without `groupBy`, job ends and model usage for the window and each day.",
+    }),
+  z
+    .extend(usageWindowSchema, {
+      /** At most `limit` groups, highest cost first, then most tokens, then in a fixed order. */
+      groups: z.array(usageGroupSchema),
+      /** The remaining groups counted and summed, all zeros when none remain. */
+      other: z.extend(usageCountSchema, { groups: z.int() }),
+    })
+    .register(z.globalRegistry, {
+      id: "GroupedUsageReport",
+      description:
+        "With `groupBy`, job ends and model usage for the window, each day and the ranked groups.",
+    }),
+]);
 export type UsageReport = z.infer<typeof usageReportSchema>;
 
 /** A name a person gives, such as the Organization's or a member's. */
@@ -1190,7 +1190,7 @@ export const apiContract = {
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
+          description: `Reads the Organization's job ends and model usage over a window of UTC days. The answer gives the total and every day's counts, oldest first, including empty days. With \`groupBy\`, it also gives up to \`limit\` groups ranked by cost over the whole window, then by tokens, then in a fixed order. The remaining groups are counted and summed in \`other\`. Only owners and admins may read it. Other members are refused with 403. Each job end counts on the day the hub recorded it. A job resumed after it ended counts once for each end, with what it used since its previous end. Deleted jobs still count. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),

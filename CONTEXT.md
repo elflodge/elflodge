@@ -36,8 +36,11 @@ _Avoid_: checkpoint
 **Recovery**:
 A running job carrying on from its journal after its Runner stopped and started again: it stays running, completed tool calls are not repeated, a tool call cut off mid-flight gets an interrupted result, and a model call in flight is made again. A job whose journal is lost is not recovered. Not a resume, which is a control a caller gives a stopped job.
 
+**Job end**:
+A job reaching a final status. A job resumed after it ended can end again. Each job end writes one Usage record.
+
 **Usage record**:
-The small, lasting record of a job's outcome and cost (labels, Batch, status, Runner, its submitter, tokens, cost, times), kept after the job's content is deleted. A job resumed after it ended has one for each end, each with what it used since the previous one.
+The small, lasting record of a job end and its usage (labels, Batch, status, Runner, its submitter, tokens, cost, times), kept after the job's content is deleted. It counts what the job used since its previous end.
 _Avoid_: billing record, receipt
 
 **Batch**:
