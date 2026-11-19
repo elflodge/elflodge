@@ -11,19 +11,29 @@ import {
   statusFilter,
 } from "../../../components/ListFilters.tsx";
 
-const searchSchema = z.object({
-  status: statusFilter(batchStatusSchema),
-  labelKey: optionalText,
-  labelValue: z.catch(z.optional(z.string()), undefined),
-  after: optionalText,
-});
+const searchSchema = z.pipe(
+  z.object({
+    status: statusFilter(batchStatusSchema),
+    labelKey: optionalText,
+    labelValue: z.catch(z.optional(z.string()), undefined),
+    after: optionalText,
+  }),
+  z.transform((search) =>
+    search.labelKey && search.labelValue !== undefined
+      ? search
+      : { ...search, labelKey: undefined, labelValue: undefined },
+  ),
+);
 export type BatchesSearch = z.infer<typeof searchSchema>;
 
 export function listInput(search: BatchesSearch) {
   return {
     status: search.status,
     after: search.after,
-    labels: search.labelKey ? { [search.labelKey]: search.labelValue ?? "" } : undefined,
+    labels:
+      search.labelKey && search.labelValue !== undefined
+        ? { [search.labelKey]: search.labelValue }
+        : undefined,
   };
 }
 
@@ -39,7 +49,6 @@ export const Route = createFileRoute("/_signed-in/_member/batches")({
 function Batches() {
   const search = Route.useSearch();
   const navigate = useNavigate();
-  // A supplied key can match an empty Label value. A value alone needs its key.
   const [labelKey, setLabelKey] = createSignal(() => search().labelKey ?? "");
   const [labelValue, setLabelValue] = createSignal(() => search().labelValue ?? "");
   const failed = useChildMatches({
@@ -52,7 +61,7 @@ function Batches() {
     });
     return navigate({
       to: "/batches",
-      search: { ...values, labelValue: values.labelKey ? values.labelValue : undefined },
+      search: values,
     });
   }
   return (
@@ -89,6 +98,7 @@ function Batches() {
             <input
               id="batch-label-value"
               name="labelValue"
+              required={!!labelKey()}
               value={labelValue()}
               onInput={({ currentTarget }) => setLabelValue(currentTarget.value)}
             />

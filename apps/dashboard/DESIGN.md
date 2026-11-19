@@ -390,7 +390,7 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 ### Batches list
 
-Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator’s name can wrap. This table folds at 50rem to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
+Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator’s name can wrap. This table folds when its frame is 48rem wide or narrower to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
 
 An active Batch may take jobs even when all of its jobs have ended. Its mark is the filled dot in the hood’s green. A waiting cancel or a pause’s cause appears under the status word in the list.
 
@@ -433,7 +433,7 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
 
 ### Ledger
 
-A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The last cell holds the way to the records counted by the row when there are any. The total goes under the double rule in `tfoot`.
+A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights only when the number running exceeds the number with unknown status. The total goes under the double rule in `tfoot`.
 
 ```tsx
 <table class="ledger">

@@ -723,19 +723,17 @@ p:has(> button) + .prose {
 .records td > ul.plain {
   white-space: normal;
 }
-/* The same labelled blocks serve both column sets. Batches need 12rem for the ID
-   beside six other columns, including the whole creation time. */
+/* On a phone every Records table folds. The seven-column Batch list also folds
+   when its own frame leaves less than about 12rem for the identifier. */
 @media (max-width: 640px) {
-  .page {
-    --records-layout: blocks;
+  .page:has(.records) {
+    container: records / inline-size;
   }
 }
-@media (max-width: 50rem) {
-  .batch-list {
-    --records-layout: blocks;
-  }
+.batch-list {
+  container: records / inline-size;
 }
-@container style(--records-layout: blocks) {
+@container records (width <= 48rem) {
   /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
   .records thead {
     position: absolute;
@@ -796,7 +794,7 @@ p:has(> button) + .prose {
   display: inline-grid;
   vertical-align: top;
 }
-@media (width > 50rem) {
+@container records (width > 48rem) {
   .batch-list .records td.batch-submitter {
     min-width: 10rem;
     max-width: 12rem;
@@ -1428,11 +1426,13 @@ p mark.placeholder {
   }
 }
 .job-list .c-batch a.cut {
+  min-width: var(--target);
   min-height: var(--target);
   align-content: center;
 }
 @media (max-width: 640px), (pointer: coarse) {
   .job-list .c-batch a.cut {
+    min-width: var(--control-touch);
     min-height: var(--control-touch);
   }
 }
@@ -2159,10 +2159,12 @@ p mark.placeholder {
   font-size: var(--text-xs);
 }
 .crumbs .cut {
+  min-width: var(--target);
   line-height: var(--target);
 }
 @media (max-width: 640px), (pointer: coarse) {
   .crumbs .cut {
+    min-width: var(--control-touch);
     line-height: var(--control-touch);
   }
 }
