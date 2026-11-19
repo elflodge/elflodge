@@ -4,6 +4,7 @@ import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
 import { KEY_PERMISSIONS } from "contract";
 import type { Kysely } from "kysely";
+import { jsonBuildObject } from "kysely/helpers/postgres";
 
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, UserId } from "../db/types.ts";
@@ -59,7 +60,10 @@ export interface AuthSettings {
   rateLimit: boolean;
 }
 
-/** A member gets the Organization and role. Other accounts get only the `notMember` or `hubNotSetUp` status. */
+/**
+ * A member gets the Organization and role. Other accounts get only the `notMember` or
+ * `hubNotSetUp` status.
+ */
 async function findMembership(db: Kysely<Database>, userId: UserId) {
   const row = await db
     .withSchema(DB_SCHEMA)
@@ -67,7 +71,12 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
     .leftJoin("member", (join) =>
       join.onRef("member.organizationId", "=", "organization.id").on("member.userId", "=", userId),
     )
-    .select(["organization.id", "organization.name", "member.role"])
+    .select((eb) => [
+      jsonBuildObject({ id: eb.ref("organization.id"), name: eb.ref("organization.name") }).as(
+        "organization",
+      ),
+      "member.role",
+    ])
     .limit(1)
     .executeTakeFirst();
   // Setup in 0.10.0 and earlier could leave an owner account behind before creating the Organization.
@@ -75,7 +84,7 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
   if (row.role === null) return { status: "notMember" } as const;
   return {
     status: "member",
-    organization: { id: row.id, name: row.name },
+    organization: row.organization,
     role: row.role,
   } as const;
 }

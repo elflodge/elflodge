@@ -58,7 +58,7 @@ import {
 import { checkBlobs, uploadBlob } from "./blobs.ts";
 import { DASHBOARD_BASE } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
-import { ApikeyId, EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
+import { EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
 import {
   type Control,
@@ -384,12 +384,13 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       }),
     },
     runnerProtocol: {
-      register: os.runnerProtocol.register.effect(function* ({ input }) {
-        return yield* registerRunner(input.name);
+      register: os.runnerProtocol.register.effect(function* ({ input, context }) {
+        const key = yield* callerKey(context.caller);
+        return yield* registerRunner(key.referenceId, input.name);
       }),
       getInputFileChunk: os.runnerProtocol.getInputFileChunk.effect(function* ({ input, context }) {
         const key = yield* callerKey(context.caller);
-        const runnerId = yield* findRunnerByKey(ApikeyId(key.id));
+        const runnerId = yield* findRunnerByKey(key.id);
         // The IDs and the path enter the hub here.
         const chunk =
           runnerId &&
@@ -551,7 +552,7 @@ export function decideRunnerUpgrade(request: Request) {
 function authenticateRunner(headers: Headers) {
   return Effect.gen(function* () {
     const key = yield* requireKey(headers, { runner: ["actAs"] });
-    return (yield* findRunnerByKey(ApikeyId(key.id))) ?? runnerNotFound();
+    return (yield* findRunnerByKey(key.id)) ?? runnerNotFound();
   }).pipe(
     // A key the hub could check and does not know; a hub that cannot reach its database tells the
     // Runner to retry.

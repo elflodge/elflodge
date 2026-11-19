@@ -14,7 +14,7 @@ import type { BetterAuth } from "../../hub/src/auth/auth.ts";
  */
 export const authClient = createAuthClient({
   plugins: [
-    // Better Auth stores even a combination of roles as one string, which checkRolePermission accepts.
+    // Better Auth stores combined roles as one string, which checkRolePermission accepts.
     organizationClient<{ ac: typeof ac; roles: Record<string, Role> }>({ ac, roles }),
     customSessionClient<BetterAuth>(),
   ],

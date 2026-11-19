@@ -15,23 +15,27 @@ import {
   watchDocumentMember,
 } from "../member-document.ts";
 
-// Every page but signing in and setting up is for a signed-in member. The session is read from the
+// Every page but signing in and setting up is for a signed-in user. The session is read from the
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
-// another device, sends the member to sign in again.
+// another device, sends the user to sign in again.
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
     const session = await readFromHub("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
-    return { member: session.user, membership: session.membership };
+    return { user: session.user, membership: session.membership };
   },
   component: SignedIn,
 });
 
 function SignedIn() {
   const context = Route.useRouteContext();
+  const memberOrganization = () => {
+    const { membership } = context();
+    return membership.status === "member" ? membership.organization : undefined;
+  };
   const router = useRouter();
-  onSettled(() => watchDocumentMember(context().member.id));
+  onSettled(() => watchDocumentMember(context().user.id));
   const [error, setError] = createSignal<string>();
   let account: HTMLDivElement | undefined;
   let opener: HTMLButtonElement | undefined;
@@ -89,7 +93,7 @@ function SignedIn() {
           </span>
         </Link>
         {/* Removing a member leaves their session, which then has no Organization to name. */}
-        <Show when={context().membership.organization}>
+        <Show when={memberOrganization()}>
           {(organization) => (
             <span class="org" title={organization().name}>
               {organization().name}
@@ -109,8 +113,8 @@ function SignedIn() {
               opener = element;
             }}
           >
-            <span class="member-name" title={context().member.name}>
-              {context().member.name}
+            <span class="member-name" title={context().user.name}>
+              {context().user.name}
             </span>
             <span class="mark mark-opens" aria-hidden="true" />
           </button>
@@ -127,12 +131,12 @@ function SignedIn() {
               <Destinations class="nav-stack" />
             </nav>
             <p class="pop-who">
-              <strong>{context().member.name}</strong>
+              <strong>{context().user.name}</strong>
               <br />
               {/* In the mono, as what a person may copy. The sans also draws a full stop close into
                   a round letter beside it, which closes up an address such as "pine.example". */}
-              <span class="mono">{context().member.email}</span>
-              <Show when={context().membership.organization}>
+              <span class="mono">{context().user.email}</span>
+              <Show when={memberOrganization()}>
                 {(organization) => (
                   <>
                     <br />
@@ -161,7 +165,7 @@ function SignedIn() {
         </div>
       </header>
       {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}
-      <Show when={context().membership.organization}>
+      <Show when={memberOrganization()}>
         <HubStrip />
       </Show>
       <main id="main" class="page">

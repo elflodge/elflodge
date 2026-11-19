@@ -40,7 +40,7 @@ import { type Caller, keyMetadataSchema } from "./auth/auth.ts";
 import { deleteUnusedBlobs } from "./blobs.ts";
 import { Db, DB_SCHEMA, greatest, plusDuration } from "./db/database.ts";
 import {
-  ApikeyId,
+  type ApikeyId,
   type BatchUid,
   type Database,
   type EventId,
@@ -480,7 +480,7 @@ export function submitterOf(caller: Caller): Effect.Effect<Submitter> {
     const { createdBy } = keyMetadataSchema.parse(key.metadata);
     return Effect.succeed({
       kind: KEY_SUBMITTER,
-      id: ApikeyId(key.id),
+      id: key.id,
       name: key.name,
       keyCreatorUserId: UserId(createdBy),
     });

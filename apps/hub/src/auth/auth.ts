@@ -4,14 +4,15 @@ import { isAPIError } from "better-auth/api";
 // The server's permission evaluator needs a Better Auth endpoint context. This export checks the
 // same static roles using only the role and permissions available to the hub's guard.
 import { clientSideHasPermission } from "better-auth/client/plugins";
+import type { RoleStatements } from "better-auth/plugins/access";
 import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
-import { Cause, Context, Effect, Layer } from "effect";
+import { Cause, Context, Effect, Layer, type Types } from "effect";
 import ensureError from "ensure-error";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
 import { Db, openScopedDatabase } from "../db/database.ts";
-import { type Database, OrganizationId } from "../db/types.ts";
+import { ApikeyId, type Database, OrganizationId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
 import { authOptions, type AuthSettings } from "./options.ts";
 
@@ -81,16 +82,6 @@ export async function findOrganization(db: Kysely<Database>) {
   return await db.selectFrom("organization").select("id").executeTakeFirst();
 }
 
-/** The deployment's Organization, or a 503 error before the hub is set up. */
-export const getOrganization = Effect.gen(function* () {
-  const database = yield* Db;
-  const organization = yield* database.query(findOrganization);
-  if (!organization) {
-    return yield* Effect.fail(new HubNotSetUp());
-  }
-  return organization;
-});
-
 /**
  * The signed-in user with their Organization and role. A missing session gets a 401, a hub
  * without an Organization gets a 503, and a signed-in account without membership gets a 403.
@@ -142,7 +133,11 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
       return yield* Effect.fail(new Unauthorized());
     }
     // Both key configurations give Better Auth an Organization as the key's owner.
-    return { ...result.key, referenceId: OrganizationId(result.key.referenceId) };
+    return {
+      ...result.key,
+      id: ApikeyId(result.key.id),
+      referenceId: OrganizationId(result.key.referenceId),
+    };
   });
 }
 
@@ -154,7 +149,7 @@ export function requireRolePermission(role: string, permissions: RolePermissions
 }
 
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
-type RolePermissions = Parameters<typeof clientSideHasPermission>[0]["permissions"];
+type RolePermissions = Types.DeepMutable<RoleStatements<typeof ac.statements>>;
 
 /**
  * What the hub records in the metadata of a key a member creates: the member, whom Better Auth does

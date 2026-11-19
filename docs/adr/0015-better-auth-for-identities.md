@@ -18,7 +18,7 @@ Removing a member leaves their account and session valid. Better Auth joins the 
 - A table of the hub's own for the token: Better Auth's `verification` table already keeps one-time values with an expiry, consumes them atomically and can store them by their digest.
 - Only environment variables, as before the dashboard: they remain for automated deploys, but a person setting up a hub by hand should not have to put a password in a file.
 - Environment variables that set the owner on every start (n8n's opt-in mode): rare, and it makes the environment a second source of truth for a member managed in the hub.
-- A typed `GET /me` would need to call Better Auth with `returnHeaders: true` and forward each `Set-Cookie` header and the `Cache-Control` header on renewal. A 403 from the member guard also omits the account, so a removed member's pages would need a second request. Better Auth's session endpoint already preserves the renewal headers and the account.
+- A typed `GET /me` would need to call Better Auth with `returnHeaders: true` and forward `Cache-Control: no-store` and `Pragma: no-cache` on every response, along with each `Set-Cookie` header on renewal. A 403 from the member guard also omits the account, so a removed member's pages would need a second request. Better Auth's session endpoint already preserves the renewal headers and the account.
 - A permission flag per feature in the session would change its response with every new feature. The role and the shared role definitions already answer those checks.
 
 ## Consequences
