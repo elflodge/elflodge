@@ -1,17 +1,20 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
-// The shared package avoids @effect/platform-node's required redis peer, which the CLI does not use.
+// The shared package avoids @effect/platform-node's required redis peer, which the CLI does not
+// use.
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
 import * as NodeRuntime from "@effect/platform-node-shared/NodeRuntime";
-import { createORPCClient, ORPCError } from "@orpc/client";
+import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { writeFile } from "atomically";
 import {
   apiContract,
   createProblemDetailsLink,
+  KEY_PERMISSIONS,
+  type KeyPermissions,
   type Runner,
   type RunnerCapabilities,
 } from "contract";
@@ -29,7 +32,7 @@ import {
   Runtime,
   Stream,
 } from "effect";
-import { Cookies, Headers } from "effect/http";
+import { Cookies } from "effect/http";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import ensureError from "ensure-error";
 import envPaths from "env-paths";
@@ -43,15 +46,18 @@ import * as z from "zod/mini";
 // the same jobs, keys and Runner, with any sign-in the Runner holds, across starts.
 
 /**
- * The Compose project, apart from the Compose deployment's `elflodge`, so neither touches the other.
- * `ELFLODGE_STACK_PROJECT` names another, so the repository's tests never touch a contributor's own.
+ * The stack has its own Compose project so it can run alongside the `elflodge` deployment.
+ * Tests set `ELFLODGE_STACK_PROJECT` to keep their containers apart from a contributor's stack.
  */
 const PROJECT = process.env["ELFLODGE_STACK_PROJECT"] ?? "elflodge-stack";
 
 /** The dashboard owner the hub creates on its first start. */
 const OWNER_EMAIL = "owner@example.com";
 
-/** Where the state lives: the user's data folder, never the working directory, where it could be committed. */
+/**
+ * Where the state lives: the user's data folder, never the working directory, where it could be
+ * committed.
+ */
 const STATE_DIR = path.join(envPaths("elflodge").data, "stack");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 const COMPOSE_FILE = path.join(STATE_DIR, "compose.json");
@@ -64,7 +70,10 @@ const modelSchema = z.object({
 });
 type Model = z.infer<typeof modelSchema>;
 
-/** What a start keeps for the next: the secrets the database and hub were created with, and the keys made on them. */
+/**
+ * What a start keeps for the next: the secrets the database and hub were created with, and the keys
+ * made on them.
+ */
 const stateSchema = z.object({
   postgresPassword: z.string(),
   betterAuthSecret: z.string(),
@@ -73,14 +82,17 @@ const stateSchema = z.object({
   model: modelSchema,
   /** Names only: their external values are required again when creating a Runner. */
   env: z._default(z.array(z.string()), []),
-  /** The providers jobs may search the web through, as `RUNNER_WEB_SEARCH`; none, the Runner's default, at first. */
+  /**
+   * The providers jobs may search the web through, as `RUNNER_WEB_SEARCH`; none, the Runner's
+   * default, at first.
+   */
   search: z._default(z.array(z.string()), []),
   /** The key Runners register with, which the Runner uses on its first start only. */
   registrationKey: z.optional(z.string()),
   /** The key for submitting and controlling jobs, which other commands use when no other is set. */
   apiKey: z.optional(z.string()),
-  /** The jobs key on a new stack. On upgrade, null means the hub refused the initial password. */
-  runnerReadKey: z.nullish(z.string()),
+  /** The Runner listing key: the jobs key on a new stack, a separate key on an upgraded stack. */
+  runnerReadKey: z.optional(z.string()),
 });
 type State = z.infer<typeof stateSchema>;
 
@@ -142,13 +154,27 @@ function secret() {
   return randomBytes(24).toString("hex");
 }
 
-/** The hub `elflodge stack` runs and the key it made, for commands run without their own settings. */
+/**
+ * The hub `elflodge stack` runs and the key it made, for commands run without their own settings.
+ */
 export function savedHub(
-  key: "apiKey" | "runnerReadKey" = "apiKey",
+  permissions?: KeyPermissions,
 ): Effect.Effect<{ url: URL; apiKey: string } | undefined, Error> {
-  return Effect.map(readState(), (state) => {
-    if (!state?.apiKey) return undefined;
-    return { url: new URL(hubUrl(state.port)), apiKey: state[key] ?? state.apiKey };
+  return Effect.gen(function* () {
+    const state = yield* readState();
+    if (state?.apiKey === undefined) return undefined;
+    const apiKey =
+      permissions && "runner" in permissions && permissions.runner.includes("read")
+        ? state.runnerReadKey
+        : state.apiKey;
+    if (apiKey === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          "The local stack has no Runner read key. Run elflodge stack start to try creating it.",
+        ),
+      );
+    }
+    return { url: new URL(hubUrl(state.port)), apiKey };
   });
 }
 
@@ -189,7 +215,10 @@ function runnerService(state: State, version: string) {
   };
 }
 
-/** The image's folder of the Runner's extensions: pi-web-access, which reads web pages and searches where allowed. */
+/**
+ * The image's folder of the Runner's extensions: pi-web-access, which reads web pages and searches
+ * where allowed.
+ */
 const IMAGE_EXTENSIONS = "/app/extensions";
 
 function runnerConfiguration(state: State, version: string) {
@@ -399,7 +428,9 @@ function dockerOutput(args: readonly string[]) {
   );
 }
 
-/** Reads only lifecycle metadata and our nonsecret declaration, never retained environment values. */
+/**
+ * Reads only lifecycle metadata and our nonsecret declaration, never retained environment values.
+ */
 function existingRunner() {
   return Effect.gen(function* () {
     const output = yield* dockerOutput([
@@ -481,97 +512,58 @@ function stackClient(
   );
 }
 
-/** Signs in only to mint keys. The owner may have changed the initial password in the dashboard. */
+/** Signs in as the owner to create the stack's missing keys. */
 function signIn(state: State) {
-  return Effect.gen(function* () {
-    const url = hubUrl(state.port);
-    const request = Effect.tryPromise({
-      try: (signal) =>
-        fetch(`${url}/api/auth/sign-in/email`, {
-          signal,
-          method: "POST",
-          // Better Auth checks the origin of a sign-in made with fetch.
-          headers: { "content-type": "application/json", origin: url },
-          body: JSON.stringify({ email: OWNER_EMAIL, password: state.ownerPassword }),
-        }),
-      catch: ensureError,
-    });
-    let response = yield* request;
-    if (response.status === 429) {
-      // Better Auth sends the remaining seconds in X-Retry-After.
-      const wait = Result.getOrUndefined(
-        Headers.parseRetryAfter(response.headers.get("X-Retry-After") ?? ""),
-      );
-      if (wait && "duration" in wait) {
-        yield* Effect.tryPromise({
-          try: () => response.body?.cancel() ?? Promise.resolve(),
-          catch: ensureError,
-        });
-        response = yield* Effect.delay(request, wait.duration);
+  // Setup or the first start after an upgrade normally signs in once as the hub comes up, before
+  // anyone uses the dashboard, so a failed attempt waits for the next start.
+  return Effect.tryPromise({
+    try: async (signal) => {
+      const url = hubUrl(state.port);
+      const response = await fetch(`${url}/api/auth/sign-in/email`, {
+        signal,
+        method: "POST",
+        // Better Auth checks the origin of a sign-in made with fetch.
+        headers: { "content-type": "application/json", origin: url },
+        body: JSON.stringify({ email: OWNER_EMAIL, password: state.ownerPassword }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          `The hub refused the owner's sign-in (HTTP ${response.status}): ${await response.text()}`,
+        );
       }
-    }
-    if (!response.ok) {
-      const detail = yield* Effect.tryPromise({ try: () => response.text(), catch: ensureError });
-      if (response.status === 401) return undefined;
-      return yield* Effect.fail(new Error(`The hub refused the owner's sign-in: ${detail}`));
-    }
-    const cookie = Cookies.toCookieHeader(Cookies.fromSetCookie(response.headers.getSetCookie()));
-    return stackClient(state.port, { cookie });
+      const cookie = Cookies.toCookieHeader(Cookies.fromSetCookie(response.headers.getSetCookie()));
+      return stackClient(state.port, { cookie });
+    },
+    catch: (cause) => (cause instanceof Error ? cause : ensureError(cause)),
   });
 }
 
-/** Creates only missing keys and saves each before making the next. */
+/** Creates missing keys, saving a new registration key before asking the hub for the next key. */
 function createMissingKeys(state: State) {
   return Effect.gen(function* () {
-    const hasStackKeys = state.registrationKey !== undefined && state.apiKey !== undefined;
-    if (hasStackKeys && state.runnerReadKey !== undefined) return state;
-    const signedIn = yield* Effect.result(signIn(state));
-    if (Result.isFailure(signedIn)) {
-      if (hasStackKeys) return state;
-      return yield* Effect.fail(signedIn.failure);
+    if (state.registrationKey && state.apiKey && state.runnerReadKey) return state;
+    const client = yield* signIn(state);
+    const create = (name: string, permissions: Record<string, string[]>) =>
+      Effect.tryPromise({
+        try: (signal) => client.apiKeys.create({ name, permissions }, { signal }),
+        catch: (cause) => (cause instanceof Error ? cause : ensureError(cause)),
+      });
+    if (state.registrationKey === undefined) {
+      const { key } = yield* create("elflodge stack runners", { runner: ["register"] });
+      state = { ...state, registrationKey: key };
+      yield* writeState(state);
     }
-    const client = signedIn.success;
-    if (!client) {
-      if (!hasStackKeys)
-        return yield* Effect.fail(new Error("The hub refused the owner's initial password"));
-      // Trying the same rejected password at every start would consume the owner's sign-in limit.
-      state = { ...state, runnerReadKey: null };
-    } else {
-      const create = (name: string, permissions: Record<string, string[]>) =>
-        Effect.tryPromise({
-          try: (signal) => client.apiKeys.create({ name, permissions }, { signal }),
-          catch: (cause): Error => (cause instanceof Error ? cause : ensureError(cause)),
-        });
-      if (state.registrationKey === undefined) {
-        const { key } = yield* create("elflodge stack runners", { runner: ["register"] });
-        state = { ...state, registrationKey: key };
-        yield* writeState(state);
-      }
-      if (state.apiKey === undefined) {
-        const job = ["create", "read", "pause", "resume", "cancel", "delete"];
-        const jobs = yield* create("elflodge stack jobs", { job, runner: ["read"] }).pipe(
-          Effect.map(({ key }) => ({ apiKey: key, runnerReadKey: key })),
-          // ELFLODGE_VERSION may select an older hub that refuses the new permission.
-          Effect.catchIf(
-            (error) => error instanceof ORPCError && error.code === "BAD_REQUEST",
-            () =>
-              create("elflodge stack jobs", { job }).pipe(
-                Effect.map(({ key }) => ({ apiKey: key })),
-              ),
-          ),
-        );
-        state = { ...state, ...jobs };
-      } else if (state.runnerReadKey === undefined) {
-        // Existing keys have fixed grants and stack env may already have given the jobs key to other clients.
-        const reader = yield* Effect.result(
-          create("elflodge stack Runner listing", { runner: ["read"] }),
-        );
-        if (Result.isFailure(reader)) return state;
-        state = { ...state, runnerReadKey: reader.success.key };
-      }
+    if (state.apiKey === undefined) {
+      const { key } = yield* create("elflodge stack jobs", {
+        job: [...KEY_PERMISSIONS.job],
+        runner: ["read"],
+      });
+      return { ...state, apiKey: key, runnerReadKey: key };
     }
-    yield* writeState(state);
-    return state;
+    if (state.runnerReadKey !== undefined) return state;
+    // Grants are fixed, and stack env may already have given the jobs key to other clients.
+    const { key } = yield* create("elflodge stack runner listing", { runner: ["read"] });
+    return { ...state, runnerReadKey: key };
   });
 }
 
@@ -633,7 +625,9 @@ function stateForStart(flags: StartFlags, saved: State | undefined) {
   });
 }
 
-/** Explicit forwarding must not replace the stack's endpoint, model selection or volume location. */
+/**
+ * Explicit forwarding must not replace the stack's endpoint, model selection or volume location.
+ */
 const environmentName = z.string().check(
   z.regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Give an environment variable name, without a value"),
   z.refine(
@@ -750,9 +744,19 @@ function start(version: string, flags: StartFlags) {
     // The first Runner needs a registration key from the healthy hub before it can start.
     yield* compose(["up", "-d", "--wait", "--wait-timeout", "60", "hub"]);
     yield* writeState(state);
-    const keyed = yield* createMissingKeys(state);
-    if (keyed.registrationKey !== state.registrationKey) yield* writeComposeFile(keyed, images);
-    state = keyed;
+    const keys = yield* Effect.result(createMissingKeys(state));
+    if (Result.isSuccess(keys)) {
+      if (keys.success !== state) yield* writeState(keys.success);
+      if (keys.success.registrationKey !== state.registrationKey) {
+        yield* writeComposeFile(keys.success, images);
+      }
+      state = keys.success;
+    } else if (state.registrationKey === undefined || state.apiKey === undefined) {
+      // A fresh stack still needs its registration and jobs keys to be usable.
+      yield* Effect.fail(
+        new Error(capabilityReadFailure(state, keys.failure), { cause: keys.failure }),
+      );
+    }
     yield* compose([
       "up",
       "-d",
@@ -783,7 +787,11 @@ function start(version: string, flags: StartFlags) {
         }),
       ),
     );
-    yield* say(webSearchStatus(state, yield* Effect.result(readRunnerCapabilities(state))));
+    const capabilities = yield* Effect.fromResult(keys).pipe(
+      Effect.flatMap(readRunnerCapabilities),
+      Effect.result,
+    );
+    yield* say(webSearchStatus(state, capabilities));
     yield* say(
       [
         `The hub is at ${hubUrl(state.port)}. The stack runs in the background.`,
@@ -797,9 +805,9 @@ function start(version: string, flags: StartFlags) {
 }
 
 /**
- * Reads what the stack's Runner reported in its hello: the Runner whose name is the container's hostname,
- * which it reports as its name, the latest seen if several are. Null when it reported nothing the
- * hub can read, as an older image reports nothing, and undefined when the hub lists no such Runner.
+ * The Runner reports its container hostname in its hello. If several Runners used the same name,
+ * take the one heard from most recently. Null means the hub has no readable capabilities for it;
+ * undefined means no Runner had that name.
  */
 function readRunnerCapabilities(state: State) {
   return Effect.gen(function* () {
@@ -819,7 +827,7 @@ function readRunnerCapabilities(state: State) {
     ])).trim();
     const runners = yield* Effect.tryPromise({
       try: (signal) => client.runners.list(undefined, { signal }),
-      catch: ensureError,
+      catch: (cause) => (cause instanceof Error ? cause : ensureError(cause)),
     });
     const ours = runners.filter((runner) => runner.name === name);
     return Array.isReadonlyArrayNonEmpty(ours)
@@ -831,6 +839,13 @@ function readRunnerCapabilities(state: State) {
   });
 }
 
+function capabilityReadFailure(state: State, error: Error) {
+  const message = `The hub could not be asked what web search does (${error.message}). See elflodge stack logs for the Runner's search settings.`;
+  return state.runnerReadKey === undefined
+    ? `${message} If the owner's initial password has changed, the stack cannot create its Runner read key. Your jobs and data are still in place.`
+    : message;
+}
+
 /** What web search does on the stack's Runner, from what it reported, and how to change it. */
 function webSearchStatus(
   state: State,
@@ -838,7 +853,7 @@ function webSearchStatus(
 ) {
   const search = Result.isSuccess(reported) ? reported.success?.webSearch : undefined;
   const status = Result.isFailure(reported)
-    ? `The hub could not be asked what web search does (${reported.failure.message}). Sign in to the dashboard to check the Runner. The stack is running and your jobs and data are still in place.`
+    ? capabilityReadFailure(state, reported.failure)
     : search === undefined
       ? "The Runner did not report what web search does: see elflodge stack logs."
       : !search.enabled

@@ -12,7 +12,8 @@ z.config(en());
 /**
  * The permissions a call can require of an API key, by resource: `register` for the shared key
  * Runners start with, `actAs` for a Runner's own key, acting as that Runner over the socket and its
- * HTTP calls, `read` for the Runner listing, and the job calls. The hub's access control holds them among its statements.
+ * HTTP calls, `read` for the Runner listing, and the job calls. The hub's access control holds them
+ * among its statements.
  */
 export const KEY_PERMISSIONS = {
   runner: ["register", "actAs", "read"],
@@ -60,8 +61,8 @@ export const API_KEY_SECURITY_SCHEME = {
 
 /**
  * Who may make a call: with an API key holding the permissions in `key`, as a signed-in member,
- * either, or `anyone`, without either. The hub checks it before every call, and the OpenAPI document
- * gives it as the call's `security`.
+ * either, or `anyone`, without either. The hub checks it before every call, and the OpenAPI
+ * document gives it as the call's `security`.
  */
 export interface Access {
   key?: KeyPermissions;

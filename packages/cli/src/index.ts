@@ -27,6 +27,7 @@ import {
   type Job,
   jobRefSchema,
   type JobSubmission,
+  type KeyPermissions,
   jobSubmissionSchema,
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
@@ -100,11 +101,11 @@ const settingsFromEnv = Config.all({
  * from the environment, or, when neither is set there, the hub `elflodge stack` runs and the key it
  * made, together, so a key never goes to a hub it was not made for.
  */
-const settings = Effect.fn(function* (key: "apiKey" | "runnerReadKey") {
+const settings = Effect.fn(function* (permissions?: KeyPermissions) {
   const url = yield* Config.option(Config.String("ELFLODGE_URL"));
   const apiKey = yield* Config.option(Config.String("ELFLODGE_API_KEY"));
   if (Option.isNone(url) && Option.isNone(apiKey)) {
-    const saved = yield* savedHub(key);
+    const saved = yield* savedHub(permissions);
     if (saved !== undefined) {
       yield* Effect.sync(() =>
         process.stderr.write(
@@ -118,8 +119,8 @@ const settings = Effect.fn(function* (key: "apiKey" | "runnerReadKey") {
 });
 
 /** The link to the hub, which calls any of its procedures by path. */
-const hubLink = (key: "apiKey" | "runnerReadKey" = "apiKey") =>
-  Effect.map(settings(key), ({ url, apiKey }) =>
+const hubLink = (permissions?: KeyPermissions) =>
+  Effect.map(settings(permissions), ({ url, apiKey }) =>
     createProblemDetailsLink(apiContract, {
       origin: url.origin,
       // The hub's path, for a hub served under one. An HTTP URL's path always starts with `/`, which
@@ -313,7 +314,11 @@ const commandExamples = new Map<AnyProcedureContract, string>([
  * The command for the procedure at `path`, which calls it with its input and prints the answer. Its
  * help combines the contract's description with any CLI examples for the procedure.
  */
-function command(procedure: AnyProcedureContract, path: readonly string[]) {
+function command(
+  procedure: AnyProcedureContract,
+  path: readonly string[],
+  permissions: KeyPermissions,
+) {
   // Only this module reads oRPC's internals: a procedure's input schema.
   const [input = z.object({})] = procedure["~orpc"].inputSchemas ?? [];
   return os
@@ -325,9 +330,7 @@ function command(procedure: AnyProcedureContract, path: readonly string[]) {
     .handler(({ input: given }) =>
       runCommand(
         Effect.gen(function* () {
-          const link = yield* hubLink(
-            procedure === apiContract.runners.list ? "runnerReadKey" : "apiKey",
-          );
+          const link = yield* hubLink(permissions);
           yield* printStep(
             yield* hubCall((signal) => link.call([...path], given, { context: {}, signal })),
           );
@@ -349,8 +352,9 @@ function commandsOf(router: RouterContract): Commands {
     // transfer, which `batches submit` does for the caller, hashing local files and uploading the
     // missing ones, so they have no commands. The command line authenticates with an API key only,
     // so a call only a member makes has no command either.
-    if (!Array.isArrayNonEmpty(path) || path[0] === "blobs" || !getAccess(procedure)?.key) return;
-    set(commands, path, command(procedure, path));
+    const permissions = getAccess(procedure)?.key;
+    if (!Array.isArrayNonEmpty(path) || path[0] === "blobs" || !permissions) return;
+    set(commands, path, command(procedure, path, permissions));
   });
   return commands;
 }
