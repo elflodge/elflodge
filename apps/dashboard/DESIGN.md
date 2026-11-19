@@ -221,6 +221,56 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
+### Times and figures
+
+`src/format.ts` writes them with the platform's `Intl`, in British English, the page's language, so a date reads "18 Nov 2026", a time "15:41" and a figure "12,279" for every reader, and the widths a page is laid out for hold.
+
+- **An instant** is an `Instant` (`src/components/Time.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`); `format={TIME}` shows the time alone where its day is said nearby.
+- **A day the hub counts in UTC**, such as a day of usage, given as `YYYY-MM-DD`, is a `UtcDay`, written as that UTC day wherever the reader is. Say once, near it, that the days are UTC days.
+- **A count**, of tokens or of jobs, is `formatCount`; **an amount in US dollars** is `formatUsd`, to four decimals, since a job often costs a fraction of a cent. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
+
+```tsx
+<Instant value={job.createdAt} />
+<UtcDay value={day.date} />
+<td class="num">{formatUsd(usage.cost.totalUsd)}</td>
+```
+
+`.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
+
+### Records table
+
+Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole and carries `data-l`, the name of its column. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
+
+```tsx
+<table class="records" role="table">
+  <caption class="vh">Batches</caption>
+  <thead role="rowgroup">
+    <tr role="row">
+      <th scope="col" role="columnheader">
+        Batch
+      </th>
+      <th scope="col" role="columnheader" class="num">
+        Jobs
+      </th>
+    </tr>
+  </thead>
+  <tbody role="rowgroup">
+    <tr role="row">
+      <td role="cell" class="is-id">
+        <Link to="/batches/$id" params={{ id }} class="cut mono" title={id}>
+          {id}
+        </Link>
+      </td>
+      <td role="cell" class="num" data-l="Jobs">
+        {formatCount(jobs)}
+      </td>
+    </tr>
+  </tbody>
+</table>
+```
+
+At 640px and below a record is a block: its identifier on a line of its own, a 44px target, then each other value after its column's name, from `data-l`; the column heads are hidden. That layout drops a table's implicit roles, so the table states them.
+
 ### Marks
 
 A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are four: `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; and `mark-opens`, a chevron after words that open a menu. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
