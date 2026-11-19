@@ -107,7 +107,7 @@ function JobPage() {
   const job = () => latest(() => read.data);
   const running = () =>
     current() && job().status === "running" && !job().statusUnknown && !job().deletedAt;
-  const loaded = useJobEvents(
+  const jobEvents = useJobEvents(
     job,
     () =>
       session().membership.status === "member" &&
@@ -115,7 +115,7 @@ function JobPage() {
       problemOf(read.error)?.status !== 404,
     () => read.dataUpdatedAt,
   );
-  const events = mapArray(loaded.events, readJobEvent, { keyed: true });
+  const events = mapArray(jobEvents.events, readJobEvent, { keyed: true });
   const groups = createMemo(() => groupJobEvents(events()));
   const stopped = () => {
     const record = job();
@@ -168,7 +168,7 @@ function JobPage() {
           <span class="whole-id">{job().customId?.trim() ? job().customId : job().id}</span>
         </h1>
       </div>
-      <Show when={!job().deletedAt && (running() || job().status === "paused") && loaded.isAtLatest() && groups().currentRun}>
+      <Show when={!job().deletedAt && (running() || job().status === "paused") && jobEvents.isAtLatest() && groups().currentRun}>
         {(run) => <RunSentence run={run()} job={job()} />}
       </Show>
       <p class="note">{timeZoneNote()}</p>
@@ -213,7 +213,7 @@ function JobPage() {
             <JobLimits
               job={job()}
               resumeOffered={resumeOffered()}
-              countFrom={running() && loaded.isAtLatest() ? groups().countFrom : undefined}
+              countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
           </Show>
           <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>
@@ -226,7 +226,7 @@ function JobPage() {
           <JobTimeline
             job={job()}
             running={running()}
-            loaded={loaded}
+            events={jobEvents}
             groups={groups()}
           />
         </Show>

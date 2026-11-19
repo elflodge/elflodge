@@ -14,6 +14,7 @@ import {
 import { createEffect, createMemo, createSignal, onCleanup, until } from "solid-js";
 
 import { readJobEvent } from "./job-event-record.ts";
+import { JOB_LIFECYCLE } from "./job-lifecycle.ts";
 import { REFRESH_INTERVAL_MS, orpc, refused } from "./query.ts";
 
 // The contract allows at most 100 Events per read.
@@ -28,11 +29,10 @@ function isFinalPage(page: JobEventsPage) {
 function closingTime(page: JobEventsPage) {
   if (!isFinalPage(page)) return undefined;
   const last = page.events.findLast(
-    (event) => event.type === "entry" && event.record.kind.startsWith("elflodge.job."),
+    (event) => event.type === "entry" && JOB_LIFECYCLE.has(event.record.kind),
   );
-  return last?.type === "entry" && last.record.kind === `elflodge.job.${page.status}`
-    ? readJobEvent(last).at?.getTime()
-    : undefined;
+  const closing = last && readJobEvent(last);
+  return closing?.lifecycle?.finalStatus === page.status ? closing.at?.getTime() : undefined;
 }
 
 function historyOptions(id: string, order: JobEventOrder) {
@@ -55,8 +55,8 @@ function historyOptions(id: string, order: JobEventOrder) {
 /** The member extends one end on request. The other follows the journal once caught up. */
 export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: () => number) {
   const client = useQueryClient();
-  const pageLifetime = new AbortController();
-  onCleanup(() => pageLifetime.abort());
+  const ownerLifetime = new AbortController();
+  onCleanup(() => ownerLifetime.abort());
   const [order, setOrder] = createSignal<JobEventOrder>("desc");
   const [switching, setSwitching] = createSignal(false);
   const [jumpFailure, setJumpFailure] = createSignal<{ error: Error; failedAt: number }>();
@@ -124,6 +124,8 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
               ...page,
               endedAt: end ?? (!newest && status === page.status ? jobEndBeforeRead : undefined),
             };
+            // Drain the backlog now. A nonempty final page without its closing Event
+            // needs another read at its newest cursor to confirm which ending it saw.
             if (!newest || (!page.hasMore && (!isFinalPage(page) || end !== undefined))) return;
             after = newest.id;
           }
@@ -160,28 +162,40 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     setSwitching(true);
     setJumpFailure(undefined);
     try {
+      const previousHistoryError = history.error;
+      const previousFollowError = follow.error;
       const answer = await client.infiniteQuery({
         ...historyOptions(job().id, next),
         staleTime: 0,
         pages: 1,
       });
-      if (pageLifetime.signal.aborted) return false;
+      if (ownerLifetime.signal.aborted) return false;
       setOrder(next);
       // Query resolves the read before Solid commits the new rows. Focus belongs to the
       // requested end, even when an ascending read has already added a newer Event there.
-      const target = answer.pages[0]?.events[0]?.id;
+      const firstPage = answer.pages[0];
+      const target = firstPage?.events[0]?.id;
+      const cursor =
+        next === "desc" ? target : firstPage?.hasMore ? undefined : firstPage?.events.at(-1)?.id;
+      // The previous refusal can remain visible until the new rows arrive.
+      const rereadFailed = () =>
+        (history.isError && history.error !== previousHistoryError) ||
+        (cursor !== undefined &&
+          tailCursor() === cursor &&
+          follow.isError &&
+          follow.error !== previousFollowError);
       await until(
         () => {
-          if (!enabled() || target === undefined) return true;
+          if (!enabled() || rereadFailed() || target === undefined) return true;
           return next === "asc"
             ? events().at(0)?.id === target
             : (events().at(-1)?.id ?? 0) >= target;
         },
-        { signal: pageLifetime.signal },
+        { signal: ownerLifetime.signal },
       );
-      return enabled();
+      return enabled() && !rereadFailed();
     } catch (error) {
-      if (!pageLifetime.signal.aborted)
+      if (!ownerLifetime.signal.aborted)
         setJumpFailure({ error: asError(error), failedAt: Date.now() });
       return false;
     } finally {
@@ -213,10 +227,10 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     isLoading: () => history.isPending,
     isFetchingPage,
     failure,
-    showEarlier: () => extend("desc"),
-    showLater: () => extend("asc"),
-    start: () => jump("asc"),
-    latest: () => jump("desc"),
+    readEarlier: () => extend("desc"),
+    readLater: () => extend("asc"),
+    readFromStart: () => jump("asc"),
+    readLatest: () => jump("desc"),
   };
 }
 

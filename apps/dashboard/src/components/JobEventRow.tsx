@@ -105,7 +105,7 @@ function eventLabel({ row, userLabel }: RowProps) {
     if (parent) parts.push(`a fork of conversation ${parent.conversationId} at Event ${parent.at}`);
     return `Conversation ${row.id} begins: ${parts.length ? parts.join(", ") : "the job’s own"}`;
   }
-  if (row.lifecycleWord) return `Runner: ${row.lifecycleWord}`;
+  if (row.lifecycle) return `Runner: ${row.lifecycle.label}`;
   switch (record?.kind) {
     case "pi.user":
       return userLabel ?? "Message to the agent";
@@ -285,7 +285,7 @@ export function JobEventRow(props: RowProps) {
       class={[
         "ev",
         {
-          "is-runner": !!props.row.lifecycleWord,
+          "is-runner": !!props.row.lifecycle,
           "is-error": props.row.isError,
           "conv-sub": !!props.subAgent,
         },

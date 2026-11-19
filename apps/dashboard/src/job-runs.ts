@@ -9,9 +9,10 @@ import {
 } from "contract";
 
 import type { ReadJobEvent } from "./job-event-record.ts";
+import type { JobLifecycle } from "./job-lifecycle.ts";
 import { shortIds } from "./short-ids.ts";
 
-export type TimedEvent = ReadJobEvent & { at: Date; lifecycleWord: string };
+export type TimedEvent = ReadJobEvent & { at: Date; lifecycle: JobLifecycle };
 export interface LoadedRun {
   opening: TimedEvent;
   previousEnd?: TimedEvent;
@@ -41,8 +42,8 @@ export function groupJobEvents(events: ReadJobEvent[]) {
       if (previousDay && previousDay !== day) dayLines.add(row.id);
       previousDay = day;
     }
-    if (row.lifecycleWord && row.at) {
-      const timed = { ...row, at: row.at, lifecycleWord: row.lifecycleWord };
+    if (row.lifecycle && row.at) {
+      const timed = { ...row, at: row.at, lifecycle: row.lifecycle };
       switch (row.kind) {
         case JOB_STARTED:
         case JOB_RESUMED:

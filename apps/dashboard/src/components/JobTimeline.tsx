@@ -61,18 +61,18 @@ const MOMENTS: ReadonlySet<string> = new Set([JOB_PAUSED, JOB_RESUMED, JOB_RECOV
 export function JobTimeline(props: {
   job: Job;
   running: boolean;
-  loaded: JobEvents;
+  events: JobEvents;
   groups: JobEventGroups;
 }) {
-  const loaded = props.loaded;
+  const events = props.events;
   const rows = () => props.groups.events;
   const first = () => rows().at(0);
   const last = () => rows().at(-1);
-  const running = () => props.running && loaded.isAtLatest();
+  const running = () => props.running && events.isAtLatest();
   let timeline: HTMLOListElement | undefined;
   let heading: HTMLHeadingElement | undefined;
   let endMarker: HTMLDivElement | undefined;
-  const arrivals = loaded.liveEvents;
+  const arrivals = events.liveEvents;
   const [unread, setUnread] = createSignal<readonly { id: number }[]>([]);
   let seenThrough = 0;
   const newestUnreadTime = () => {
@@ -108,8 +108,8 @@ export function JobTimeline(props: {
     }
   }
   async function jump(toStart: boolean) {
-    if (toStart && loaded.hasEarlier() && !(await loaded.start())) return;
-    if (!toStart && !loaded.isAtLatest() && !(await loaded.latest())) return;
+    if (toStart && events.hasEarlier() && !(await events.readFromStart())) return;
+    if (!toStart && !events.isAtLatest() && !(await events.readLatest())) return;
     flush();
     if (toStart) reveal(shownNumber(rows(), false) ?? heading ?? null);
     else goToEnd();
@@ -123,33 +123,42 @@ export function JobTimeline(props: {
       ? (shownNumber(rows(), false) ?? document.getElementById("latest"))
       : null;
     let top = anchor?.getBoundingClientRect().top;
+    let scrollAfterLayout = window.scrollY;
     const rememberScroll = () => {
-      if (anchor && first()?.id === edge)
-        top =
-          button.getBoundingClientRect().top < window.innerHeight
-            ? anchor.getBoundingClientRect().top
-            : undefined;
+      if (!anchor || !timeline || window.scrollY === scrollAfterLayout) return;
+      scrollAfterLayout = window.scrollY;
+      const bounds = timeline.getBoundingClientRect();
+      top =
+        bounds.top < window.innerHeight && bounds.bottom > 0
+          ? anchor.getBoundingClientRect().top
+          : undefined;
     };
     if (anchor) window.addEventListener("scroll", rememberScroll);
-    const added = await (earlier ? loaded.showEarlier() : loaded.showLater()).finally(() =>
-      window.removeEventListener("scroll", rememberScroll),
-    );
-    flush();
-    if (earlier && added) {
-      // Safari before 27 has no scroll anchoring, and Chromium can anchor outside the timeline.
-      // Check the reader's last position after the new previews and their buttons occupy space.
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
+    let added: boolean;
+    try {
+      added = await (earlier ? events.readEarlier() : events.readLater());
+      flush();
+      if (anchor && added) {
+        // Inserting above Chromium's native anchor can itself queue a scroll event.
+        scrollAfterLayout = window.scrollY;
+        // Safari 17.5 predates native anchoring, which MDN records from 27:
+        // https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
+        // Chromium can anchor outside this timeline. Check after the new previews settle.
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+      }
+      if (
+        !timeline?.isConnected ||
+        (document.activeElement !== focused && document.activeElement !== document.body) ||
+        (anchor && top === undefined)
+      )
+        return;
+      if (added && anchor?.isConnected && top !== undefined)
+        window.scrollBy(0, anchor.getBoundingClientRect().top - top);
+    } finally {
+      window.removeEventListener("scroll", rememberScroll);
     }
-    if (
-      !timeline?.isConnected ||
-      (document.activeElement !== focused && document.activeElement !== document.body) ||
-      (anchor && top === undefined)
-    )
-      return;
-    if (added && anchor?.isConnected && top !== undefined)
-      window.scrollBy(0, anchor.getBoundingClientRect().top - top);
     const addedNumber =
       added &&
       shownNumber(
@@ -166,14 +175,12 @@ export function JobTimeline(props: {
 
   const readCount = () => {
     const count = formatCount(rows().length);
-    if (loaded.isAtLatest()) return `${loaded.hasEarlier() ? "The latest" : "All"} ${count} read`;
-    return loaded.hasEarlier() ? `${count} read` : `The first ${count} read`;
+    if (events.isAtLatest()) return `${events.hasEarlier() ? "The latest" : "All"} ${count} read`;
+    return events.hasEarlier() ? `${count} read` : `The first ${count} read`;
   };
   const earlierTime = () => rows().find((row) => row.at)?.at;
   const laterTime = () => rows().findLast((row) => row.at)?.at;
-  const moments = createMemo(() =>
-    rows().filter((row) => row.lifecycleWord && MOMENTS.has(row.kind)),
-  );
+  const moments = createMemo(() => rows().filter((row) => row.lifecycle && MOMENTS.has(row.kind)));
   const subAgents = createMemo(() => rows().filter((row) => row.ownerId !== undefined));
   const compactions = createMemo(() => rows().filter((row) => row.kind === "pi.compaction"));
   const errors = createMemo(() => rows().filter((row) => row.isError));
@@ -219,7 +226,7 @@ export function JobTimeline(props: {
           </div>
         </Show>
       </div>
-      <Show when={loaded.failure()}>
+      <Show when={events.failure()}>
         {(failure) => (
           <FailedReadNotice
             what="The Events"
@@ -229,7 +236,7 @@ export function JobTimeline(props: {
           />
         )}
       </Show>
-      <Show when={loaded.isLoading()}>
+      <Show when={events.isLoading()}>
         <div aria-busy="true">
           <span class="sk" />
           <span class="sk is-short" />
@@ -239,7 +246,7 @@ export function JobTimeline(props: {
           Loading Events
         </p>
       </Show>
-      <Show when={!rows().length && !loaded.isLoading() && !loaded.failure()}>
+      <Show when={!rows().length && !events.isLoading() && !events.failure()}>
         <div class="empty">
           <h3>
             {props.job.status === "cancelled" && !props.job.startedAt
@@ -256,13 +263,13 @@ export function JobTimeline(props: {
       <Show when={rows().length}>
         <nav class="jump-row" aria-label="Go to a moment of the job">
           <span>Go to</span>
-          <button type="button" disabled={loaded.isFetchingPage()} onClick={() => void jump(true)}>
+          <button type="button" disabled={events.isFetchingPage()} onClick={() => void jump(true)}>
             Start
           </button>
           <For each={moments()} keyed={(row) => row.id}>
             {(row) => (
               <a class="stands-alone" href={`#event-${row().id}`}>
-                {row().lifecycleWord}{" "}
+                {row().lifecycle?.label}{" "}
                 <Show when={row().at}>
                   {(at) => <Instant value={at()} format={TIME_SECONDS} />}
                 </Show>
@@ -272,13 +279,13 @@ export function JobTimeline(props: {
           <JumpGroup name="sub-agent" multiple="sub-agents" rows={subAgents()} content />
           <JumpGroup name="compaction" multiple="compactions" rows={compactions()} content />
           <JumpGroup name="error" multiple="errors" rows={errors()} />
-          <button type="button" disabled={loaded.isFetchingPage()} onClick={() => void jump(false)}>
+          <button type="button" disabled={events.isFetchingPage()} onClick={() => void jump(false)}>
             Latest
           </button>
         </nav>
       </Show>
-      <Show when={loaded.hasEarlier()}>
-        <div class="events-page">
+      <Show when={events.hasEarlier()}>
+        <div class="events-edge-note">
           <p>
             <Show when={earlierTime()} fallback="Earlier Events are not shown.">
               {(at) => (
@@ -290,7 +297,7 @@ export function JobTimeline(props: {
           </p>
           <button
             type="button"
-            disabled={loaded.isFetchingPage()}
+            disabled={events.isFetchingPage()}
             onClick={(e) => void extend(true, e.currentTarget)}
           >
             Show earlier Events
@@ -331,7 +338,7 @@ export function JobTimeline(props: {
                 subAgent={props.groups.subAgents.has(row().conversationId ?? 0)}
                 currentOutput={
                   props.job.status === "succeeded" &&
-                  loaded.isAtLatest() &&
+                  events.isAtLatest() &&
                   row().kind === JOB_SUCCEEDED &&
                   props.job.output !== undefined &&
                   !rows().some(
@@ -351,13 +358,14 @@ export function JobTimeline(props: {
         </Show>
       </ol>
       <div
+        class="timeline-end"
         aria-hidden="true"
         ref={(el) => {
           endMarker = el;
         }}
       />
-      <Show when={loaded.hasLater()}>
-        <div class="events-page">
+      <Show when={events.hasLater()}>
+        <div class="events-edge-note">
           <p>
             <Show when={laterTime()} fallback="Later Events are not shown.">
               {(at) => (
@@ -369,7 +377,7 @@ export function JobTimeline(props: {
           </p>
           <button
             type="button"
-            disabled={loaded.isFetchingPage()}
+            disabled={events.isFetchingPage()}
             onClick={(e) => void extend(false, e.currentTarget)}
           >
             Show later Events

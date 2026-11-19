@@ -1809,7 +1809,7 @@ p mark.placeholder {
 .tl-head,
 .tl-choices,
 .jump-row,
-.events-page,
+.events-edge-note,
 .run-h {
   display: flex;
   flex-wrap: wrap;
@@ -1862,7 +1862,7 @@ p mark.placeholder {
   text-decoration: underline;
 }
 .jump-row,
-.events-page {
+.events-edge-note {
   border-top: var(--rule) solid var(--c-rule);
   padding-block: var(--space-2);
 }
@@ -1882,7 +1882,7 @@ p mark.placeholder {
   gap: var(--space-1);
   justify-content: center;
 }
-.events-page {
+.events-edge-note {
   justify-content: space-between;
 }
 

@@ -429,11 +429,11 @@ Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scop
 The member reads from top to bottom. The first page holds up to the latest hundred Events. Earlier and later pages add to the loaded Events without gaps. Place `section.tl` below the working record in its column. On a narrow screen the facts precede it. The section stays on the page if its read fails and keeps the Events read successfully.
 
 - In `.tl-head`, place the “Events” heading, the count in `span.read[role=status]`, and `.tl-choices`. Each `fieldset.seg` has a visually hidden legend and two labelled native radios with one initially checked. The checked `.view-line` shows summaries. The checked `.view-records` shows Runner records and errors. Both choices work together and stay set when paging or jumping.
-- The labelled `nav.jump-row` reaches Start and Latest, plus moments and numbered Events on the loaded pages. Its `.jump-content` groups follow the kind filter. A `.events-page` at either unfinished edge gives the next read. Walking back preserves the reader’s position, including a scroll while the read is pending. If the reader moved elsewhere while waiting, keep their position and focus. Otherwise, focus the nearest added number the selected view shows. If there is none, keep focus on the pressed button. When the button goes, focus the nearest shown number or the Events heading. On touch screens the jump links and buttons have a 44px target in both directions and the wrapped lines have no extra row gap.
+- The labelled `nav.jump-row` reaches Start and Latest, plus moments and numbered Events on the loaded pages. Its `.jump-content` groups follow the kind filter. The `.events-edge-note` at either unfinished edge explains which Events are missing and offers the next page. Walking back preserves the reader’s position, including a scroll while the read is pending. If the reader moved elsewhere while waiting, keep their position and focus. Otherwise, focus the nearest added number the selected view shows. If there is none, keep focus on the pressed button. When the button goes, focus the nearest shown number or the Events heading. On touch screens the jump links and buttons have a 44px target in both directions and the wrapped lines have no extra row gap.
 - In `ol.timeline`, each opening gets a `li.run-h` with its heading, recorded time, run ID and known models. A `li.run-gap` between a closing and a resume gives the elapsed pause or previous ending. A `li.day-line` separates local days.
 - Each `li.ev` carries a linked journal number (`.ev-id`), time when recorded (`.ev-time`), summary (`.ev-line`) and full content (`.ev-body`). For example, `<a class="ev-id stands-alone" id="event-27" href="#event-27" aria-label="Event 27">27</a>`. Use `.rec` for Runner details, `.say` for message text, `.call` for tool arguments and `.result` for their answers. On phones the number and time share a line with a 44px hit target extended around the number. In the compact view on a phone, the number, time and summary occupy one 44px line. The agent step’s `.ev-rail` gives its USD cost, tokens and model. Use the job’s amount formatter. A provider-billed cost says “USD”, and other step costs say “USD, est.”. The rail moves below the body on a phone. Long Event bodies use the Output preview. Messages keep the wrapping sans and code keeps the mono. Thinking and write contents show in full when their native disclosures open.
 - Mark a Runner record `.is-runner` and a failed Event `.is-error`, with words and the cross mark. Indent a known sub-agent conversation with `.conv-sub` and name it in both views.
-- Only `li.ev.is-live#latest` takes the lamp in the timeline. Its level-three heading repeats the latest activity recorded by the hub when the job record is fresh and confirms the job is running. Keep `div.new-events[role=status]` mounted. While the timeline is in view, the notice sticks to its lower edge as a ground-coloured band across its column, with a rule above. A marker immediately after the list confirms that its bottom edge is visible before arrivals are marked seen. Give the count and the newest arrival’s time if recorded. The button reaches the first visible new number or the end when the filter hides every arrival.
+- Only `li.ev.is-live#latest` takes the lamp in the timeline. Its level-three heading repeats the latest activity recorded by the hub when the job record is fresh and confirms the job is running. Keep `div.new-events[role=status]` mounted. While the timeline is in view, the notice sticks to its lower edge as a ground-coloured band across its column, with a rule above. A `div.timeline-end[aria-hidden=true]` immediately after the list confirms that its bottom edge is visible before arrivals are marked seen. Give the count and the newest arrival’s time if recorded. The button reaches the first visible new number or the end when the filter hides every arrival.
 - Above the record, `p.head-sentence` dates the current run and any Recovery from Events the member has read. The loaded Events can establish when the timeout restarted even if the opening of that run is on an earlier page.
 
 The two view choices share the same fieldset structure. Within the jump row, anchors reach loaded Events and buttons can request another page.
@@ -452,7 +452,7 @@ The two view choices share the same fieldset structure. Within the jump row, anc
   >
   <button type="button">Latest</button>
 </nav>
-<div class="events-page">
+<div class="events-edge-note">
   <p>Earlier Events are not shown.</p>
   <button type="button">Show earlier Events</button>
 </div>
@@ -468,6 +468,7 @@ The run heading is a list item. The arrivals band follows the list inside the se
     <span class="sid">run 6a2e0371</span>
   </li>
 </ol>
+<div class="timeline-end" aria-hidden="true"></div>
 <div class="new-events" role="status" aria-atomic="true">
   <span><strong>3 new Events</strong> below.</span>
   <button type="button">Go to them</button>

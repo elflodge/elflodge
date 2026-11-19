@@ -15,15 +15,7 @@ import {
 } from "contract";
 import * as z from "zod/mini";
 
-const LIFECYCLE_WORDS: ReadonlyMap<string, string> = new Map([
-  [JOB_STARTED, "Started"],
-  [JOB_RESUMED, "Resumed"],
-  [JOB_RECOVERED, "Recovered"],
-  [JOB_PAUSED, "Paused"],
-  [JOB_FAILED, "Failed"],
-  [JOB_SUCCEEDED, "Succeeded"],
-  [JOB_CANCELLED, "Cancelled"],
-]);
+import { JOB_LIFECYCLE } from "./job-lifecycle.ts";
 
 // The contract keeps an open journal record. Read only what the row shows, leaving the original
 // Event available when an extension or a later Runner writes a different shape.
@@ -98,7 +90,8 @@ export function readJobEvent(event: JobEvent) {
     event.type === "conversation" ? z.safeParse(conversation, event.record).data : undefined;
   const message = record && "model" in record ? record.model?.[0] : undefined;
   const data = record && "data" in record ? record.data : undefined;
-  const runId = data && "runId" in data && typeof data.runId === "string" ? data.runId : undefined;
+  const runId =
+    record && "data" in record && "runId" in record.data ? record.data.runId : undefined;
   const at = data && "timestamp" in data ? data.timestamp : message?.timestamp;
   const conversationId = event.type === "conversation" ? event.id : event.record["conversationId"];
   return {
@@ -118,7 +111,7 @@ export function readJobEvent(event: JobEvent) {
     runId,
     providerModel:
       message?.role === "assistant" ? `${message.provider}/${message.model}` : undefined,
-    lifecycleWord: record && LIFECYCLE_WORDS.get(record.kind),
+    lifecycle: record && JOB_LIFECYCLE.get(record.kind),
     isError:
       record?.kind === JOB_FAILED ||
       (message?.role === "assistant" && message.stopReason === "error") ||
