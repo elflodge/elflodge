@@ -16,6 +16,8 @@ import { Route as SignedInSplatRouteImport } from './routes/_signed-in/$'
 import { Route as SignedInMemberRouteImport } from './routes/_signed-in/_member'
 import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/change-password'
 import { Route as SignedInMemberIndexRouteImport } from './routes/_signed-in/_member/index'
+import { Route as SignedInMemberApiKeysRouteImport } from './routes/_signed-in/_member/api-keys'
+import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_member/runners'
 
 const SignedInRoute = SignedInRouteImport.update({
   id: '/_signed-in',
@@ -50,6 +52,16 @@ const SignedInMemberIndexRoute = SignedInMemberIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberApiKeysRoute = SignedInMemberApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
+const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
+  id: '/runners',
+  path: '/runners',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof SignedInMemberIndexRoute
@@ -57,6 +69,8 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
+  '/api-keys': typeof SignedInMemberApiKeysRoute
+  '/runners': typeof SignedInMemberRunnersRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SignedInMemberIndexRoute
@@ -64,6 +78,8 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
+  '/api-keys': typeof SignedInMemberApiKeysRoute
+  '/runners': typeof SignedInMemberRunnersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -73,13 +89,29 @@ export interface FileRoutesById {
   '/_signed-in/$': typeof SignedInSplatRoute
   '/_signed-in/_member': typeof SignedInMemberRouteWithChildren
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
+  '/_signed-in/_member/api-keys': typeof SignedInMemberApiKeysRoute
+  '/_signed-in/_member/runners': typeof SignedInMemberRunnersRoute
   '/_signed-in/_member/': typeof SignedInMemberIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/setup' | '/sign-in' | '/$' | '/change-password'
+  fullPaths:
+    | '/'
+    | '/setup'
+    | '/sign-in'
+    | '/$'
+    | '/change-password'
+    | '/api-keys'
+    | '/runners'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/setup' | '/sign-in' | '/$' | '/change-password'
+  to:
+    | '/'
+    | '/setup'
+    | '/sign-in'
+    | '/$'
+    | '/change-password'
+    | '/api-keys'
+    | '/runners'
   id:
     | '__root__'
     | '/_signed-in'
@@ -88,6 +120,8 @@ export interface FileRouteTypes {
     | '/_signed-in/$'
     | '/_signed-in/_member'
     | '/_signed-in/change-password'
+    | '/_signed-in/_member/api-keys'
+    | '/_signed-in/_member/runners'
     | '/_signed-in/_member/'
   fileRoutesById: FileRoutesById
 }
@@ -148,14 +182,32 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberIndexRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/api-keys': {
+      id: '/_signed-in/_member/api-keys'
+      path: '/api-keys'
+      fullPath: '/api-keys'
+      preLoaderRoute: typeof SignedInMemberApiKeysRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
+    '/_signed-in/_member/runners': {
+      id: '/_signed-in/_member/runners'
+      path: '/runners'
+      fullPath: '/runners'
+      preLoaderRoute: typeof SignedInMemberRunnersRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
   }
 }
 
 interface SignedInMemberRouteChildren {
+  SignedInMemberApiKeysRoute: typeof SignedInMemberApiKeysRoute
+  SignedInMemberRunnersRoute: typeof SignedInMemberRunnersRoute
   SignedInMemberIndexRoute: typeof SignedInMemberIndexRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
+  SignedInMemberApiKeysRoute: SignedInMemberApiKeysRoute,
+  SignedInMemberRunnersRoute: SignedInMemberRunnersRoute,
   SignedInMemberIndexRoute: SignedInMemberIndexRoute,
 }
 

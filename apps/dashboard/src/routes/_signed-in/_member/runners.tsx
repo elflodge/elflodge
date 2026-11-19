@@ -1,0 +1,265 @@
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { createFileRoute } from "@tanstack/solid-router";
+import type { Runner, RunnerCapabilities } from "contract";
+import { For, Loading, Show, createSignal } from "solid-js";
+
+import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { AddRunner } from "../../../components/AddRunner.tsx";
+import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { Instant } from "../../../components/Instant.tsx";
+import { Notice } from "../../../components/Notice.tsx";
+import { TIME_ZONED, formatCount, plural, timeZoneNote } from "../../../format.ts";
+import { canManageKeys } from "../../../permissions.ts";
+import { orpc } from "../../../query.ts";
+import { shortIds } from "../../../short-ids.ts";
+
+export const Route = createFileRoute("/_signed-in/_member/runners")({
+  loader: async ({ context }) => {
+    if (context.membership.status !== "member") return;
+    await readFromHub("The Runners", () =>
+      context.queryClient.query(orpc.runners.list.queryOptions({ staleTime: "static" })),
+    );
+  },
+  component: Runners,
+});
+
+function Runners() {
+  const context = Route.useRouteContext();
+  const queryClient = useQueryClient();
+  const runners = useQuery(() => orpc.runners.list.queryOptions());
+  const member = () => {
+    const { membership } = context();
+    return membership.status === "member" ? membership : undefined;
+  };
+  const managesKeys = () => {
+    const current = member();
+    return current !== undefined && canManageKeys(current.role);
+  };
+  const [removed, setRemoved] = createSignal<string>();
+  let addRunner: HTMLDialogElement | undefined;
+
+  function openAddRunner() {
+    addRunner?.showModal();
+  }
+
+  async function remove(runner: Runner, label: string) {
+    try {
+      const { endedJobs, jobsWithFilesLeft } = await api.runners.delete({ id: runner.id });
+      setRemoved(removalSummary(label, endedJobs.length, jobsWithFilesLeft.length));
+      // The Runner is gone from the list and the strip, and the jobs it ended from every read of jobs.
+      void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
+      void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
+      return undefined;
+    } catch (error) {
+      return hubFailureMessage(error);
+    }
+  }
+
+  return (
+    <>
+      <div class="head">
+        <h1>Runners</h1>
+        <div class="controls">
+          <button type="button" class="primary" onClick={openAddRunner}>
+            Add Runner
+          </button>
+        </div>
+      </div>
+      <Show when={removed()}>{(message) => <Notice role="status">{message()}</Notice>}</Show>
+      <Loading fallback={null}>
+        {/* A read after the first that failed: what is shown is from an earlier one. */}
+        <Show when={runners.isError}>
+          <Notice role="alert">
+            The Runners could not be read at{" "}
+            <Instant value={new Date(runners.errorUpdatedAt)} format={TIME_ZONED} />:{" "}
+            {hubFailureMessage(runners.error)} What is shown is from the read at{" "}
+            <Instant value={new Date(runners.dataUpdatedAt)} format={TIME_ZONED} />.
+          </Notice>
+        </Show>
+        <Show when={runners.data}>
+          {(list) => (
+            <Show
+              when={list().length > 0}
+              fallback={
+                <div class="empty">
+                  <h2>No Runners yet</h2>
+                  <p>
+                    A Runner is a machine that runs jobs. Add one with the command Add Runner gives,
+                    and it is listed here once it registers.
+                  </p>
+                  <p class="empty-act">
+                    <button type="button" class="primary" onClick={openAddRunner}>
+                      Add Runner
+                    </button>
+                  </p>
+                </div>
+              }
+            >
+              <RunnerList runners={list()} managesKeys={managesKeys()} remove={remove} />
+            </Show>
+          )}
+        </Show>
+      </Loading>
+      <AddRunner
+        organizationName={member()?.organization.name}
+        managesKeys={managesKeys()}
+        dialogRef={(element) => {
+          addRunner = element;
+        }}
+      />
+    </>
+  );
+}
+
+/** What a removal did, for the notice that says it was done. */
+function removalSummary(label: string, ended: number, filesLeft: number): string {
+  const endedWords =
+    ended === 0
+      ? "It held no unfinished jobs."
+      : `It ended ${formatCount(ended)} unfinished ${plural(ended, "job", "jobs")}.`;
+  const filesWords =
+    filesLeft === 0
+      ? ""
+      : ` Its host may still hold the files of ${formatCount(filesLeft)} ${plural(filesLeft, "job", "jobs")}.`;
+  return `${label} is removed. ${endedWords}${filesWords}`;
+}
+
+function RunnerList(props: {
+  runners: Runner[];
+  managesKeys: boolean;
+  remove: (runner: Runner, label: string) => Promise<string | undefined>;
+}) {
+  // Names are host names, which can repeat, so each goes with a short ID, longer where two collide.
+  const short = () => shortIds(props.runners.map((runner) => runner.id));
+  return (
+    <>
+      <p class="note">{timeZoneNote()}</p>
+      <ul class="runners">
+        {/* Keyed by ID, so that a read again keeps each record, and a dialog open in it. */}
+        <For each={props.runners} keyed={(runner) => runner.id}>
+          {(runner) => {
+            const sid = () => short().get(runner().id) ?? runner().id;
+            const label = () => `${runner().name} ${sid()}`;
+            return (
+              <li class="runner">
+                <div class="runner-id">
+                  <h2 class="runner-name">
+                    <span class="mono">{runner().name}</span> <span class="sid">{sid()}</span>
+                  </h2>
+                  <Show
+                    when={runner().connected}
+                    fallback={
+                      <>
+                        <p class="conn is-off">
+                          <span class="mark mark-disconnected" aria-hidden="true" />
+                          Not connected
+                        </p>
+                        <p class="note is-unknown">
+                          <span class="mark mark-unknown" aria-hidden="true" />
+                          <span>Its unfinished jobs are unconfirmed.</span>
+                        </p>
+                      </>
+                    }
+                  >
+                    <p class="conn">
+                      <span class="mark mark-connected" aria-hidden="true" />
+                      Connected
+                    </p>
+                  </Show>
+                  <dl>
+                    <dt>Last seen</dt>
+                    <dd>
+                      <Instant value={runner().lastSeenAt} />
+                    </dd>
+                    <dt>Registered</dt>
+                    <dd>
+                      <Instant value={runner().registeredAt} />
+                    </dd>
+                  </dl>
+                </div>
+                <Capabilities capabilities={runner().capabilities} />
+                <Show when={props.managesKeys}>
+                  <div class="runner-ctl">
+                    <ConfirmAction
+                      trigger="Remove"
+                      triggerLabel={`Remove ${label()}`}
+                      heading={
+                        <>
+                          Remove <span class="mono">{runner().name}</span>{" "}
+                          <span class="sid">{sid()}</span>?
+                        </>
+                      }
+                      confirm={`Remove ${label()}`}
+                      act={() => props.remove(runner(), label())}
+                    >
+                      <p>Its key stops working and its connection is dropped at once.</p>
+                      <p>
+                        <b>Every job it holds that has not ended, ends now</b>: failed as{" "}
+                        <code>runnerRemoved</code>, or cancelled where a cancel was waiting. None of
+                        them can be resumed, and they may still run on the host unseen.
+                      </p>
+                    </ConfirmAction>
+                  </div>
+                </Show>
+              </li>
+            );
+          }}
+        </For>
+      </ul>
+    </>
+  );
+}
+
+/** What a Runner reported its jobs can do, as the hub gives it. */
+function Capabilities(props: { capabilities: RunnerCapabilities | null }) {
+  return (
+    <Show
+      when={props.capabilities}
+      fallback={<p class="note">It has reported nothing this hub can read.</p>}
+    >
+      {(capabilities) => (
+        <dl>
+          <dt>Version</dt>
+          <dd class="mono">{capabilities().runnerVersion}</dd>
+          <dt>Model its jobs start on</dt>
+          <dd>
+            <span class="mono">
+              {capabilities().model.provider} / {capabilities().model.modelId}
+            </span>{" "}
+            <span class="unit">thinking {capabilities().model.thinkingLevel}</span>
+          </dd>
+          <dt>Extensions</dt>
+          <dd>
+            <Show when={capabilities().extensions.length > 0} fallback="None">
+              <ul class="plain">
+                <For each={capabilities().extensions}>
+                  {(extension) => (
+                    <li class="mono">
+                      {extension.name}
+                      {extension.version === undefined ? "" : ` ${extension.version}`}
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </dd>
+          <dt>Web search</dt>
+          <dd>{webSearchWords(capabilities().webSearch)}</dd>
+        </dl>
+      )}
+    </Show>
+  );
+}
+
+/** Whether jobs may search the web, and through whom, as the Runner reported it. */
+function webSearchWords(webSearch: RunnerCapabilities["webSearch"]): string {
+  if (webSearch === undefined) return "Not reported";
+  if (!webSearch.enabled) return "Off";
+  const providers =
+    webSearch.allowedProviders === undefined
+      ? "On, any provider"
+      : `On, only ${webSearch.allowedProviders.join(", ")}`;
+  return webSearch.openai?.mayUseApiKey === false
+    ? `${providers}; OpenAI searches never paid by an API key`
+    : providers;
+}
