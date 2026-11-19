@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
-import { For, Show, createSignal, onSettled } from "solid-js";
+import { For, Show, createSignal, flush, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
@@ -115,17 +115,20 @@ function ApiKeys() {
 function KeyList(props: { focusAfterRevoke: () => void }) {
   const queryClient = useQueryClient();
   const [actionFailure, setActionFailure] = createSignal<string>();
-  const [alreadyGone, setAlreadyGone] = createSignal<string>();
+  const [actionStatus, setActionStatus] = createSignal<string>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
 
   async function revoke(key: ApiKey, label: string) {
     setActionFailure(undefined);
-    setAlreadyGone(undefined);
+    setActionStatus(undefined);
     const queryKey = orpc.apiKeys.list.queryKey();
     let notFound: string | undefined;
     let refreshed: Promise<void>;
     try {
       await api.apiKeys.revoke({ id: key.id });
+      setActionStatus(`${label} is revoked.`);
+      // Show the outcome before the list starts its background read.
+      flush();
     } catch (error) {
       if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
       notFound = hubFailureMessage(error);
@@ -138,7 +141,7 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       const list = queryClient.getQueryState(queryKey);
       if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === key.id))
         return notFound;
-      setAlreadyGone(`${label} is already gone.`);
+      setActionStatus(`${label} is already gone.`);
     } else void refreshed.then(props.focusAfterRevoke);
     return undefined;
   }
@@ -148,7 +151,7 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
-      <Show when={alreadyGone()} keyed>
+      <Show when={actionStatus()} keyed>
         {(message) => (
           <Notice role="status" focusRef={(element) => onSettled(() => focusIfLost(element))}>
             {message}

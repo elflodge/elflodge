@@ -798,7 +798,14 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       .meta(openapi({ method: "POST", path: "/api-keys" }), ...byMember)
       .input(
         z.strictObject({
-          name: z.string().check(z.maxLength(MAX_API_KEY_NAME_LENGTH)),
+          // OpenAPI counts code points. Better Auth and the form count UTF-16 code units.
+          name: z
+            .string()
+            .check(
+              z.maxLength(MAX_API_KEY_NAME_LENGTH, { abort: true }),
+              z.property("length", z.number().check(z.lte(MAX_API_KEY_NAME_LENGTH))),
+              z.describe(`At most ${MAX_API_KEY_NAME_LENGTH} UTF-16 code units.`),
+            ),
           permissions: permissionsSchema,
           expiresIn: z.optional(
             z
