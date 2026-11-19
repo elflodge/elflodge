@@ -25,6 +25,7 @@ export {
   KEY_PERMISSIONS,
   type KeyPermissions,
   NotFound,
+  permissionNames,
   Unauthorized,
 } from "./procedure.ts";
 export * from "./runner-protocol.ts";

@@ -276,5 +276,9 @@ test("a member whose role does not allow reading usage is refused", async () => 
     email: "member@example.com",
     name: "Member",
   });
-  await expect(member.usage.get({})).rejects.toMatchObject({ code: "FORBIDDEN", defined: true });
+  await expect(member.usage.get({})).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    defined: true,
+    cause: { status: 403, detail: expect.stringContaining("usage:read") },
+  });
 });
