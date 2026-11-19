@@ -2,7 +2,7 @@ import { apiKey } from "@better-auth/api-key";
 import type { BetterAuthOptions } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
-import { KEY_PERMISSIONS } from "contract";
+import { GRANTABLE_KEY_PERMISSIONS as grantablePermissions } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
@@ -18,10 +18,7 @@ import { ac, roles } from "./access.ts";
  * Runner's own key, with `RUNNER_KEY_PERMISSIONS`, is created only by the hub when the Runner
  * registers.
  */
-export const GRANTABLE_KEY_PERMISSIONS = ac.newRole({
-  runner: ["register", "read"],
-  job: KEY_PERMISSIONS.job,
-});
+export const GRANTABLE_KEY_PERMISSIONS = ac.newRole(grantablePermissions);
 
 /** The permissions of a Runner's own key, which the hub creates when the Runner registers. */
 export const RUNNER_KEY_PERMISSIONS = ac.newRole({ runner: ["actAs"] });

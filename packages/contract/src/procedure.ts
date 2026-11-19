@@ -20,6 +20,14 @@ export const KEY_PERMISSIONS = {
   job: ["create", "read", "pause", "resume", "cancel", "delete"],
 } as const;
 
+/** The actions a member can grant. Only the hub issues a Runner's own actAs key. */
+export const GRANTABLE_KEY_PERMISSIONS = {
+  job: KEY_PERMISSIONS.job,
+  runner: ["register", "read"],
+} as const satisfies {
+  [K in keyof typeof KEY_PERMISSIONS]: readonly (typeof KEY_PERMISSIONS)[K][number][];
+};
+
 /** Actions of one resource of `KEY_PERMISSIONS` a call requires, such as `{ job: ["pause"] }`. */
 export type KeyPermissions = {
   [Resource in keyof typeof KEY_PERMISSIONS]: {
