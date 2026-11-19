@@ -65,7 +65,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
           },
         },
       },
-      "/jobs/counts": { get: { responses: { 400: {} } } },
       "/setup": { post: { responses: { 422: {} } } },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
       "/runners": { get: { security: [{ apiKey: ["runner:read"] }, { session: [] }] } },
@@ -136,6 +135,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
   // And no answer closes any object it holds, shared schemas included.
   const schemas = new Map<JsonSchema, string>();
   for (const operation of operations) {
+    expect(operation.responses, operation.operationId).toHaveProperty("400");
     for (const [status, definition] of Object.entries(operation.responses ?? {})) {
       if (status.startsWith("x-")) continue;
       // The generator inlines responses and media types. A reference here would hide their schemas.

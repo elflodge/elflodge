@@ -1,4 +1,4 @@
-import { error } from "@orpc/contract";
+import { error, oc } from "@orpc/contract";
 import { openapi } from "@orpc/openapi";
 import * as z from "zod/mini";
 
@@ -683,17 +683,19 @@ const labelFilterSchema = z.optional(
     .check(z.describe("Label key/value pairs that must all match.")),
 );
 
+// Optional because released calls such as `client.runners.list()` take no argument.
+const noQueryParametersSchema = z.optional(z.strictObject({}));
+
 /**
  * The hub's public HTTP API, for people and their programs. Callers sign in as a member or send an
  * API key in `x-api-key`. A Runner's own calls are `runnerHttpContract`'s.
  *
  * Inputs are strict: a parameter the API does not define, in a body or a read's query string, is
- * refused with 400 naming it (ADR 0010). A write's query string, and that of a read without input,
- * go unchecked: oRPC hands none of them to the schema but the upload's, which its outer object
- * drops; none of these calls takes query parameters. Answers and the upload's headers stay open,
- * so the hub can add fields without breaking callers.
+ * refused with 400 naming it (ADR 0010). Writes define no query parameters, and their query strings
+ * are ignored. oRPC omits them from compact inputs, and the upload's schema drops its query string.
+ * Answers and the upload's headers stay open so the hub can add fields without breaking callers.
  */
-export const apiContract = {
+export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
   setup: {
     get: forAnyone
       .meta(
@@ -705,10 +707,10 @@ export const apiContract = {
         }),
         ...byAnyone,
       )
+      .input(noQueryParametersSchema)
       .output(z.object({ needed: z.boolean() })),
     complete: forAnyone
       .errors({
-        BAD_REQUEST: {},
         UNPROCESSABLE_CONTENT: {},
         [SetupLinkRefused.code]: SetupLinkRefused,
         [AlreadySetUp.code]: AlreadySetUp,
@@ -743,10 +745,11 @@ export const apiContract = {
         }),
         ...byKeyOrMember({ runner: ["read"] }),
       )
+      .input(noQueryParametersSchema)
       .output(z.array(runnerSchema)),
     // Removing a Runner ends the jobs it held that have not ended.
     delete: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "DELETE",
@@ -772,7 +775,6 @@ export const apiContract = {
   },
   apiKeys: {
     create: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(openapi({ method: "POST", path: "/api-keys" }), ...byMember)
       .input(
         z.strictObject({
@@ -792,15 +794,15 @@ export const apiContract = {
       .output(createdKeySchema),
     list: forMembers
       .meta(openapi({ method: "GET", path: "/api-keys" }), ...byMember)
+      .input(noQueryParametersSchema)
       .output(z.array(apiKeySchema)),
     revoke: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(openapi({ method: "DELETE", path: "/api-keys/{id}" }), ...byMember)
       .input(z.strictObject({ id: z.string() })),
   },
   blobs: {
     check: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "POST",
@@ -822,7 +824,6 @@ export const apiContract = {
       )
       .output(z.object({ files: z.array(blobCheckSchema) })),
     upload: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "PUT",
@@ -859,7 +860,7 @@ export const apiContract = {
   },
   batches: {
     create: forMembers
-      .errors({ BAD_REQUEST: {}, [IdReused.code]: IdReused })
+      .errors({ [IdReused.code]: IdReused })
       .meta(
         // One status, 200, whether the Batch is new or a retry's, as for an add: no caller acts on
         // the difference, and a status per answer would make the typed client answer this one call
@@ -876,7 +877,6 @@ export const apiContract = {
       .output(batchSchema),
     addJobs: forMembers
       .errors({
-        BAD_REQUEST: {},
         [NotFound.code]: NotFound,
         [ControlRefused.code]: ControlRefused,
         [IdReused.code]: IdReused,
@@ -904,7 +904,6 @@ export const apiContract = {
       )
       .output(addedJobsSchema),
     list: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
@@ -939,7 +938,7 @@ export const apiContract = {
       )
       .output(batchesPageSchema),
     get: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/batches/{id}", description: "Reads a Batch." }),
         ...byKeyOrMember({ job: ["read"] }),
@@ -947,7 +946,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     pause: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -960,7 +959,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     resume: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -973,7 +972,7 @@ export const apiContract = {
       .input(batchRefSchema)
       .output(batchSchema),
     cancel: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "POST",
@@ -988,7 +987,7 @@ export const apiContract = {
   },
   jobs: {
     get: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/jobs/{id}", description: "Reads a job." }),
         ...byKeyOrMember({ job: ["read"] }),
@@ -996,7 +995,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     pause: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "POST",
@@ -1010,7 +1009,6 @@ export const apiContract = {
       .output(jobSchema),
     resume: forMembers
       .errors({
-        BAD_REQUEST: {},
         [NotFound.code]: NotFound,
         [ControlRefused.code]: ControlRefused,
       })
@@ -1043,7 +1041,7 @@ export const apiContract = {
       )
       .output(jobSchema),
     cancel: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "POST",
@@ -1057,7 +1055,7 @@ export const apiContract = {
       .output(jobSchema),
     // Deletion removes content and records the host file purge still owed.
     delete: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
+      .errors({ [NotFound.code]: NotFound, [ControlRefused.code]: ControlRefused })
       .meta(
         openapi({
           method: "DELETE",
@@ -1070,7 +1068,7 @@ export const apiContract = {
       .input(jobRefSchema)
       .output(jobSchema),
     events: forMembers
-      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
+      .errors({ [NotFound.code]: NotFound })
       .meta(
         openapi({
           method: "GET",
@@ -1107,7 +1105,6 @@ export const apiContract = {
       )
       .output(jobEventsPageSchema),
     list: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
@@ -1168,7 +1165,6 @@ export const apiContract = {
       )
       .output(jobsPageSchema),
     counts: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
@@ -1180,12 +1176,11 @@ export const apiContract = {
       )
       // Strict, so a stray parameter such as `batchId` is refused rather than answered with the
       // Organization's counts, which would read as the Batch's (ADR 0010).
-      .input(z.strictObject({}))
+      .input(noQueryParametersSchema)
       .output(jobCountsSchema),
   },
   usage: {
     get: forMembers
-      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
@@ -1255,4 +1250,4 @@ export const apiContract = {
       )
       .output(usageReportSchema),
   },
-};
+});
