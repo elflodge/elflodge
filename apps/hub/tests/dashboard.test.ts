@@ -225,46 +225,83 @@ test("in a browser, the strip under the bar counts the Organization's Runners an
   await strip.getByText("No Runners").waitFor();
 }, 30_000);
 
-test("the strip replaces unavailable counts until the hub answers again", async () => {
+/** Freeze the page clock before navigation so a hub answer has a known instant. */
+async function pageWithPausedClock() {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
-  await page.clock.install();
-  await signInAt(page, "", await newMember("Failing Reader"));
+  await page.clock.install({ time: new Date("2026-11-18T15:40:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-18T15:41:00Z"));
+  return page;
+}
+
+test("going offline immediately replaces all the strip's figures with one untimed line", async () => {
+  const page = await pageWithPausedClock();
+  await signInAt(page, "", await newMember("Offline Reader"));
   const strip = page.getByRole("region", { name: "The hub now" });
   await strip.getByText(/ queued$/).waitFor();
-
-  // The next read is refused after the first counts are visible.
-  await page.route("**/jobs/counts", (route) =>
-    route.fulfill({
-      status: 403,
-      contentType: "application/problem+json",
-      body: JSON.stringify({ type: "about:blank", title: "Forbidden", status: 403 }),
-    }),
-  );
-  await page.clock.fastForward("01:00");
-  await expectBrowser(strip.getByText(/^The job counts could not be read at /)).toBeVisible();
-  await expectBrowser(strip.getByText(/ queued$/)).toHaveCount(0);
   await page.context().setOffline(true);
-  await page.clock.fastForward("01:00");
   await expectBrowser(strip.getByRole("listitem")).toHaveText([
     "The hub cannot be read: this browser is offline.",
   ]);
+}, 30_000);
 
-  // Back online, the Runners answer first. The old counts stay hidden until the new read answers.
+test("the strip keeps the last failure visible while the hub is being asked again", async () => {
+  const page = await pageWithPausedClock();
+  await page.route("**/jobs/counts", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/problem+json",
+      body: JSON.stringify({ type: "about:blank", title: "Service Unavailable", status: 503 }),
+    }),
+  );
+  await signInAt(page, "", await newMember("Outage Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  const failed = strip.getByText(/^The job counts could not be read at /);
+  // The outage begins before any counts arrive. Let Query finish its first series of retries.
+  await expectBrowser
+    .poll(async () => {
+      await page.clock.fastForward("01:00");
+      return failed.isVisible();
+    })
+    .toBe(true);
+  const failureTime = await failed.locator("time").innerText();
+
+  // The next poll also fails. During its retry delay the last completed failure still shows.
+  const next = page.waitForResponse("**/jobs/counts");
+  await page.clock.fastForward("01:00");
+  await (await next).finished();
+  await expectBrowser(failed.locator("time")).toHaveText(failureTime);
   await page.unroute("**/jobs/counts");
+  await page.clock.fastForward("01:00");
+  await expectBrowser(strip.getByText(/ queued$/)).toBeVisible();
+}, 30_000);
+
+test("when a counts read stalls, its figures give way at expiry to the time of the last answer", async () => {
+  const page = await pageWithPausedClock();
+  await signInAt(page, "", await newMember("Waiting Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  const queued = strip.getByText(/ queued$/);
+  await queued.waitFor();
   const release = Promise.withResolvers<void>();
   await page.route("**/jobs/counts", async (route) => {
     await release.promise;
     await route.continue();
   });
   try {
-    await page.context().setOffline(false);
-    await expectBrowser(strip.getByRole("listitem")).toHaveText(["No Runners"]);
+    await page.clock.fastForward(14_999);
+    await expectBrowser(queued).toBeVisible();
+    await page.clock.fastForward(1);
+    const lastAnswer = strip.getByText(/^The job counts have not been read since /);
+    await expectBrowser(lastAnswer.locator("time")).toHaveAttribute(
+      "datetime",
+      "2026-11-18T15:41:00.000Z",
+    );
+    await expectBrowser(queued).toHaveCount(0);
+    await expectBrowser(strip.getByText("No Runners")).toBeVisible();
   } finally {
     release.resolve();
   }
-  await expectBrowser(strip.getByText(/ queued$/)).toBeVisible();
-  await page.getByRole("navigation", { name: "Destinations" }).waitFor();
+  await expectBrowser(queued).toBeVisible();
 }, 30_000);
 
 test("in a browser, a member change in another tab loads a fresh document", async () => {
