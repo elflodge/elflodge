@@ -48,6 +48,8 @@ const GRANTABLE = Object.entries({
  * Submitters and Runners can run unattended until their service key is revoked. The API, CLI
  * and form default to no expiry, as Cloudflare's account API tokens do without an end date.
  * GitHub offers 7, 30, 60 and 90 days for personal access tokens. Our presets reach both hub bounds.
+ * We leave out 60: each preset is several times the one before, and 60 would sit between 30 and
+ * 90, where either neighbour serves.
  * The hub leaves keyExpiration unset: @better-auth/api-key (dist/index.mjs) allows 1 to 365 days.
  * https://developers.cloudflare.com/fundamentals/api/how-to/restrict-tokens/#time-to-live-ttl-constraints
  */
