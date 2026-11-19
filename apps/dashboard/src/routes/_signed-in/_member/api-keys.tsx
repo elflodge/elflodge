@@ -120,6 +120,8 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
         .then(props.focusAfterRevoke);
       return undefined;
     } catch (error) {
+      // A refusal can mean the key is already gone, so read the list again.
+      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
       return hubFailureMessage(error);
     }
   }

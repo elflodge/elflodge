@@ -29,7 +29,7 @@ type Piece = { text: string; mark?: "key" | "placeholder" };
  * GitHub's self-hosted runners also take a short-lived registration token inline.
  * Both printf calls write the credentials literally to the private file that docker run reads
  * through --env-file when it creates the container.
- * https://docs.github.com/en/rest/actions/self-hosted-runners
+ * https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository
  */
 function dockerCommand(key: string | undefined, hub: Piece): Piece[] {
   return [

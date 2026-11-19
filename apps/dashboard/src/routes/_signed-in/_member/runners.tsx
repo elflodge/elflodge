@@ -60,6 +60,8 @@ function Runners() {
       void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
       return undefined;
     } catch (error) {
+      // A refusal can mean the Runner is already gone, so read the list again.
+      void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
       return hubFailureMessage(error);
     }
   }

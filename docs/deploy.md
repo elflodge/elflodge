@@ -63,7 +63,7 @@ The hub and a Runner from their published images on one machine, as a deployment
      export ELFLODGE_API_KEY
    ```
 
-3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`. In Bash or zsh, run `read -rs MY_KEY` on its own, paste the OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The command below saves it in the private `.env` so recreating the Runner keeps it. An exported `OPENROUTER_API_KEY` takes precedence over `.env`, so unset it before running Compose, including for upgrades.
+3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`. In Bash or zsh, run `read -rs MY_KEY` on its own, paste the OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The command below saves it in the private `.env` so recreating the Runner keeps it. A variable exported in the shell, such as `OPENROUTER_API_KEY`, takes precedence over the same name in `.env`, so unset it before running Compose, including for upgrades.
 
    ```sh
    (
@@ -176,7 +176,7 @@ Then set `HUB_URL=https://hub.example.com` in `.env` and run `docker compose up 
 
 ### Start a Runner on another machine
 
-The new host needs the hub's URL and must meet the [host requirements](#host-requirements). Create a fresh registration key with **Add Runner** in the dashboard or the registration-key command in step 2 of the Compose deployment. That key expires after one day. Registered Runners keep using their own keys.
+The new host needs the hub's URL and must meet the [host requirements](#host-requirements). Create a fresh registration key with **Add Runner** in the dashboard; it expires after one day. Registered Runners keep using their own keys.
 
 In Bash or zsh on that machine, run `read -rs MY_KEY` on its own, paste your OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The following command saves it in the private `runner.env`.
 
