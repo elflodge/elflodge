@@ -1,4 +1,4 @@
-import { problemOf } from "contract";
+import { PROBLEM_DETAILS_CONTENT_TYPE, problemOf } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -12,9 +12,9 @@ import {
 } from "./harness.ts";
 import { callTool, reply, untilAborted } from "./scripted-model.ts";
 
-// Batches, labels and the job list, against a real hub. The first tests run before any Runner has
-// started, so no job is sent to one, and each cancels what it leaves unfinished; the rest share the
-// Runner the first of them starts.
+// Batches, labels, the job list and status filters on jobs, Batches and usage, against a real hub.
+// The first tests run before any Runner starts and cancel what they leave unfinished.
+// The rest share the Runner the first of them starts.
 
 const system = startSystem();
 
@@ -233,6 +233,16 @@ test("jobs are listed by label, status, Batch and custom ID, newest first, with 
   expect(support.jobs.map((listed) => listed.customId)).toEqual(["x"]);
   const cancelled = await client.jobs.list({ labels: { customer: "acme" }, status: ["cancelled"] });
   expect(cancelled.jobs.map((listed) => listed.id)).toEqual([alone.id]);
+  const either = await client.jobs.list({
+    labels: { customer: "acme" },
+    status: ["queued", "cancelled"],
+  });
+  expect(either.jobs.map((listed) => listed.customId)).toEqual(["alone", "y", "x"]);
+  const neither = await client.jobs.list({
+    labels: { customer: "acme" },
+    status: ["failed", "running"],
+  });
+  expect(neither.jobs).toEqual([]);
   const named = await client.jobs.list({ customId: "x", labels: { customer: "acme" } });
   expect(named.jobs.map((listed) => listed.batchId)).toEqual([batch.id]);
 
@@ -247,14 +257,32 @@ test("jobs are listed by label, status, Batch and custom ID, newest first, with 
   );
   expect(page.jobs.map((listed) => listed.customId)).toEqual(["y"]);
 
-  // A misspelled filter is refused, not ignored to answer with every job.
-  const misspelled = await system.hub.fetch(`/jobs?statuses=queued&batchId=${batch.id}`, {
-    headers: { "x-api-key": await system.newJobsKey() },
-  });
-  expect(misspelled.status).toBe(400);
-  expect(await misspelled.json()).toMatchObject({ detail: expect.stringContaining('"statuses"') });
   await client.batches.cancel({ id: batch.id });
 });
+
+test.each(["/jobs", "/batches", "/usage"])(
+  "%s refuses an unknown filter and names it",
+  async (path) => {
+    for (const [query, name] of [
+      ["statuses=queued", "statuses"],
+      ["status[]=failed", "status[]"],
+      ["status%5B0%5D=failed", "status[0]"],
+      ["status=cancelled&status[]=failed", "status[]"],
+    ] as const) {
+      const response = await system.hub.fetch(`${path}?${query}`, {
+        headers: { cookie: system.ownerCookie() },
+      });
+      expect(response.status, query).toBe(400);
+      expect(response.headers.get("content-type")).toBe(PROBLEM_DETAILS_CONTENT_TYPE);
+      expect(await response.json(), query).toMatchObject({
+        type: "about:blank",
+        title: "Bad Request",
+        status: 400,
+        detail: expect.stringContaining(`"${name}"`),
+      });
+    }
+  },
+);
 
 test("Batches are listed newest first, by status and label, in pages, without their usage", async () => {
   const client = await system.clientWithNewJobsKey();

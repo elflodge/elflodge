@@ -53,6 +53,7 @@ catalog:
   "@solidjs/vite-plugin": ^3.0.0
   "@solidjs/web": ^2.0.0
   "@standard-schema/utils": ^0.3.0
+  "@standard-server/core": ~0.16.0
   "@tanstack/solid-router": 2.0.0-rc.10
   "@tanstack/solid-start": 2.0.0-rc.10
   "@testcontainers/postgresql": ^12.2.1

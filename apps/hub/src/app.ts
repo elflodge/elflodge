@@ -1,11 +1,15 @@
 import { catchORPCErrorCode, middlewareGen, type WithEffectContext } from "@orpc/effect";
 import "@orpc/effect/extensions/effect";
 import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
+import { BracketNotationSerializer, getOpenAPIMeta } from "@orpc/openapi";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { implement, ValidationError } from "@orpc/server";
 import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
+import type { StandardHandlerInterceptor } from "@orpc/server/standard";
+import { getOwn, isPlainObject, setOwn } from "@orpc/shared";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
+import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
   getAccess,
@@ -394,6 +398,32 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
 // A query string's values arrive as text; this turns them into what the input's schema expects,
 // such as `after=42` into a number.
 const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] });
+const bracketNotation = new BracketNotationSerializer();
+
+// One bare value must decode as a one-element list, which is why the array style stays.
+// For any declared query style, oRPC overwrites the bracket-decoded field and hides its name from
+// strict validation. No upstream issue yet. Remove this when oRPC preserves the name for validation
+// or returns a 400 that names it.
+const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiContext> = (options) => {
+  const styles = getOpenAPIMeta(options.procedure)?.queryStyles;
+  // oRPC's compact codec reads the query as the input object on GET and HEAD.
+  if (!styles || (options.request.method !== "GET" && options.request.method !== "HEAD")) {
+    return options.next();
+  }
+  const [, search] = parseStandardUrl(options.request.url);
+  return options.next({
+    ...options,
+    decodeInput: async () => {
+      const query = await options.decodeInput();
+      if (!isPlainObject(query)) return query;
+      for (const name of new URLSearchParams(search).keys()) {
+        const [root = name] = bracketNotation.parsePath(name);
+        if (root !== name && getOwn(styles, root) !== undefined) setOwn(query, name, undefined);
+      }
+      return query;
+    },
+  });
+};
 
 // The same router behind two handlers, as oRPC's request limit is one per handler: uploads, whose
 // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
@@ -407,6 +437,7 @@ const uploads = new OpenAPIHandler(router, {
 const api = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
+  interceptors: [restoreDroppedQueryNamesForValidation],
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
