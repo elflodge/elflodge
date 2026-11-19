@@ -63,7 +63,7 @@ test("API errors are RFC 9457 Problem Details", async () => {
 
 test("a member removed from the Organization is refused, though their session lasts", async () => {
   const member = { email: "removed@example.com", password: "a long enough password" };
-  const asMember = await system.addMember({ ...member, name: "Removed" });
+  const { client: asMember } = await system.addMember({ ...member, name: "Removed" });
   await asMember.runners.list();
   // The owner manages the Organization through Better Auth's organization routes on the hub.
   const ownerAuth = system.ownerAuth();

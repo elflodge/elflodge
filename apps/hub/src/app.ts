@@ -247,7 +247,10 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       }),
       upload: os.blobs.upload.effect(function* ({ input, errors }) {
         const { params, headers, body } = input;
-        return yield* uploadBlob(params.digest, headers["content-length"], body).pipe(
+        // The `octet-stream` hint has oRPC hand over the body as a stream, whatever sent it; the
+        // `Blob` branch only narrows the type the contract shares with clients.
+        const stream = body instanceof Blob ? body.stream() : body;
+        return yield* uploadBlob(params.digest, headers["content-length"], stream).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, { params, headers }, problems)),
           ),

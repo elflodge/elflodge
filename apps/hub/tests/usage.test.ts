@@ -229,7 +229,7 @@ test("a window that ends before it starts, is longer than 400 days or starts bef
 });
 
 test("a member whose role does not allow reading usage is refused", async () => {
-  const member = await system.addMember({
+  const { client: member } = await system.addMember({
     email: "member@example.com",
     password: "a long enough password",
     name: "Member",

@@ -136,6 +136,47 @@ test("a Batch and its job show the key that submitted them after revocation, and
   ).toEqual({ keyCreatorUserId: creator.id });
 });
 
+test("a member's session submits as a key does: Blobs, a Batch and its jobs, shown as the member's", async () => {
+  const name = "Sam Submitter";
+  const { client: member, userId } = await system.addMember({
+    email: "submitter@example.com",
+    password: "a member's own long password",
+    name,
+  });
+  const submitter = { kind: "member", id: userId, name };
+
+  const report = new TextEncoder().encode("Costs fell 2%.");
+  const ref = {
+    digest: `sha256:${createHash("sha256").update(report).digest("hex")}`,
+    sizeBytes: report.length,
+  };
+  expect((await member.blobs.check({ files: [ref] })).files).toMatchObject([
+    { ...ref, stored: false },
+  ]);
+  // A file, as the dashboard uploads one from a browser.
+  const upload = new File([report], "q4.md", { type: "text/markdown" });
+  expect(
+    await member.blobs.upload({
+      params: { digest: ref.digest },
+      headers: { "content-length": upload.size },
+      body: upload,
+    }),
+  ).toEqual(ref);
+  expect((await member.blobs.check({ files: [ref] })).files).toEqual([{ ...ref, stored: true }]);
+
+  const batch = await member.batches.create({ agent: AGENT });
+  expect(batch.submitter).toEqual(submitter);
+  const { jobs } = await member.batches.addJobs({
+    id: batch.id,
+    jobs: [{ ...JOB, files: [{ path: "q4.md", ...ref }] }],
+  });
+  const [added] = jobs;
+  expect(added?.job.submitter).toEqual(submitter);
+  const owner = system.owner();
+  expect((await owner.jobs.get({ id: added?.job.id ?? "" })).submitter).toEqual(submitter);
+  expect((await owner.batches.get({ id: batch.id })).submitter).toEqual(submitter);
+});
+
 test("a key adds and reads jobs only with the permission for each", async () => {
   const { client: addOnly } = await withKey({ job: ["create"] });
   const { id, batchId } = await submitJob(addOnly, { ...AGENT, ...JOB });

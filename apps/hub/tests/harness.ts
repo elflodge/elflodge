@@ -292,13 +292,13 @@ export function startSystem(
 
   /**
    * Creates the account `member`, adds it to the Organization with the plain `member` role, and
-   * returns a client signed in as it.
+   * returns a client signed in as it and the account's user ID.
    */
   async function addMember(member: {
     email: string;
     password: string;
     name: string;
-  }): Promise<ApiClient> {
+  }): Promise<{ client: ApiClient; userId: string }> {
     const [organization] = await ownerAuth().organization.list();
     if (!organization) throw new Error("The hub has no Organization");
     // Public sign-up is off, so the account is created as setup creates the owner's.
@@ -316,7 +316,10 @@ export function startSystem(
     await auth.api.addMember({
       body: { userId: user.id, organizationId: organization.id, role: "member" },
     });
-    return client({ cookie: await signIn(member), origin: HUB_ORIGIN });
+    return {
+      client: client({ cookie: await signIn(member), origin: HUB_ORIGIN }),
+      userId: user.id,
+    };
   }
 
   /** Creates the key Runners share to register, as the owner. */
