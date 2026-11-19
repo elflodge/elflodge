@@ -10,9 +10,11 @@ export function getRouter() {
   const queryClient = createQueryClient();
   const router = createRouter({
     routeTree,
+    search: { strict: true },
     // Match the hub's query spelling: every value is text, and a repeated key is an ordered list.
-    // The router's JSON default converts 2026, 1e3 and true. query-string adds 3.7 kB gzipped
-    // and a null case for a bare key, which the dashboard reads as empty text.
+    // The router's JSON default converts 2026, 1e3 and true. Its parseSearchWith helper runs
+    // after qss converts primitives, and stringifySearchWith encodes one value per key.
+    // query-string adds 3.7 kB gzipped and a null case for a bare key, which here is empty text.
     parseSearch: (search) => {
       const params = new URLSearchParams(search);
       return Object.fromEntries(
