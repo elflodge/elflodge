@@ -1111,7 +1111,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/jobs/{id}/events",
           description:
-            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `status` and `hasMore` is false. A page stops at about 1 MiB, but always holds one event if any are past the cursor.",
+            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. `hasMore` says whether more events are stored in that order, and `status` is the job's status when the page was read. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `status` and `hasMore` is false. A page stops at about 1 MiB, but always holds one event if any are past the cursor.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
