@@ -48,14 +48,14 @@ The hub and a Runner from their published images on one machine, as a deployment
 
    <!-- x-release-please-end -->
 
-2. **Create keys.** Creating API keys takes a signed-in member, and the command cannot sign in yet, so this step uses `curl`. Each key comes back once, as `key`: the one Runners register with goes into `.env`, and the one for jobs into `ELFLODGE_API_KEY`.
+2. **Create keys.** Creating API keys takes a signed-in member, and the command cannot sign in yet, so this step uses `curl`. Each key comes back once, as `key`. The Compose Runner's registration key does not expire because it stays in the private `.env` beside the hub's secrets and the Runner needs it again if it loses its volume. The jobs key goes into `ELFLODGE_API_KEY`. For another machine, create a one-day key with **Add Runner** in the dashboard.
 
    ```sh
    curl -sS --fail-with-body -c cookies -H 'content-type: application/json' \
      -d '{"email":"you@example.com","password":"choose-a-password"}' "$HUB/api/auth/sign-in/email"
-   # The key Runners register with, kept in .env for the Runner
+   # The registration key for this host's Compose Runner
    key=$(curl -sS --fail-with-body -b cookies -H 'content-type: application/json' \
-     -d '{"name":"runners","expiresIn":86400,"permissions":{"runner":["register"]}}' "$HUB/api-keys" | jq -er .key) &&
+     -d '{"name":"runners","permissions":{"runner":["register"]}}' "$HUB/api-keys" | jq -er .key) &&
      printf 'RUNNER_REGISTRATION_KEY=%s\n' "$key" >> .env
    # A key for submitting and controlling jobs, for the command
    ELFLODGE_API_KEY=$(curl -sS --fail-with-body -b cookies -H 'content-type: application/json' \

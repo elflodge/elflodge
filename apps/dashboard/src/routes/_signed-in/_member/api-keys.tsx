@@ -1,13 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
-import { GRANTABLE_KEY_PERMISSIONS } from "contract";
-import { For, Loading, Show, createSignal, onSettled } from "solid-js";
+import { GRANTABLE_KEY_PERMISSIONS, problemOf } from "contract";
+import { For, Show, createSignal, flush, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
+import { FieldError } from "../../../components/FieldError.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
@@ -34,14 +35,20 @@ export const Route = createFileRoute("/_signed-in/_member/api-keys")({
  * and listing Runners, and every job call. Only the Runner's own key, created by the hub when it
  * registers, holds `runner: actAs`.
  */
-const GRANTABLE = [
-  { resource: "job", legend: "Jobs", actions: GRANTABLE_KEY_PERMISSIONS.job },
-  { resource: "runner", legend: "Runners", actions: GRANTABLE_KEY_PERMISSIONS.runner },
-] as const;
+const GRANTABLE = Object.entries({
+  job: { legend: "Jobs", actions: GRANTABLE_KEY_PERMISSIONS.job },
+  runner: { legend: "Runners", actions: GRANTABLE_KEY_PERMISSIONS.runner },
+} satisfies {
+  [R in keyof typeof GRANTABLE_KEY_PERMISSIONS]: {
+    legend: string;
+    actions: (typeof GRANTABLE_KEY_PERMISSIONS)[R];
+  };
+});
 
 /**
  * Submitters and Runners can run unattended until their service key is revoked. The API, CLI
  * and form default to no expiry, as Cloudflare's account API tokens do without an end date.
+ * GitHub offers 7, 30, 60 and 90 days for personal access tokens. Our presets reach both hub bounds.
  * The hub leaves keyExpiration unset: @better-auth/api-key (dist/index.mjs) allows 1 to 365 days.
  * https://developers.cloudflare.com/fundamentals/api/how-to/restrict-tokens/#time-to-live-ttl-constraints
  */
@@ -69,7 +76,7 @@ function ApiKeys() {
   const [creating, setCreating] = createSignal(false);
 
   return (
-    <Loading fallback={null}>
+    <>
       <div class="head">
         <h1
           tabindex="-1"
@@ -102,34 +109,45 @@ function ApiKeys() {
       <Show when={context().managesKeys && creating()}>
         <CreateKey onClose={() => setCreating(false)} />
       </Show>
-    </Loading>
+    </>
   );
 }
 
 function KeyList(props: { focusAfterRevoke: () => void }) {
   const queryClient = useQueryClient();
   const [actionFailure, setActionFailure] = createSignal<string>();
+  const [alreadyGone, setAlreadyGone] = createSignal<string>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
 
-  async function revoke(key: ApiKey) {
+  async function revoke(key: ApiKey, label: string) {
     setActionFailure(undefined);
+    setAlreadyGone(undefined);
     try {
       await api.apiKeys.revoke({ id: key.id });
-      void queryClient
-        .invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
-        .then(props.focusAfterRevoke);
-      return undefined;
     } catch (error) {
-      // A refusal can mean the key is already gone, so read the list again.
-      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
-      return hubFailureMessage(error);
+      if (problemOf(error)?.status !== 404) {
+        void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
+        return hubFailureMessage(error);
+      }
+      setAlreadyGone(`${label} was already revoked.`);
     }
+    void queryClient
+      .invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
+      .then(props.focusAfterRevoke);
+    return undefined;
   }
 
   return (
     <>
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
+      </Show>
+      <Show when={alreadyGone()} keyed>
+        {(message) => (
+          <Notice role="status" focusRef={(element) => onSettled(() => element.focus())}>
+            {message}
+          </Notice>
+        )}
       </Show>
       <Show when={actionFailure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
@@ -172,6 +190,8 @@ function validatePermissions(group: HTMLFieldSetElement) {
 function CreateKey(props: { onClose: () => void }) {
   const queryClient = useQueryClient();
   let dialog: HTMLDialogElement | undefined;
+  let nameInput: HTMLInputElement | undefined;
+  const [nameRefused, setNameRefused] = createSignal(false);
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
   const [failure, setFailure] = createSignal<string>();
   const { pending, onSubmit } = createFormAction(create);
@@ -179,11 +199,12 @@ function CreateKey(props: { onClose: () => void }) {
   async function create(element: HTMLFormElement) {
     const form = new FormData(element);
     const permissions = Object.fromEntries(
-      GRANTABLE.map(
-        ({ resource }) => [resource, form.getAll(resource).map(String)] as const,
-      ).filter(([, actions]) => actions.length > 0),
+      GRANTABLE.map(([resource]) => [resource, form.getAll(resource).map(String)] as const).filter(
+        ([, actions]) => actions.length > 0,
+      ),
     );
     setFailure(undefined);
+    setNameRefused(false);
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expires"))]?.seconds;
     try {
@@ -195,7 +216,17 @@ function CreateKey(props: { onClose: () => void }) {
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
       setCreated({ name, key });
     } catch (error) {
-      setFailure(hubFailureMessage(error));
+      // The hub passes on Better Auth's status and detail, without its INVALID_NAME_LENGTH code.
+      const problem = problemOf(error);
+      if (
+        problem?.status === 400 &&
+        problem.detail === "The name length is either too large or too small."
+      ) {
+        if (nameInput?.value !== name) return;
+        setNameRefused(true);
+        flush();
+        nameInput.focus();
+      } else setFailure(hubFailureMessage(error));
     }
   }
 
@@ -224,12 +255,23 @@ function CreateKey(props: { onClose: () => void }) {
                   id="key-name"
                   name="name"
                   autocomplete="off"
-                  maxlength={32}
-                  aria-describedby="key-name-hint"
+                  ref={(element) => {
+                    nameInput = element;
+                  }}
+                  aria-invalid={nameRefused() ? "true" : undefined}
+                  aria-describedby={nameRefused() ? "key-name-error" : "key-name-hint"}
+                  onInput={() => setNameRefused(false)}
                 />
-                <p class="note" id="key-name-hint">
-                  Optional, up to 32 characters.
-                </p>
+                <Show
+                  when={nameRefused()}
+                  fallback={
+                    <p class="note" id="key-name-hint">
+                      Optional, up to 32 characters.
+                    </p>
+                  }
+                >
+                  <FieldError id="key-name-error">Use a name of 32 characters or fewer.</FieldError>
+                </Show>
               </div>
               <fieldset
                 class="field"
@@ -244,13 +286,13 @@ function CreateKey(props: { onClose: () => void }) {
                   Choose at least one action.
                 </p>
                 <For each={GRANTABLE}>
-                  {(group) => (
+                  {([resource, group]) => (
                     <fieldset class="check-group">
                       <legend>{group.legend}</legend>
                       <For each={group.actions}>
                         {(action) => (
                           <label class="check">
-                            <input type="checkbox" name={group.resource} value={action} />
+                            <input type="checkbox" name={resource} value={action} />
                             <span class="mono">{action}</span>
                           </label>
                         )}
@@ -317,7 +359,7 @@ function CreateKey(props: { onClose: () => void }) {
 function KeyTable(props: {
   reportPageFailure: (message: string) => void;
   keys: ApiKey[];
-  revoke: (key: ApiKey) => Promise<string | undefined>;
+  revoke: (key: ApiKey, label: string) => Promise<string | undefined>;
 }) {
   return (
     <table class="records is-narrow" role="table">
@@ -380,7 +422,7 @@ function KeyTable(props: {
                       </>
                     }
                     confirm={`Revoke ${label()}`}
-                    act={() => props.revoke(key())}
+                    act={() => props.revoke(key(), label())}
                   >
                     <p>
                       Calls made with it are refused from now on. Final: a revoked key cannot be

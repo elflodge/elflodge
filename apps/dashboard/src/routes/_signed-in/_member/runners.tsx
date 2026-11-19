@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
-import type { Runner, RunnerCapabilities } from "contract";
+import { type Runner, type RunnerCapabilities, problemOf } from "contract";
 import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
@@ -18,7 +18,7 @@ import {
   plural,
   timeZoneNote,
 } from "../../../format.ts";
-import { orpc } from "../../../query.ts";
+import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 const CONNECTION_NOTE =
@@ -39,7 +39,9 @@ export const Route = createFileRoute("/_signed-in/_member/runners")({
 function Runners() {
   const context = Route.useRouteContext();
   const queryClient = useQueryClient();
-  const runners = useQuery(() => orpc.runners.list.queryOptions());
+  const runners = useQuery(() =>
+    orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
+  );
   const [actionFailure, setActionFailure] = createSignal<string>();
   const [removed, setRemoved] = createSignal<string>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
@@ -55,15 +57,15 @@ function Runners() {
     try {
       const { endedJobs, jobsWithFilesLeft } = await api.runners.delete({ id: runner.id });
       setRemoved(removalSummary(label, endedJobs.length, jobsWithFilesLeft.length));
-      // The Runner is gone from the list and the strip, and the jobs it ended from every read of jobs.
-      void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
+      // Jobs ended by the removal are stale wherever they are shown.
       void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
-      return undefined;
     } catch (error) {
-      // A refusal can mean the Runner is already gone, so read the list again.
+      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
+      setRemoved(`${label} was already removed.`);
+    } finally {
       void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
-      return hubFailureMessage(error);
     }
+    return undefined;
   }
 
   return (

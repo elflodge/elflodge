@@ -5,12 +5,9 @@ import { Link } from "@tanstack/solid-router";
 import { Errored, Loading, Match, Show, Switch, createMemo, from } from "solid-js";
 
 import { TIME_ZONED, formatCount, plural } from "../format.ts";
-import { orpc } from "../query.ts";
+import { REFRESH_INTERVAL_MS, orpc } from "../query.ts";
 import { Instant } from "./Instant.tsx";
 
-// Bull Board polls its queue counts and jobs at this interval while the dashboard is open.
-// https://github.com/felixmosh/bull-board/blob/4d98710f7e8bee0cfcd5a158caadf9fd109b4cb1/website/docs/recipes/change-polling-interval.md
-const REFRESH = 5_000;
 // The smallest round cutoff beyond the poll and retries (5 + 1 + 2 + 4 seconds) lets a fast outage
 // go straight from figures to failure. An unmeasured starting value; revisit with either policy.
 const MAX_ANSWER_AGE = 15_000;
@@ -23,9 +20,11 @@ export function HubStrip() {
       return onlineManager.subscribe(next);
     }),
   );
-  const runners = useQuery(() => orpc.runners.list.queryOptions({ refetchInterval: REFRESH }));
+  const runners = useQuery(() =>
+    orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
+  );
   const counts = useQuery(() =>
-    orpc.jobs.counts.queryOptions({ input: {}, refetchInterval: REFRESH }),
+    orpc.jobs.counts.queryOptions({ input: {}, refetchInterval: REFRESH_INTERVAL_MS }),
   );
 
   return (

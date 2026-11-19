@@ -16,7 +16,11 @@ import { Notice } from "./Notice.tsx";
  */
 const IMAGE = `ghcr.io/elflodge/elflodge-runner:${version}`;
 
-/** One day, the shortest time the hub lets a key live: a registration key is for the hosts at hand. */
+/**
+ * A registration key for another machine lasts one day, the shortest time the hub allows.
+ * GitHub's self-hosted runners use a registration token that expires after one hour.
+ * https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository
+ */
 const REGISTRATION_KEY_LIFE_SECONDS = 24 * 60 * 60;
 
 const HUB_PLACEHOLDER = "<the hub's URL from that machine>";
@@ -26,10 +30,8 @@ type Piece = { text: string; mark?: "key" | "placeholder" };
 
 /**
  * Keep this command in step with "Start a Runner on another machine" in docs/deploy.md.
- * GitHub's self-hosted runners also take a short-lived registration token inline.
  * Both printf calls write the credentials literally to the private file that docker run reads
  * through --env-file when it creates the container.
- * https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository
  */
 function dockerCommand(key: string | undefined, hub: Piece): Piece[] {
   return [
