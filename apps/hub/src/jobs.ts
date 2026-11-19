@@ -121,7 +121,7 @@ function toApiJob(
       statusUnknown: StatusUnknownOfJob | null;
       runner: RunnerOfJob | null;
     },
-): Job & Pick<JobRow, "customId"> {
+) {
   const {
     status,
     output,

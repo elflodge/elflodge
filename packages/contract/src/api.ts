@@ -503,8 +503,13 @@ export const batchRefSchema = z.strictObject({
  * and its activity. Read the job for those.
  */
 const listedJobBaseSchema = z.extend(z.omit(jobBaseSchema, { activity: true }), {
-  // The list reads live jobs. Only a deleted job's detail loses its custom ID.
+  // Only a deleted job's detail loses these fields. The list reads the job table.
+  batchId: batchIdSchema,
   customId: customIdSchema,
+  labels: labelsSchema,
+  submitter: submitterSchema,
+  runTimeoutSeconds: z.int(),
+  modelBudgetUsd: modelBudgetUsdSchema,
 });
 export const listedJobSchema = z
   .discriminatedUnion("status", [
