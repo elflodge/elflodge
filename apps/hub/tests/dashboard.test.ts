@@ -10,12 +10,11 @@ import { backdateJobContact, protocolClient, startedJobReport, startSystem } fro
 // other sites from acting with a member's session.
 
 const system = startSystem();
-const publicOrigin = "http://reference.example.org";
 let browser: Browser;
 
 beforeAll(async () => {
   await system.start();
-  browser = await launchDashboardBrowser(system, publicOrigin);
+  browser = await launchDashboardBrowser(system);
 });
 afterAll(async () => {
   await browser?.close();
@@ -67,6 +66,12 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
   const { page, scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
+  const script = await system.hub.fetch(scriptPath);
+  expect(script.status).toBe(200);
+  expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
+    expect.arrayContaining(["max-age=31536000", "immutable"]),
+  );
+
   const missingPath = "/dashboard/assets/missing.js";
   const missing = await page.evaluate(async (path) => {
     const response = await fetch(path);
@@ -81,8 +86,6 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
 
   const navigation = await page.goto(`${system.origin}${missingPath}`);
   if (inject("hub") === "workers") {
-    const script = await system.hub.fetch(scriptPath);
-    expect(script.status).toBe(200);
     for (const vary of [script.headers.get("vary"), navigation?.headers().vary, missing.vary]) {
       expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
     }
@@ -100,47 +103,6 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   expect(unslashed.status).toBe(307);
   expect(unslashed.headers.get("location")).toBe("/dashboard/");
 });
-
-test.each([system.origin, publicOrigin])(
-  "the API reference renders and sends requests on %s",
-  async (origin) => {
-    const page = await browser.newPage({ serviceWorkers: "block" });
-    onTestFinished(() => page.close());
-    // Scalar bypasses proxies for localhost. The public-looking host also resolves to loopback.
-    if (origin === publicOrigin)
-      await page.context().grantPermissions(["local-network-access"], { origin });
-    const externalRequests: string[] = [];
-    await page.context().route(
-      (url) => /^https?:$/.test(url.protocol) && url.origin !== origin,
-      (route) => {
-        externalRequests.push(route.request().url());
-        return route.abort();
-      },
-    );
-    const script = page.waitForResponse((response) => response.url().endsWith("/standalone.js"));
-    await page.goto(`${origin}/docs`);
-    expect(await page.locator('meta[name="referrer"]').getAttribute("content")).toBe("no-referrer");
-    expect((await script).headers()["cache-control"]).toContain("max-age=31536000");
-    await page.getByRole("heading", { name: "Elflodge", exact: true }).waitFor();
-    await page.evaluate("document.fonts.ready");
-    expect(await page.locator('a[href^="https://client.scalar.com"]').count()).toBe(0);
-    expect(
-      await page.getByRole("button", { name: /Ask AI|Explore Scalar|Generate SDK/i }).count(),
-    ).toBe(0);
-    await page.getByRole("button", { name: "Test Request (get /setup)", exact: true }).click();
-    const target = `${origin}/setup`;
-    const [sent] = await Promise.all([
-      page.waitForRequest(
-        (request) => request.url() === target || new URL(request.url()).origin !== origin,
-      ),
-      page.getByRole("button", { name: /^Send get request to / }).click(),
-    ]);
-    expect(sent.url()).toBe(target);
-    expect(await sent.headerValue("referer")).toBeNull();
-    expect(await (await sent.response())?.json()).toEqual({ needed: false });
-    expect(externalRequests).toEqual([]);
-  },
-);
 
 test("a member's request another site sends is refused, and the same from the hub served", async () => {
   const client = await system.clientWithNewJobsKey();

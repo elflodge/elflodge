@@ -20,8 +20,8 @@ export function dashboardFiles(root: string) {
           root,
           // The path under the base path, with its leading `/`.
           rewriteRequestPath: (requestPath) => requestPath.slice(DASHBOARD_BASE.length - 1),
-          // Vite's content hashes and Scalar's package version let browsers reuse these assets
-          // for a year, as the dashboard's _headers tells Workers.
+          // Vite names each asset by its content hash, so browsers can cache it for a year,
+          // as the dashboard's _headers tells Workers.
           onFound: (_found, c) => {
             c.header("Cache-Control", "public, max-age=31536000, immutable");
           },

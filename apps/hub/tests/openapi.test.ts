@@ -5,7 +5,7 @@ import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
 import { startSystem } from "./harness.ts";
 
-// The hub's OpenAPI document, as callers in other languages and its reference page read it.
+// The hub's OpenAPI document, as callers in other languages read it.
 
 const system = startSystem();
 
@@ -19,7 +19,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
 
   expect(document).toMatchObject({
     components: {
-      // The shared schemas by name, as readers and the reference page show them.
+      // Clients can look up shared schemas by name.
       schemas: {
         Job: {},
         ProblemDetails: {

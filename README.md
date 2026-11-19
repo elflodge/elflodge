@@ -170,7 +170,7 @@ npx elflodge batches submit postings.jsonl --id postings \
 
 The first title said II; the responsibilities said senior.
 
-`npx elflodge <command> --help` lists a command's flags, and the hub's reference at `/docs` every field of the API.
+`npx elflodge <command> --help` lists a command's flags. The hub's OpenAPI document at `/spec.json` describes each public call and its parameters.
 
 ## Stop watching your agents
 
@@ -194,11 +194,11 @@ Jobs can be added continuously (`add-jobs`, `jobs submit`) and read continuously
 
 Underneath, it is a plain job queue whose worker happens to think: an HTTP API on Postgres (Node or Docker, or Cloudflare Workers with Postgres through Hyperdrive), and Runners that connect out to it. The repository is `elflodge/elflodge`: TypeScript on Effect, oRPC, Hono and Zod, with Pi and sandbox-runtime inside. The CLI, the npm package `elflodge`, only calls the hub's HTTP API.
 
-So can anything else. Your hub serves an OpenAPI 3.2 document at `/spec.json` and a browsable reference at `/docs`:
+So can anything else. Your hub serves an OpenAPI 3.2 document at `/spec.json`.
 
 ```sh
 eval "$(npx elflodge stack env)"   # exports ELFLODGE_URL and ELFLODGE_API_KEY
-curl -sS -H "x-api-key: $ELFLODGE_API_KEY" "$ELFLODGE_URL/spec.json" | jq '.paths | keys'
+curl -sS "$ELFLODGE_URL/spec.json" | jq '.paths | keys'
 curl -sS -H "x-api-key: $ELFLODGE_API_KEY" "$ELFLODGE_URL/jobs?status=succeeded"
 ```
 

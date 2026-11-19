@@ -14,7 +14,6 @@
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/tanstack-query": "catalog:",
-    "@scalar/api-reference": "catalog:",
     "@solidjs/web": "catalog:",
     "@tanstack/solid-query": "catalog:",
     "@tanstack/solid-router": "catalog:",
@@ -28,7 +27,6 @@
   "devDependencies": {
     "@solidjs/vite-plugin": "catalog:",
     "typescript": "catalog:",
-    "vite-plugin-static-copy": "catalog:",
     "vite-plus": "catalog:"
   }
 }

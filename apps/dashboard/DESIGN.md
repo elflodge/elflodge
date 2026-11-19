@@ -89,7 +89,6 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
       <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
         <li><Link to="/change-password">Change password</Link></li>
-        <li><a href="/docs">API reference</a></li>
         <li><form onSubmit={signOut}><button type="submit" class="quiet" disabled={pending()}>Sign out</button></form></li>
       </ul>
     </div>

@@ -7,9 +7,8 @@ import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { implement, ValidationError } from "@orpc/server";
 import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
-import { getOwn, isPlainObject, setOwn } from "@orpc/shared";
+import { getOwn, isPlainObject, matchesHttpPath, setOwn } from "@orpc/shared";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
-import type { ReferenceProps } from "@scalar/api-reference";
 import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
@@ -57,7 +56,7 @@ import {
   listBatches,
 } from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
-import { DASHBOARD_ASSETS, DASHBOARD_BASE, SCALAR_DIRECTORY } from "./dashboard.ts";
+import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
 import { EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
@@ -447,6 +446,8 @@ const uploads = new OpenAPIHandler(router, {
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
+const OPENAPI_SPEC_PATH = "/spec.json";
+
 const api = new OpenAPIHandler(router, {
   errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
@@ -455,31 +456,16 @@ const api = new OpenAPIHandler(router, {
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
-    // The OpenAPI document at `/spec.json`, oRPC's default, and a browsable reference of it at
-    // `/docs`, as `/` leads to the dashboard (ADR 0043). The document names the session cookie of
-    // the hub's deployment, so it is generated from the request's services. The reference page runs
-    // on the origin where members sign in. Keep readers' requests and credentials on that origin.
     new OpenAPIReferenceHandlerPlugin({
+      specPath: OPENAPI_SPEC_PATH,
+      // oRPC has no spec-only mode. Without this guard, moving the dashboard redirect would
+      // expose the plugin's default reference page at `/`, which loads Scalar from a CDN.
+      allow: ({ request }) => matchesHttpPath(request.url, OPENAPI_SPEC_PATH),
+      // The document names the session cookie of the deployment that serves the request.
       spec: ({ context }) =>
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
           generateOpenAPIDocument,
         ),
-      providerScriptUrl: `${DASHBOARD_BASE}${SCALAR_DIRECTORY}/standalone.js`,
-      providerConfig: {
-        withDefaultFonts: false,
-        telemetry: false,
-        // Scalar's redirectToProxy treats an empty string as a direct request.
-        proxyUrl: "",
-        agent: { disabled: true },
-        mcp: { disabled: true },
-        // The hosted client link sends the document URL to client.scalar.com.
-        hideClientButton: true,
-        // Scalar offers hosted SDK generation in the developer tools on local hubs.
-        showDeveloperTools: "never",
-      } satisfies ReferenceProps["configuration"],
-      docsPath: "/docs",
-      // Following a link in the reference must keep the hub's address private.
-      docsHead: '<meta name="referrer" content="no-referrer">',
     }),
   ],
 });

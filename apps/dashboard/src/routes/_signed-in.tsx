@@ -150,10 +150,6 @@ function SignedIn() {
                 <Link to="/change-password">Change password</Link>
               </li>
               <li>
-                {/* Served by the hub itself, outside the dashboard. */}
-                <a href="/docs">API reference</a>
-              </li>
-              <li>
                 <form onSubmit={signOut}>
                   <button type="submit" class="quiet" disabled={pending()}>
                     Sign out
