@@ -8,7 +8,7 @@ import { CurrentDestination, Destinations } from "../components/Destinations.tsx
 import { InShell } from "../components/FallbackPage.tsx";
 import { HubStrip } from "../components/HubStrip.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { createFormAction } from "../form.ts";
+import { createFormAction, focusIfLost } from "../form.ts";
 import {
   reloadAndWaitIfMemberChanged,
   signOutTo,
@@ -20,18 +20,17 @@ import {
 // another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
-    // Start both reads together, but act on the session first even if the Organization read fails.
-    const organizations = Promise.allSettled([
-      readApi("The Organization", () => authClient.organization.list()),
-    ]);
+    const organizations = readApi("The Organization", () => authClient.organization.list());
+    // Handle an early rejection until we can use this read. A change of member must reload the
+    // document as soon as the session answers, even if the Organization read is still pending.
+    void organizations.catch(() => {});
     const session = await readApi("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
-    const [list] = await organizations;
-    if (list.status === "rejected") throw list.reason;
+    const list = await organizations;
     // Removing a member leaves their session, which then lists no Organization.
-    return { member: session.user, organization: list.value[0] };
+    return { member: session.user, organization: list[0] };
   },
   component: SignedIn,
 });
@@ -73,9 +72,10 @@ function SignedIn() {
       // The notice is in the page, which the open menu would cover. The focus goes to the menu's
       // button when it is still in the menu or is nowhere, as it is once the button pressed has
       // been disabled. A member who has moved on meanwhile keeps their place.
-      const focused = document.activeElement;
+      const menuHadFocus = inMenuGroup(document.activeElement);
       closeMenu();
-      if (!focused || focused === document.body || inMenuGroup(focused)) opener?.focus();
+      if (menuHadFocus) opener?.focus();
+      else focusIfLost(opener);
       setError(apiFailureMessage(failure));
     }
   });

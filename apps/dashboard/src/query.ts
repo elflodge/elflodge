@@ -16,10 +16,9 @@ export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // A quick return to a page or a click after a preload reuses the read. TanStack Router's
-        // data-loading guide uses the same 10-second window for revisits with background refresh.
-        // https://tanstack.com/router/latest/docs/guide/data-loading#using-staletime-to-control-how-long-data-is-considered-fresh
-        staleTime: 10_000,
+        // A click soon after a preload reuses the answer, as a revisit to Prefect's task runs does.
+        // https://github.com/PrefectHQ/prefect/blob/ec4b188a19371cb79bc91afe897042bca3a3c95f/ui-v2/src/api/task-runs/index.ts#L88-L105
+        staleTime: 1000,
         retry: (failureCount, error) => !refused(error) && failureCount < 3,
       },
     },

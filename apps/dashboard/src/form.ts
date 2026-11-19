@@ -1,5 +1,10 @@
 import { action, createOptimistic } from "solid-js";
 
+/** Restore keyboard focus only if the member has no focused control. */
+export function focusIfLost(target: HTMLElement | null | undefined) {
+  if (!document.activeElement || document.activeElement === document.body) target?.focus();
+}
+
 /** Keep the form pending until its submission, including any navigation, settles. */
 export function createFormAction(submit: (form: HTMLFormElement) => Promise<void>) {
   const [pending, setPending] = createOptimistic(false);
@@ -17,7 +22,7 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
     } finally {
       // Disabling the focused button sends focus to the body. If the member or the form has
       // since focused another control (such as a refused field), keep that position.
-      if (restoreFocus && document.activeElement === document.body) submitter?.focus();
+      if (restoreFocus) focusIfLost(submitter);
     }
   }
   return { pending, onSubmit };

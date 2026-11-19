@@ -22,6 +22,8 @@ The dashboard is a ruled record. It is set like a ledger: dense, plain, and exac
 | `src/styles/components.css` | Named parts, one section each, opened by a comment that says what the part is. |
 | `src/styles/app.css`        | Imports the three, in that order.                                              |
 
+The stylesheets use no cascade layers: a rule wins by its selector.
+
 `src/routes/__root.tsx` links `app.css` and the two faces, which come from the `@fontsource-variable` packages and are served by the hub with the rest of the build. The faces are linked there rather than imported by `app.css` so that the build's third-party notices carry their licences.
 
 Pages are written as semantic HTML in JSX with these classes, and with no inline styles.
@@ -102,7 +104,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 - The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's exact path match does. A search string does not change the current destination.
 - The member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
-- The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays visible in the bar as `span.here` while the menu is closed. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
+- The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
   - a link in it, a destination included, changes the page through the router;
   - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
@@ -113,7 +115,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 
 The strip is part of the shell: it is on every page inside it, an account page such as Change password included, so a page begins at the same height everywhere.
 
-Under the bar, for a member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again every 15 seconds while the page is visible.
+Under the bar, for a member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again at the strip's `REFRESH` interval while the page is visible.
 
 ```tsx
 <section class="hubstrip" aria-label="The hub now">
@@ -141,8 +143,8 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
 ```
 
 - Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall.
-- The running mark takes the lamp's colour only when something runs; at zero it is plain, as queued and paused are. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
-- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour: an earlier answer is not shown as current. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
+- The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live. When the running count is no greater than the unknown count, the mark is plain. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
+- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour: "The job counts could not be read at 15:41 CET." While the browser is offline no read is made, and all the items give way to one line drawn the same way: "The hub cannot be read: this browser is offline." It carries no time, being true for as long as it shows. When a read starts and the answer it would replace is more than 10 seconds old, as after the connection returns or the computer wakes, its items are not there until it answers. In none of these is an earlier answer shown as current. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
 - At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
 
 ### A page
@@ -308,7 +310,7 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 </table>
 ```
 
-At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. The column heads are hidden but still read. That layout drops a table's implicit roles, so the table states them.
+At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
 ### Marks
 
@@ -318,7 +320,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 
 1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the member's name.
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height.
-3. **The lamp colour is only for what is live now and for keyboard focus.**
+3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.
 5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.

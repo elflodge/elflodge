@@ -48,6 +48,7 @@ function ChangePassword() {
       const failure = ensureError(caught);
       // Better Auth's "Invalid password" could mean any of the three. Say which field to correct.
       if (failure instanceof BetterFetchError && failure.error?.code === INVALID_PASSWORD) {
+        // A refusal belongs to the submitted value. Leave a correction made meanwhile alone.
         if (currentPassword?.value !== submittedPassword) return;
         setResult(undefined);
         setCurrentRefused(true);

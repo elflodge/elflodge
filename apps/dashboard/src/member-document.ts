@@ -20,6 +20,7 @@ function leaveDocument() {
 
 /** A null member ID means no one is signed in. A new document has no member to compare yet. */
 export function reloadAndWaitIfMemberChanged(memberId: string | null) {
+  // Replacing the document discards the previous member's mounted views and pending callbacks together.
   if (documentMember !== undefined && documentMember !== memberId) return leaveDocument();
   return leaving;
 }

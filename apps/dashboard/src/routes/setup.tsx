@@ -7,7 +7,7 @@ import { api, apiFailureMessage, readApi } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText } from "../form.ts";
+import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText, focusIfLost } from "../form.ts";
 
 // Setting up a new hub: creating its owner with the setup link the hub printed (ADR 0015). The
 // link's token comes after `#`, so it never reaches the hub's request logs.
@@ -66,7 +66,7 @@ function Setup() {
                 ref={(link) =>
                   onSettled(() => {
                     // The completed form and its focused control have been replaced by this link.
-                    if (document.activeElement === document.body) link.focus();
+                    focusIfLost(link);
                   })
                 }
               >

@@ -119,12 +119,10 @@
   border-bottom-color: var(--brand-shape);
   font-weight: var(--weight-strong);
 }
-/* When the links fold into the menu, their current destination stays in the bar. */
+/* When the links fold into the menu, their current destination stays in the bar, whole: the member's name beside it is cut first. */
 .here {
   display: none;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   white-space: nowrap;
   font-weight: var(--weight-strong);
 }
@@ -305,8 +303,8 @@
 .hubstate .mark-running {
   color: var(--c-running);
 }
-/* None running is not live: the lamp stays out. */
-.hubstate :is(.mark-queued, .mark-paused, .mark-disconnected, .mark-running.is-zero) {
+/* Without a job known to be running, the lamp stays out. */
+.hubstate :is(.mark-queued, .mark-paused, .mark-disconnected, .mark-running.is-out) {
   color: var(--c-waiting);
 }
 /* What the hub cannot confirm, mark and words: jobs whose status is unknown, Runners none of which is connected. */
@@ -535,22 +533,17 @@
 }
 
 /* ---------- Hidden text: words for assistive technology alone, such as a table's caption where the page heading already says it ---------- */
-@layer visually-hidden {
-  .vh:not(:focus),
-  .records thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  /* Only the folded table needs its heads hidden. */
-  @media (width > 640px) {
-    .records thead {
-      all: revert-layer;
-    }
-  }
+/* Repeated for the folded Records table's column heads: keep the two alike. */
+.vh:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---------- Figures: right-aligned in the mono, a unit small in the sans after them or under a column head ---------- */
@@ -615,6 +608,18 @@ thead .unit {
   white-space: nowrap;
 }
 @media (max-width: 640px) {
+  /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
+  .records thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .records,
   .records tbody {
     display: block;

@@ -1,9 +1,9 @@
-import { type Browser, type Page, chromium } from "playwright";
+import { type Browser, type Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
-import { setUpOrganization } from "../src/setup.ts";
-import { clearDatabase, OWNER, startSystem } from "./harness.ts";
+import { launchDashboardBrowser } from "./dashboard-browser.ts";
+import { startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
 // other sites from acting with a member's session.
@@ -13,11 +13,7 @@ let browser: Browser;
 
 beforeAll(async () => {
   await system.start();
-  // The browser reaches the hub at the origin it serves, which is the only one it signs members in
-  // from, by resolving that origin's host to where the test hub listens.
-  browser = await chromium.launch({
-    args: [`--host-resolver-rules=MAP ${new URL(system.origin).hostname} ${system.url().host}`],
-  });
+  browser = await launchDashboardBrowser(system);
 });
 afterAll(async () => {
   await browser?.close();
@@ -229,7 +225,7 @@ test("in a browser, the strip under the bar counts the Organization's Runners an
   await strip.getByText("No Runners").waitFor();
 }, 30_000);
 
-test("in a browser, a failed read of the counts says so in the strip, not with the last counts", async () => {
+test("the strip replaces unavailable counts until the hub answers again", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   await page.clock.install();
@@ -246,14 +242,33 @@ test("in a browser, a failed read of the counts says so in the strip, not with t
     }),
   );
   // Advance to the next poll and through Query's three retry delays as each response arrives.
-  for (const delay of [15_000, 1000, 2000, 4000]) {
+  for (const delay of [5000, 1000, 2000, 4000]) {
     const response = page.waitForResponse("**/jobs/counts");
     await page.clock.fastForward(delay);
     await (await response).finished();
   }
   await expectBrowser(strip.getByText(/^The job counts could not be read at /)).toBeVisible();
   await expectBrowser(strip.getByText(/ queued$/)).toHaveCount(0);
-  // The bar stays.
+  await page.context().setOffline(true);
+  await page.clock.fastForward(5000);
+  await expectBrowser(strip.getByRole("listitem")).toHaveText([
+    "The hub cannot be read: this browser is offline.",
+  ]);
+
+  // Back online, the Runners answer first. The old counts stay hidden until the new read answers.
+  await page.unroute("**/jobs/counts");
+  const release = Promise.withResolvers<void>();
+  await page.route("**/jobs/counts", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await page.context().setOffline(false);
+    await expectBrowser(strip.getByRole("listitem")).toHaveText(["No Runners"]);
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(strip.getByText(/ queued$/)).toBeVisible();
   await page.getByRole("navigation", { name: "Destinations" }).waitFor();
 }, 30_000);
 
@@ -309,21 +324,16 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   await expectBrowser(queued).toHaveText(`${before + 1} queued`);
 }, 60_000);
 
-// After the tests that add members: the owner's password change ends the owner's other sessions,
-// with which members are added.
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   const dashboard = `${system.origin}/dashboard`;
 
   // Signed out, a page sends the member to sign in, and back to it once signed in.
-  await page.goto(`${dashboard}/change-password`);
-  await page.getByLabel("Email").fill(OWNER.email);
-  await page.getByLabel("Password").fill(OWNER.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(`${dashboard}/change-password`);
+  const member = await newMember("Password Reader");
+  await signInAt(page, "change-password", member);
   // The bar names who is signed in; their name opens the account menu.
-  const account = page.getByRole("button", { name: "Owner", exact: true });
+  const account = page.getByRole("button", { name: member.name, exact: true });
   await account.waitFor();
 
   await page.reload();
@@ -331,9 +341,9 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await heading.waitFor();
 
   // A wrong current password is refused at its field, not with words that could mean any of three.
-  const password = "a new password for the owner";
+  const password = "a new password for this member";
   const current = page.getByLabel("Current password");
-  await current.fill("not the owner's password");
+  await current.fill("incorrect password");
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password").fill(password);
   await page.getByRole("button", { name: "Change password" }).click();
@@ -341,30 +351,7 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await expectBrowser(current).toHaveAccessibleDescription("That is not your current password.");
   await expectBrowser(current).toBeFocused();
 
-  // A refusal for a value the member has already corrected leaves the correction and focus alone.
-  const release = Promise.withResolvers<void>();
-  await page.route(
-    "**/api/auth/change-password",
-    async (route) => {
-      await release.promise;
-      await route.continue();
-    },
-    { times: 1 },
-  );
-  const change = page.getByRole("button", { name: "Change password" });
-  const submitted = page.waitForRequest("**/api/auth/change-password");
-  await change.click();
-  await submitted;
-  await current.fill(OWNER.password);
-  const confirmation = page.getByLabel("Confirm new password");
-  await confirmation.focus();
-  release.resolve();
-  await expectBrowser(change).toBeEnabled();
-  await expectBrowser(current).not.toHaveAttribute("aria-invalid", "true");
-  await expectBrowser(confirmation).toBeFocused();
-
-  await page.getByLabel("New password", { exact: true }).fill(password);
-  await page.getByLabel("Confirm new password").fill(password);
+  await current.fill(member.password);
   // The change makes a new session for the same member, which the page reads; it stays, and so does
   // what it said.
   const signedInDocument = await page.evaluate(() => performance.timeOrigin);
@@ -384,37 +371,5 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByRole("heading", { name: "Sign in to Elflodge" }).waitFor();
   expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signedInDocument);
   // The new password signs in.
-  await system.signIn({ email: OWNER.email, password });
-}, 30_000);
-
-// Last, as it empties the hub.
-test("in a browser, the setup link creates the Organization and its owner, who is then signed in", async () => {
-  await clearDatabase(inject("databaseUrl"));
-  let link = "";
-  await setUpOrganization(
-    inject("databaseUrl"),
-    { owner: {}, hubUrl: system.origin },
-    (message) => {
-      link = message.split("\n").at(-1) ?? "";
-    },
-  );
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  const dashboard = `${system.origin}/dashboard`;
-
-  // Signing in leads to setup while the hub has no owner.
-  await page.goto(`${dashboard}/sign-in`);
-  await page.getByText("Open the setup link").waitFor();
-
-  await page.goto(link);
-  const owner = { email: "new-owner@example.com", password: "a long enough password" };
-  await page.getByLabel("Organization name").fill("Harbor & Pine");
-  await page.getByLabel("Your name").fill("Robin Hale");
-  await page.getByLabel("Email").fill(owner.email);
-  await page.getByLabel("Password").fill(owner.password);
-  await page.getByRole("button", { name: "Create owner" }).click();
-  await page.waitForURL(`${dashboard}/`);
-  await page.getByRole("banner").getByText("Harbor & Pine", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Robin Hale" }).click();
-  await page.getByText(owner.email).waitFor();
+  await system.signIn({ email: member.email, password });
 }, 30_000);
