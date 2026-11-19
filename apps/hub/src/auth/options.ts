@@ -108,7 +108,7 @@ export function authOptions(settings: AuthSettings) {
       db: settings.db,
       type: "postgres",
       schemaName: DB_SCHEMA,
-      // Setup passes its open transaction so creating the owner and Organization commits together.
+      // Setup creates the owner and Organization in one Kysely transaction, which cannot open another.
       transaction: !settings.db.isTransaction,
     },
     // Members sign in with a password (ADR 0015); only the hub's setup signs anyone up.

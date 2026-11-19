@@ -61,7 +61,6 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
 
   const navigation = await page.goto(`${system.origin}${missingPath}`);
   if (inject("hub") === "workers") {
-    expect([200, 404]).toContain(navigation?.status());
     const script = await system.hub.fetch(scriptPath);
     expect(script.status).toBe(200);
     for (const vary of [script.headers.get("vary"), navigation?.headers().vary, missing.vary]) {

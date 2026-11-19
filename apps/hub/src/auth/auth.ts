@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
 import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
+import ensureError from "ensure-error";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
@@ -39,7 +40,8 @@ export class Auth extends Context.Service<
  * Preserve a Better Auth refusal's HTTP status and message. The contract uses the status number
  * as the error code when oRPC has no name for it.
  */
-export function fromBetterAuth(error: unknown) {
+export function fromBetterAuth(caught: unknown) {
+  const error = ensureError(caught);
   return isAPIError(error)
     ? new ORPCError(errorCodeOf(error.statusCode), { message: error.body?.message })
     : new Cause.UnknownError(error);

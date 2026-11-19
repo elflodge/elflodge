@@ -16,7 +16,7 @@ With members' sessions in browsers, the hub refuses a member's request that a pa
 
 ## Consequences
 
-The hub serves the dashboard's build, so the hub's build, development server and deploy build the dashboard first, as do its tests. Browsers send `Sec-Fetch-Mode` only to trustworthy origins, which includes a deployed Workers hub because it serves over HTTPS. Navigating to a missing asset's address returns 404 on Node. Cloudflare serves unmatched navigations without invoking the Worker, so the same address on Workers returns the shell with the asset path's cache header and the dashboard shows its not-found page.
+The hub serves the dashboard's build, so the hub's build, development server and deploy build the dashboard first, as do its tests. For a missing asset, Workers Static Assets serve the shell when the request carries `Sec-Fetch-Mode: navigate`, so the asset rule and the Worker's 404 both send `Vary: Sec-Fetch-Mode` to keep caches from reusing one response for the other. Browsers send `Sec-Fetch-Mode` only to trustworthy origins, which includes a deployed Workers hub because it serves over HTTPS. Navigating to a missing asset's address returns 404 on Node. On Workers, Cloudflare serves that navigation without invoking the Worker, so the shell carries the asset path's cache header and the dashboard shows its not-found page.
 
 ## When to reconsider
 
