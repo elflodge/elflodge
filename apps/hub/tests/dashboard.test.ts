@@ -1,9 +1,10 @@
+import { Struct } from "effect";
 import { type Browser, type Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser } from "./dashboard-browser.ts";
-import { startSystem } from "./harness.ts";
+import { backdateJobContact, protocolClient, startedJobReport, startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
 // other sites from acting with a member's session.
@@ -241,27 +242,6 @@ test("in a browser, an address the dashboard has no page for shows that it was n
   await page.getByRole("navigation", { name: "Destinations" }).waitFor();
 }, 30_000);
 
-test("in a browser, the strip under the bar counts the Organization's Runners and jobs", async () => {
-  const client = await system.clientWithNewJobsKey();
-  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
-  await client.batches.addJobs({
-    id: batch.id,
-    jobs: [
-      { customId: "one", input: "One." },
-      { customId: "two", input: "Two." },
-    ],
-  });
-  const { jobCounts } = await client.jobs.counts({});
-
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  await signInAt(page, "", await newMember("Strip Reader"));
-  const strip = page.getByRole("region", { name: "The hub now" });
-  await strip.getByText(`${jobCounts.queued} queued`).waitFor();
-  await strip.getByText("0 agents running").waitFor();
-  await strip.getByText("No Runners").waitFor();
-}, 30_000);
-
 /** Freeze the page clock before navigation so a hub answer has a known instant. */
 async function pageWithPausedClock() {
   const page = await browser.newPage();
@@ -270,6 +250,61 @@ async function pageWithPausedClock() {
   await page.clock.pauseAt(new Date("2026-11-18T15:41:00Z"));
   return page;
 }
+
+test("the strip counts the Organization's jobs and lights the lamp while any running job is confirmed", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const batch = await client.batches.create({
+    agent: { outputContract: { schema: {} } },
+    // Place all seven jobs at once. The default Canary releases only the first five.
+    breaker: false,
+  });
+  await client.batches.addJobs({
+    id: batch.id,
+    jobs: Array.from({ length: 7 }, (_, i) => ({ customId: String(i), input: "Count." })),
+  });
+
+  const page = await pageWithPausedClock();
+  await signInAt(page, "", await newMember("Strip Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  await strip.getByText("7 queued", { exact: true }).waitFor();
+  await strip.getByText("0 agents running").waitFor();
+  await strip.getByText("No Runners").waitFor();
+
+  const { runnerId, socket } = await system.connectRunner();
+  onTestFinished(async () => {
+    socket.close(1000);
+    await system.owner().runners.delete({ id: runnerId });
+  });
+  const runner = protocolClient(socket);
+  const { runs } = await runner.request("sync", { held: [], free: 7 }, 10_000);
+  const held = runs.map(Struct.pick(["jobId", "runId"]));
+  await runner.request(
+    "report",
+    {
+      held,
+      free: 0,
+      deleted: [],
+      jobs: held.slice(0, 3).map(startedJobReport),
+    },
+    10_000,
+  );
+  // Two starts are still confirmed. The third start and all four queued placements go unheard.
+  await backdateJobContact(held.slice(2).map(({ jobId }) => jobId));
+  await page.clock.fastForward(5_000);
+  const running = strip.getByRole("listitem").filter({ hasText: "agents running" });
+  await expectBrowser(running).toHaveText("3 agents running");
+  await expectBrowser(running).not.toContainClass("hub-unknown");
+  await expectBrowser(running.locator(".mark-running")).toBeVisible();
+  await expectBrowser(running.locator(".mark-running")).not.toContainClass("is-out");
+  await expectBrowser(strip.getByText("5 status unknown", { exact: true })).toBeVisible();
+
+  await backdateJobContact(held.slice(0, 2).map(({ jobId }) => jobId));
+  await page.clock.fastForward(5_000);
+  await expectBrowser(running).toHaveText("3 agents running, status unknown");
+  await expectBrowser(running).toContainClass("hub-unknown");
+  await expectBrowser(running.locator(".mark-unknown")).toBeVisible();
+  await expectBrowser(strip.getByText("7 status unknown", { exact: true })).toBeVisible();
+}, 30_000);
 
 test("going offline immediately replaces all the strip's figures with one untimed line", async () => {
   const page = await pageWithPausedClock();

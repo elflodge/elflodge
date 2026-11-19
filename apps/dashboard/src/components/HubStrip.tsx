@@ -58,39 +58,46 @@ export function HubStrip() {
             }}
           </Read>
           <Read query={counts} what="The job counts">
-            {(read) => (
-              <>
-                {/* A count of running jobs may say agents (CONTEXT.md). */}
-                <li>
-                  {/* Unknown jobs can be queued or running. Light the lamp only for a known running job. */}
-                  <span
-                    class={[
-                      "mark mark-running",
-                      { "is-out": read().jobCounts.running <= read().statusUnknownJobs },
-                    ]}
-                    aria-hidden="true"
-                  />
-                  {formatCount(read().jobCounts.running)}{" "}
-                  {plural(read().jobCounts.running, "agent", "agents")} running
-                </li>
-                <li>
-                  <span class="mark mark-queued" aria-hidden="true" />
-                  {formatCount(read().jobCounts.queued)} queued
-                </li>
-                <Show when={read().jobCounts.paused > 0}>
+            {(read) => {
+              const running = () => read().jobCounts.running;
+              const allRunningUnknown = () =>
+                running() > 0 && running() === read().statusUnknownJobCounts.running;
+              const unknownTotal = () =>
+                read().statusUnknownJobCounts.queued + read().statusUnknownJobCounts.running;
+              return (
+                <>
+                  {/* A count of running jobs may say agents (CONTEXT.md). */}
+                  <li class={{ "hub-unknown": allRunningUnknown() }}>
+                    <span
+                      class={[
+                        "mark",
+                        allRunningUnknown() ? "mark-unknown" : "mark-running",
+                        { "is-out": running() === 0 },
+                      ]}
+                      aria-hidden="true"
+                    />
+                    {formatCount(running())} {plural(running(), "agent", "agents")} running
+                    {allRunningUnknown() && ", status unknown"}
+                  </li>
                   <li>
-                    <span class="mark mark-paused" aria-hidden="true" />
-                    {formatCount(read().jobCounts.paused)} paused
+                    <span class="mark mark-queued" aria-hidden="true" />
+                    {formatCount(read().jobCounts.queued)} queued
                   </li>
-                </Show>
-                <Show when={read().statusUnknownJobs > 0}>
-                  <li class="hub-unknown">
-                    <span class="mark mark-unknown" aria-hidden="true" />
-                    {formatCount(read().statusUnknownJobs)} status unknown
-                  </li>
-                </Show>
-              </>
-            )}
+                  <Show when={read().jobCounts.paused > 0}>
+                    <li>
+                      <span class="mark mark-paused" aria-hidden="true" />
+                      {formatCount(read().jobCounts.paused)} paused
+                    </li>
+                  </Show>
+                  <Show when={unknownTotal() > 0}>
+                    <li class="hub-unknown">
+                      <span class="mark mark-unknown" aria-hidden="true" />
+                      {formatCount(unknownTotal())} status unknown
+                    </li>
+                  </Show>
+                </>
+              );
+            }}
           </Read>
         </Show>
       </ul>

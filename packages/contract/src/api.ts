@@ -459,11 +459,8 @@ export const jobCountsSchema = z
   .object({
     /** How many jobs have each unfinished status. */
     jobCounts: z.pick(batchSchema.shape.jobCounts, { queued: true, running: true, paused: true }),
-    /**
-     * How many jobs show `statusUnknown`: each is also counted in `jobCounts`, under its recorded
-     * status.
-     */
-    statusUnknownJobs: batchSchema.shape.statusUnknownJobs,
+    /** How many queued and running jobs show `statusUnknown`. Each is also counted in `jobCounts`. */
+    statusUnknownJobCounts: z.pick(batchSchema.shape.jobCounts, { queued: true, running: true }),
   })
   .register(z.globalRegistry, { id: "JobCounts" });
 export type JobCounts = z.infer<typeof jobCountsSchema>;
@@ -1169,7 +1166,7 @@ export const apiContract = {
           method: "GET",
           path: "/jobs/counts",
           description:
-            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. Any filter or other input is refused.",
+            "Counts the Organization's queued, running and paused jobs at one moment. The queued and running totals each include the jobs of that status that show `statusUnknown`, whose counts are also returned separately. Any filter or other input is refused.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )

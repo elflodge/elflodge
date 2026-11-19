@@ -1434,58 +1434,62 @@ const LISTED_JOB_COLUMNS = [
   ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
+function countJobsWithStatus<S extends JobStatus>(status: S) {
+  return (eb: ExpressionBuilder<Database, "job">) =>
+    eb.fn.countAll<number>().filterWhere("job.status", "=", status).as(status);
+}
+
 /**
- * The Organization's unfinished jobs now: how many have each unfinished status, and how many of
- * those show `statusUnknown` (`isStatusUnknown`).
+ * The Organization's unfinished jobs by recorded status, with separate counts of queued and running
+ * jobs whose status the hub cannot confirm (`isStatusUnknown`).
  */
 export function countJobs() {
   return Db.use((database) =>
-    database.query(async (db) => {
+    database.query((db): Promise<JobCounts> => {
       const now = new Date();
       // One statement, so every count is of the same moment. The partial index on unfinished jobs'
       // statuses can cover the counts by status, though Postgres still reads the rows on pages a
       // vacuum has not marked all-visible.
-      const { statusUnknownJobs, ...jobCounts } = await db
-        .selectFrom("job as j")
-        .where("j.status", "in", UNFINISHED)
-        .select((eb) => {
-          const count = <S extends JobStatus>(status: S) =>
-            eb.fn.countAll<number>().filterWhere("j.status", "=", status).as(status);
-          return [
-            count("queued"),
-            count("running"),
-            count("paused"),
-            eb
-              .selectFrom("job as u")
-              // Only a placed job can be unknown, which has a Runner (`job_placedAt_check`); said
-              // here so an index on the Runner can serve the count.
-              .where("u.runnerId", "is not", null)
-              .where((where) =>
-                isStatusUnknown(
-                  {
-                    status: where.ref("u.status"),
-                    placedAt: where.ref("u.placedAt"),
-                    runnerId: where.ref("u.runnerId"),
-                    // Looked up only for the candidates the other conditions leave: joined instead,
-                    // the planner may read every job's row or every progress row. It differs from a
-                    // join only for a job without a progress row, which the hub never leaves.
-                    lastReportedAt: where
-                      .selectFrom("jobProgress as p")
-                      .select("p.lastReportedAt")
-                      .whereRef("p.jobId", "=", "u.id")
-                      .$asScalar(),
-                  },
-                  now,
-                ),
-              )
-              .select((agg) => agg.fn.countAll<number>().as("statusUnknownJobs"))
-              .$asScalar()
-              .$notNull()
-              .as("statusUnknownJobs"),
-          ];
-        })
+      const totals = db
+        .selectFrom("job")
+        .where("job.status", "in", UNFINISHED)
+        .select([
+          countJobsWithStatus("queued"),
+          countJobsWithStatus("running"),
+          countJobsWithStatus("paused"),
+        ]);
+      const unknown = db
+        .selectFrom("job")
+        // A placed job has a Runner (`job_placedAt_check`). When most queued jobs are unplaced,
+        // this lets Postgres skip them using the partial index on unfinished jobs by Runner.
+        .where("job.runnerId", "is not", null)
+        .where((where) =>
+          isStatusUnknown(
+            {
+              status: where.ref("job.status"),
+              placedAt: where.ref("job.placedAt"),
+              runnerId: where.ref("job.runnerId"),
+              // Looked up only for the candidates the other conditions leave: joined instead,
+              // the planner may read every job's row or every progress row. It differs from a
+              // join only for a job without a progress row, which the hub never leaves.
+              lastReportedAt: where
+                .selectFrom("jobProgress")
+                .select("jobProgress.lastReportedAt")
+                .whereRef("jobProgress.jobId", "=", "job.id")
+                .$asScalar(),
+            },
+            now,
+          ),
+        )
+        .select([countJobsWithStatus("queued"), countJobsWithStatus("running")]);
+      return db
+        .selectFrom(totals.as("totals"))
+        .crossJoin(unknown.as("unknown"))
+        .select((eb) => [
+          eb.fn.toJson("totals").as("jobCounts"),
+          eb.fn.toJson("unknown").as("statusUnknownJobCounts"),
+        ])
         .executeTakeFirstOrThrow();
-      return { jobCounts, statusUnknownJobs } satisfies JobCounts;
     }),
   );
 }
