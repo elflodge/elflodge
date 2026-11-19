@@ -39,8 +39,8 @@ function readSettings(): HubSettings {
 function workersLayer(env: Env) {
   const settings = readSettings();
   return Layer.mergeAll(
-    // Aborting a usage request through local Hyperdrive left its query waiting in Postgres.
-    // Hyperdrive pools by transaction, so Kysely cannot rely on a stable backend PID here.
+    // Hyperdrive pools by transaction, so the driver's processID cannot identify the Postgres
+    // backend to cancel. Kysely's default 'ignore query' stops waiting when the request aborts.
     databaseAndAuthLayer(env.HYPERDRIVE.connectionString, authSettings(settings)),
     jobLimitSettingsLayer(settings),
     Layer.succeed(RunnerConnections, {

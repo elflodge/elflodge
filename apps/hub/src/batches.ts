@@ -280,7 +280,7 @@ export function listBatches(query: BatchListQuery) {
                 filters.push(eb.or(statuses.map((status) => batchStatusIs(eb, status))));
               }
               if (labels !== undefined && Object.keys(labels).length > 0) {
-                filters.push(eb("b.labels", "@>", eb.cast<Labels>(eb.val(labels), "jsonb")));
+                filters.push(eb("b.labels", "@>", labels));
               }
               const matches = eb.and(filters);
               return after === undefined ? matches : eb.or([eb("b.id", "=", after), matches]);
@@ -299,10 +299,10 @@ export function listBatches(query: BatchListQuery) {
               ),
             );
           }
-          // One more than the page, to learn whether more follow.
+          // Keep the cursor when supplied, the requested page, and one extra row to detect a next page.
           return selection.orderBy("b.uid", "desc").limit(offset + limit + 1);
         })
-        // The Batches the page shows, whose jobs are counted: not the one beyond it.
+        // Skip the cursor and count jobs only for Batches shown on this page.
         .with("shown", (qb) =>
           qb
             .selectFrom("page")

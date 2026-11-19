@@ -54,7 +54,6 @@ export async function setUpOrganization(
   log: (message: string) => void = console.info,
 ): Promise<void> {
   await using db = openDatabase(connectionString);
-  // At startup there is no signed-in member whose Organizations Better Auth could list.
   if (await findOrganization(db.withSchema(DB_SCHEMA))) {
     if (owner.email || owner.password) {
       log("The Organization exists, so ADMIN_EMAIL and ADMIN_PASSWORD are ignored");
@@ -112,20 +111,18 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
           .as("locked"),
       )
       .execute();
+    // Setup uses Better Auth's adapters through `auth.$context`. After an upgrade, check that
+    // `adapter.deleteMany` revokes earlier links by value, `internalAdapter.createVerificationValue`
+    // stores the new link, `consumeVerificationValue` consumes it atomically, and
+    // `verification.storeIdentifier` still matches its overrides by prefix. The setup tests exercise
+    // these paths. Check separately that `findUserByEmail` still recovers an owner left by an
+    // interrupted setup in 0.10.0 or earlier.
     const context = await offlineAuth(transaction).$context;
     // Earlier links have unknown tokens, but all share the setup verification value.
     await context.adapter.deleteMany({
       model: "verification",
       where: [{ field: "value", value: SETUP_LINK_VALUE }],
     });
-    // Better Auth documents its internal adapter, the database calls it makes itself, for plugins
-    // and hooks, which reach it through their request's context; reaching it through
-    // `auth.$context`, outside a request, is not documented. After an upgrade, check that
-    // `auth.$context` still gives it, that `createVerificationValue` and the atomic
-    // `consumeVerificationValue` keep their behaviour and that `verification.storeIdentifier`
-    // still matches its overrides by prefix, which the setup tests exercise; and that setup still
-    // reuses an owner left by an interrupted setup in 0.10.0 or earlier, through
-    // `findUserByEmail`, which no test covers.
     await context.internalAdapter.createVerificationValue({
       identifier: SETUP_TOKEN_PREFIX + token,
       value: SETUP_LINK_VALUE,
@@ -152,7 +149,6 @@ export async function createOwnerAndOrganization(
 ): Promise<"created" | "alreadySetUp" | "linkRefused"> {
   try {
     return await db.transaction().execute(async (transaction) => {
-      // Better Auth lists a member's Organizations. This setup transaction has no signed-in member.
       if (await findOrganization(transaction.withSchema(DB_SCHEMA))) return "alreadySetUp";
       const auth = offlineAuth(transaction, {
         // Public sign-up stays off; only this instance may sign up the owner.
@@ -165,8 +161,8 @@ export async function createOwnerAndOrganization(
         const consumed = await context.internalAdapter.consumeVerificationValue(
           SETUP_TOKEN_PREFIX + token,
         );
-        // A refused token gives no session for Better Auth's list. Read whether setup completed.
         if (!consumed) {
+          // A competing setup using the same link may have committed while this one waited.
           const organization = await findOrganization(transaction.withSchema(DB_SCHEMA));
           return organization ? "alreadySetUp" : "linkRefused";
         }
@@ -189,7 +185,7 @@ export async function createOwnerAndOrganization(
       return "created";
     });
   } catch (error) {
-    // After rollback, setup has no session for Better Auth's list and must see any competing commit.
+    // After rollback, check whether a competing setup committed.
     if (await findOrganization(db.withSchema(DB_SCHEMA))) return "alreadySetUp";
     throw error;
   }

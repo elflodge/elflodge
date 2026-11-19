@@ -478,7 +478,10 @@ export interface HubPlatform<Bindings> {
   acceptRunner(env: Bindings, request: Request, runnerId: RunnerId): Promise<Response>;
   /** The hub's public URL, its `HUB_URL` setting. */
   hubUrl(env: Bindings): string;
-  /** Serves the dashboard on Node. Workers Static Assets serve it before the Worker runs. */
+  /**
+   * Serves the dashboard on Node. Workers Static Assets handle dashboard files and navigations.
+   * A page's request for a missing asset reaches the Worker.
+   */
   dashboard?: Hono;
 }
 

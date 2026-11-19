@@ -36,9 +36,8 @@ export class Auth extends Context.Service<
 }) {}
 
 /**
- * What Better Auth threw, as oRPC's error of the same status when it is one of Better Auth's
- * refusals, such as `BAD_REQUEST` for a password too short; oRPC would answer one it does not know
- * with a 400.
+ * Preserve a Better Auth refusal's HTTP status and message. The contract uses the status number
+ * as the error code when oRPC has no name for it.
  */
 export function fromBetterAuth(error: unknown) {
   return isAPIError(error)
@@ -101,8 +100,7 @@ function requireMember(headers: Headers) {
     // getSession plus this statement takes three reads per member call and distinguishes 401,
     // 403 and 503. The statement reads the Organization and membership from one snapshot.
     // getActiveMemberRole returns only the role, so the hub still needs getSession for the user, at
-    // seven reads in total. getActiveMember returns 400 even for a valid member because sign-in
-    // leaves the active Organization unset.
+    // seven reads in total.
     const organization = yield* Db.use((database) =>
       database.query((db) =>
         db

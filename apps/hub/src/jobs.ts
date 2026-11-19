@@ -1391,9 +1391,7 @@ export function listJobs(query: JobListQuery) {
         selection = selection.where("j.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
       }
       if (labels !== undefined && Object.keys(labels).length > 0) {
-        selection = selection.where((eb) =>
-          eb("j.labels", "@>", eb.cast<Labels>(eb.val(labels), "jsonb")),
-        );
+        selection = selection.where("j.labels", "@>", labels);
       }
       if (batchId !== undefined) {
         selection = selection.where("j.batchUid", "=", (eb) =>

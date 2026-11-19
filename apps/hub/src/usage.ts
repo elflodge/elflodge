@@ -162,9 +162,7 @@ function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery
     records = records.where("usageRecord.status", "=", (eb) => eb.fn.any(eb.val(statuses)));
   }
   if (labels !== undefined && Object.keys(labels).length > 0) {
-    records = records.where((eb) =>
-      eb("usageRecord.labels", "@>", eb.cast<Labels>(eb.val(labels), "jsonb")),
-    );
+    records = records.where("usageRecord.labels", "@>", labels);
   }
   if (batchId !== undefined) {
     records = records.where("usageRecord.batchUid", "=", (eb) =>
