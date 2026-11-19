@@ -241,6 +241,51 @@ test("in a browser, signing out forgets what was read, so the next member reads 
   expect(await queued.innerText()).toBe(`${before + 1} queued`);
 }, 30_000);
 
+test("in a browser, a session that ends or changes in another tab is followed", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
+  const first = await newMember("First Tab Reader");
+  const next = await newMember("Next Tab Reader");
+  // Two tabs of one browser, which share its cookies.
+  const context = await browser.newContext();
+  onTestFinished(() => context.close());
+  const page = await context.newPage();
+  const other = await context.newPage();
+  const dashboard = `${system.origin}/dashboard`;
+
+  // Signed out in the other tab, this one leaves the shell for signing in without a reload.
+  await signInAt(page, "", first);
+  await other.goto(`${dashboard}/`);
+  await other.getByRole("button", { name: first.name }).click();
+  await other.getByRole("button", { name: "Sign out" }).click();
+  await other.waitForURL(`${dashboard}/sign-in`);
+  await page.getByRole("heading", { name: "Sign in to Elflodge" }).waitFor({ timeout: 5_000 });
+
+  // Signed in as the next member in the other tab, over this one's session, this one shows the next
+  // member at its next navigation, with what it reads afresh rather than the first member's reads.
+  await page.getByLabel("Email").fill(first.email);
+  await page.getByLabel("Password").fill(first.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: first.name }).waitFor();
+  await page.goto(`${dashboard}/change-password`);
+  const queued = page.getByRole("region", { name: "The hub now" }).getByText(/^[\d,]+ queued$/);
+  const before = Number((await queued.innerText()).replaceAll(",", "").split(" ")[0]);
+  await client.batches.addJobs({
+    id: batch.id,
+    jobs: [{ customId: "one more in a tab", input: "One more." }],
+  });
+  await other.getByLabel("Email").fill(next.email);
+  await other.getByLabel("Password").fill(next.password);
+  await other.getByRole("button", { name: "Sign in" }).click();
+  await other.getByRole("button", { name: next.name }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Destinations" })
+    .getByRole("link", { name: "Home" })
+    .click();
+  await page.getByRole("button", { name: next.name }).waitFor({ timeout: 5_000 });
+  expect(await queued.innerText()).toBe(`${before + 1} queued`);
+}, 60_000);
+
 // After the tests that add members: the owner's password change ends the owner's other sessions,
 // with which members are added.
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {

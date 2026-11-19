@@ -1,4 +1,3 @@
-import { QueryClientProvider } from "@tanstack/solid-query";
 import { Link, Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal, onSettled } from "solid-js";
 
@@ -13,22 +12,19 @@ import { Notice } from "../components/Notice.tsx";
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
 // another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
-  beforeLoad: async ({ context, location }) => {
+  beforeLoad: async ({ context, location, preload }) => {
     const { data, error } = await answered(authClient.getSession());
     if (error) throw unreadError("The session", failureMessage(error));
-    if (!data) {
-      // The session ended, here or elsewhere: what was read in it goes with it.
-      context.queries.end();
-      throw redirect({ to: "/sign-in", search: { redirect: location.href } });
-    }
+    // Before any loader warms the cache: what was read for another session is forgotten first. A
+    // preload shows nothing, so it leaves that to the navigation.
+    if (!preload) context.sessionSeen(data?.session.id ?? null);
+    if (!data) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
     const organizations = await answered(authClient.organization.list());
     if (organizations.error) {
       throw unreadError("The Organization", failureMessage(organizations.error));
     }
     // Removing a member leaves their session, which then lists no Organization.
-    // What the session reads is held by a client of its own, `context.queries.client`.
-    context.queries.open(data.session.id);
     return { member: data.user, organization: organizations.data[0], sessionId: data.session.id };
   },
   component: SignedIn,
@@ -76,117 +72,115 @@ function SignedIn() {
       setError(failure.message);
       return;
     }
-    context().queries.end();
     await navigate({ to: "/sign-in" });
   }
 
   return (
-    // Keyed, so that a new session's client, which the provider mounts, replaces the last one's.
+    // Keyed, so that another session's shell is drawn anew: a component still mounted would go on
+    // showing what it last read for the session before, even after the cache forgot it.
     <Show when={context().sessionId} keyed>
-      {(sessionId) => (
-        <QueryClientProvider client={context().queries.open(sessionId)}>
-          <>
-            <a class="skip" href="#main">
-              Skip to the page
-            </a>
-            <header class="topbar">
-              <Link to="/" class="brand">
-                <BrandMark alt="Elflodge" />
-                <span class="brand-name" aria-hidden="true">
-                  Elflodge
-                </span>
-              </Link>
-              {/* Removing a member leaves their session, which then has no Organization to name. */}
-              <Show when={context().organization}>
-                {(organization) => (
-                  <span class="org" title={organization().name}>
-                    {organization().name}
-                  </span>
-                )}
-              </Show>
-              <nav class="nav-wide" aria-label="Destinations">
-                <Destinations class="nav" />
-              </nav>
-              <div class="topbar-end">
-                <button
-                  type="button"
-                  class="quiet"
-                  popovertarget="account"
-                  ref={(element) => {
-                    opener = element;
-                  }}
-                >
-                  <span class="member-name" title={context().member.name}>
-                    {context().member.name}
-                  </span>
-                  <span class="mark mark-opens" aria-hidden="true" />
-                </button>
-                {/* A native popover: the browser opens it, and closes it on Escape or a press elsewhere. */}
-                <div
-                  id="account"
-                  class="menu-pop"
-                  popover
-                  ref={(element) => {
-                    account = element;
-                  }}
-                >
-                  {/* At narrow widths the destinations fold into the menu. The router changes the page
-                      without loading it anew, which would leave the menu open. */}
-                  <nav class="pop-nav" aria-label="Destinations">
-                    <Destinations class="nav-stack" onFollow={closeMenu} />
-                  </nav>
-                  <p class="pop-who">
-                    <strong>{context().member.name}</strong>
-                    <br />
-                    {/* In the mono, as what a person may copy. The sans also draws a full stop close into
-                  a round letter beside it, which closes up an address such as "pine.example". */}
-                    <span class="mono">{context().member.email}</span>
-                    <Show when={context().organization}>
-                      {(organization) => (
-                        <>
-                          <br />
-                          {organization().name}
-                        </>
-                      )}
-                    </Show>
-                  </p>
-                  <ul class="pop-list">
-                    <li>
-                      {/* The router changes the page without loading it anew, which would leave the menu open. */}
-                      <Link to="/change-password" onClick={closeMenu}>
-                        Change password
-                      </Link>
-                    </li>
-                    <li>
-                      {/* Served by the hub itself, outside the dashboard. */}
-                      <a href="/docs">API reference</a>
-                    </li>
-                    <li>
-                      <button
-                        type="button"
-                        class="quiet"
-                        disabled={pending()}
-                        onClick={() => void signOut()}
-                      >
-                        Sign out
-                      </button>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </header>
-            {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}
+      {(_sessionId) => (
+        <>
+          <a class="skip" href="#main">
+            Skip to the page
+          </a>
+          <header class="topbar">
+            <Link to="/" class="brand">
+              <BrandMark alt="Elflodge" />
+              <span class="brand-name" aria-hidden="true">
+                Elflodge
+              </span>
+            </Link>
+            {/* Removing a member leaves their session, which then has no Organization to name. */}
             <Show when={context().organization}>
-              <HubStrip />
+              {(organization) => (
+                <span class="org" title={organization().name}>
+                  {organization().name}
+                </span>
+              )}
             </Show>
-            <main id="main" class="page">
-              <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
-              <InShell value={true}>
-                <Outlet />
-              </InShell>
-            </main>
-          </>
-        </QueryClientProvider>
+            <nav class="nav-wide" aria-label="Destinations">
+              <Destinations class="nav" />
+            </nav>
+            <div class="topbar-end">
+              <button
+                type="button"
+                class="quiet"
+                popovertarget="account"
+                ref={(element) => {
+                  opener = element;
+                }}
+              >
+                <span class="member-name" title={context().member.name}>
+                  {context().member.name}
+                </span>
+                <span class="mark mark-opens" aria-hidden="true" />
+              </button>
+              {/* A native popover: the browser opens it, and closes it on Escape or a press elsewhere. */}
+              <div
+                id="account"
+                class="menu-pop"
+                popover
+                ref={(element) => {
+                  account = element;
+                }}
+              >
+                {/* At narrow widths the destinations fold into the menu. The router changes the page
+                      without loading it anew, which would leave the menu open. */}
+                <nav class="pop-nav" aria-label="Destinations">
+                  <Destinations class="nav-stack" onFollow={closeMenu} />
+                </nav>
+                <p class="pop-who">
+                  <strong>{context().member.name}</strong>
+                  <br />
+                  {/* In the mono, as what a person may copy. The sans also draws a full stop close into
+                  a round letter beside it, which closes up an address such as "pine.example". */}
+                  <span class="mono">{context().member.email}</span>
+                  <Show when={context().organization}>
+                    {(organization) => (
+                      <>
+                        <br />
+                        {organization().name}
+                      </>
+                    )}
+                  </Show>
+                </p>
+                <ul class="pop-list">
+                  <li>
+                    {/* The router changes the page without loading it anew, which would leave the menu open. */}
+                    <Link to="/change-password" onClick={closeMenu}>
+                      Change password
+                    </Link>
+                  </li>
+                  <li>
+                    {/* Served by the hub itself, outside the dashboard. */}
+                    <a href="/docs">API reference</a>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      class="quiet"
+                      disabled={pending()}
+                      onClick={() => void signOut()}
+                    >
+                      Sign out
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </header>
+          {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}
+          <Show when={context().organization}>
+            <HubStrip />
+          </Show>
+          <main id="main" class="page">
+            <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+            <InShell value={true}>
+              <Outlet />
+            </InShell>
+          </main>
+        </>
       )}
     </Show>
   );
