@@ -63,6 +63,8 @@ export type Runner = z.infer<typeof runnerSchema>;
 /** What an API key may do, as `{ resource: actions }`, for example `{ apiKey: ["create"] }`. */
 const permissionsSchema = z.record(z.string(), z.array(z.string()));
 
+export const MAX_API_KEY_NAME_LENGTH = 32;
+
 /** An API key as the hub lists it; the key itself is shown only once, when it is created. */
 export const apiKeySchema = z
   .object({
@@ -796,7 +798,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       .meta(openapi({ method: "POST", path: "/api-keys" }), ...byMember)
       .input(
         z.strictObject({
-          name: z.string(),
+          name: z.string().check(z.maxLength(MAX_API_KEY_NAME_LENGTH)),
           permissions: permissionsSchema,
           expiresIn: z.optional(
             z

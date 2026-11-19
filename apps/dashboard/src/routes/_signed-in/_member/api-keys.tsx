@@ -1,15 +1,13 @@
-import { API_KEY_ERROR_CODES } from "@better-auth/api-key/client";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
-import { GRANTABLE_KEY_PERMISSIONS, problemOf } from "contract";
-import { For, Show, createSignal, flush, onSettled } from "solid-js";
+import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
+import { For, Show, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
-import { FieldError } from "../../../components/FieldError.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
@@ -198,8 +196,6 @@ function validatePermissions(group: HTMLFieldSetElement) {
 function CreateKey(props: { onClose: () => void }) {
   const queryClient = useQueryClient();
   let dialog: HTMLDialogElement | undefined;
-  let nameInput: HTMLInputElement | undefined;
-  const [nameRefused, setNameRefused] = createSignal(false);
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
   const [failure, setFailure] = createSignal<string>();
   const { pending, onSubmit } = createFormAction(create);
@@ -212,7 +208,6 @@ function CreateKey(props: { onClose: () => void }) {
       ),
     );
     setFailure(undefined);
-    setNameRefused(false);
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expires"))]?.seconds;
     try {
@@ -224,17 +219,7 @@ function CreateKey(props: { onClose: () => void }) {
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
       setCreated({ name, key });
     } catch (error) {
-      // The hub passes on Better Auth's status and detail, without its INVALID_NAME_LENGTH code.
-      const problem = problemOf(error);
-      if (
-        problem?.status === 400 &&
-        problem.detail === API_KEY_ERROR_CODES.INVALID_NAME_LENGTH.message
-      ) {
-        if (nameInput?.value !== name) return;
-        setNameRefused(true);
-        flush();
-        nameInput.focus();
-      } else setFailure(hubFailureMessage(error));
+      setFailure(hubFailureMessage(error));
     }
   }
 
@@ -262,24 +247,18 @@ function CreateKey(props: { onClose: () => void }) {
                   id="key-name"
                   name="name"
                   autocomplete="off"
-                  ref={(element) => {
-                    nameInput = element;
-                  }}
-                  aria-invalid={nameRefused() ? "true" : undefined}
-                  aria-describedby={nameRefused() ? "key-name-error" : "key-name-hint"}
-                  onInput={() => setNameRefused(false)}
-                />
-                {/* The hub keeps Better Auth's default maximumNameLength of 32. */}
-                <Show
-                  when={nameRefused()}
-                  fallback={
-                    <p class="note" id="key-name-hint">
-                      Optional, up to 32 characters.
-                    </p>
+                  aria-describedby="key-name-hint"
+                  onInput={({ currentTarget }) =>
+                    currentTarget.setCustomValidity(
+                      currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
+                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer.`
+                        : "",
+                    )
                   }
-                >
-                  <FieldError id="key-name-error">Use a name of 32 characters or fewer.</FieldError>
-                </Show>
+                />
+                <p class="note" id="key-name-hint">
+                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters.
+                </p>
               </div>
               <fieldset
                 class="field"

@@ -225,18 +225,30 @@ test("a member can correct a refused key name and keep the permissions they chos
   await page.getByRole("button", { name: "Create key" }).click();
   const dialog = page.getByRole("dialog");
   const name = dialog.getByRole("textbox", { name: "Name" });
-  const submitted = "Monthly operations reporting service";
+  let createRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api-keys")
+      createRequests++;
+  });
+  const corrected = "Monthly operations reporting key";
+  const submitted = `${corrected} archive`;
   await name.fill(submitted);
   await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
   const create = dialog.getByRole("button", { name: "Create key" });
   await create.click();
-  await expectBrowser(name).toHaveAccessibleDescription("Use a name of 32 characters or fewer.");
+  await expectBrowser(name).toHaveJSProperty(
+    "validationMessage",
+    "Use a name of 32 characters or fewer.",
+  );
   await expectBrowser(name).toBeFocused();
   await expectBrowser(name).toHaveValue(submitted);
 
-  await name.fill("Monthly reports");
+  expect(createRequests).toBe(0);
+
+  await name.fill(corrected);
   await create.click();
-  await expectBrowser(dialog.getByRole("heading")).toHaveText("The new key, Monthly reports");
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(`The new key, ${corrected}`);
+  expect(createRequests).toBe(1);
 }, 30_000);
 
 test("in a browser, a plain member gets no owner's actions on Runners and API keys", async () => {
