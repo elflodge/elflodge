@@ -734,7 +734,15 @@ export const apiContract = {
   },
   runners: {
     list: forMembers
-      .meta(openapi({ method: "GET", path: "/runners" }), ...byMember)
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/runners",
+          description:
+            "Lists the Runners, when each was last seen, and the capabilities it reported.",
+        }),
+        ...byKeyOrMember({ runner: ["read"] }),
+      )
       .output(z.array(runnerSchema)),
     // Removing a Runner ends the jobs it held that have not ended.
     delete: forMembers

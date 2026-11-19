@@ -34,6 +34,10 @@ elflodge jobs --help
   - When some of the Batch's jobs show their status unknown, as when their Runner has not been heard from for two minutes, it says so on stderr, and again once every status is known, whether or not stderr is a terminal: it is a warning, not progress. It keeps waiting, as those jobs may still be running.
 - `jobs wait` reads the job until it ends, every 10 seconds; a read that got no answer or a server error is retried as a submission is, and an error that remains ends the wait. It prints the job and exits with 1 unless it succeeded. A paused job keeps it waiting, as its work is still owed, until the job is resumed and ends or is cancelled. When the job's status turns unknown, it says why on stderr, and again once the status is known, and keeps waiting. Stopping it leaves the job running.
 
+## Runners
+
+`elflodge runners list` lists the Runners, when the hub last heard from each and their reported capabilities, including web search. The API key needs `runner:read`.
+
 ## A hub and a Runner on this machine
 
 `elflodge stack start` runs a hub, a Runner and Postgres with Docker, from the images released with this version of the command. It returns once the hub is healthy and the Runner has started, and leaves the stack running in the background. The containers restart with Docker unless explicitly stopped. `--provider` and `--model` select the model every job runs on, using Pi's exact names (`openrouter` and `openrouter/free` initially, then the last ones given). `--port` sets the local hub port, initially 8787.
@@ -46,6 +50,8 @@ elflodge stack start --provider anthropic --model claude-sonnet-5-5
 The `stack` commands manage this machine regardless of the hub selected for `jobs` and `batches`.
 
 ### Credentials
+
+`stack initial-password` prints the saved initial password for `owner@example.com` on the local dashboard at `http://localhost:8787/dashboard/` (or the port set with `--port`). After changing it in the dashboard, sign in with your chosen password.
 
 An interactive start offers login if the selected provider has no credentials. `stack login --provider NAME` also works before the first start, and adds or replaces credentials without changing the selected model. Pi supplies the supported methods: provider API keys, account sign-in, or a choice between them. Typed keys are hidden. Login saves to the Runner's volume, using a temporary container that is removed afterwards. For scripted setup, `stack login --provider NAME --with-api-key` reads a provider API key from stdin and saves it; providers needing additional inputs require interactive login. `stack logout --provider NAME` removes only that provider's saved credential.
 

@@ -19,7 +19,7 @@ import { ac, roles } from "./access.ts";
  * registers.
  */
 export const GRANTABLE_KEY_PERMISSIONS = ac.newRole({
-  runner: ["register"],
+  runner: ["register", "read"],
   job: KEY_PERMISSIONS.job,
 });
 

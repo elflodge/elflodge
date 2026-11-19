@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { createAuthClient } from "better-auth/client";
+import { setCookieToHeader } from "better-auth/cookies";
 import getPort from "get-port";
 import { afterAll, describe, expect, inject, test } from "vite-plus/test";
 import * as z from "zod/mini";
@@ -97,6 +99,23 @@ describe.skipIf(inject("hub") !== "node" || process.platform !== "linux")("elflo
     expect(started.stderr).toContain(`The hub is at ${url}`);
     expect((await fetch(`${url}/healthz`)).ok).toBe(true);
     expect(await dockerIds("ps", "--filter", "status=running")).toHaveLength(3);
+
+    const password = (await elflodge("stack", "initial-password")).stdout.trim();
+    expect(started.stderr).toContain(`dashboard at ${url}/dashboard/ as owner@example.com`);
+    expect((started.stdout + started.stderr).includes(password)).toBe(false);
+    const headers = new Headers({ origin: url });
+    const auth = createAuthClient({ baseURL: url, fetchOptions: { headers, throw: true } });
+    await auth.signIn.email(
+      { email: "owner@example.com", password },
+      { onSuccess: setCookieToHeader(headers) },
+    );
+    await auth.changePassword(
+      { currentPassword: password, newPassword: crypto.randomUUID(), revokeOtherSessions: true },
+      { headers },
+    );
+
+    const listed = await elflodge("runners", "list");
+    expect(JSON.parse(listed.stdout)).toMatchObject([{ connected: true }]);
 
     // Jobs search the web only through providers named here, which reach the settings the
     // Runner's extensions read.

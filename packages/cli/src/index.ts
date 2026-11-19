@@ -100,11 +100,11 @@ const settingsFromEnv = Config.all({
  * from the environment, or, when neither is set there, the hub `elflodge stack` runs and the key it
  * made, together, so a key never goes to a hub it was not made for.
  */
-const settings = Effect.gen(function* () {
+const settings = Effect.fn(function* (key: "apiKey" | "runnerReadKey") {
   const url = yield* Config.option(Config.String("ELFLODGE_URL"));
   const apiKey = yield* Config.option(Config.String("ELFLODGE_API_KEY"));
   if (Option.isNone(url) && Option.isNone(apiKey)) {
-    const saved = yield* savedHub();
+    const saved = yield* savedHub(key);
     if (saved !== undefined) {
       yield* Effect.sync(() =>
         process.stderr.write(
@@ -118,17 +118,18 @@ const settings = Effect.gen(function* () {
 });
 
 /** The link to the hub, which calls any of its procedures by path. */
-const hubLink = Effect.map(settings, ({ url, apiKey }) =>
-  createProblemDetailsLink(apiContract, {
-    origin: url.origin,
-    // The hub's path, for a hub served under one. An HTTP URL's path always starts with `/`, which
-    // oRPC's type spells out.
-    url: `/${url.pathname.slice(1)}`,
-    headers: { "x-api-key": Redacted.value(apiKey) },
-  }),
-);
+const hubLink = (key: "apiKey" | "runnerReadKey" = "apiKey") =>
+  Effect.map(settings(key), ({ url, apiKey }) =>
+    createProblemDetailsLink(apiContract, {
+      origin: url.origin,
+      // The hub's path, for a hub served under one. An HTTP URL's path always starts with `/`, which
+      // oRPC's type spells out.
+      url: `/${url.pathname.slice(1)}`,
+      headers: { "x-api-key": Redacted.value(apiKey) },
+    }),
+  );
 
-const apiClient = Effect.map(hubLink, (link): ApiClient => createORPCClient(link));
+const apiClient = Effect.map(hubLink(), (link): ApiClient => createORPCClient(link));
 
 /**
  * Whether `error` may leave the hub able to answer differently next time: no answer at all, which
@@ -297,6 +298,7 @@ export async function readInput(argv: readonly string[]): Promise<string[]> {
 
 // Shell examples belong in the CLI because the OpenAPI document shares the contract's descriptions.
 const commandExamples = new Map<AnyProcedureContract, string>([
+  [apiContract.runners.list, "elflodge runners list"],
   [
     apiContract.jobs.list,
     'elflodge jobs list --labels \'{"customer":"acme"}\' --status queued running',
@@ -323,7 +325,9 @@ function command(procedure: AnyProcedureContract, path: readonly string[]) {
     .handler(({ input: given }) =>
       runCommand(
         Effect.gen(function* () {
-          const link = yield* hubLink;
+          const link = yield* hubLink(
+            procedure === apiContract.runners.list ? "runnerReadKey" : "apiKey",
+          );
           yield* printStep(
             yield* hubCall((signal) => link.call([...path], given, { context: {}, signal })),
           );

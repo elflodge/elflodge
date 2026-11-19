@@ -119,7 +119,7 @@ test("a member creates and lists keys, and a revoked key is refused at once", as
 test("a key cannot reach member operations or permissions it was not granted", async () => {
   const registrationKey = await system.createRegistrationKey();
   const withRegistrationKey = system.client({ "x-api-key": registrationKey });
-  // Keys are managed and runners listed only by signed-in members.
+  // Only signed-in members manage keys.
   await expect(withRegistrationKey.apiKeys.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(
     withRegistrationKey.apiKeys.create({ name: "escalated", permissions: { apiKey: ["create"] } }),
@@ -135,6 +135,32 @@ test("a key cannot reach member operations or permissions it was not granted", a
   await expect(
     system.runnerClient({ "x-api-key": runnerKey }).register({ name: "host" }),
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
+test("a Runner read key lists Runners and cannot register or remove one or read jobs", async () => {
+  const registered = await system
+    .runnerClient({
+      "x-api-key": await system.createRegistrationKey(),
+    })
+    .register({ name: "listed host" });
+  const { key } = await system.owner().apiKeys.create({
+    name: "Runner listing",
+    permissions: { runner: ["read"] },
+  });
+  const headers = { "x-api-key": key };
+  const reader = system.client(headers);
+  expect(await reader.runners.list()).toContainEqual(
+    expect.objectContaining({ id: registered.id }),
+  );
+  await expect(reader.runners.delete({ id: registered.id })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    system.runnerClient(headers).register({ name: "another host" }),
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(reader.jobs.get({ id: crypto.randomUUID() })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
 });
 
 test("removing a Runner refuses its key and takes it off the list", async () => {

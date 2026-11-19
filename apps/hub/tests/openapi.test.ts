@@ -68,7 +68,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       "/jobs/counts": { get: { responses: { 400: {} } } },
       "/setup": { post: { responses: { 422: {} } } },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
-      "/runners": { get: { security: [{ session: [] }] } },
+      "/runners": { get: { security: [{ apiKey: ["runner:read"] }, { session: [] }] } },
       // An object in the query string, as `submitter[kind]=member&submitter[id]=…`.
       "/usage": {
         get: {
