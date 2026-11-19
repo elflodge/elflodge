@@ -11,7 +11,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
-import { timeZoneNote } from "../../../format.ts";
+import { formatCount, timeZoneNote } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/api-keys")({
@@ -254,13 +254,13 @@ function CreateKey(props: { onClose: () => void }) {
                   onInput={({ currentTarget }) =>
                     currentTarget.setCustomValidity(
                       currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
-                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer; an emoji counts as two.`
+                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
                         : "",
                     )
                   }
                 />
                 <p class="note" id="key-name-hint">
-                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters; an emoji counts as two.
+                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters.
                 </p>
               </div>
               <fieldset
