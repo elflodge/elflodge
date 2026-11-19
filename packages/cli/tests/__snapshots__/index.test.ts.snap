@@ -70,7 +70,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Adds jobs to a Batch, at most 100 at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub checks every job and answers with 400 if any is invalid. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. While the Batch accepts jobs, repeating a \`customId\` with the same content returns the existing job with \`created: false\`, so retrying an add creates only the jobs the Batch lacks. A new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.",
+          "description": "Adds jobs to a Batch, at most 100 at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub checks every job and answers with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. While the Batch accepts jobs, resubmitting a job from an earlier call with the same \`customId\` and content returns the existing job with \`created: false\`, so retrying an add creates only the jobs the Batch lacks. A new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.",
           "name": "add-jobs",
           "options": [
             {
@@ -120,7 +120,7 @@ exports[`the commands and their flags 1`] = `
                 "paused",
                 "cancelled",
               ],
-              "description": "Type: string Any of the given statuses, or any status when absent. array",
+              "description": "Type: string Any of the given statuses, or any status when absent or empty. array",
               "flags": "--status [values...]",
               "name": "status",
               "negate": false,
@@ -130,7 +130,7 @@ exports[`the commands and their flags 1`] = `
             },
             {
               "attributeName": "labels",
-              "description": "Label key/value pairs that must all match, such as \`'{"customer":"acme"}'\` for the \`--labels\` flag on a list command or \`labels[customer]=acme\` in an HTTP query.; Property names: {"type":"string","pattern":"^(?:(?=.{1,253}\\\\/)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\\\\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$"}",
+              "description": "Label key/value pairs that must all match, such as \`labels[customer]=acme\` in an HTTP query. For the CLI, quote the value as \`'{"customer":"acme"}'\`.; Property names: {"type":"string","pattern":"^(?:(?=.{1,253}\\\\/)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\\\\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$"}",
               "flags": "--labels [json]",
               "name": "labels",
               "negate": false,
@@ -643,7 +643,7 @@ exports[`the commands and their flags 1`] = `
                 "failed",
                 "cancelled",
               ],
-              "description": "Type: string Any of the given statuses, or any status when absent. array",
+              "description": "Type: string Any of the given statuses, or any status when absent or empty. array",
               "flags": "--status [values...]",
               "name": "status",
               "negate": false,
@@ -653,7 +653,7 @@ exports[`the commands and their flags 1`] = `
             },
             {
               "attributeName": "labels",
-              "description": "Label key/value pairs that must all match, such as \`'{"customer":"acme"}'\` for the \`--labels\` flag on a list command or \`labels[customer]=acme\` in an HTTP query.; Property names: {"type":"string","pattern":"^(?:(?=.{1,253}\\\\/)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\\\\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$"}",
+              "description": "Label key/value pairs that must all match, such as \`labels[customer]=acme\` in an HTTP query. For the CLI, quote the value as \`'{"customer":"acme"}'\`.; Property names: {"type":"string","pattern":"^(?:(?=.{1,253}\\\\/)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\\\\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$"}",
               "flags": "--labels [json]",
               "name": "labels",
               "negate": false,
@@ -738,7 +738,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show \`statusUnknown\`, as a Batch counts its own jobs.",
+          "description": "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show \`statusUnknown\`, as a Batch counts its own jobs. The hub refuses any query parameter with 400.",
           "name": "counts",
           "options": [],
           "usage": "[options]",

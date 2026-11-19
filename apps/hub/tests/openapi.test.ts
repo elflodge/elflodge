@@ -65,6 +65,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
           },
         },
       },
+      // Clients can see that an unknown filter on the job list, or any filter on counts, gets 400.
       "/jobs": { get: { responses: { 400: {} } } },
       "/jobs/counts": { get: { responses: { 400: {} } } },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },

@@ -368,7 +368,7 @@ export const jobSubmissionSchema = z
   .strictObject({
     customId: customIdSchema.check(
       z.describe(
-        "Your own ID for the job, unique in its Batch. Adding a job again with the same `customId` and the same content returns the job already added, so an add can be retried safely and a whole Batch added again to add only the jobs it lacks; with other content it is refused. A new job needs a new ID.",
+        "Your own ID for the job, unique in its Batch. Give each ID only once per call. While the Batch accepts jobs, resubmitting a job from an earlier call with the same ID and content returns it with `created: false`. Reusing the ID for different content is refused.",
       ),
     ),
     input: z.optional(
@@ -677,15 +677,18 @@ const blobCheckSchema = z.discriminatedUnion("stored", [
   }),
 ]);
 
-const statusFilterDescription = z.describe("Any of the given statuses, or any status when absent.");
-const labelFilterSchema = z.optional(
-  z
-    .record(labelKeySchema, labelValueSchema)
-    .check(
-      z.describe(
-        'Label key/value pairs that must all match, such as `\'{"customer":"acme"}\'` for the `--labels` flag on a list command or `labels[customer]=acme` in an HTTP query.',
-      ),
+const statusFilterDescription = z.describe(
+  "Any of the given statuses, or any status when absent or empty.",
+);
+const labelFilterDescription =
+  "Label key/value pairs that must all match, such as `labels[customer]=acme` in an HTTP query.";
+const labelFilterSchema = z.record(labelKeySchema, labelValueSchema);
+const listLabelFilterSchema = z.optional(
+  labelFilterSchema.check(
+    z.describe(
+      labelFilterDescription + ' For the CLI, quote the value as `\'{"customer":"acme"}\'`.',
     ),
+  ),
 );
 
 /**
@@ -881,7 +884,7 @@ export const apiContract = {
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub checks every job and answers with 400 if any is invalid. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. While the Batch accepts jobs, repeating a \`customId\` with the same content returns the existing job with \`created: false\`, so retrying an add creates only the jobs the Batch lacks. A new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub checks every job and answers with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. While the Batch accepts jobs, resubmitting a job from an earlier call with the same \`customId\` and content returns the existing job with \`created: false\`, so retrying an add creates only the jobs the Batch lacks. A new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -915,7 +918,7 @@ export const apiContract = {
       .input(
         z.strictObject({
           status: z.optional(z.array(batchStatusSchema).check(statusFilterDescription)),
-          labels: labelFilterSchema,
+          labels: listLabelFilterSchema,
           after: z.optional(
             batchIdSchema.check(
               z.describe("The last Batch's ID on the previous page, to read on after it."),
@@ -1118,7 +1121,7 @@ export const apiContract = {
       .input(
         z.strictObject({
           status: z.optional(z.array(jobStatusSchema).check(statusFilterDescription)),
-          labels: labelFilterSchema,
+          labels: listLabelFilterSchema,
           batchId: z.optional(
             batchIdSchema.check(z.describe("The ID of the Batch the job belongs to.")),
           ),
@@ -1170,7 +1173,7 @@ export const apiContract = {
           method: "GET",
           path: "/jobs/counts",
           description:
-            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs.",
+            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. The hub refuses any query parameter with 400.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
@@ -1246,7 +1249,7 @@ export const apiContract = {
             textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
           ),
           status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
-          labels: labelFilterSchema,
+          labels: z.optional(labelFilterSchema.check(z.describe(labelFilterDescription))),
         }),
       )
       .output(usageReportSchema),
