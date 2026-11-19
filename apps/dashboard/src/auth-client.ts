@@ -3,6 +3,8 @@ import { createAuthClient } from "better-auth/client";
 import { customSessionClient, organizationClient } from "better-auth/client/plugins";
 import type { Role } from "better-auth/plugins/access";
 
+// The hub build needs the dashboard build. Declaring the hub as a dependency here would give
+// vp's recursive build a cycle (dashboard#build -> hub#build -> dashboard#build).
 import { ac, roles } from "../../hub/src/auth/access.ts";
 import type { BetterAuth } from "../../hub/src/auth/auth.ts";
 
