@@ -1,18 +1,18 @@
 import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, onSettled } from "solid-js";
 
-import { api, apiFailureMessage, readApi } from "../api-client.ts";
-import { attemptAuth, authClient } from "../auth-client.ts";
+import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
+import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { GIVEN_NAME, NEW_PASSWORD, fieldText } from "../form.ts";
+import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText, focusIfLost } from "../form.ts";
 
 // Setting up a new hub: creating its owner with the setup link the hub printed (ADR 0015). The
 // link's token comes after `#`, so it never reaches the hub's request logs.
 export const Route = createFileRoute("/setup")({
   loader: async () => {
-    const { needed } = await readApi("Whether the hub is set up", () => api.setup.get());
+    const { needed } = await readFromHub("Whether the hub is set up", () => api.setup.get());
     if (!needed) throw redirect({ to: "/sign-in" });
   },
   component: Setup,
@@ -24,34 +24,29 @@ function Setup() {
   const token = useLocation({ select: (location) => location.hash });
   const [error, setError] = createSignal<string>();
   const [alreadySetUp, setAlreadySetUp] = createSignal(false);
-  const [pending, setPending] = createSignal(false);
-
-  async function createOwner(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
+  const { pending, onSubmit } = createFormAction(async (element) => {
     setError(undefined);
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(element);
     const organizationName = fieldText(form, "organization");
     const owner = { email: fieldText(form, "email"), password: fieldText(form, "password") };
     const name = fieldText(form, "name");
-    setPending(true);
     try {
       await api.setup.complete({ token: token(), organizationName, name, ...owner });
     } catch (failure) {
       if (failure instanceof ORPCError && failure.code === "CONFLICT") setAlreadySetUp(true);
-      else setError(apiFailureMessage(failure));
-      return;
-    } finally {
-      setPending(false);
-    }
-    const signInFailure = await attemptAuth(() => authClient.signIn.email(owner), setPending);
-    if (signInFailure === undefined) {
-      await navigate({ to: "/" });
+      else setError(hubFailureMessage(failure));
       return;
     }
-    // The owner exists, so the form is done with; the sign-in page can try again.
-    setError(`The owner was created, but signing in failed: ${signInFailure}`);
-    setAlreadySetUp(true);
-  }
+    try {
+      await authClient.signIn.email(owner);
+    } catch (failure) {
+      // The owner exists, so the form is done with. The sign-in page can try again.
+      setError(`The owner was created, but signing in failed: ${hubFailureMessage(failure)}`);
+      setAlreadySetUp(true);
+      return;
+    }
+    await navigate({ to: "/" });
+  });
 
   return (
     <main id="main" class="page is-alone">
@@ -63,7 +58,18 @@ function Setup() {
           <>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
             <p class="prose">
-              This hub is set up. <Link to="/sign-in">Sign in</Link>
+              This hub is set up.{" "}
+              <Link
+                to="/sign-in"
+                ref={(link) =>
+                  onSettled(() => {
+                    // The completed form and its focused control have been replaced by this link.
+                    focusIfLost(link);
+                  })
+                }
+              >
+                Sign in
+              </Link>
             </p>
           </>
         }
@@ -81,7 +87,7 @@ function Setup() {
           <p class="prose">
             Create the hub's owner, who manages its members, API keys and Runners.
           </p>
-          <form class="fields" onSubmit={createOwner}>
+          <form class="fields" onSubmit={onSubmit}>
             <div class="field">
               <label for="setup-organization">Organization name</label>
               <input

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignedInRouteImport } from './routes/_signed-in'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as SignedInSplatRouteImport } from './routes/_signed-in/$'
 import { Route as SignedInMemberRouteImport } from './routes/_signed-in/_member'
 import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/change-password'
 import { Route as SignedInMemberIndexRouteImport } from './routes/_signed-in/_member/index'
@@ -29,6 +30,11 @@ const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SignedInSplatRoute = SignedInSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => SignedInRoute,
 } as any)
 const SignedInMemberRoute = SignedInMemberRouteImport.update({
   id: '/_member',
@@ -49,12 +55,14 @@ export interface FileRoutesByFullPath {
   '/': typeof SignedInMemberIndexRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
+  '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SignedInMemberIndexRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
+  '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
 }
 export interface FileRoutesById {
@@ -62,20 +70,22 @@ export interface FileRoutesById {
   '/_signed-in': typeof SignedInRouteWithChildren
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
+  '/_signed-in/$': typeof SignedInSplatRoute
   '/_signed-in/_member': typeof SignedInMemberRouteWithChildren
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
   '/_signed-in/_member/': typeof SignedInMemberIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/setup' | '/sign-in' | '/change-password'
+  fullPaths: '/' | '/setup' | '/sign-in' | '/$' | '/change-password'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/setup' | '/sign-in' | '/change-password'
+  to: '/' | '/setup' | '/sign-in' | '/$' | '/change-password'
   id:
     | '__root__'
     | '/_signed-in'
     | '/setup'
     | '/sign-in'
+    | '/_signed-in/$'
     | '/_signed-in/_member'
     | '/_signed-in/change-password'
     | '/_signed-in/_member/'
@@ -109,6 +119,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/sign-in'
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_signed-in/$': {
+      id: '/_signed-in/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SignedInSplatRouteImport
+      parentRoute: typeof SignedInRoute
     }
     '/_signed-in/_member': {
       id: '/_signed-in/_member'
@@ -147,11 +164,13 @@ const SignedInMemberRouteWithChildren = SignedInMemberRoute._addFileChildren(
 )
 
 interface SignedInRouteChildren {
+  SignedInSplatRoute: typeof SignedInSplatRoute
   SignedInMemberRoute: typeof SignedInMemberRouteWithChildren
   SignedInChangePasswordRoute: typeof SignedInChangePasswordRoute
 }
 
 const SignedInRouteChildren: SignedInRouteChildren = {
+  SignedInSplatRoute: SignedInSplatRoute,
   SignedInMemberRoute: SignedInMemberRouteWithChildren,
   SignedInChangePasswordRoute: SignedInChangePasswordRoute,
 }

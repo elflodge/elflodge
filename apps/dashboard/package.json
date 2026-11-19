@@ -8,17 +8,21 @@
     "build": "vp build"
   },
   "dependencies": {
+    "@better-fetch/fetch": "catalog:",
     "@fontsource-variable/instrument-sans": "catalog:",
     "@fontsource-variable/jetbrains-mono": "catalog:",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
+    "@orpc/tanstack-query": "catalog:",
     "@solidjs/web": "catalog:",
+    "@tanstack/solid-query": "catalog:",
     "@tanstack/solid-router": "catalog:",
     "@tanstack/solid-start": "catalog:",
     "better-auth": "catalog:",
     "contract": "workspace:*",
     "ensure-error": "catalog:",
-    "solid-js": "catalog:"
+    "solid-js": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@solidjs/vite-plugin": "catalog:",

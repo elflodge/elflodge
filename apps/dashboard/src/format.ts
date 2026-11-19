@@ -1,0 +1,51 @@
+/**
+ * How the dashboard writes times and figures, with the platform's `Intl`. The pages are in English;
+ * British English writes a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41",
+ * which no reader takes for another day or hour, and a figure as "12,279". It is fixed rather than
+ * taken from the browser, so the widths the pages are laid out for hold for every reader. An instant
+ * is written in the reader's own time zone, which `Intl` takes from the browser.
+ */
+const LANGUAGE = "en-GB";
+
+/** An instant's day and time, such as "18 Nov 2026, 15:41". */
+export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+/** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
+export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZoneName: "short",
+});
+
+function zoneName(timeZoneName: "longGeneric" | "short"): string {
+  const { timeZone } = DATE_TIME.resolvedOptions();
+  const format = new Intl.DateTimeFormat(LANGUAGE, { timeZone, timeZoneName });
+  const zone = format.formatToParts().find((part) => part.type === "timeZoneName");
+  return zone?.value ?? timeZone;
+}
+
+/** Name the zone once above a list. Intl can give an offset even for UTC, whose short name is UTC. */
+export function timeZoneNote(): string {
+  const generic = zoneName("longGeneric");
+  return `Times are in ${generic.startsWith("GMT") ? zoneName("short") : generic}.`;
+}
+
+/** An instant in full, to the second and with its time zone: "Wednesday, 18 November 2026 at 15:41:22 CET". */
+export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeStyle: "long" });
+
+const COUNT = new Intl.NumberFormat(LANGUAGE);
+
+const PLURAL = new Intl.PluralRules(LANGUAGE);
+
+/** `one` or `other`, the word that goes with `count`, such as "1 agent" and "2 agents". */
+export function plural(count: number, one: string, other: string): string {
+  return PLURAL.select(count) === "one" ? one : other;
+}
+
+/** A count, such as of tokens or of jobs: "12,279". */
+export function formatCount(count: number): string {
+  return COUNT.format(count);
+}

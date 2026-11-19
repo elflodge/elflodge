@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { setUpOrganization } from "../src/setup.ts";
+import { launchDashboardBrowser } from "./dashboard-browser.ts";
 import { clearDatabase, startSystem } from "./harness.ts";
 
 // Setting up a new hub: the link it prints, and creating its owner in the dashboard with it. Each
@@ -117,3 +118,26 @@ test("only one of the owner's settings is refused", async () => {
     }),
   ).rejects.toThrow("Set both ADMIN_EMAIL and ADMIN_PASSWORD");
 });
+
+test("in a browser, the setup link creates the Organization and its owner, who is then signed in", async () => {
+  const { link } = await setupLink();
+  const browser = await launchDashboardBrowser(system);
+  onTestFinished(() => browser.close());
+  const page = await browser.newPage();
+  const dashboard = `${system.origin}/dashboard`;
+
+  // Signing in leads to setup while the hub has no owner.
+  await page.goto(`${dashboard}/sign-in`);
+  await page.getByText("Open the setup link").waitFor();
+
+  await page.goto(link.href);
+  await page.getByLabel("Organization name").fill(SETUP.organizationName);
+  await page.getByLabel("Your name").fill(SETUP.name);
+  await page.getByLabel("Email").fill(SETUP.email);
+  await page.getByLabel("Password").fill(SETUP.password);
+  await page.getByRole("button", { name: "Create owner" }).click();
+  await page.waitForURL(`${dashboard}/`);
+  await page.getByRole("banner").getByText(SETUP.organizationName, { exact: true }).waitFor();
+  await page.getByRole("button", { name: SETUP.name }).click();
+  await page.getByText(SETUP.email).waitFor();
+}, 30_000);

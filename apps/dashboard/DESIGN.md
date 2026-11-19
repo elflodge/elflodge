@@ -22,6 +22,8 @@ The dashboard is a ruled record. It is set like a ledger: dense, plain, and exac
 | `src/styles/components.css` | Named parts, one section each, opened by a comment that says what the part is. |
 | `src/styles/app.css`        | Imports the three, in that order.                                              |
 
+The stylesheets use no cascade layers: a rule wins by its selector.
+
 `src/routes/__root.tsx` links `app.css` and the two faces, which come from the `@fontsource-variable` packages and are served by the hub with the rest of the build. The faces are linked there rather than imported by `app.css` so that the build's third-party notices carry their licences.
 
 Pages are written as semantic HTML in JSX with these classes, and with no inline styles.
@@ -34,11 +36,12 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family in both themes.
 - **Inks** are explicit values. Text reaches 4.5:1 on every ground it is set on, in both themes.
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
+- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
-- **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size) and `--text-md` (15px, sentences that explain) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
+- **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size), `--text-md` (15px, sentences that explain) and `--text-lg` (17px, section headings) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
 - **Space** is in steps of 4px: `--space-1` to `--space-4` (4 to 16px) and `--space-7` (48px). The page's side margin is `--gutter`.
 - A step that nothing uses is not defined, which is why the type sizes have no `--text-xl` and the spaces no `--space-5` or `--space-6`.
-- **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
+- **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, `--strip`, `--mark` (a drawn mark), `--radius` (controls and dialogs), and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
 
@@ -60,7 +63,7 @@ No page has a table, a `dl`, `details`, `progress` or a `dialog` yet.
 
 ### The shell
 
-Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
+Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 
 ```tsx
 <a class="skip" href="#main">Skip to the page</a>
@@ -70,17 +73,24 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
     <span class="brand-name" aria-hidden="true">Elflodge</span>
   </Link>
   <span class="org" title="Harbor & Pine">Harbor & Pine</span>
+  <nav class="nav-wide" aria-label="Destinations">
+    <Destinations class="nav" />
+  </nav>
+  <CurrentDestination />
   <div class="topbar-end">
     <button type="button" class="quiet" popovertarget="account" ref={(element) => { opener = element; }}>
       <span class="member-name" title="Robin Hale">Robin Hale</span>
       <span class="mark mark-opens" aria-hidden="true" />
     </button>
     <div id="account" class="menu-pop" popover ref={(element) => { account = element; }}>
+      <nav class="pop-nav" aria-label="Destinations">
+        <Destinations class="nav-stack" />
+      </nav>
       <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
-        <li><Link to="/change-password" onClick={closeMenu}>Change password</Link></li>
+        <li><Link to="/change-password">Change password</Link></li>
         <li><a href="/docs">API reference</a></li>
-        <li><button type="button" class="quiet">Sign out</button></li>
+        <li><form onSubmit={signOut}><button type="submit" class="quiet" disabled={pending()}>Sign out</button></form></li>
       </ul>
     </div>
   </div>
@@ -90,14 +100,52 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
 </main>
 ```
 
-- The bar holds the brand, the Organization's name and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
-- The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
-- A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
+- The bar holds the brand, the Organization's name, the destinations and, at its end, the member's name. Its links are not underlined: the bar is a known place.
+- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's exact path match does. A search string does not change the current destination.
+- The member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
+- A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
+- The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
-  - a link in it changes the page through the router;
+  - the router resolves a navigation in this tab, including one to the current page;
   - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
-  - signing out fails, when the notice is in the page under the menu. The focus then goes to the Member's name, unless the Member has moved on to something else meanwhile.
+  - signing out fails, when the notice is in the page under the menu. The focus then goes to the member's name, unless the member has moved on to something else meanwhile.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
+
+### The hub strip
+
+The strip is part of the shell: it is on every page inside it, an account page such as Change password included, so a page begins at the same height everywhere.
+
+Under the bar, for a member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again at the strip's `REFRESH` interval while the page is visible.
+
+```tsx
+<section class="hubstrip" aria-label="The hub now">
+  <ul class="hubstate">
+    <li>
+      <span class="mark mark-connected" aria-hidden="true" />
+      Runners 4 of 5 connected
+    </li>
+    <li>
+      <span class="mark mark-running" aria-hidden="true" />
+      45 agents running
+    </li>
+    <li>
+      <span class="mark mark-queued" aria-hidden="true" />
+      303 queued
+    </li>
+    <li>
+      <span class="mark mark-paused" aria-hidden="true" />3 paused
+    </li>
+    <li class="hub-unknown">
+      <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
+    </li>
+  </ul>
+</section>
+```
+
+- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall.
+- The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live. When the running count is no greater than the unknown count, the mark is plain. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
+- A read's items show only while its last answer is less than 15 seconds old, so an earlier answer is never shown as current. When they give way, one line in their place says why. While the browser reports that it is offline, no read is made, and one line replaces every item at once, whatever their age: "The hub cannot be read: this browser is offline." It carries no time, being true for as long as it shows. Otherwise, if the latest read to finish failed, the line says what could not be read and when, drawn like the offline line in the failed colour: "The job counts could not be read at 15:41 CET." The time is the latest failure's, and the line stays while the reads go on failing. If none has failed, as when the hub is slow to answer or the page has just come back into view, the line gives the time of the last answer, in `--c-unknown` with the unknown mark (`li.hub-unknown`): "The job counts have not been read since 15:41 CET." Until a read's first answer there is no time to give, and its items are not there. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
+- At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
 
 ### A page
 
@@ -127,11 +175,11 @@ The mark's `alt` is empty here because the heading names the product.
 
 ### A page that failed or was not found
 
-The router shows `DefaultCatchBoundary` in place of a page that failed and `NotFound` in place of one that does not exist (`src/components/`). Both are a `FallbackPage`, which takes a heading and what goes under it. Inside the shell it is a page like any other, its heading in `div.head`. Outside the shell, as when the session could not be read, it is a page without the shell.
+The router shows `DefaultCatchBoundary` in place of a page that failed and `NotFound` in place of one that does not exist (`src/components/`). An address no page has is a page inside the shell (`src/routes/_signed-in/$.tsx`), so a member keeps the bar there, and someone signed out signs in first, as at any other page. Both are a `FallbackPage`, which takes a heading and what goes under it. Inside the shell it is a page like any other, its heading in `div.head`. Outside the shell, as when the session could not be read, it is a page without the shell.
 
 ```tsx
 <FallbackPage heading="This page could not be shown">
-  <Notice role="alert">{ensureError(props.error).message}</Notice>
+  <Notice role="alert">{asError(props.error).message}</Notice>
   <p>
     <button type="button" class="primary" onClick={() => void router.invalidate()}>
       Try again
@@ -140,7 +188,7 @@ The router shows `DefaultCatchBoundary` in place of a page that failed and `NotF
 </FallbackPage>
 ```
 
-What failed is said in an alert notice above "Try again". A read that fails says what could not be read, then the hub's words where it gave any: "The session could not be read: …". `unreadError` (`src/auth-client.ts`) makes that error, and `readApi` (`src/api-client.ts`) throws it for a call of the hub's API.
+What failed is said in an alert notice above "Try again". A read that fails says what could not be read, then the hub's words where it gave any: "The session could not be read: …". `readFromHub` (`src/api-client.ts`) names the failed read for both Better Auth and oRPC.
 
 ### Fields
 
@@ -161,6 +209,23 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
   </button>
 </form>
 ```
+
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling it moved focus to the body and focus is still there when the action settles, the form returns focus to the button.
+
+```tsx
+<div class="field">
+  <label for="current-password">Current password</label>
+  <input
+    id="current-password"
+    type="password"
+    aria-invalid="true"
+    aria-describedby="current-password-error"
+  />
+  <FieldError id="current-password-error">That is not your current password.</FieldError>
+</div>
+```
+
+which draws `p.field-error`: the error mark and the words, small, in the failed colour.
 
 Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength`: it cuts what is typed or pasted instead of refusing it, so a longest length is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
@@ -188,7 +253,7 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 ### Mono
 
-`.mono` sets in the mono what a person might copy or compare where no element (`code`, `kbd`, `samp`, `pre`) says it is, such as the Member's email address in the account menu:
+`.mono` sets in the mono what a person might copy or compare where no element (`code`, `kbd`, `samp`, `pre`) says it is, such as the member's email address in the account menu:
 
 ```tsx
 <span class="mono">robin@example.com</span>
@@ -196,15 +261,65 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
+### Times and figures
+
+`src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
+
+- **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An instant alone on a page that has the note carries none.
+- **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
+
+```tsx
+<p class="note">{timeZoneNote()}</p>
+<Instant value={job.createdAt} />
+```
+
+`.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
+
+No page uses `.note`, `timeZoneNote()`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
+
+### Records table
+
+Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole above 640px and carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
+
+```tsx
+<table class="records" role="table">
+  <caption class="vh">Batches</caption>
+  <thead role="rowgroup">
+    <tr role="row">
+      <th scope="col" role="columnheader">
+        Batch
+      </th>
+      <th scope="col" role="columnheader" class="num">
+        Jobs
+      </th>
+    </tr>
+  </thead>
+  <tbody role="rowgroup">
+    <tr role="row">
+      <td role="cell" class="is-id">
+        <Link to="/batches/$id" params={{ id }} class="cut mono" title={id}>
+          {id}
+        </Link>
+      </td>
+      <td role="cell" class="num" data-l="Jobs">
+        {formatCount(jobs)}
+      </td>
+    </tr>
+  </tbody>
+</table>
+```
+
+At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
+
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are three: `mark-failed`, a cross; `mark-succeeded`, a tick; and `mark-opens`, a chevron after words that open a menu. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 
-1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the Member's name.
+1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the member's name.
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height.
-3. **The lamp colour is only for what is live now and for keyboard focus.**
+3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.
 5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
@@ -218,10 +333,12 @@ A new page is the shell, a heading and the parts above. When it needs something 
 3. Describe the part here: its element, its classes, the attributes it needs, and a short example.
 4. Look at it in light and in dark at 1440, 1280, 960, 390 and 320px wide, and with the keyboard alone. Nothing may scroll sideways, and text and lines keep the contrast the tokens section gives.
 
-The part, its tokens and its description arrive in the change that builds the page that uses it.
+The part, its tokens and its description arrive in the change that builds the page that uses it. When two pages are built side by side and share parts, a change before both may bring those parts.
 
 ## Browser floor
 
 Chromium 123, Firefox 125 and Safari 17.5, the first versions with both `light-dark()` and the `popover` attribute. Only Chromium has been run.
 
-One exception is known. Safari on iOS and iPadOS before 18.3 does not close a popover on a tap elsewhere (WebKit bug 267688). The account menu still closes there from the Member's name, which opened it, and when one of its links is followed.
+Firefox 125–127 shows the folded cell label using `content: attr(data-l)`. These versions may also read the label with the cell value. From Firefox 128 the empty text alternative suppresses the repeated label.
+
+Safari on iOS and iPadOS before 18.3 does not close a popover on a tap elsewhere (WebKit bug 267688). The account menu still closes there from the member's name, which opened it, and when one of its links is followed.

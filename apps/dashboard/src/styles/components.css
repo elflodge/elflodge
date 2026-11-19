@@ -30,7 +30,7 @@
 }
 @media (hover: hover) {
   .primary:hover:not(:disabled) {
-    background: color-mix(in oklab, var(--brand-shape) 86%, var(--c-ink));
+    background: var(--c-primary-hover);
   }
 }
 .quiet {
@@ -87,6 +87,48 @@
     display: none;
   }
 }
+/* The bar's destinations: words on the bar, the current one standing on the bar's rule as a tab of
+   the same green, twice its weight. They do not shrink: the names beside them are cut first. */
+.nav-wide {
+  flex: none;
+}
+.nav {
+  display: flex;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav a,
+.nav-stack a {
+  display: flex;
+  align-items: center;
+  color: var(--c-ink);
+}
+.nav a {
+  min-height: var(--topbar);
+  padding: 0 var(--space-2);
+  margin-bottom: calc(-1 * var(--rule-heavy));
+  border-bottom: calc(2 * var(--rule-heavy)) solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .nav a:hover {
+    color: var(--c-link);
+  }
+}
+.nav a[aria-current="page"] {
+  border-bottom-color: var(--brand-shape);
+  font-weight: var(--weight-strong);
+}
+/* When the links fold into the menu, their current destination stays in the bar, whole: the member's name beside it is cut first. */
+.here {
+  display: none;
+  flex: none;
+  white-space: nowrap;
+  font-weight: var(--weight-strong);
+}
 /* A long name is cut at its end; the account menu shows it whole. */
 .org {
   min-width: 0;
@@ -105,7 +147,7 @@
   gap: var(--space-2);
   min-width: 0;
 }
-/* The Member's name opens the account menu, which the chevron after it says. A long name is cut at its end. */
+/* The member's name opens the account menu, which the chevron after it says. A long name is cut at its end. */
 .topbar-end > button {
   min-width: 0;
 }
@@ -115,7 +157,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The account menu, opened by the Member's name: who is signed in, then the account's links. */
+/* The account menu, opened by the member's name: who is signed in, then the account's links. */
 .menu-pop {
   margin: 0;
   inset: auto;
@@ -127,6 +169,29 @@
   max-width: min(20rem, calc(100vw - 2 * var(--gutter)));
   max-height: calc(100dvh - var(--topbar) - var(--space-3));
   overflow: auto;
+}
+/* Folded into the menu at narrow widths, the destinations come first, the current one marked by a rule at its start. */
+.pop-nav {
+  display: none;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: var(--rule) solid var(--c-rule);
+}
+.nav-stack {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav-stack a {
+  min-height: var(--control);
+  padding-left: var(--space-2);
+  border-left: var(--rule-heavy) solid transparent;
+}
+.nav-stack a[aria-current="page"] {
+  border-left-color: var(--brand-shape);
+  font-weight: var(--weight-strong);
 }
 .pop-who {
   padding-bottom: var(--space-2);
@@ -158,27 +223,106 @@
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.22em;
-  text-decoration-color: color-mix(in oklab, currentColor 38%, transparent);
+  text-decoration-color: var(--c-underline);
 }
 .pop-list button:hover,
 .pop-list button:focus-visible {
   text-decoration-color: currentColor;
 }
-@media (max-width: 640px) {
+/* The bar folds in two stages. Below 60rem the Organization's name leaves it, as the menu names the
+   Organization. At 52rem and below the destinations fold into the menu: above that, six destinations
+   of ordinary length ("Batches", "API keys") still leave a member's name its full width. */
+@media (width < 60rem) {
   .org {
     display: none;
   }
+}
+@media (width <= 52rem) {
+  .nav-wide {
+    display: none;
+  }
+  .here {
+    display: inline;
+  }
+  .pop-nav {
+    display: block;
+  }
+}
+@media (max-width: 640px) {
   .topbar {
     gap: var(--space-3);
   }
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .pop-list :is(a, button) {
+  .pop-list :is(a, button),
+  .nav-stack a {
     min-height: var(--control-touch);
   }
   /* The brand may be its mark alone, which is narrower than a target. */
   .brand {
     min-width: var(--control-touch);
+    min-height: var(--control-touch);
+  }
+}
+
+/* ---------- Hub strip: under the bar, what the hub says now of the Organization's Runners and jobs ---------- */
+.hubstrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: var(--strip);
+  padding: var(--space-1) var(--gutter);
+  background: var(--c-ground-2);
+  border-bottom: var(--rule) solid var(--c-rule);
+  font-size: var(--text-xs);
+}
+.hubstate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* An item, or the link it holds to the list it counts. */
+.hubstate > li,
+.hubstate a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.hubstate a {
+  min-height: var(--target);
+  color: inherit;
+}
+.hubstate .mark-connected {
+  color: var(--c-succeeded);
+}
+.hubstate .mark-running {
+  color: var(--c-running);
+}
+/* Without a job known to be running, the lamp stays out. */
+.hubstate :is(.mark-queued, .mark-paused, .mark-disconnected, .mark-running.is-out) {
+  color: var(--c-waiting);
+}
+/* What the hub cannot confirm, mark and words: jobs whose status is unknown, Runners none of which is connected. */
+.hubstate .hub-unknown,
+.hubstate .hub-unknown .mark {
+  color: var(--c-unknown);
+}
+.hubstate .hub-failed {
+  color: var(--c-failed);
+}
+/* On a phone the items wrap from the start, so the strip's first item stays where it is whether it reads counts or a failure. */
+@media (max-width: 640px) {
+  .hubstrip {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .hubstate a {
     min-height: var(--control-touch);
   }
 }
@@ -220,6 +364,25 @@
 /* A page without the shell already spaces what it holds. */
 .page.is-alone > .prose + .prose {
   margin-top: 0;
+}
+
+/* ---------- Notes and field errors: small lines explaining a part or a refused field ---------- */
+.note,
+.field-error {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  font-size: var(--text-xs);
+}
+.note {
+  color: var(--c-ink-2);
+}
+/* Why the hub refused what a field holds, under the field, which names it with aria-describedby. */
+.field-error {
+  color: var(--c-failed);
+}
+.field-error > .mark {
+  align-self: center;
 }
 
 /* ---------- A link standing alone, outside a sentence: a target of its own, full size at narrow widths or on touch ---------- */
@@ -272,6 +435,31 @@
 }
 .mark-succeeded {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M1.75%206.4%204.7%209.3%2010.4%202.9%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.9%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+}
+/* A job's status and a Runner's connection: queued, a ring; running, a lit bar; paused, two bars; a
+   status the hub cannot confirm, a broken ring round a dot; connected, a filled dot; not connected, a
+   hollow one. */
+.mark-queued {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.25%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-running {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Crect%20x%3D%223.5%22%20y%3D%221%22%20width%3D%225%22%20height%3D%2210%22%20rx%3D%22.6%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-paused {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Crect%20x%3D%222.25%22%20y%3D%222%22%20width%3D%222.75%22%20height%3D%228%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%222%22%20width%3D%222.75%22%20height%3D%228%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-unknown {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%20stroke-dasharray%3D%222.1%201.35%22%2F%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%221.3%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-connected {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.6%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-disconnected {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
+}
+/* What a field holds that the hub refused: a warning triangle, beside the words under the field. */
+.mark-error {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M6%201%2011.2%2010.5H.8z%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M6%204.5v3%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%2F%3E%3Ccircle%20cx%3D%226%22%20cy%3D%229%22%20r%3D%22.8%22%2F%3E%3C%2Fsvg%3E");
 }
 .mark-failed {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.4%202.4l7.2%207.2M9.6%202.4l-7.2%207.2%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.9%22%2F%3E%3C%2Fsvg%3E");
@@ -340,5 +528,132 @@
 @media (max-width: 640px), (pointer: coarse) {
   .check {
     min-height: var(--control-touch);
+  }
+}
+
+/* ---------- Hidden text: words for assistive technology alone, such as a table's caption where the page heading already says it ---------- */
+/* Repeated for the folded Records table's column heads: keep the two alike. */
+.vh:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Figures: right-aligned in the mono, a unit small in the sans after them or under a column head ---------- */
+.num {
+  text-align: end;
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  font-weight: var(--weight-mono);
+  white-space: nowrap;
+}
+.unit {
+  color: var(--c-ink-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+}
+/* A figure column's head stays in the sans, its unit on its own line under its name. */
+thead th.num {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+thead .unit {
+  display: block;
+}
+
+/* ---------- Cut identifier: one text node cut at its end, the whole value in its title and on its own page ---------- */
+.cut {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+/* ---------- Records table: records that each have a page, one ruled line each; a block each on a phone ----------
+   The identifier column takes what the others leave and cuts its value; the others keep their values whole.
+   At 640px and below a record is a block: the identifier on its own line, then each other value after its name
+   and unit (data-l), the column heads hidden but read. The table carries explicit roles, since the block layout
+   drops a table's implicit ones. */
+.records td.is-id {
+  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
+  width: 100%;
+  max-width: 0;
+}
+/* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
+   It stays a block, so its value can be cut at its end, and is padded to the height. */
+.records td.is-id > a.cut {
+  display: block;
+  padding-block: max(0px, (var(--target) - 1lh) / 2);
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .records td.is-id {
+    padding-block: 0;
+  }
+  .records td.is-id > a.cut {
+    padding-block: calc((var(--control-touch) - 1lh) / 2);
+  }
+}
+.records :is(th, td):not(.is-id) {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
+  .records thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .records,
+  .records tbody {
+    display: block;
+  }
+  .records tr {
+    display: block;
+    padding: var(--space-2) 0;
+    border-bottom: var(--rule) solid var(--c-rule);
+  }
+  .records tr > td {
+    display: block;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-xs);
+  }
+  .records tr > td.is-id {
+    max-width: 100%;
+    font-size: var(--text-sm);
+  }
+  .records td[data-l] {
+    --label-width: 7rem;
+    padding-inline-start: var(--label-width);
+    text-align: start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .records td[data-l]::before {
+    /* Firefox before 128 needs the first declaration. The real header already names the cell. */
+    content: attr(data-l);
+    content: attr(data-l) / "";
+    display: inline-block;
+    margin-inline-start: calc(-1 * var(--label-width));
+    width: var(--label-width);
+    vertical-align: top;
+    font-family: var(--font-sans);
+    color: var(--c-ink-2);
   }
 }

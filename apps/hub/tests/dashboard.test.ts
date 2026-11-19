@@ -1,8 +1,9 @@
-import { type Browser, chromium } from "playwright";
+import { type Browser, type Page } from "playwright";
+import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
-import { setUpOrganization } from "../src/setup.ts";
-import { clearDatabase, OWNER, startSystem } from "./harness.ts";
+import { launchDashboardBrowser } from "./dashboard-browser.ts";
+import { startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
 // other sites from acting with a member's session.
@@ -12,16 +13,32 @@ let browser: Browser;
 
 beforeAll(async () => {
   await system.start();
-  // The browser reaches the hub at the origin it serves, which is the only one it signs members in
-  // from, by resolving that origin's host to where the test hub listens.
-  browser = await chromium.launch({
-    args: [`--host-resolver-rules=MAP ${new URL(system.origin).hostname} ${system.url().host}`],
-  });
+  browser = await launchDashboardBrowser(system);
 });
 afterAll(async () => {
   await browser?.close();
   await system.stop();
 });
+
+/** A member of the Organization named `name`, added to it, whom a browser can sign in as. */
+async function newMember(name: string) {
+  const member = {
+    name,
+    email: `${name.toLowerCase().replaceAll(" ", ".")}@example.com`,
+    password: "a long enough password",
+  };
+  await system.addMember(member);
+  return member;
+}
+
+/** Opens the dashboard's `pathname` in `page`, signed out, and signs in there as `member`. */
+async function signInAt(page: Page, pathname: string, member: { email: string; password: string }) {
+  await page.goto(`${system.origin}/dashboard/${pathname}`);
+  await page.getByLabel("Email").fill(member.email);
+  await page.getByLabel("Password").fill(member.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/${pathname}`);
+}
 
 /**
  * Checks that the hub answers a browser's navigation to `pathname` with the app shell. The Workers
@@ -121,74 +138,263 @@ test("a request with neither a session nor a key is told how to authenticate", a
   expect(response.headers.get("www-authenticate")).not.toBeNull();
 });
 
+test("sign-in allows keyboard retry, stays disabled during navigation and discards an off-site redirect", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const member = await newMember("Keyboard Reader");
+  // A destination on another site is discarded, so signing in leads home.
+  await page.goto(`${system.origin}/dashboard/sign-in?redirect=//elsewhere.example/other`);
+  await page.getByLabel("Email").fill(member.email);
+  const password = page.getByLabel("Password");
+  await password.fill("incorrect password");
+  const submit = page.getByRole("button", { name: "Sign in" });
+  await submit.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("alert").waitFor();
+  await expectBrowser(submit).toBeFocused();
+
+  // Hold the destination's first read after the hub has accepted the password.
+  const release = Promise.withResolvers<void>();
+  await page.route("**/api/auth/organization/list", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  const reading = page.waitForRequest("**/api/auth/organization/list");
+  await password.fill(member.password);
+  await submit.click();
+  try {
+    await reading;
+    await expectBrowser(submit).toBeDisabled();
+  } finally {
+    release.resolve();
+  }
+  await page.getByRole("heading", { name: "Connected to your hub" }).waitFor();
+}, 30_000);
+
+test("in a browser, the bar leads to the dashboard's pages", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const member = await newMember("Nav Reader");
+  await signInAt(page, "change-password", member);
+
+  const destinations = page.getByRole("navigation", { name: "Destinations" });
+  await destinations.getByRole("link", { name: "Home" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/`);
+  const home = destinations.getByRole("link", { name: "Home" });
+  await page.goto(`${system.origin}/dashboard/?view=recent`);
+  await expectBrowser(home).toHaveAttribute("aria-current", "page");
+
+  // On a phone the current destination is named even while the account menu is closed.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectBrowser(home).toBeHidden();
+  await expectBrowser(
+    page.getByRole("banner").getByText("Home", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: member.name }).click();
+  await expectBrowser(home).toHaveAttribute("aria-current", "page");
+  await home.click({ modifiers: ["ControlOrMeta"] });
+  await expectBrowser(home).toBeVisible();
+}, 30_000);
+
+test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  // Signed out, it is a page like any other: signing in comes first.
+  await signInAt(page, "nowhere", await newMember("Lost Reader"));
+  // Signed in, the bar stays.
+  await page.getByRole("heading", { name: "Not found" }).waitFor();
+  await page.getByRole("navigation", { name: "Destinations" }).waitFor();
+}, 30_000);
+
+test("in a browser, the strip under the bar counts the Organization's Runners and jobs", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
+  await client.batches.addJobs({
+    id: batch.id,
+    jobs: [
+      { customId: "one", input: "One." },
+      { customId: "two", input: "Two." },
+    ],
+  });
+  const { jobCounts } = await client.jobs.counts({});
+
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await signInAt(page, "", await newMember("Strip Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  await strip.getByText(`${jobCounts.queued} queued`).waitFor();
+  await strip.getByText("0 agents running").waitFor();
+  await strip.getByText("No Runners").waitFor();
+}, 30_000);
+
+/** Freeze the page clock before navigation so a hub answer has a known instant. */
+async function pageWithPausedClock() {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install({ time: new Date("2026-11-18T15:40:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-18T15:41:00Z"));
+  return page;
+}
+
+test("going offline immediately replaces all the strip's figures with one untimed line", async () => {
+  const page = await pageWithPausedClock();
+  await signInAt(page, "", await newMember("Offline Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  await strip.getByText(/ queued$/).waitFor();
+  await page.context().setOffline(true);
+  await expectBrowser(strip.getByRole("listitem")).toHaveText([
+    "The hub cannot be read: this browser is offline.",
+  ]);
+}, 30_000);
+
+test("the strip keeps the last failure visible while the hub is being asked again", async () => {
+  const page = await pageWithPausedClock();
+  await page.route("**/jobs/counts", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/problem+json",
+      body: JSON.stringify({ type: "about:blank", title: "Service Unavailable", status: 503 }),
+    }),
+  );
+  await signInAt(page, "", await newMember("Outage Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  const failed = strip.getByText(/^The job counts could not be read at /);
+  // The outage begins before any counts arrive. Let Query finish its first series of retries.
+  await expectBrowser
+    .poll(async () => {
+      await page.clock.fastForward("01:00");
+      return failed.isVisible();
+    })
+    .toBe(true);
+  const failureTime = await failed.locator("time").innerText();
+
+  // The next poll also fails. During its retry delay the last completed failure still shows.
+  const next = page.waitForResponse("**/jobs/counts");
+  await page.clock.fastForward("01:00");
+  await (await next).finished();
+  await expectBrowser(failed.locator("time")).toHaveText(failureTime);
+  await page.unroute("**/jobs/counts");
+  await page.clock.fastForward("01:00");
+  await expectBrowser(strip.getByText(/ queued$/)).toBeVisible();
+}, 30_000);
+
+test("when a counts read stalls, its figures give way at expiry to the time of the last answer", async () => {
+  const page = await pageWithPausedClock();
+  await signInAt(page, "", await newMember("Waiting Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  const queued = strip.getByText(/ queued$/);
+  await queued.waitFor();
+  const release = Promise.withResolvers<void>();
+  await page.route("**/jobs/counts", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await page.clock.fastForward(14_999);
+    await expectBrowser(queued).toBeVisible();
+    await page.clock.fastForward(1);
+    const lastAnswer = strip.getByText(/^The job counts have not been read since /);
+    await expectBrowser(lastAnswer.locator("time")).toHaveAttribute(
+      "datetime",
+      "2026-11-18T15:41:00.000Z",
+    );
+    await expectBrowser(queued).toHaveCount(0);
+    await expectBrowser(strip.getByText("No Runners")).toBeVisible();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(queued).toBeVisible();
+}, 30_000);
+
+test("in a browser, a member change in another tab loads a fresh document", async () => {
+  const first = await newMember("First Tab Reader");
+  const next = await newMember("Next Tab Reader");
+  // Two tabs of one browser, which share its cookies.
+  const context = await browser.newContext();
+  onTestFinished(() => context.close());
+  const page = await context.newPage();
+  const other = await context.newPage();
+  const dashboard = `${system.origin}/dashboard`;
+
+  await signInAt(other, "", first);
+  await page.goto(`${dashboard}/change-password`);
+  await page.getByRole("button", { name: first.name }).waitFor();
+  const firstDocument = await page.evaluate(() => performance.timeOrigin);
+  await other.getByRole("button", { name: first.name }).click();
+  await other.getByRole("button", { name: "Sign out" }).click();
+  await other.waitForURL(`${dashboard}/sign-in`);
+  await page.getByRole("heading", { name: "Sign in to Elflodge" }).waitFor();
+  const signInDocument = await page.evaluate(() => performance.timeOrigin);
+  expect(signInDocument).not.toBe(firstDocument);
+
+  // Signed in as the next member in the other tab, over this one's session, this one shows the next
+  // member at its next session read.
+  await page.getByLabel("Email").fill(first.email);
+  await page.getByLabel("Password").fill(first.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: first.name }).waitFor();
+  await page.waitForURL(`${dashboard}/change-password`);
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(signInDocument);
+  await other.getByLabel("Email").fill(next.email);
+  await other.getByLabel("Password").fill(next.password);
+  await other.getByRole("button", { name: "Sign in" }).click();
+  await other.getByRole("button", { name: next.name }).waitFor();
+  const home = page
+    .getByRole("navigation", { name: "Destinations" })
+    .getByRole("link", { name: "Home" });
+  // The preload observes the new member while the pointer is over Home. The current page reloads.
+  await home.hover();
+  await page.getByRole("button", { name: next.name }).waitFor();
+  expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
+  await expectBrowser(page).toHaveURL(`${dashboard}/change-password`);
+}, 60_000);
+
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   const dashboard = `${system.origin}/dashboard`;
 
   // Signed out, a page sends the member to sign in, and back to it once signed in.
-  await page.goto(`${dashboard}/change-password`);
-  await page.getByLabel("Email").fill(OWNER.email);
-  await page.getByLabel("Password").fill(OWNER.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(`${dashboard}/change-password`);
+  const member = await newMember("Password Reader");
+  await signInAt(page, "change-password", member);
   // The bar names who is signed in; their name opens the account menu.
-  const account = page.getByRole("button", { name: "Owner", exact: true });
+  const account = page.getByRole("button", { name: member.name, exact: true });
   await account.waitFor();
 
   await page.reload();
   const heading = page.getByRole("heading", { name: "Change password" });
   await heading.waitFor();
 
-  const password = "a new password for the owner";
-  await page.getByLabel("Current password").fill(OWNER.password);
+  // A wrong current password is refused at its field, not with words that could mean any of three.
+  const password = "a new password for this member";
+  const current = page.getByLabel("Current password");
+  await current.fill("incorrect password");
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password").fill(password);
   await page.getByRole("button", { name: "Change password" }).click();
+  await expectBrowser(current).toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(current).toHaveAccessibleDescription("That is not your current password.");
+  await expectBrowser(current).toBeFocused();
+
+  await current.fill(member.password);
+  // The change makes a new session for the same member, which the page reads; it stays, and so does
+  // what it said.
+  const signedInDocument = await page.evaluate(() => performance.timeOrigin);
+  const sessionRead = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/auth/get-session") && response.request().method() === "GET",
+  );
+  await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("status").waitFor();
+  await sessionRead;
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(signedInDocument);
+  await expectBrowser(page.getByRole("status")).toHaveText(/^Your password is changed/);
 
   await account.click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL(`${dashboard}/sign-in`);
+  await page.getByRole("heading", { name: "Sign in to Elflodge" }).waitFor();
+  expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signedInDocument);
   // The new password signs in.
-  await system.signIn({ email: OWNER.email, password });
-}, 30_000);
-
-test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  await page.goto(`${system.origin}/dashboard/nowhere`);
-  await page.getByRole("heading", { name: "Not found" }).waitFor();
-});
-
-// Last, as it empties the hub.
-test("in a browser, the setup link creates the Organization and its owner, who is then signed in", async () => {
-  await clearDatabase(inject("databaseUrl"));
-  let link = "";
-  await setUpOrganization(
-    inject("databaseUrl"),
-    { owner: {}, hubUrl: system.origin },
-    (message) => {
-      link = message.split("\n").at(-1) ?? "";
-    },
-  );
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  const dashboard = `${system.origin}/dashboard`;
-
-  // Signing in leads to setup while the hub has no owner.
-  await page.goto(`${dashboard}/sign-in`);
-  await page.getByText("Open the setup link").waitFor();
-
-  await page.goto(link);
-  const owner = { email: "new-owner@example.com", password: "a long enough password" };
-  await page.getByLabel("Organization name").fill("Harbor & Pine");
-  await page.getByLabel("Your name").fill("Robin Hale");
-  await page.getByLabel("Email").fill(owner.email);
-  await page.getByLabel("Password").fill(owner.password);
-  await page.getByRole("button", { name: "Create owner" }).click();
-  await page.waitForURL(`${dashboard}/`);
-  await page.getByRole("banner").getByText("Harbor & Pine", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Robin Hale" }).click();
-  await page.getByText(owner.email).waitFor();
+  await system.signIn({ email: member.email, password });
 }, 30_000);

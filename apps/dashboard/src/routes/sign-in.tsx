@@ -1,24 +1,35 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
+import * as z from "zod/mini";
 
-import { api, readApi } from "../api-client.ts";
-import { attemptAuth, authClient } from "../auth-client.ts";
+import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
+import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { fieldText } from "../form.ts";
+import { createFormAction, fieldText } from "../form.ts";
 
 export const Route = createFileRoute("/sign-in")({
-  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
-    // Where to go after signing in, kept only as a path in the dashboard, so that a link cannot send
-    // a member to another site once signed in.
-    redirect:
-      typeof search.redirect === "string" && search.redirect.startsWith("/")
-        ? search.redirect
-        : undefined,
+  validateSearch: z.object({
+    redirect: z.catch(
+      z.optional(
+        z.pipe(
+          z.string().check(z.startsWith("/")),
+          z.transform((target) => {
+            const origin = location.origin;
+            if (!URL.canParse(target, origin)) return undefined;
+            const url = new URL(target, origin);
+            // The router takes a path. Removing the origin must still leave a path on this hub.
+            if (url.origin !== origin || url.pathname.startsWith("//")) return undefined;
+            return url.pathname + url.search + url.hash;
+          }),
+        ),
+      ),
+      undefined,
+    ),
   }),
   // A hub without an owner has no one to sign in; setting it up comes first.
   loader: async () => {
-    const { needed } = await readApi("Whether the hub is set up", () => api.setup.get());
+    const { needed } = await readFromHub("Whether the hub is set up", () => api.setup.get());
     if (needed) throw redirect({ to: "/setup" });
   },
   component: SignIn,
@@ -28,32 +39,26 @@ function SignIn() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const [error, setError] = createSignal<string>();
-  const [pending, setPending] = createSignal(false);
-
-  async function signIn(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const failure = await attemptAuth(
-      () =>
-        authClient.signIn.email({
-          email: fieldText(form, "email"),
-          password: fieldText(form, "password"),
-        }),
-      setPending,
-    );
-    if (failure) {
-      setError(failure);
+  const { pending, onSubmit } = createFormAction(async (element) => {
+    const form = new FormData(element);
+    try {
+      await authClient.signIn.email({
+        email: fieldText(form, "email"),
+        password: fieldText(form, "password"),
+      });
+    } catch (failure) {
+      setError(hubFailureMessage(failure));
       return;
     }
     const target = search().redirect;
     await (target === undefined ? navigate({ to: "/" }) : navigate({ href: target }));
-  }
+  });
 
   return (
     <main id="main" class="page is-alone">
       <BrandMark alt="" />
       <h1>Sign in to Elflodge</h1>
-      <form class="fields" onSubmit={signIn}>
+      <form class="fields" onSubmit={onSubmit}>
         <div class="field">
           <label for="sign-in-email">Email</label>
           <input id="sign-in-email" name="email" type="email" autocomplete="username" required />

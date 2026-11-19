@@ -90,7 +90,7 @@ a {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.22em;
-  text-decoration-color: color-mix(in oklab, currentColor 38%, transparent);
+  text-decoration-color: var(--c-underline);
 }
 a:hover,
 a:focus-visible {

@@ -15,7 +15,12 @@ function Member() {
     <Show
       when={context().organization}
       fallback={
-        <Notice role="alert">This account is no longer a member of the Organization.</Notice>
+        <>
+          <div class="head">
+            <h1>Organization access</h1>
+          </div>
+          <Notice role="alert">This account is no longer a member of the Organization.</Notice>
+        </>
       }
     >
       <Outlet />
