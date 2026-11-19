@@ -1,6 +1,5 @@
 import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
-import ensureError from "ensure-error";
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { api, apiFailureMessage, readApi } from "../api-client.ts";
@@ -33,8 +32,7 @@ function Setup() {
     const name = fieldText(form, "name");
     try {
       await api.setup.complete({ token: token(), organizationName, name, ...owner });
-    } catch (caught) {
-      const failure: Error = ensureError(caught);
+    } catch (failure) {
       if (failure instanceof ORPCError && failure.code === "CONFLICT") setAlreadySetUp(true);
       else setError(apiFailureMessage(failure));
       return;

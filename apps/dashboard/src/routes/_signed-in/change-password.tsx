@@ -1,6 +1,5 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import { createFileRoute } from "@tanstack/solid-router";
-import ensureError from "ensure-error";
 import { Show, createSignal, flush } from "solid-js";
 
 import { apiFailureMessage } from "../../api-client.ts";
@@ -44,8 +43,7 @@ function ChangePassword() {
         newPassword,
         revokeOtherSessions,
       });
-    } catch (caught) {
-      const failure = ensureError(caught);
+    } catch (failure) {
       // Better Auth's "Invalid password" could mean any of the three. Say which field to correct.
       if (failure instanceof BetterFetchError && failure.error?.code === INVALID_PASSWORD) {
         // A refusal belongs to the submitted value. Leave a correction made meanwhile alone.

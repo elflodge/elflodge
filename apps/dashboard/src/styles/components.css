@@ -99,14 +99,17 @@
   margin: 0;
   padding: 0;
 }
-.nav a {
+.nav a,
+.nav-stack a {
   display: flex;
   align-items: center;
+  color: var(--c-ink);
+}
+.nav a {
   min-height: var(--topbar);
   padding: 0 var(--space-2);
   margin-bottom: calc(-1 * var(--rule-heavy));
   border-bottom: calc(2 * var(--rule-heavy)) solid transparent;
-  color: var(--c-ink);
   text-decoration: none;
   white-space: nowrap;
 }
@@ -182,12 +185,9 @@
   padding: 0;
 }
 .nav-stack a {
-  display: flex;
-  align-items: center;
   min-height: var(--control);
   padding-left: var(--space-2);
   border-left: var(--rule-heavy) solid transparent;
-  color: var(--c-ink);
 }
 .nav-stack a[aria-current="page"] {
   border-left-color: var(--brand-shape);
@@ -367,12 +367,15 @@
 }
 
 /* ---------- Note: a small line that explains the part it stands under or beside ---------- */
-.note {
+.note,
+.field-error {
   display: flex;
   gap: var(--space-1);
   align-items: baseline;
-  color: var(--c-ink-2);
   font-size: var(--text-xs);
+}
+.note {
+  color: var(--c-ink-2);
 }
 
 /* ---------- A link standing alone, outside a sentence: a target of its own, full size at narrow widths or on touch ---------- */
@@ -510,11 +513,7 @@
 }
 /* Why the hub refused what a field holds, under the field, which names it with aria-describedby. */
 .field-error {
-  display: flex;
-  gap: var(--space-1);
-  align-items: baseline;
   color: var(--c-failed);
-  font-size: var(--text-xs);
 }
 .field-error > .mark {
   align-self: center;
@@ -643,7 +642,9 @@ thead .unit {
     text-align: start;
   }
   .records td[data-l]::before {
+    /* Firefox before 128 needs the first declaration. The real header already names the cell. */
     content: attr(data-l);
+    content: attr(data-l) / "";
     display: inline-block;
     width: 7rem;
     white-space: normal;

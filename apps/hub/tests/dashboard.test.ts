@@ -233,24 +233,19 @@ test("the strip replaces unavailable counts until the hub answers again", async 
   const strip = page.getByRole("region", { name: "The hub now" });
   await strip.getByText(/ queued$/).waitFor();
 
-  // The hub becomes unavailable after the first count is visible.
+  // The next read is refused after the first counts are visible.
   await page.route("**/jobs/counts", (route) =>
     route.fulfill({
-      status: 503,
+      status: 403,
       contentType: "application/problem+json",
-      body: JSON.stringify({ type: "about:blank", title: "Service Unavailable", status: 503 }),
+      body: JSON.stringify({ type: "about:blank", title: "Forbidden", status: 403 }),
     }),
   );
-  // Advance to the next poll and through Query's three retry delays as each response arrives.
-  for (const delay of [5000, 1000, 2000, 4000]) {
-    const response = page.waitForResponse("**/jobs/counts");
-    await page.clock.fastForward(delay);
-    await (await response).finished();
-  }
+  await page.clock.fastForward("01:00");
   await expectBrowser(strip.getByText(/^The job counts could not be read at /)).toBeVisible();
   await expectBrowser(strip.getByText(/ queued$/)).toHaveCount(0);
   await page.context().setOffline(true);
-  await page.clock.fastForward(5000);
+  await page.clock.fastForward("01:00");
   await expectBrowser(strip.getByRole("listitem")).toHaveText([
     "The hub cannot be read: this browser is offline.",
   ]);

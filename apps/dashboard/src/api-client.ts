@@ -14,7 +14,8 @@ export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
 
 /** What went wrong with a call to the hub, in words for the member. */
 export function apiFailureMessage(caught: unknown): string {
-  const error: Error = ensureError(caught);
+  // oRPC keeps the hub's Problem Details in cause. Preserve it for callers of readApi.
+  const error = caught instanceof Error ? caught : ensureError(caught);
   if (error instanceof ORPCError) return error.message;
   if (error instanceof BetterFetchError) {
     const message: unknown = error.error?.message;

@@ -1,7 +1,6 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import { createAuthClient } from "better-auth/client";
 import { organizationClient } from "better-auth/client/plugins";
-import ensureError from "ensure-error";
 
 /**
  * Better Auth's client for the hub that serves the dashboard, at Better Auth's default path on the
@@ -23,8 +22,7 @@ export async function getSession() {
   try {
     return await authClient.getSession();
   } catch (caught) {
-    const error = ensureError(caught);
-    if (isSignedOutError(error)) return null;
-    throw error;
+    if (isSignedOutError(caught)) return null;
+    throw caught;
   }
 }

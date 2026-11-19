@@ -1,11 +1,11 @@
 import type { JSX } from "@solidjs/web";
 import type { UseQueryResult } from "@tanstack/solid-query";
 import { useQuery } from "@tanstack/solid-query";
-import { Errored, Loading, Show } from "solid-js";
+import { Errored, Loading, Show, createMemo } from "solid-js";
 
 import { TIME_ZONED, formatCount, plural } from "../format.ts";
 import { orpc } from "../query.ts";
-import { Instant } from "./Time.tsx";
+import { Instant } from "./Instant.tsx";
 
 // Bull Board polls its queue counts and jobs at this interval while the dashboard is open.
 // https://github.com/felixmosh/bull-board/blob/4d98710f7e8bee0cfcd5a158caadf9fd109b4cb1/website/docs/recipes/change-polling-interval.md
@@ -27,13 +27,18 @@ export function HubStrip() {
         >
           <Read query={runners} what="The Runners">
             {(list) => {
-              const connected = () => list().filter((runner) => runner.connected).length;
+              const connected = createMemo(
+                () => list().filter((runner) => runner.connected).length,
+              );
               // Runners there are, none of them connected: their jobs' statuses are unknown.
               const noneConnected = () => list().length > 0 && connected() === 0;
               return (
-                <li class={noneConnected() ? "hub-unknown" : undefined}>
+                <li class={{ "hub-unknown": noneConnected() }}>
                   <span
-                    class={connected() > 0 ? "mark mark-connected" : "mark mark-disconnected"}
+                    class={[
+                      "mark",
+                      { "mark-connected": connected() > 0, "mark-disconnected": connected() === 0 },
+                    ]}
                     aria-hidden="true"
                   />
                   {list().length === 0
@@ -50,11 +55,10 @@ export function HubStrip() {
                 <li>
                   {/* Unknown jobs can be queued or running. Light the lamp only for a known running job. */}
                   <span
-                    class={
-                      read().jobCounts.running > read().statusUnknownJobs
-                        ? "mark mark-running"
-                        : "mark mark-running is-out"
-                    }
+                    class={[
+                      "mark mark-running",
+                      { "is-out": read().jobCounts.running <= read().statusUnknownJobs },
+                    ]}
                     aria-hidden="true"
                   />
                   {formatCount(read().jobCounts.running)}{" "}
