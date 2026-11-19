@@ -121,7 +121,7 @@ function toApiJob(
       statusUnknown: StatusUnknownOfJob | null;
       runner: RunnerOfJob | null;
     },
-): Job {
+) {
   const {
     status,
     output,
@@ -372,15 +372,15 @@ type JobBase = Omit<Job, "status" | "output" | "failure">;
  * `job` with its status and what the status carries: a succeeded job's output, where it has one,
  * and a failed job's failure, with its message where the cause gave one.
  */
-function withOutcome(
-  job: JobBase,
+function withOutcome<T extends JobBase>(
+  job: T,
   outcome: {
     status: JobStatus;
     output?: JobRow["output"];
     failureReason: JobFailureReason | null;
     failureMessage: string | null;
   },
-): Job {
+): T & Job {
   const { status, output, failureReason, failureMessage } = outcome;
   switch (status) {
     case "succeeded":
