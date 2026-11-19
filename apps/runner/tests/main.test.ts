@@ -94,6 +94,7 @@ describe("the Runner's command line", () => {
   it("says what to do when the hub refuses its registration key, and exits 1", async ({
     signal,
   }) => {
+    // The Runner tests have no hub harness, so serve the registration endpoint's refusal here.
     await using hub = createServer((_request, response) => {
       response.writeHead(401, { "content-type": "application/problem+json" });
       response.end(JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }));

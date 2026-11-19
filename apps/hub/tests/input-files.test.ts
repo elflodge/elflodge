@@ -9,6 +9,7 @@ import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/tes
 import { sweepUnusedBlobs } from "../src/blobs.ts";
 import { Db, DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import {
+  blobRef,
   digestOf,
   type OneJob,
   protocolClient,
@@ -35,11 +36,6 @@ const SUBMISSION = {
 /** An Input file at `path` holding `content`. */
 function fileAt(filePath: string, content: string | Uint8Array) {
   return { path: filePath, content };
-}
-
-/** The digest and byte length that identify the UTF-8 content in a blob check. */
-function blobRef(content: string) {
-  return { digest: digestOf(content), sizeBytes: Buffer.byteLength(content) };
 }
 
 /** Text of more than two chunks, with characters of several bytes across the chunks' boundaries. */
@@ -208,34 +204,38 @@ test("a check answers which content the Organization holds, and where to upload 
   const client = await system.clientWithNewJobsKey();
   const kept = "Kept by a job.";
   const lapsed = "Held by its upload alone.";
-  const { files } = await client.blobs.check({ files: [blobRef(kept), blobRef(lapsed)] });
+  const keptRef = blobRef(kept);
+  const lapsedRef = blobRef(lapsed);
+  const { files } = await client.blobs.check({ files: [keptRef, lapsedRef] });
   expect(files).toEqual([
     {
-      ...blobRef(kept),
+      ...keptRef,
       stored: false,
-      upload: { transfer: "put", url: `/blobs/${digestOf(kept)}` },
+      upload: { transfer: "put", url: `/blobs/${keptRef.digest}` },
     },
     {
-      ...blobRef(lapsed),
+      ...lapsedRef,
       stored: false,
-      upload: { transfer: "put", url: `/blobs/${digestOf(lapsed)}` },
+      upload: { transfer: "put", url: `/blobs/${lapsedRef.digest}` },
     },
   ]);
 
   const job = await submitJob(client, { ...SUBMISSION, files: [fileAt("kept.txt", kept)] });
   await uploadContent(client, lapsed);
-  expect(
-    (await client.blobs.check({ files: [blobRef(kept), blobRef(lapsed)] })).files,
-  ).toMatchObject([{ stored: true }, { stored: true }]);
+  expect((await client.blobs.check({ files: [keptRef, lapsedRef] })).files).toMatchObject([
+    { stored: true },
+    { stored: true },
+  ]);
   await expect(
-    client.blobs.check({ files: [{ ...blobRef(kept), sizeBytes: kept.length + 1 }] }),
+    client.blobs.check({ files: [{ ...keptRef, sizeBytes: keptRef.sizeBytes + 1 }] }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   // Seven days on, a job still holds its files' content, and an upload alone no longer does.
   await expireUploads();
-  expect(
-    (await client.blobs.check({ files: [blobRef(kept), blobRef(lapsed)] })).files,
-  ).toMatchObject([{ stored: true }, { stored: false }]);
+  expect((await client.blobs.check({ files: [keptRef, lapsedRef] })).files).toMatchObject([
+    { stored: true },
+    { stored: false },
+  ]);
   await client.jobs.cancel({ id: job.id });
 });
 
@@ -256,9 +256,7 @@ test("an upload whose bytes are not those its digest names stores nothing", asyn
     client.batches.addJobs({
       id: (await client.batches.create({ agent: { outputContract: SUBMISSION.outputContract } }))
         .id,
-      jobs: [
-        { customId: "a", files: [{ path: "a.txt", digest: digestOf(claimed), sizeBytes: 30 }] },
-      ],
+      jobs: [{ customId: "a", files: [{ path: "a.txt", ...blobRef(claimed) }] }],
     }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });

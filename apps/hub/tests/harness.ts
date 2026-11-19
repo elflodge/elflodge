@@ -16,6 +16,7 @@ import {
   createJsonRpcClient,
   createProblemDetailsLink,
   hubNotifications,
+  KEY_PERMISSIONS,
   RUNNER_CONNECT_PATH,
   RUNNER_PROTOCOL_VERSION,
   registeredRunnerSchema,
@@ -114,13 +115,18 @@ export function digestOf(content: string | Uint8Array) {
   return `sha256:${hash("sha256", content)}`;
 }
 
+/** The digest and byte length of a blob, with text encoded as UTF-8. */
+export function blobRef(content: string | Uint8Array) {
+  return { digest: digestOf(content), sizeBytes: Buffer.byteLength(content) };
+}
+
 /** Uploads `content`, text as UTF-8, and answers its digest and size, as a job names it. */
 export async function uploadContent(client: ApiClient, content: string | Uint8Array) {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
-  const digest = digestOf(bytes);
+  const { digest, sizeBytes } = blobRef(bytes);
   return await client.blobs.upload({
     params: { digest },
-    headers: { "content-length": bytes.length },
+    headers: { "content-length": sizeBytes },
     body: new Blob([bytes]).stream(),
   });
 }
@@ -255,7 +261,7 @@ export function startSystem(
   /** Creates an API key and a client sending it. The default key has every job permission. */
   async function createApiKey({
     name = "jobs",
-    permissions = { job: ["create", "read", "pause", "resume", "cancel", "delete"] },
+    permissions = { job: [...KEY_PERMISSIONS.job] },
   }: { name?: string; permissions?: Record<string, string[]> } = {}) {
     const { id, key } = await owner.apiKeys.create({ name, permissions });
     return { id, key, client: client({ "x-api-key": key }) };
@@ -399,6 +405,7 @@ export function startSystem(
     /** A client signed in as `OWNER`. */
     owner: () => owner,
     createApiKey,
+    /** Creates an API key allowed to submit, read and control jobs. */
     async newJobsKey() {
       return (await createApiKey()).key;
     },

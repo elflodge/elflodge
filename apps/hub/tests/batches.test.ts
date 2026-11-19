@@ -153,9 +153,9 @@ test("an add with an invalid job adds none, and its answer names every problem w
     jobs: [
       jobNamed("e", { files: [{ path: "rates.csv", ...rates }] }),
       jobNamed("f", {
-        files: [{ path: "rates.csv", digest: `sha256:${"0".repeat(64)}`, sizeBytes: 3 }],
+        files: [{ path: "rates.csv", ...rates, digest: `sha256:${"0".repeat(64)}` }],
       }),
-      jobNamed("g", { files: [{ path: "rates.csv", ...rates, sizeBytes: 4 }] }),
+      jobNamed("g", { files: [{ path: "rates.csv", ...rates, sizeBytes: rates.sizeBytes + 1 }] }),
     ],
   });
   for (const detail of [
@@ -284,6 +284,7 @@ test.each(["/jobs", "/batches", "/usage"])(
 test("Batches are listed newest first, by status and label, in pages", async () => {
   const client = await system.clientWithNewJobsKey();
   const labels = { suite: "batch-list" };
+  // Newest first gives May, April, March, which differs from either alphabetical order of the IDs.
   const cancelled = await client.batches.create({
     id: "march",
     agent: AGENT,

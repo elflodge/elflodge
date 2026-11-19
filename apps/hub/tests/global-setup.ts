@@ -35,9 +35,9 @@ export default async function setup(project: TestProject) {
     await migrateDatabase(databaseUrl);
     project.provide("databaseUrl", databaseUrl);
   } catch (error) {
-    // Vitest has no teardown yet. Disposal during the rethrow preserves both errors if stop fails.
+    // Setup failed before Vitest could register teardown. Keep both errors if stopping also fails.
     await using _ = container;
     throw error;
   }
-  return () => container[Symbol.asyncDispose]();
+  return () => container.stop();
 }

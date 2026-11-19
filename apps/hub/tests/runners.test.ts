@@ -41,20 +41,20 @@ test("a runner that connects is listed under its host's name with its capabiliti
 });
 
 test("a runner that restarts keeps its identity, listed once and seen again", async () => {
-  async function startAndWaitForHello() {
+  async function startAndWaitForHelloAndSync() {
     const ready = Promise.withResolvers<void>();
     const id = await system.startRunner({ onReady: Effect.sync(ready.resolve) });
     await ready.promise;
     return id;
   }
-  const runnerId = await startAndWaitForHello();
+  const runnerId = await startAndWaitForHelloAndSync();
   const before = await system.owner().runners.list();
   const runner = before.find(({ id }) => id === runnerId);
   assert(runner, "The hub did not list the started Runner");
   const { registeredAt, lastSeenAt } = runner;
 
   await system.stopRunner();
-  expect(await startAndWaitForHello()).toBe(runnerId);
+  expect(await startAndWaitForHelloAndSync()).toBe(runnerId);
 
   const listed = await system.owner().runners.list();
   expect(listed).toHaveLength(before.length);

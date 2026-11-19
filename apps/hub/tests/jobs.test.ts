@@ -3,7 +3,7 @@ import * as z from "zod/mini";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId } from "../src/db/types.ts";
-import { digestOf, startSystem, submitJob, uploadContent } from "./harness.ts";
+import { blobRef, startSystem, submitJob, uploadContent } from "./harness.ts";
 
 const system = startSystem();
 
@@ -15,12 +15,10 @@ const AGENT = {
     schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
   },
 };
-/** The digest of no bytes. */
-const EMPTY = digestOf("");
 
 /** An Input file at `path`, of no bytes. */
 function fileAt(path: string) {
-  return { path, digest: EMPTY, sizeBytes: 0 };
+  return { path, ...blobRef("") };
 }
 
 const JOB = { customId: "report-q3", input: "Summarise the report in one sentence." };
@@ -46,15 +44,15 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
   const batch = z.parse(z.looseObject({ id: z.string() }), await created.json());
   // A file's bytes are uploaded first, as the request's body, and the job names them by digest.
   const report = new TextEncoder().encode("Revenue grew 4%.");
-  const digest = digestOf(report);
-  const uploaded = await system.hub.fetch(`/blobs/${digest}`, {
+  const ref = blobRef(report);
+  const uploaded = await system.hub.fetch(`/blobs/${ref.digest}`, {
     method: "PUT",
     headers: { "x-api-key": key, "content-type": "application/octet-stream" },
     body: report,
   });
   expect(uploaded.status).toBe(200);
-  expect(await uploaded.json()).toEqual({ digest, sizeBytes: report.length });
-  const files = [{ path: "q3.md", digest, sizeBytes: report.length }];
+  expect(await uploaded.json()).toEqual(ref);
+  const files = [{ path: "q3.md", ...ref }];
   const response = await post(key, `/batches/${batch.id}/jobs`, { jobs: [{ ...JOB, files }] });
   expect(response.status).toBe(200);
   const added = z.parse(
@@ -141,10 +139,7 @@ test("a member's session submits as a key does: Blobs, a Batch and its jobs, sho
   const submitter = { kind: "member", id: userId, name };
 
   const report = new TextEncoder().encode("Costs fell 2%.");
-  const ref = {
-    digest: digestOf(report),
-    sizeBytes: report.length,
-  };
+  const ref = blobRef(report);
   expect((await member.blobs.check({ files: [ref] })).files).toMatchObject([
     { ...ref, stored: false },
   ]);
