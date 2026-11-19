@@ -131,21 +131,23 @@ export function JobTimeline(props: {
     let previousTop = documentTop();
     const added = await (earlier ? stretch.showEarlier() : stretch.showLater());
     flush();
-    if (anchor?.isConnected && added) {
+    if (earlier && added) {
       // Scroll anchoring first shipped in Safari 27; the dashboard also supports Safari 17.5.
       // https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
       // Correct the change in document coordinates so scrolling during the read is preserved.
       const compensate = () => {
+        if (!anchor?.isConnected) return;
         const nextTop = documentTop();
         window.scrollBy(0, nextTop - previousTop);
         previousTop = nextTop;
       };
       compensate();
-      // ResizeObserver measures new disclosures after the first animation callback.
+      // Focusing a new Event can change the browser's scroll anchor. Keep the old anchor
+      // until ResizeObserver has measured the new previews and their buttons occupy space.
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
-      if (!anchor.isConnected) return;
+      if (!timeline?.isConnected) return;
       compensate();
     }
     const addedNumber =
