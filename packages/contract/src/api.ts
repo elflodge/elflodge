@@ -1104,6 +1104,7 @@ export const apiContract = {
       )
       .output(jobEventsPageSchema),
     list: forMembers
+      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
@@ -1176,6 +1177,7 @@ export const apiContract = {
       )
       .output(jobsPageSchema),
     counts: forMembers
+      .errors({ BAD_REQUEST: {} })
       .meta(
         openapi({
           method: "GET",
