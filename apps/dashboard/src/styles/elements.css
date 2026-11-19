@@ -281,7 +281,7 @@ textarea:disabled {
   border-color: var(--c-rule);
   cursor: not-allowed;
 }
-[aria-invalid="true"] {
+:is(input, select, textarea)[aria-invalid="true"] {
   border-color: var(--c-failed);
   background: var(--c-failed-wash);
 }

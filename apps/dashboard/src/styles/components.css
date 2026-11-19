@@ -42,7 +42,7 @@
   color: var(--c-failed);
   border-color: currentColor;
 }
-.danger.is-fill {
+.danger.is-fill:not(:disabled) {
   background: var(--c-failed);
   color: var(--c-paper);
   border-color: var(--c-failed);
@@ -653,7 +653,8 @@ thead .unit {
    At 640px and below a record is a block: the identifier on its own line, then each other value after its name
    and unit (data-l), the column heads hidden but read. The table carries explicit roles, since the block layout
    drops a table's implicit ones. */
-.records + .prose {
+.records + .prose,
+p:has(> button) + .prose {
   margin-top: var(--space-4);
 }
 .records.is-narrow {

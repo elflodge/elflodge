@@ -2,13 +2,12 @@ import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS } from "contract";
-import { For, Loading, Show, createSignal, flush, onSettled } from "solid-js";
+import { For, Loading, Show, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
-import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { ActionFailureStatus, ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
-import { FieldError } from "../../../components/FieldError.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
@@ -109,9 +108,11 @@ function ApiKeys() {
 
 function KeyList(props: { focusAfterRevoke: () => void }) {
   const queryClient = useQueryClient();
+  const [actionFailure, setActionFailure] = createSignal<string>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
 
   async function revoke(key: ApiKey) {
+    setActionFailure(undefined);
     try {
       await api.apiKeys.revoke({ id: key.id });
       void queryClient
@@ -128,6 +129,7 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
+      <ActionFailureStatus message={actionFailure()} />
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
         <FailedReadNotice
@@ -148,10 +150,16 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
           </div>
         }
       >
-        <KeyTable keys={keys.data} revoke={revoke} />
+        <KeyTable keys={keys.data} revoke={revoke} reportPageFailure={setActionFailure} />
       </Show>
     </>
   );
+}
+
+function validatePermissions(group: HTMLFieldSetElement) {
+  group
+    .querySelector("input")
+    ?.setCustomValidity(group.querySelector(":checked") ? "" : "Choose at least one action.");
 }
 
 /**
@@ -164,7 +172,6 @@ function CreateKey(props: { onClose: () => void }) {
   let dialog: HTMLDialogElement | undefined;
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
   const [failure, setFailure] = createSignal<string>();
-  const [missingPermission, setMissingPermission] = createSignal(false);
   const { pending, onSubmit } = createFormAction(create);
 
   async function create(element: HTMLFormElement) {
@@ -175,13 +182,6 @@ function CreateKey(props: { onClose: () => void }) {
       ).filter(([, actions]) => actions.length > 0),
     );
     setFailure(undefined);
-    if (!Object.keys(permissions).length) {
-      setMissingPermission(true);
-      // Make the error available to a screen reader before moving to the first action.
-      flush();
-      element.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus();
-      return;
-    }
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expires"))]?.seconds;
     try {
@@ -217,6 +217,7 @@ function CreateKey(props: { onClose: () => void }) {
             <div class="dialog-b">
               <div class="field">
                 <label for="key-name">Name</label>
+                {/* Better Auth defaults maximumNameLength to 32 for API keys. */}
                 <input
                   id="key-name"
                   name="name"
@@ -230,21 +231,16 @@ function CreateKey(props: { onClose: () => void }) {
               </div>
               <fieldset
                 class="field"
-                aria-invalid={missingPermission() ? "true" : undefined}
                 aria-describedby="key-permissions-hint"
-                onChange={() => setMissingPermission(false)}
+                ref={(group) => {
+                  onSettled(() => validatePermissions(group));
+                }}
+                onChange={(event) => validatePermissions(event.currentTarget)}
               >
                 <legend>Permissions</legend>
-                <Show
-                  when={missingPermission()}
-                  fallback={
-                    <p class="note" id="key-permissions-hint">
-                      Choose at least one action.
-                    </p>
-                  }
-                >
-                  <FieldError id="key-permissions-hint">Choose at least one action.</FieldError>
-                </Show>
+                <p class="note" id="key-permissions-hint">
+                  Choose at least one action.
+                </p>
                 <For each={GRANTABLE}>
                   {(group) => (
                     <fieldset class="check-group">
@@ -316,7 +312,11 @@ function CreateKey(props: { onClose: () => void }) {
   );
 }
 
-function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<string | undefined> }) {
+function KeyTable(props: {
+  reportPageFailure: (message: string) => void;
+  keys: ApiKey[];
+  revoke: (key: ApiKey) => Promise<string | undefined>;
+}) {
   return (
     <table class="records is-narrow" role="table">
       <caption class="vh">API keys</caption>
@@ -369,6 +369,7 @@ function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<stri
                 <td role="cell" class="is-act">
                   <ConfirmAction
                     trigger="Revoke"
+                    reportPageFailure={props.reportPageFailure}
                     triggerLabel={`Revoke ${label()}`}
                     heading={
                       <>

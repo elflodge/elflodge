@@ -5,7 +5,7 @@ import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
-import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { ActionFailureStatus, ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
@@ -40,6 +40,7 @@ function Runners() {
   const context = Route.useRouteContext();
   const queryClient = useQueryClient();
   const runners = useQuery(() => orpc.runners.list.queryOptions());
+  const [actionFailure, setActionFailure] = createSignal<string>();
   const [removed, setRemoved] = createSignal<string>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
   const ids = createMemo(() => shortIds(runners.data.map((runner) => runner.id)));
@@ -50,6 +51,7 @@ function Runners() {
   }
 
   async function remove(runner: Runner, label: string) {
+    setActionFailure(undefined);
     try {
       const { endedJobs, jobsWithFilesLeft } = await api.runners.delete({ id: runner.id });
       setRemoved(removalSummary(label, endedJobs.length, jobsWithFilesLeft.length));
@@ -89,6 +91,7 @@ function Runners() {
           </Notice>
         )}
       </Show>
+      <ActionFailureStatus message={actionFailure()} />
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={runners.isError}>
         <FailedReadNotice
@@ -114,6 +117,7 @@ function Runners() {
           runners={runners.data}
           managesKeys={context().managesKeys}
           remove={remove}
+          reportPageFailure={setActionFailure}
           readAt={runners.dataUpdatedAt}
           shortId={shortId}
         />
@@ -152,6 +156,7 @@ function RunnerList(props: {
   readAt: number;
   shortId: (runner: Runner) => string;
   managesKeys: boolean;
+  reportPageFailure: (message: string) => void;
   remove: (runner: Runner, label: string) => Promise<string | undefined>;
 }) {
   return (
@@ -211,6 +216,7 @@ function RunnerList(props: {
                 <div class="runner-ctl">
                   <ConfirmAction
                     trigger="Remove"
+                    reportPageFailure={props.reportPageFailure}
                     triggerLabel={`Remove ${label()}`}
                     heading={
                       <>

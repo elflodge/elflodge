@@ -67,6 +67,37 @@ test("revoking the last API key returns focus to the page and stops calls with t
   await expect(system.client({ "x-api-key": key }).jobs.counts({})).rejects.toThrow();
 }, 30_000);
 
+test("dismissing a pending revocation still announces a refusal on the page", async () => {
+  const { id } = await system.owner().apiKeys.create({
+    name: "scheduled job",
+    permissions: { job: ["read"] },
+  });
+  const page = await signedInAt("api-keys");
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/api-keys/${id}`, async (route) => {
+    await release.promise;
+    await route.fulfill({
+      status: 403,
+      contentType: "application/problem+json",
+      json: { type: "about:blank", title: "Forbidden", status: 403, detail: "Permission denied" },
+    });
+  });
+  const revoke = { name: /^Revoke scheduled job / };
+  await page.getByRole("button", revoke).click();
+  const dialog = page.getByRole("dialog");
+  try {
+    await dialog.getByRole("button", revoke).click();
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await page.keyboard.press("Escape");
+    await expectBrowser(dialog).toHaveCount(0);
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: "Permission denied" }),
+  ).toContainText("Revoke scheduled job");
+}, 30_000);
+
 test("in a browser, the Runners page lists a registered Runner by its name and short ID", async () => {
   const id = await registerRunner("lodge-01");
   const page = await signedInAt("");
@@ -134,9 +165,12 @@ test("in a browser, a new API key is shown once", async () => {
   const dialog = page.getByRole("dialog");
   // Permissions are required; a name is optional.
   await dialog.getByRole("button", { name: "Create key" }).click();
-  await expectBrowser(
-    dialog.getByRole("group", { name: "Permissions", exact: true }),
-  ).toHaveAttribute("aria-invalid", "true");
+  const firstAction = dialog.getByRole("checkbox").first();
+  await expectBrowser(firstAction).toBeFocused();
+  await expectBrowser(firstAction).toHaveJSProperty(
+    "validationMessage",
+    "Choose at least one action.",
+  );
   await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
   await dialog.getByRole("group", { name: "Runners" }).getByLabel("read").check();
   await dialog.getByRole("button", { name: "Create key" }).click();

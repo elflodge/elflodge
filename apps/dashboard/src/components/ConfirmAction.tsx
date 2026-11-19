@@ -1,13 +1,14 @@
 import type { JSX } from "@solidjs/web";
 import { Show, createSignal, createUniqueId, flush } from "solid-js";
 
+import { focusIfLost } from "../form.ts";
 import { Notice } from "./Notice.tsx";
 
 /**
  * A destructive control and the dialog that confirms it: the button opens the dialog, which says
  * what the action ends and whether that is final, and acts only on its confirming button, which names
  * what it acts on. "Keep it" is first and has the focus, so a stray Enter keeps. `act` gives the
- * words of a refusal or failure, said in the dialog, at the action; the dialog closes once it is done.
+ * words of a refusal or failure, said in the dialog or on the page if the member closed it.
  */
 export function ConfirmAction(props: {
   /** The words on the button that opens the dialog, such as "Remove". */
@@ -20,8 +21,10 @@ export function ConfirmAction(props: {
   /** What the action ends, and whether that is final. */
   children: JSX.Element;
   act: () => Promise<string | undefined>;
+  reportPageFailure: (message: string) => void;
 }) {
   let dialog: HTMLDialogElement | undefined;
+  let confirmButton: HTMLButtonElement | undefined;
   const headingId = createUniqueId();
   const [pending, setPending] = createSignal(false);
   const [failure, setFailure] = createSignal<string>();
@@ -29,13 +32,19 @@ export function ConfirmAction(props: {
   async function confirm() {
     setPending(true);
     setFailure(undefined);
+    let message;
     try {
-      const message = await props.act();
-      if (message) setFailure(message);
-      else dialog?.close();
+      message = await props.act();
     } finally {
       setPending(false);
     }
+    if (!message) dialog?.close();
+    else if (dialog?.open && dialog.isConnected) {
+      setFailure(message);
+      // Re-enable the confirming button before restoring focus if disabling it lost focus.
+      flush();
+      focusIfLost(confirmButton);
+    } else props.reportPageFailure(`${props.confirm}: ${message}`);
   }
 
   return (
@@ -55,9 +64,6 @@ export function ConfirmAction(props: {
       </button>
       <dialog
         aria-labelledby={headingId}
-        onCancel={(event) => {
-          if (pending()) event.preventDefault();
-        }}
         ref={(element) => {
           dialog = element;
         }}
@@ -74,12 +80,15 @@ export function ConfirmAction(props: {
             <Show when={failure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
           </div>
           <div class="dialog-f">
-            <button value="keep" autofocus disabled={pending()}>
-              Keep it
+            <button value="keep" autofocus>
+              {pending() ? "Close" : "Keep it"}
             </button>
             <button
               type="button"
               class="danger is-fill"
+              ref={(element) => {
+                confirmButton = element;
+              }}
               disabled={pending()}
               onClick={() => void confirm()}
             >
@@ -89,5 +98,15 @@ export function ConfirmAction(props: {
         </form>
       </dialog>
     </>
+  );
+}
+
+/** A refusal can arrive after Escape or Close. Keep its live region mounted with the list. */
+export function ActionFailureStatus(props: { message?: string }) {
+  return (
+    <div role="status" aria-atomic="true" class={props.message ? "notice notice-failed" : "vh"}>
+      <span class="mark mark-failed" aria-hidden="true" />
+      <p>{props.message}</p>
+    </div>
   );
 }
