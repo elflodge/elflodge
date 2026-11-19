@@ -15,7 +15,7 @@ Compose replaces the single hub process, and the new hub migrates before opening
 
 ## Consequences
 
-Only on Workers, between setup and the new version taking over, the v0.10.0 hub can place or resume a job on the new schema. It writes the new `job.runId` but leaves `jobProgress.runId` on the previous run, or null on first placement. Reports for the new run then cannot refresh its last-reported time. After two minutes the job shows `statusUnknown` with reason `notReported` while its Runner stays connected, until the job ends (ADR 0042). We accept that loss of visibility because the hub still records the job's status and outcome.
+On Workers the v0.10.0 hub can place a run after setup and before the new code takes over. It writes only the job row, so `jobProgress.runId` can still name the previous run or be null. A job paused at migration has null there even if it ran before. Resuming a started job on v0.10.0 gives it a new `job.runId` and clears `placedAt`. If the new hub then places the run, it sets `jobProgress.runId` to match. If the old hub places it with a missing or stale progress run ID, the run's reports cannot refresh `lastReportedAt`. Two minutes after placement, the job shows `statusUnknown` with reason `notReported` while its Runner stays connected. The marker clears when the run pauses or finishes (ADR 0042). We accept this loss of visibility for that run because the hub still records its status and outcome.
 
 Going back requires restoring the pre-upgrade backup with the old hub. The v0.10.0 Docker hub refuses to start on the migrated database because it finds migrations it does not know. The v0.10.0 Worker runs no migrator at startup and would serve requests with the same errors as during the upgrade.
 

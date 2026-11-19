@@ -10,11 +10,13 @@ import type { Kysely } from "kysely";
 // it, without the report taking the job row's lock. Null while no run may write it: before the job
 // is first placed, and from the resume of a job that never started until it is placed again.
 //
-// Only on Workers, between setup and the new version taking over, v0.10.0 can place or resume a
-// job and write only job.runId. It leaves jobProgress.runId on the earlier run, or null on first
-// placement, so the new run's reports cannot refresh lastReportedAt. We accept the job showing
-// statusUnknown with reason notReported after two minutes until it ends: the hub still records
-// its status and outcome.
+// On Workers, between setup and the new version taking over, v0.10.0 can place a run without
+// updating `jobProgress.runId`. It can still name the previous run or be null, as it is for jobs
+// paused at migration. Resuming a started job on v0.10.0 clears `placedAt`. If the new hub places it,
+// placement sets `jobProgress.runId` to the new `job.runId`. If the old hub places it with a
+// missing or stale progress run ID, its reports cannot refresh `lastReportedAt`. After two
+// minutes the job shows `statusUnknown` with reason `notReported` while its Runner is connected,
+// until the run pauses or finishes. We accept this because the hub records its status and outcome.
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .withSchema("elflodge")
