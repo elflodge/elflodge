@@ -1,11 +1,9 @@
-import { createHash } from "node:crypto";
-
-import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId } from "../src/db/types.ts";
-import { OWNER, startSystem, submitJob, uploadContent } from "./harness.ts";
+import { blobRef, startSystem, submitJob, uploadContent } from "./harness.ts";
 
 const system = startSystem();
 
@@ -17,21 +15,13 @@ const AGENT = {
     schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
   },
 };
-/** The digest of no bytes. */
-const EMPTY = `sha256:${createHash("sha256").digest("hex")}`;
 
 /** An Input file at `path`, of no bytes. */
 function fileAt(path: string) {
-  return { path, digest: EMPTY, sizeBytes: 0 };
+  return { path, ...blobRef("") };
 }
 
 const JOB = { customId: "report-q3", input: "Summarise the report in one sentence." };
-
-/** A client sending a new API key with `permissions`, and the key's ID. */
-async function withKey(permissions: Record<string, string[]>, name = "jobs") {
-  const { id, key } = await system.owner().apiKeys.create({ name, permissions });
-  return { keyId: id, key, client: system.client({ "x-api-key": key }) };
-}
 
 /** Posts `body` as raw JSON to `path` with `key`, as any HTTP client would. */
 function post(key: string, path: string, body: unknown) {
@@ -43,22 +33,26 @@ function post(key: string, path: string, body: unknown) {
 }
 
 test("a Batch is created and a job added to it, each with 200, and the job reads back as queued, with a key or a member's session", async () => {
-  const { keyId, key, client } = await withKey({ job: ["create", "read"] });
+  const {
+    id: keyId,
+    key,
+    client,
+  } = await system.createApiKey({ permissions: { job: ["create", "read"] } });
 
   const created = await post(key, "/batches", { agent: AGENT });
   expect(created.status).toBe(200);
   const batch = z.parse(z.looseObject({ id: z.string() }), await created.json());
   // A file's bytes are uploaded first, as the request's body, and the job names them by digest.
   const report = new TextEncoder().encode("Revenue grew 4%.");
-  const digest = `sha256:${createHash("sha256").update(report).digest("hex")}`;
-  const uploaded = await system.hub.fetch(`/blobs/${digest}`, {
+  const ref = blobRef(report);
+  const uploaded = await system.hub.fetch(`/blobs/${ref.digest}`, {
     method: "PUT",
     headers: { "x-api-key": key, "content-type": "application/octet-stream" },
     body: report,
   });
   expect(uploaded.status).toBe(200);
-  expect(await uploaded.json()).toEqual({ digest, sizeBytes: report.length });
-  const files = [{ path: "q3.md", digest, sizeBytes: report.length }];
+  expect(await uploaded.json()).toEqual(ref);
+  const files = [{ path: "q3.md", ...ref }];
   const response = await post(key, `/batches/${batch.id}/jobs`, { jobs: [{ ...JOB, files }] });
   expect(response.status).toBe(200);
   const added = z.parse(
@@ -75,7 +69,7 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
   );
   expect(added.batch).toMatchObject({ id: batch.id, jobCounts: { queued: 1 } });
   const [first] = added.jobs;
-  if (!first) throw new Error("The add answered without the job");
+  assert(first, "The add answered without the job");
   const unused = { totalTokens: 0, cost: { totalUsd: 0 } };
   // The hub's default limits.
   const limits = { runTimeoutSeconds: 30 * 60, modelBudgetUsd: 1 };
@@ -101,14 +95,18 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
 });
 
 test("a Batch and its job show the key that submitted them after revocation, and keep who created the key", async () => {
-  const { keyId, client } = await withKey({ job: ["create"] }, "nightly batch");
+  const { id: keyId, client } = await system.createApiKey({
+    name: "nightly batch",
+    permissions: { job: ["create"] },
+  });
   const { id, batchId } = await submitJob(client, { ...AGENT, ...JOB });
+  assert(batchId !== undefined, "The job has no Batch");
   await system.owner().apiKeys.revoke({ id: keyId });
 
   const submitter = { kind: "key", id: keyId, name: "nightly batch" };
   const owner = system.owner();
   expect((await owner.jobs.get({ id })).submitter).toEqual(submitter);
-  expect((await owner.batches.get({ id: batchId ?? "" })).submitter).toEqual(submitter);
+  expect((await owner.batches.get({ id: batchId })).submitter).toEqual(submitter);
   expect((await owner.jobs.list({ batchId })).jobs.map((job) => job.submitter)).toEqual([
     submitter,
   ]);
@@ -118,14 +116,10 @@ test("a Batch and its job show the key that submitted them after revocation, and
     submitter,
   });
 
+  const session = await system.ownerAuth().getSession();
+  assert(session, "The owner has no session");
   // No API shows who created the key, so the test reads it where the hub keeps it.
   await using db = openDatabase(inject("databaseUrl"));
-  const creator = await db
-    .withSchema(DB_SCHEMA)
-    .selectFrom("user")
-    .select("id")
-    .where("email", "=", OWNER.email)
-    .executeTakeFirstOrThrow();
   expect(
     await db
       .withSchema(DB_SCHEMA)
@@ -133,23 +127,19 @@ test("a Batch and its job show the key that submitted them after revocation, and
       .select("keyCreatorUserId")
       .where("id", "=", JobId(id))
       .executeTakeFirst(),
-  ).toEqual({ keyCreatorUserId: creator.id });
+  ).toEqual({ keyCreatorUserId: session.user.id });
 });
 
 test("a member's session submits as a key does: Blobs, a Batch and its jobs, shown as the member's", async () => {
   const name = "Sam Submitter";
   const { client: member, userId } = await system.addMember({
     email: "submitter@example.com",
-    password: "a member's own long password",
     name,
   });
   const submitter = { kind: "member", id: userId, name };
 
   const report = new TextEncoder().encode("Costs fell 2%.");
-  const ref = {
-    digest: `sha256:${createHash("sha256").update(report).digest("hex")}`,
-    sizeBytes: report.length,
-  };
+  const ref = blobRef(report);
   expect((await member.blobs.check({ files: [ref] })).files).toMatchObject([
     { ...ref, stored: false },
   ]);
@@ -171,23 +161,24 @@ test("a member's session submits as a key does: Blobs, a Batch and its jobs, sho
     jobs: [{ ...JOB, files: [{ path: "q4.md", ...ref }] }],
   });
   const [added] = jobs;
-  expect(added?.job.submitter).toEqual(submitter);
+  assert(added, "The add answered without the job");
+  expect(added.job.submitter).toEqual(submitter);
   const owner = system.owner();
-  expect((await owner.jobs.get({ id: added?.job.id ?? "" })).submitter).toEqual(submitter);
+  expect((await owner.jobs.get({ id: added.job.id })).submitter).toEqual(submitter);
   expect((await owner.batches.get({ id: batch.id })).submitter).toEqual(submitter);
 });
 
 test("a key adds and reads jobs only with the permission for each", async () => {
-  const { client: addOnly } = await withKey({ job: ["create"] });
+  const { client: addOnly } = await system.createApiKey({ permissions: { job: ["create"] } });
   const { id, batchId } = await submitJob(addOnly, { ...AGENT, ...JOB });
-  if (batchId === undefined) throw new Error("The job has no Batch");
+  assert(batchId !== undefined, "The job has no Batch");
 
   await expect(addOnly.jobs.get({ id })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(addOnly.jobs.events({ id })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(addOnly.batches.get({ id: batchId })).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
-  const { client: readOnly } = await withKey({ job: ["read"] });
+  const { client: readOnly } = await system.createApiKey({ permissions: { job: ["read"] } });
   await expect(readOnly.batches.create({ agent: AGENT })).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
@@ -197,7 +188,7 @@ test("a key adds and reads jobs only with the permission for each", async () => 
 });
 
 test("an invalid Output contract or Input file path is refused with 400", async () => {
-  const { key, client } = await withKey({ job: ["create"] });
+  const { key, client } = await system.createApiKey({ permissions: { job: ["create"] } });
   const schemas = [
     { type: 5 },
     // A list of outputs is submitted as jobs.

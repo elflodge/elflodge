@@ -28,15 +28,17 @@ afterAll(async () => {
  * Assets answer a path with no file of its own with it only for a navigation, by `Sec-Fetch-Mode`.
  */
 async function expectShellAt(pathname: string) {
-  const page = await browser.newPage();
+  // Inspect the HTML the hub served before the dashboard can change it or navigate away.
+  const page = await browser.newPage({ javaScriptEnabled: false });
   onTestFinished(() => page.close());
   const response = await page.goto(`${system.origin}${pathname}`);
   if (!response) throw new Error(`No response for ${pathname}`);
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toMatch(/^text\/html/);
-  const body = await response.text();
   // The app's script, under the dashboard's base path.
-  expect(body).toMatch(/<script[^>]* src="\/dashboard\/assets\/[^"]+\.js"/);
+  expect(
+    await page.locator('script[src^="/dashboard/assets/"][src$=".js"]').count(),
+  ).toBeGreaterThan(0);
 }
 
 test("the dashboard's pages, deep links included, load its app shell", async () => {

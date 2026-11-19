@@ -1,16 +1,22 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
-import { problemOf } from "contract";
 import { Effect } from "effect";
 import { sql } from "kysely";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { sweepUnusedBlobs } from "../src/blobs.ts";
 import { Db, DB_SCHEMA, openDatabase } from "../src/db/database.ts";
-import { type OneJob, protocolClient, startSystem, submitJob, uploadContent } from "./harness.ts";
+import {
+  blobRef,
+  digestOf,
+  type OneJob,
+  protocolClient,
+  startSystem,
+  submitJob,
+  uploadContent,
+} from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
 // A job's Input files reach its Runner apart from the hub's answers, which name them only: the
@@ -34,10 +40,6 @@ function fileAt(filePath: string, content: string | Uint8Array) {
 
 /** Text of more than two chunks, with characters of several bytes across the chunks' boundaries. */
 const LARGE = "Grüße, 世界! ".repeat(150_000);
-
-function digestOf(content: string | Uint8Array): string {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
-}
 
 /** Runs the hub's hourly sweep now, on the test run's database. */
 async function sweep() {
@@ -202,30 +204,35 @@ test("a check answers which content the Organization holds, and where to upload 
   const client = await system.clientWithNewJobsKey();
   const kept = "Kept by a job.";
   const lapsed = "Held by its upload alone.";
-  const ref = (content: string) => ({ digest: digestOf(content), sizeBytes: content.length });
-  const { files } = await client.blobs.check({ files: [ref(kept), ref(lapsed)] });
+  const keptRef = blobRef(kept);
+  const lapsedRef = blobRef(lapsed);
+  const { files } = await client.blobs.check({ files: [keptRef, lapsedRef] });
   expect(files).toEqual([
-    { ...ref(kept), stored: false, upload: { transfer: "put", url: `/blobs/${digestOf(kept)}` } },
     {
-      ...ref(lapsed),
+      ...keptRef,
       stored: false,
-      upload: { transfer: "put", url: `/blobs/${digestOf(lapsed)}` },
+      upload: { transfer: "put", url: `/blobs/${keptRef.digest}` },
+    },
+    {
+      ...lapsedRef,
+      stored: false,
+      upload: { transfer: "put", url: `/blobs/${lapsedRef.digest}` },
     },
   ]);
 
   const job = await submitJob(client, { ...SUBMISSION, files: [fileAt("kept.txt", kept)] });
   await uploadContent(client, lapsed);
-  expect((await client.blobs.check({ files: [ref(kept), ref(lapsed)] })).files).toMatchObject([
+  expect((await client.blobs.check({ files: [keptRef, lapsedRef] })).files).toMatchObject([
     { stored: true },
     { stored: true },
   ]);
   await expect(
-    client.blobs.check({ files: [{ ...ref(kept), sizeBytes: kept.length + 1 }] }),
+    client.blobs.check({ files: [{ ...keptRef, sizeBytes: keptRef.sizeBytes + 1 }] }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   // Seven days on, a job still holds its files' content, and an upload alone no longer does.
   await expireUploads();
-  expect((await client.blobs.check({ files: [ref(kept), ref(lapsed)] })).files).toMatchObject([
+  expect((await client.blobs.check({ files: [keptRef, lapsedRef] })).files).toMatchObject([
     { stored: true },
     { stored: false },
   ]);
@@ -235,23 +242,21 @@ test("a check answers which content the Organization holds, and where to upload 
 test("an upload whose bytes are not those its digest names stores nothing", async () => {
   const client = await system.clientWithNewJobsKey();
   const claimed = "What the caller meant to send.";
-  const refused = await client.blobs
-    .upload({
+  await expect(
+    client.blobs.upload({
       params: { digest: digestOf(claimed) },
       headers: { "content-length": 4 },
       body: new Blob(["else"]).stream(),
-    })
-    .catch((error: unknown) => error);
-  const problem = problemOf(refused);
-  expect(problem).toMatchObject({ status: 400, detail: expect.stringContaining(digestOf("else")) });
+    }),
+  ).rejects.toMatchObject({
+    cause: { status: 400, detail: expect.stringContaining(digestOf("else")) },
+  });
   expect(await storedOf([claimed, "else"])).toEqual([]);
   await expect(
     client.batches.addJobs({
       id: (await client.batches.create({ agent: { outputContract: SUBMISSION.outputContract } }))
         .id,
-      jobs: [
-        { customId: "a", files: [{ path: "a.txt", digest: digestOf(claimed), sizeBytes: 30 }] },
-      ],
+      jobs: [{ customId: "a", files: [{ path: "a.txt", ...blobRef(claimed) }] }],
     }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });

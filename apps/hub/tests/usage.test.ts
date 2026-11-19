@@ -1,9 +1,9 @@
-import { problemOf, type Usage, type UsageReport } from "contract";
-import { Struct } from "effect";
-import { sql } from "kysely";
-import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import type { Usage, UsageReport } from "contract";
+import { Duration, Struct } from "effect";
+import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 
-import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
+import { DB_SCHEMA, openDatabase, plusDuration } from "../src/db/database.ts";
+import { JobId } from "../src/db/types.ts";
 import { startSystem, submitJob, untilStatus } from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
@@ -16,13 +16,6 @@ beforeAll(() => system.start());
 afterAll(() => system.stop());
 
 const AGENT = { outputContract: { schema: { type: "integer" } } };
-const JOB_PERMISSIONS = { job: ["create", "read", "pause", "resume", "cancel", "delete"] };
-
-/** A new API key named `name` that may submit and control jobs, and a client sending it. */
-async function newKey(name: string) {
-  const { id, key } = await system.owner().apiKeys.create({ name, permissions: JOB_PERMISSIONS });
-  return { id, client: system.client({ "x-api-key": key }) };
-}
 
 /** `usages` added up. */
 function sumOf(usages: Usage[]) {
@@ -76,8 +69,8 @@ function expectUsage(usage: Usage, expected: Usage) {
 }
 
 test("usage adds up by day and by group, counting each end of a resumed job once and deleted jobs", async () => {
-  const billing = await newKey("billing");
-  const support = await newKey("support");
+  const billing = await system.createApiKey({ name: "billing" });
+  const support = await system.createApiKey({ name: "support" });
   const batch = await billing.client.batches.create({
     agent: AGENT,
     labels: { customer: "acme" },
@@ -90,7 +83,8 @@ test("usage adds up by day and by group, counting each end of a resumed job once
       jobs: [{ customId: "unstarted", input: "Never mind.", labels: { customer: "globex" } }],
     })
   ).jobs;
-  await billing.client.jobs.cancel({ id: unstarted?.job.id ?? "" });
+  assert(unstarted, "The add answered without the job");
+  await billing.client.jobs.cancel({ id: unstarted.job.id });
   const runnerId = await system.startRunner();
 
   // Cancelled while it runs a command, then resumed to succeed: two ends.
@@ -101,7 +95,8 @@ test("usage adds up by day and by group, counting each end of a resumed job once
       jobs: [{ customId: "resumed", input: "Wait." }],
     })
   ).jobs;
-  const resumedId = resumed?.job.id ?? "";
+  assert(resumed, "The add answered without the job");
+  const resumedId = resumed.job.id;
   await expect
     .poll(async () => (await billing.client.jobs.get({ id: resumedId })).activity?.[0]?.tools, {
       timeout: 10_000,
@@ -187,13 +182,14 @@ test("usage adds up by day and by group, counting each end of a resumed job once
 
   // A day holds what the hub recorded that day: the deleted job's end, moved three days back.
   await using db = openDatabase(inject("databaseUrl"));
-  const { rows } = await sql<{ recordedAt: Date }>`
-    update ${sql.table(`${DB_SCHEMA}.usageRecord`)}
-    set "recordedAt" = "recordedAt" - interval '3 days'
-    where "jobId" = ${deleted.id}
-    returning "recordedAt"
-  `.execute(db);
-  const day = rows[0]?.recordedAt.toISOString().slice(0, 10);
+  const { recordedAt } = await db
+    .withSchema(DB_SCHEMA)
+    .updateTable("usageRecord")
+    .set((eb) => ({ recordedAt: plusDuration(eb.ref("recordedAt"), Duration.days(-3)) }))
+    .where("jobId", "=", JobId(deleted.id))
+    .returning("recordedAt")
+    .executeTakeFirstOrThrow();
+  const day = recordedAt.toISOString().slice(0, 10);
   const moved = await owner.usage.get({ submitter: { kind: "key", id: support.id } });
   expect(moved.days.filter((each) => each.usage.totalTokens > 0)).toEqual([
     { date: day, usage: deletedUsage },
@@ -218,21 +214,23 @@ test("usage adds up by day and by group, counting each end of a resumed job once
 
 test("usage by submitter tells a member's jobs from a key's", async () => {
   const labels = { suite: "submitters" };
-  const key = await newKey("intake");
+  const key = await system.createApiKey({ name: "intake" });
   const { client: member, userId } = await system.addMember({
     email: "intake@example.com",
-    password: "a member's own long password",
     name: "Ira Intake",
   });
   // Each cancels a job no Runner was sent, held by its paused Batch: an end with a Usage record.
   for (const client of [key.client, member]) {
     const batch = await client.batches.create({ agent: AGENT, labels, breaker: false });
     await client.batches.pause({ id: batch.id });
-    const { jobs } = await client.batches.addJobs({
+    const {
+      jobs: [added],
+    } = await client.batches.addJobs({
       id: batch.id,
       jobs: [{ customId: "intake", input: "Never mind." }],
     });
-    await client.jobs.cancel({ id: jobs[0]?.job.id ?? "" });
+    assert(added, "The add answered without the job");
+    await client.jobs.cancel({ id: added.job.id });
   }
 
   const bySubmitter = await system.owner().usage.get({ groupBy: "submitter", labels });
@@ -278,8 +276,9 @@ test("a window that ends before it starts, is longer than 400 days or starts bef
     // The default `from`, 29 days before `to`, would be in year 0000.
     [{ to: "0001-01-01" }, "to"],
   ] as const) {
-    const problem = problemOf(await owner.usage.get(window).catch((error: unknown) => error));
-    expect(problem).toMatchObject({ status: 400, detail: expect.stringMatching(`→ at ${field}$`) });
+    await expect(owner.usage.get(window)).rejects.toMatchObject({
+      cause: { status: 400, detail: expect.stringMatching(`→ at ${field}$`) },
+    });
   }
   // 400 days, both included.
   expect((await owner.usage.get({ from: "2025-09-27", to: "2026-10-31" })).days).toHaveLength(400);
@@ -288,7 +287,6 @@ test("a window that ends before it starts, is longer than 400 days or starts bef
 test("a member whose role does not allow reading usage is refused", async () => {
   const { client: member } = await system.addMember({
     email: "member@example.com",
-    password: "a long enough password",
     name: "Member",
   });
   await expect(member.usage.get({})).rejects.toMatchObject({ code: "FORBIDDEN", defined: true });

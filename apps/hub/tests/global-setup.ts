@@ -30,9 +30,14 @@ export default async function setup(project: TestProject) {
     { env },
   );
   const container = await new PostgreSqlContainer("postgres:18-alpine").start();
-  await migrateDatabase(container.getConnectionUri());
-  project.provide("databaseUrl", container.getConnectionUri());
-  return async () => {
-    await container.stop();
-  };
+  try {
+    const databaseUrl = container.getConnectionUri();
+    await migrateDatabase(databaseUrl);
+    project.provide("databaseUrl", databaseUrl);
+  } catch (error) {
+    // Setup failed before Vitest could register teardown. Keep both errors if stopping also fails.
+    await using _ = container;
+    throw error;
+  }
+  return () => container.stop();
 }
