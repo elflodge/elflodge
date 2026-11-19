@@ -69,15 +69,17 @@ function hubServer(port: number, host: string | undefined, settings: HubSettings
       });
       const sockets = yield* NodeRunnerSockets;
       yield* Effect.acquireRelease(
-        Effect.promise(() =>
-          startServer(
-            app.fetch,
-            (request) => run(decideRunnerUpgrade(request)),
-            sockets,
-            port,
-            host,
-          ),
-        ),
+        Effect.tryPromise({
+          try: () =>
+            startServer(
+              app.fetch,
+              (request) => run(decideRunnerUpgrade(request)),
+              sockets,
+              port,
+              host,
+            ),
+          catch: ensureError,
+        }),
         (server) =>
           Effect.promise(() => {
             sockets.closeAll();

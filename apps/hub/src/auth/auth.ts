@@ -1,9 +1,10 @@
 import { ORPCError, type ORPCErrorCode } from "@orpc/server";
 import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
-import { type Access, Forbidden, HubNotSetUp, Unauthorized } from "contract";
+import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
-import { type Kysely, sql } from "kysely";
+import ensureError from "ensure-error";
+import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
 import { Db, openScopedDatabase } from "../db/database.ts";
@@ -36,13 +37,13 @@ export class Auth extends Context.Service<
 }) {}
 
 /**
- * What Better Auth threw, as oRPC's error of the same status when it is one of Better Auth's
- * refusals, such as `BAD_REQUEST` for a password too short; oRPC would answer one it does not know
- * with a 400.
+ * Preserve a Better Auth refusal's HTTP status and message. The contract uses the status number
+ * as the error code when oRPC has no name for it.
  */
-export function fromBetterAuth(error: unknown) {
+export function fromBetterAuth(caught: unknown) {
+  const error = ensureError(caught);
   return isAPIError(error)
-    ? new ORPCError(String(error.status), { message: error.body?.message })
+    ? new ORPCError(errorCodeOf(error.statusCode), { message: error.body?.message })
     : new Cause.UnknownError(error);
 }
 
@@ -52,11 +53,15 @@ export function fromBetterAuth(error: unknown) {
  * initialization can wait forever after a cancelled request leaves its promise unsettled
  * (better-auth/better-auth#10315).
  */
-export function databaseAndAuthLayer(connectionString: string, settings: Omit<AuthSettings, "db">) {
+export function databaseAndAuthLayer(
+  connectionString: string,
+  settings: Omit<AuthSettings, "db">,
+  inflightQueryAbortStrategy?: InflightQueryAbortStrategy,
+) {
   return Layer.effectContext(
     Effect.gen(function* () {
       const db = yield* openScopedDatabase(connectionString);
-      return Context.make(Db, yield* Db.make(db)).pipe(
+      return Context.make(Db, yield* Db.make(db, inflightQueryAbortStrategy)).pipe(
         Context.add(Auth, yield* Auth.make(db, settings)),
       );
     }),
@@ -66,6 +71,7 @@ export function databaseAndAuthLayer(connectionString: string, settings: Omit<Au
 /**
  * The deployment's Organization (ADR 0007), which owns every member and key, or `undefined` before
  * the hub is set up. There is only one, so the first row is it.
+ * Better Auth lists a signed-in user's Organizations. This lookup also runs without a session.
  */
 export async function findOrganization(db: Kysely<Database>) {
   return await db.selectFrom("organization").select("id").executeTakeFirst();
@@ -93,7 +99,10 @@ function requireMember(headers: Headers) {
     if (!session) return yield* Effect.fail(new Unauthorized());
     // The ID enters the hub here.
     const userId = UserId(session.user.id);
-    // The Organization and the membership in one read, so both come from the same moment.
+    // getSession plus this statement takes three reads per member call and distinguishes 401,
+    // 403 and 503. The statement reads the Organization and membership from one snapshot.
+    // getActiveMemberRole returns only the role, so the hub still needs getSession for the user, at
+    // seven reads in total.
     const organization = yield* Db.use((database) =>
       database.query((db) =>
         db

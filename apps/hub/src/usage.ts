@@ -67,7 +67,9 @@ export function readUsage(headers: Headers, query: UsageQuery) {
     const { groupBy } = query;
     if (groupBy === undefined) {
       const row = yield* Db.use((database) =>
-        database.query((db) => selectUsage(db, window, query).executeTakeFirstOrThrow()),
+        database.cancellableQuery((db, options) =>
+          selectUsage(db, window, query).executeTakeFirstOrThrow(options),
+        ),
       );
       return {
         from: window.from,
@@ -77,8 +79,8 @@ export function readUsage(headers: Headers, query: UsageQuery) {
       } satisfies UsageReport;
     }
     const row = yield* Db.use((database) =>
-      database.query((db) =>
-        selectGroupedUsage(db, window, groupBy, query).executeTakeFirstOrThrow(),
+      database.cancellableQuery((db, options) =>
+        selectGroupedUsage(db, window, groupBy, query).executeTakeFirstOrThrow(options),
       ),
     );
     return {
@@ -157,12 +159,10 @@ function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery
     );
   const { statuses, labels, batchId, submitter, runnerId } = query;
   if (statuses.length > 0) {
-    records = records.where("usageRecord.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
+    records = records.where("usageRecord.status", "=", (eb) => eb.fn.any(eb.val(statuses)));
   }
   if (labels !== undefined && Object.keys(labels).length > 0) {
-    records = records.where((eb) =>
-      eb("usageRecord.labels", "@>", eb.cast<Labels>(eb.val(JSON.stringify(labels)), "jsonb")),
-    );
+    records = records.where("usageRecord.labels", "@>", labels);
   }
   if (batchId !== undefined) {
     records = records.where("usageRecord.batchUid", "=", (eb) =>
@@ -190,7 +190,7 @@ function utcMidnightOf(eb: ExpressionBuilder<Database, "usageRecord">, day: Expr
 /** The UTC day a record counts on. */
 function dayOf(eb: ExpressionBuilder<Database, "usageRecord">) {
   return eb
-    .cast<string>(
+    .cast<Date>(
       eb.fn("timezone", [eb.cast(eb.val("UTC"), "text"), eb.ref("usageRecord.recordedAt")]),
       "date",
     )
@@ -210,7 +210,7 @@ function daysOf(qb: QueryCreator<Database>, window: Window) {
         ])
         .as("series"),
     )
-    .select((eb) => eb.cast<string>("series.series", "date").as("day"));
+    .select((eb) => eb.cast<Date>("series.series", "date").as("day"));
 }
 
 /**

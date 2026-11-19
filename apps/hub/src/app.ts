@@ -12,6 +12,7 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
+  errorStatusMap,
   getAccess,
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
@@ -429,12 +430,14 @@ const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiConte
 // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
 // JSON body.
 const uploads = new OpenAPIHandler(router, {
+  errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
 const api = new OpenAPIHandler(router, {
+  errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
   interceptors: [restoreDroppedQueryNamesForValidation],
@@ -476,8 +479,8 @@ export interface HubPlatform<Bindings> {
   /** The hub's public URL, its `HUB_URL` setting. */
   hubUrl(env: Bindings): string;
   /**
-   * Serves the dashboard's files under its base path, on platforms where requests for them reach
-   * the app: on Workers, Workers Static Assets answer them before the Worker runs.
+   * Serves the dashboard on Node. Workers Static Assets handle dashboard files and navigations.
+   * A page's request for a missing asset reaches the Worker.
    */
   dashboard?: Hono;
 }
@@ -586,7 +589,16 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
 
   // People reach the hub through the dashboard, an app shell served under its base path (ADR 0043).
   app.get("/", (c) => c.redirect(DASHBOARD_BASE));
-  if (platform.dashboard) app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
+  if (platform.dashboard) {
+    app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
+  } else {
+    // Static Assets applies _headers to the shell it serves for a navigation to this same URL.
+    app.get(`${DASHBOARD_BASE}assets/*`, async (c) => {
+      const response = await c.notFound();
+      response.headers.append("Vary", "Sec-Fetch-Mode");
+      return response;
+    });
+  }
 
   // Better Auth's own routes, such as signing in and out, at its default path.
   app.on(["GET", "POST"], "/api/auth/*", (c) =>

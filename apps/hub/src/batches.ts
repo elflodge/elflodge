@@ -256,6 +256,9 @@ export function listBatches(query: BatchListQuery) {
     const page = yield* database.query(async (db) => {
       const { statuses, labels, after, limit } = query;
       const now = new Date();
+      // Include the cursor itself, ahead of the page and regardless of its filters. An empty
+      // filtered page then still shows whether the cursor existed in this statement's snapshot.
+      const cursorRows = after === undefined ? 0 : 1;
       const rows = await db
         .with("page", (qb) => {
           let selection = qb
@@ -270,37 +273,43 @@ export function listBatches(query: BatchListQuery) {
               "b.pausedBy",
               "b.cancelledAt",
               ...SUBMITTER_COLUMNS.map((column) => `b.${column}` as const),
-            ]);
-          if (statuses.length > 0) {
-            selection = selection.where((eb) =>
-              eb.or(statuses.map((status) => batchStatusIs(eb, status))),
-            );
-          }
-          if (labels !== undefined && Object.keys(labels).length > 0) {
-            selection = selection.where((eb) =>
-              eb("b.labels", "@>", eb.cast<Labels>(eb.val(labels), "jsonb")),
-            );
-          }
+            ])
+            .where((eb) => {
+              const filters = [];
+              if (statuses.length > 0) {
+                filters.push(eb.or(statuses.map((status) => batchStatusIs(eb, status))));
+              }
+              if (labels !== undefined && Object.keys(labels).length > 0) {
+                filters.push(eb("b.labels", "@>", labels));
+              }
+              const matches = eb.and(filters);
+              return after === undefined ? matches : eb.or([eb("b.id", "=", after), matches]);
+            });
           if (after !== undefined) {
-            // An `after` naming no Batch finds nothing here, and is told apart below.
             selection = selection.where((eb) =>
               eb(
                 "b.uid",
-                "<",
+                "<=",
                 eb
                   .selectFrom("batch as a")
                   // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
                   .where("a.id", "=", after)
-                  .select("a.uid"),
+                  .select("a.uid")
+                  .limit(1),
               ),
             );
           }
-          // One more than the page, to learn whether more follow.
-          return selection.orderBy("b.uid", "desc").limit(limit + 1);
+          // Keep the cursor when supplied, the requested page, and one extra row to detect a next page.
+          return selection.orderBy("b.uid", "desc").limit(cursorRows + limit + 1);
         })
-        // The Batches the page shows, whose jobs are counted: not the one beyond it.
+        // Skip the cursor and count jobs only for Batches shown on this page.
         .with("shown", (qb) =>
-          qb.selectFrom("page").select("page.uid").orderBy("page.uid", "desc").limit(limit),
+          qb
+            .selectFrom("page")
+            .select("page.uid")
+            .orderBy("page.uid", "desc")
+            .offset(cursorRows)
+            .limit(limit),
         )
         // Counted from the jobs' rows alone, which the index on a job's Batch and status answers.
         .with("counts", (qb) =>
@@ -370,16 +379,10 @@ export function listBatches(query: BatchListQuery) {
         })
         .orderBy("page.uid", "desc")
         .execute();
-      if (
-        after !== undefined &&
-        rows.length === 0 &&
-        !(await db.selectFrom("batch").select("uid").where("id", "=", after).executeTakeFirst())
-      ) {
-        return undefined;
-      }
+      if (after !== undefined && rows.length === 0) return undefined;
       return {
-        batches: rows.slice(0, limit).map(listedBatchOf),
-        hasMore: rows.length > limit,
+        batches: rows.slice(cursorRows, cursorRows + limit).map(listedBatchOf),
+        hasMore: rows.length > cursorRows + limit,
       } satisfies BatchesPage;
     });
     if (!page) {

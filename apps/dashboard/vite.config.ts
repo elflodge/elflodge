@@ -35,9 +35,8 @@ export default defineConfig({
   },
   plugins: [
     tanstackStart({
-      // A static app shell the hub serves (ADR 0043), with no server of its own. The shell is
-      // written as `index.html`, the file Workers Static Assets answer a navigation with when it
-      // matches no other, rather than Start's default `_shell.html`.
+      // The hub serves a static shell (ADR 0043). Cloudflare's single-page-application handling
+      // serves `index.html` for an unmatched navigation, so Start must write the shell at that path.
       spa: { enabled: true, prerender: { outputPath: "/index" } },
     }),
     solid({ ssr: true }),

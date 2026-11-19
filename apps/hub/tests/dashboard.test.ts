@@ -24,8 +24,8 @@ afterAll(async () => {
 });
 
 /**
- * Checks that the hub answers a browser's navigation to `pathname` with the app shell. Workers Static
- * Assets answer a path with no file of its own with it only for a navigation, by `Sec-Fetch-Mode`.
+ * Checks that the hub answers a browser's navigation to `pathname` with the app shell. The Workers
+ * hub serves the shell for a path with no file of its own only for a navigation.
  */
 async function expectShellAt(pathname: string) {
   // Inspect the HTML the hub served before the dashboard can change it or navigate away.
@@ -35,17 +35,41 @@ async function expectShellAt(pathname: string) {
   if (!response) throw new Error(`No response for ${pathname}`);
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toMatch(/^text\/html/);
-  // The app's script, under the dashboard's base path.
-  expect(
-    await page.locator('script[src^="/dashboard/assets/"][src$=".js"]').count(),
-  ).toBeGreaterThan(0);
+  const scriptPath = await page
+    .locator('script[src^="/dashboard/assets/"][src$=".js"]')
+    .first()
+    .getAttribute("src");
+  if (!scriptPath) throw new Error(`No dashboard script in the shell at ${pathname}`);
+  return { page, scriptPath };
 }
 
-test("the dashboard's pages, deep links included, load its app shell", async () => {
+test("dashboard deep links load the shell and caches distinguish missing assets from navigations", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
-  await expectShellAt("/dashboard/.vite/manifest.json");
+  const { page, scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
+  const missingPath = "/dashboard/assets/missing.js";
+  const missing = await page.evaluate(async (path) => {
+    const response = await fetch(path);
+    return {
+      status: response.status,
+      cacheControl: response.headers.get("cache-control"),
+      vary: response.headers.get("vary"),
+    };
+  }, missingPath);
+  expect(missing.status).toBe(404);
+  expect(missing.cacheControl ?? "").not.toContain("immutable");
+
+  const navigation = await page.goto(`${system.origin}${missingPath}`);
+  if (inject("hub") === "workers") {
+    const script = await system.hub.fetch(scriptPath);
+    expect(script.status).toBe(200);
+    for (const vary of [script.headers.get("vary"), navigation?.headers().vary, missing.vary]) {
+      expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
+    }
+  } else {
+    expect(navigation?.status()).toBe(404);
+  }
   const notices = await system.hub.fetch("/dashboard/THIRD_PARTY_NOTICES.md");
   expect(notices.headers.get("content-type")).toMatch(/^text\/markdown/);
 

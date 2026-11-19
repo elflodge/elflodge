@@ -9,14 +9,12 @@
     "bindings": [{ "name": "RUNNER_CONNECTION", "class_name": "RunnerConnection" }],
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunnerConnection"] }],
-  // The dashboard's build, served under its base path, which `apps/dashboard/vite.config.ts` sets
-  // as its `base`, before the Worker runs (ADR 0043). A navigation to a path with no file of its
-  // own gets the app shell, `index.html`; any other request with no file reaches the Worker.
+  // Under the dashboard's Vite base, Static Assets serves the shell for an unmatched navigation.
+  // A page fetching a missing script reaches the Worker and gets a 404.
   "assets": {
     "directory": "../dashboard/dist/client",
     "base_path": "/dashboard/",
     "not_found_handling": "single-page-application",
-    "html_handling": "auto-trailing-slash",
   },
   "hyperdrive": [
     {

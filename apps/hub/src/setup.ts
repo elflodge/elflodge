@@ -111,21 +111,19 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
           .as("locked"),
       )
       .execute();
-    // The digests name no token, so older links are found by their value.
-    await transaction
-      .withSchema(DB_SCHEMA)
-      .deleteFrom("verification")
-      .where("value", "=", SETUP_LINK_VALUE)
-      .execute();
+    // Better Auth documents its internal adapter for request contexts. Setup reaches that adapter
+    // through `auth.$context` outside a request, an undocumented use. After an upgrade, check that
+    // `adapter.deleteMany` revokes earlier links by value, `internalAdapter.createVerificationValue`
+    // stores the new link, `consumeVerificationValue` consumes it atomically, and
+    // `verification.storeIdentifier` still matches its overrides by prefix. The setup tests exercise
+    // these paths. Check separately that `findUserByEmail` still recovers an owner left by an
+    // interrupted setup in 0.10.0 or earlier.
     const context = await offlineAuth(transaction).$context;
-    // Better Auth documents its internal adapter, the database calls it makes itself, for plugins
-    // and hooks, which reach it through their request's context; reaching it through
-    // `auth.$context`, outside a request, is not documented. After an upgrade, check that
-    // `auth.$context` still gives it, that `createVerificationValue` and the atomic
-    // `consumeVerificationValue` keep their behaviour and that `verification.storeIdentifier`
-    // still matches its overrides by prefix, which the setup tests exercise; and that setup still
-    // reuses an owner left by an interrupted setup in 0.10.0 or earlier, through
-    // `findUserByEmail`, which no test covers.
+    // Earlier links have unknown tokens, but all share the setup verification value.
+    await context.adapter.deleteMany({
+      model: "verification",
+      where: [{ field: "value", value: SETUP_LINK_VALUE }],
+    });
     await context.internalAdapter.createVerificationValue({
       identifier: SETUP_TOKEN_PREFIX + token,
       value: SETUP_LINK_VALUE,
@@ -143,8 +141,8 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
  * Auth's refusals are thrown as its `APIError`s.
  *
  * Better Auth has no way to join a transaction it did not open (better-auth/better-auth#10609), so
- * an instance is built on this one. That holds while the hub's options leave Better Auth's own
- * `transaction` setting off, as a Kysely transaction cannot open another.
+ * an instance is built on this one. Setup disables Better Auth's own transactions because an
+ * open Kysely transaction cannot start another.
  */
 export async function createOwnerAndOrganization(
   db: Kysely<Database>,
@@ -165,8 +163,8 @@ export async function createOwnerAndOrganization(
         const consumed = await context.internalAdapter.consumeVerificationValue(
           SETUP_TOKEN_PREFIX + token,
         );
-        // A setup at once with the same link may have used it and committed meanwhile.
         if (!consumed) {
+          // A competing setup using the same link may have committed while this one waited.
           const organization = await findOrganization(transaction.withSchema(DB_SCHEMA));
           return organization ? "alreadySetUp" : "linkRefused";
         }
@@ -189,6 +187,7 @@ export async function createOwnerAndOrganization(
       return "created";
     });
   } catch (error) {
+    // After rollback, check whether a competing setup committed.
     if (await findOrganization(db.withSchema(DB_SCHEMA))) return "alreadySetUp";
     throw error;
   }

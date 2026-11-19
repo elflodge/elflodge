@@ -140,7 +140,7 @@ export const submitterSchema = z
   .register(z.globalRegistry, {
     id: "Submitter",
     description:
-      "Who submitted a Batch or a job, by `kind`: `key`, an API key, or `member`, a member signed in with their session. New kinds may be added, so a client should expect a `kind` it does not know.",
+      "Who submitted a Batch or a job, by `kind`: `key`, an API key, or `member`, a member signed in with their session. A release that adds a `kind` marks it as a breaking change.",
   });
 export type Submitter = z.infer<typeof submitterSchema>;
 
@@ -712,6 +712,7 @@ export const apiContract = {
     complete: forAnyone
       .errors({
         BAD_REQUEST: {},
+        UNPROCESSABLE_CONTENT: {},
         [SetupLinkRefused.code]: SetupLinkRefused,
         [AlreadySetUp.code]: AlreadySetUp,
       })
@@ -1184,7 +1185,7 @@ export const apiContract = {
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
+          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -1236,7 +1237,7 @@ export const apiContract = {
               })
               .check(
                 z.describe(
-                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`. A later kind of submitter joins as one more `kind` value.",
+                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`.",
                 ),
               ),
           ),
