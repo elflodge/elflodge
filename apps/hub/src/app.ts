@@ -46,7 +46,7 @@ import {
   type KeyMetadata,
   requireKey,
 } from "./auth/auth.ts";
-import { API_KEY_CONFIG, GRANTABLE_KEY_PERMISSIONS } from "./auth/options.ts";
+import { API_KEY_CONFIG, GRANTABLE_KEY_ROLE } from "./auth/options.ts";
 import {
   addJobs,
   cancelBatch,
@@ -200,7 +200,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     apiKeys: {
       create: os.apiKeys.create.effect(function* ({ input, context, errors }) {
         const member = yield* callerMember(context.caller);
-        const grant = GRANTABLE_KEY_PERMISSIONS.authorize(input.permissions);
+        const grant = GRANTABLE_KEY_ROLE.authorize(input.permissions);
         if (!grant.success) return yield* Effect.fail(errors.BAD_REQUEST({ message: grant.error }));
         const auth = yield* Auth;
         // Without request headers, as a call from the hub itself: Better Auth sets a key's permissions
