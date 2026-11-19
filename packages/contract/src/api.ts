@@ -795,7 +795,14 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       )
       .output(createdKeySchema),
     list: forMembers
-      .meta(openapi({ method: "GET", path: "/api-keys" }), ...byMember)
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/api-keys",
+          description: "Lists all of the Organization's unexpired service keys.",
+        }),
+        ...byMember,
+      )
       .input(noQueryParametersSchema)
       .output(z.array(apiKeySchema)),
     revoke: forMembers

@@ -14,12 +14,12 @@ export function listApiKeys(organizationId: OrganizationId, role: string) {
     return yield* database.query(async (db): Promise<ApiKey[]> => {
       // Better Auth's listApiKeys reads at most 100 Organization keys before filtering, so paging
       // cannot reach the rest. Use it again when it filters and pages in the database query.
+      // The hub never disables a key, so this read needs no enabled filter.
       const keys = await db
         .selectFrom("apikey")
         .select(["id", "name", "start", "permissions", "createdAt", "expiresAt"])
         .where("referenceId", "=", organizationId)
         .where("configId", "=", API_KEY_CONFIG)
-        .where("enabled", "is not", false)
         .where((eb) => eb.or([eb("expiresAt", "is", null), eb("expiresAt", ">=", new Date())]))
         .execute();
       return keys.map((key) => ({

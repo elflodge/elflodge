@@ -131,19 +131,13 @@ test("a member can list every live service key in an Organization with over 100 
     expectedIds.push(id);
   }
   const expired = await create("expired");
-  const disabled = await create("disabled");
-  // The hub has no call to disable a key or move its expiry into the past.
+  // The hub has no call to move a key's expiry into the past.
   await using database = openDatabase(inject("databaseUrl"));
-  const db = database.withSchema(DB_SCHEMA);
-  await db
+  await database
+    .withSchema(DB_SCHEMA)
     .updateTable("apikey")
     .set({ expiresAt: new Date(0) } satisfies ApikeyUpdate)
     .where("id", "=", ApikeyId(expired.id))
-    .execute();
-  await db
-    .updateTable("apikey")
-    .set({ enabled: false } satisfies ApikeyUpdate)
-    .where("id", "=", ApikeyId(disabled.id))
     .execute();
 
   const listed = await owner.apiKeys.list();
