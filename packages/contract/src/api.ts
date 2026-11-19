@@ -368,7 +368,7 @@ export const jobSubmissionSchema = z
   .strictObject({
     customId: customIdSchema.check(
       z.describe(
-        "Your own ID for the job, unique in its Batch. Give each ID only once per call. While the Batch accepts jobs, resubmitting a job from an earlier call with the same ID and content returns it with `created: false`. Reusing the ID for different content is refused.",
+        "Your own ID for the job, unique in its Batch. Give each ID only once per call and reuse it when retrying the same job.",
       ),
     ),
     input: z.optional(
@@ -678,17 +678,12 @@ const blobCheckSchema = z.discriminatedUnion("stored", [
 ]);
 
 const statusFilterDescription = z.describe(
-  "Any of the given statuses, or any status when absent or empty.",
+  "Any of the given statuses. Omit the filter to include every status. In a typed call or JSON input object, an empty array has the same effect.",
 );
-const labelFilterDescription =
-  "Label key/value pairs that must all match, such as `labels[customer]=acme` in an HTTP query.";
-const labelFilterSchema = z.record(labelKeySchema, labelValueSchema);
-const listLabelFilterSchema = z.optional(
-  labelFilterSchema.check(
-    z.describe(
-      labelFilterDescription + ' For the CLI, quote the value as `\'{"customer":"acme"}\'`.',
-    ),
-  ),
+const labelFilterSchema = z.optional(
+  z
+    .record(labelKeySchema, labelValueSchema)
+    .check(z.describe("Label key/value pairs that must all match.")),
 );
 
 /**
@@ -867,7 +862,7 @@ export const apiContract = {
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's `id` to add jobs with `batches add-jobs` in the CLI or `POST /batches/{id}/jobs` over HTTP. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
+            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's `id` when adding its jobs. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -884,7 +879,7 @@ export const apiContract = {
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub checks every job and answers with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. While the Batch accepts jobs, resubmitting a job from an earlier call with the same \`customId\` and content returns the existing job with \`created: false\`, so retrying an add creates only the jobs the Batch lacks. A new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub answers with 404 if it cannot find the Batch. For an existing Batch, it checks every job and answers with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -918,7 +913,7 @@ export const apiContract = {
       .input(
         z.strictObject({
           status: z.optional(z.array(batchStatusSchema).check(statusFilterDescription)),
-          labels: listLabelFilterSchema,
+          labels: labelFilterSchema,
           after: z.optional(
             batchIdSchema.check(
               z.describe("The last Batch's ID on the previous page, to read on after it."),
@@ -1121,7 +1116,7 @@ export const apiContract = {
       .input(
         z.strictObject({
           status: z.optional(z.array(jobStatusSchema).check(statusFilterDescription)),
-          labels: listLabelFilterSchema,
+          labels: labelFilterSchema,
           batchId: z.optional(
             batchIdSchema.check(z.describe("The ID of the Batch the job belongs to.")),
           ),
@@ -1189,7 +1184,7 @@ export const apiContract = {
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as on \`GET /jobs\`: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
+          description: `Reads the Organization's model usage over a window of days: the total, each day's, oldest first and days without usage included, and, with \`groupBy\`, the \`limit\` groups that cost the most over the window, with the rest summed as \`other\`; each day carries the same groups and its own \`other\`, so one call draws stacked daily bars. Only owners and admins may read it; other members are refused with 403. It adds up the jobs' Usage records, one per end of a job, each with what the job used since its previous end, so a job resumed after it ended counts once across its ends, and deleted jobs still count. A day holds the usage the hub recorded that day, in UTC, as the jobs ended. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
@@ -1241,7 +1236,7 @@ export const apiContract = {
               })
               .check(
                 z.describe(
-                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`, as `submitter[kind]=member&submitter[id]=…`. A later kind of submitter joins as one more `kind` value.",
+                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`. A later kind of submitter joins as one more `kind` value.",
                 ),
               ),
           ),
@@ -1249,7 +1244,7 @@ export const apiContract = {
             textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
           ),
           status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
-          labels: z.optional(labelFilterSchema.check(z.describe(labelFilterDescription))),
+          labels: labelFilterSchema,
         }),
       )
       .output(usageReportSchema),

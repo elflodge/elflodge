@@ -295,6 +295,17 @@ export async function readInput(argv: readonly string[]): Promise<string[]> {
   return argv.toSpliced(option.index, option.inlineValue ? 1 : 2, "--json", json);
 }
 
+const commandExamples = new Map<AnyProcedureContract, string>([
+  [
+    apiContract.jobs.list,
+    'elflodge jobs list --labels \'{"customer":"acme"}\' --status queued running',
+  ],
+  [
+    apiContract.batches.list,
+    'elflodge batches list --labels \'{"customer":"acme"}\' --status active paused',
+  ],
+]);
+
 /**
  * The command for the procedure at `path`, which calls it with its input and prints the answer. Its
  * help is the procedure's description in the contract, as the OpenAPI document gives it.
@@ -303,7 +314,10 @@ function command(procedure: AnyProcedureContract, path: readonly string[]) {
   // Only this module reads oRPC's internals: a procedure's input schema.
   const [input = z.object({})] = procedure["~orpc"].inputSchemas ?? [];
   return os
-    .meta({ description: getOpenAPIMeta(procedure)?.description })
+    .meta({
+      description: getOpenAPIMeta(procedure)?.description,
+      examples: commandExamples.get(procedure),
+    })
     .input(input)
     .handler(({ input: given }) =>
       runCommand(
