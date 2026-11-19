@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/solid-query";
+import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { jobRefSchema, problemOf } from "contract";
 import { Show, createMemo, createSignal, onSettled } from "solid-js";
@@ -9,7 +9,7 @@ import { FallbackPage } from "../../../components/FallbackPage.tsx";
 import { JobActivity } from "../../../components/JobActivity.tsx";
 import { JobControls } from "../../../components/JobControls.tsx";
 import { JobFacts, JobLimits, JobResult } from "../../../components/JobRecord.tsx";
-import { ResumeGuidance } from "../../../components/JobStatus.tsx";
+import { canResume } from "../../../components/JobStatus.tsx";
 import { focusIfLost } from "../../../form.ts";
 import { timeZoneNote } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
@@ -58,7 +58,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
 
 function MissingJob(props: { id: string; deleted?: boolean }) {
   return (
-    <FallbackPage heading={props.deleted ? "This job was deleted." : "Job not found"}>
+    <FallbackPage heading={props.deleted ? "This job was deleted" : "Job not found"}>
       <Show when={!props.deleted}>
         <p class="prose">
           No job with the ID <code class="job-address">{props.id}</code>.
@@ -90,6 +90,17 @@ function JobPage() {
       problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
   }));
   const job = () => read.data;
+  const batch = useQuery(() => {
+    const id = job().batchId;
+    return orpc.batches.get.queryOptions({
+      input: id && canResume(job()) ? { id } : skipToken,
+      refetchInterval: REFRESH_INTERVAL_MS,
+    });
+  });
+  // Until the Batch read succeeds, offer Resume and let the hub explain any refusal.
+  const resumeOffered = () =>
+    canResume(job()) &&
+    (batch.isError || !batch.dataUpdatedAt || batch.data.status !== "cancelled");
   const output = createMemo(() => {
     const record = job();
     return record.status === "succeeded" && record.output !== undefined
@@ -120,11 +131,12 @@ function JobPage() {
           readAt={read.dataUpdatedAt}
         />
       </Show>
-      <div class="job-layout">
-        <div class="job-body">
+      <div class="record-with-aside">
+        <div class="record-sections">
           <div>
             <JobControls
               job={job()}
+              resumeOffered={resumeOffered()}
               deletedHere={deletedHere()}
               onDeleted={() => setDeletedHere(true)}
             />
@@ -132,14 +144,12 @@ function JobPage() {
           <Show when={job().status === "running" && !job().statusUnknown && !job().deletedAt}>
             <JobActivity job={job()} readAt={read.dataUpdatedAt} />
           </Show>
-          <JobLimits job={job()} />
+          <Show when={!job().deletedAt || job().startedAt}>
+            <JobLimits job={job()} resumeOffered={resumeOffered()} />
+          </Show>
           <Show when={output()}>{(text) => <JobResult text={text()} />}</Show>
           <Show when={failure()?.message}>
-            {(message) => (
-              <JobResult text={message()} failure>
-                <ResumeGuidance job={job()} />
-              </JobResult>
-            )}
+            {(message) => <JobResult text={message()} failure />}
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />

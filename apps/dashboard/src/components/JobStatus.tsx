@@ -1,4 +1,11 @@
-import type { BlockedBy, Job, JobStatus as Status, ListedJob, StatusUnknownReason } from "contract";
+import type {
+  BlockedBy,
+  Failure,
+  Job,
+  JobStatus as Status,
+  ListedJob,
+  StatusUnknownReason,
+} from "contract";
 import { Show } from "solid-js";
 
 import { FULL, TIME_SECONDS } from "../format.ts";
@@ -50,15 +57,15 @@ export function JobStatus(props: { job: ListedJob | Job }) {
   );
 }
 
-const FAILURE_WORDS = new Map([
-  ["modelFailed", "the model’s provider failed the call"],
-  ["noOutput", "its agent ended without an accepted Output"],
-  ["runTimedOut", "a run went past its run timeout"],
-  ["modelBudgetExceeded", "its model calls’ cost reached its model budget"],
-  ["runFaulted", "its run broke on its Runner"],
-  ["runnerRemoved", "its Runner was removed before it ended"],
-  ["journalLost", "its Runner’s journal of it was lost"],
-]);
+const FAILURE_WORDS: Record<Failure["reason"], string> = {
+  modelFailed: "the model’s provider failed the call",
+  noOutput: "its agent ended without an accepted Output",
+  runTimedOut: "a run went past its run timeout",
+  modelBudgetExceeded: "its model calls’ cost reached its model budget",
+  runFaulted: "its run broke on its Runner",
+  runnerRemoved: "its Runner was removed before it ended",
+  journalLost: "its Runner’s journal of it was lost",
+};
 
 export function canResume(job: Job) {
   if (job.deletedAt || job.pendingControl) return false;
@@ -67,25 +74,6 @@ export function canResume(job: Job) {
     ((job.status === "failed" || job.status === "cancelled") &&
       job.startedAt !== null &&
       job.runner !== undefined)
-  );
-}
-
-export function ResumeGuidance(props: { job: Job }) {
-  const reason = () => (props.job.status === "failed" ? props.job.failure.reason : undefined);
-  return (
-    <>
-      <Show when={reason() === "journalLost"}>
-        <p class="note">
-          <Show when={canResume(props.job)}>
-            Resume carries on only once its journal is restored on its Runner.{" "}
-          </Show>
-          Submitting it again under a new custom ID starts it over.
-        </p>
-      </Show>
-      <Show when={reason() === "modelBudgetExceeded" && canResume(props.job)}>
-        <p class="note">Resume asks for a larger budget.</p>
-      </Show>
-    </>
   );
 }
 
@@ -149,7 +137,7 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
         {(reason) => (
           <span class="beside">
             <code>{reason()}</code>
-            <Show when={props.detailed && FAILURE_WORDS.get(reason())}>
+            <Show when={props.detailed && FAILURE_WORDS[reason()]}>
               {(words) => <>: {words()}</>}
             </Show>
           </span>

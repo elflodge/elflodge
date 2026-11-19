@@ -57,7 +57,20 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   const job = await submitJob(client, { ...submission, customId: "withdrawn-invoices" });
   const page = await openAsMember("Job deletion", `jobs/${job.id.toUpperCase()}`);
   await page.getByRole("button", { name: "Cancel the job" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel the job" }).click();
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${job.id}/cancel`, async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  const cancellation = page.getByRole("dialog");
+  const confirm = cancellation.getByRole("button", { name: "Cancel the job" });
+  try {
+    await confirm.click();
+    await expectBrowser(confirm).toBeDisabled();
+    await expectBrowser(cancellation.getByRole("status")).toHaveText("Working…");
+  } finally {
+    release.resolve();
+  }
   await page.getByText("It ended before it started, so it cannot be resumed.").waitFor();
   await page.getByRole("button", { name: "Delete the job" }).click();
   const dialog = page.getByRole("dialog");
@@ -66,7 +79,7 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   await expectBrowser(
     page.getByRole("status").filter({ hasText: "Deleted. Its Usage record stays." }),
   ).toBeFocused();
-  await expectBrowser(page.getByRole("heading", { name: "This job was deleted." })).toBeVisible({
+  await expectBrowser(page.getByRole("heading", { name: "This job was deleted" })).toBeVisible({
     timeout: 12_000,
   });
   await expectBrowser(page.getByRole("link", { name: "See the jobs" })).toBeVisible();
@@ -80,7 +93,11 @@ test("a member can correct a refused budget and resume the job to its Output", a
   const job = await submitJob(client, { ...submission, modelBudgetUsd: 0.000001 });
   await untilStatus(client, job.id, "failed");
   const page = await openAsMember("Job budget", `jobs/${job.id}`);
-  await page.getByText("Resume asks for a larger budget.").waitFor();
+  await expectBrowser(page.getByRole("meter", { name: "Model budget used" })).toHaveAttribute(
+    "aria-valuetext",
+    / of 0\.000001 USD, estimated$/,
+  );
+  await page.getByText("Resume asks for a larger model budget.").waitFor();
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const field = dialog.getByLabel("New model budget (USD)");

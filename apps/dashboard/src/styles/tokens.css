@@ -157,7 +157,7 @@
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
-  --job-preview-lines: 8; /* lines visible before expanding Output or a failure message */
+  --job-preview-lines: 8; /* At the working mono size, eight lines and padding take 155px. With the 44px button the preview fits in a quarter of an 844px phone screen. */
   --line-sm: calc(
     var(--text-sm) * var(--leading)
   ); /* one working line, in length: mono beside sans keeps the sans's line */

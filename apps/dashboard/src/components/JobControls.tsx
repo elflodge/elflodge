@@ -1,13 +1,13 @@
-import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { useQueryClient } from "@tanstack/solid-query";
 import { problemOf, type Job } from "contract";
 import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
-import { formatUsd } from "../format.ts";
+import { formatJobUsd } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
 import { FieldError } from "./FieldError.tsx";
-import { BesideStatus, JobStatus, ResumeGuidance, canResume } from "./JobStatus.tsx";
+import { BesideStatus, JobStatus } from "./JobStatus.tsx";
 import { Notice } from "./Notice.tsx";
 
 type Control = "pause" | "resume" | "cancel" | "delete";
@@ -16,17 +16,23 @@ function cancelConsequence(job: Job) {
   const finality = job.startedAt
     ? "Not final: it can be resumed."
     : "Final: it has not started, so it cannot be resumed.";
-  if (job.pendingControl?.type === "pause") return `Replaces the waiting pause. ${finality}`;
-  if (job.status === "paused") return `Ends it now. ${finality}`;
+  if (job.pendingControl?.type === "pause") return `Cancel replaces the waiting pause. ${finality}`;
+  if (job.status === "paused") return `Cancel ends it now. ${finality}`;
   if (job.status === "running" && job.runner)
-    return `${job.statusUnknown ? "Waits for" : "Asks"} ${job.runner.name} to stop it. ${finality}`;
-  return job.startedAt ? finality : `Ends it. ${finality}`;
+    return `Cancel ${job.statusUnknown ? "waits for" : "asks"} ${job.runner.name} to stop it. ${finality}`;
+  return job.startedAt ? "Cancel is not final: it can be resumed." : `Cancel ends it. ${finality}`;
 }
 
-export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: () => void }) {
+export function JobControls(props: {
+  job: Job;
+  resumeOffered: boolean;
+  deletedHere: boolean;
+  onDeleted: () => void;
+}) {
   const client = useQueryClient();
   const [pageFailure, setPageFailure] = createSignal<string>();
-  const [budgetFailure, setBudgetFailure] = createSignal<string>();
+  const [budgetFailure, setBudgetFailure] = createSignal<{ message: string; field: boolean }>();
+  const [pending, setPending] = createSignal(false);
   let budgetDialog: HTMLDialogElement | undefined;
   let budgetField: HTMLInputElement | undefined;
   let status: HTMLDivElement | undefined;
@@ -39,30 +45,17 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
     failureNotice?.focus();
   }
 
-  const change = useMutation(() => ({
-    mutationFn: ({
-      control,
-      id,
-      modelBudgetUsd,
-    }: {
-      control: Control;
-      id: string;
-      modelBudgetUsd?: number;
-    }) =>
-      control === "resume" ? api.jobs.resume({ id, modelBudgetUsd }) : api.jobs[control]({ id }),
-  }));
-
-  // Resume sends the validated job ID and one editable field. Its 400 is the budget's refusal.
-  const fieldFailure = () =>
-    problemOf(change.error)?.status === 400 ? budgetFailure() : undefined;
-
   async function act(control: Control, modelBudgetUsd?: number) {
+    setPending(true);
     setPageFailure(undefined);
     setBudgetFailure(undefined);
     const id = props.job.id;
     const queryKey = orpc.jobs.get.queryKey({ input: { id } });
     try {
-      const job = await change.mutate({ control, id, modelBudgetUsd });
+      const job =
+        control === "resume"
+          ? await api.jobs.resume({ id, modelBudgetUsd })
+          : await api.jobs[control]({ id });
       // An older poll still on the wire must not replace the control's answer.
       await client.cancelQueries({ queryKey, exact: true });
       client.setQueryData(queryKey, job);
@@ -74,12 +67,22 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       return undefined;
     } catch (error) {
-      return hubFailureMessage(error);
+      const message = hubFailureMessage(error);
+      if (modelBudgetUsd !== undefined && budgetDialog?.open && budgetDialog.isConnected) {
+        // Resume sends the validated job ID and one editable field. Its 400 is the budget’s refusal.
+        setBudgetFailure({ message, field: problemOf(error)?.status === 400 });
+        flush();
+        budgetField?.focus();
+        return undefined;
+      }
+      return message;
+    } finally {
+      setPending(false);
     }
   }
 
-  async function press(control: Control) {
-    const message = await act(control);
+  async function press(control: Control, modelBudgetUsd?: number) {
+    const message = await act(control, modelBudgetUsd);
     if (message) showPageFailure(message);
   }
 
@@ -90,6 +93,10 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
     props.job.usage.cost.totalUsd >= props.job.modelBudgetUsd;
   const cancel = () => active() || props.job.status === "paused";
   const waiting = () => props.job.pendingControl?.type;
+
+  const journalLost = () =>
+    props.job.status === "failed" && props.job.failure.reason === "journalLost";
+  const resumeNote = () => props.resumeOffered && (spent() || journalLost());
 
   return (
     <>
@@ -105,15 +112,22 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
           <JobStatus job={props.job} />
         </div>
         <BesideStatus job={props.job} detailed />
-        <Show
-          when={!props.job.deletedAt && props.job.status === "failed" && !props.job.failure.message}
-        >
-          <ResumeGuidance job={props.job} />
-        </Show>
         <Show when={props.job.statusUnknown}>
           <p class="note">
-            It may still be running on its Runner’s host. A pause or cancel asked now waits for its
-            Runner. Removing the Runner ends this job as <code>runnerRemoved</code>.
+            It may still be running on its Runner’s host.{" "}
+            <Show
+              when={waiting() === "cancel"}
+              fallback={
+                <>
+                  {waiting() === "pause"
+                    ? "Cancel replaces the waiting pause."
+                    : "A pause or cancel asked now waits for its Runner."}{" "}
+                  Removing the Runner ends this job as <code>runnerRemoved</code>.
+                </>
+              }
+            >
+              Removing the Runner ends this job as cancelled.
+            </Show>
           </p>
         </Show>
         <Show
@@ -125,7 +139,7 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
               : "It ended before it started, so it cannot be resumed."}
           </p>
         </Show>
-        <Show when={change.isPending}>
+        <Show when={pending()}>
           <p class="note">Working…</p>
         </Show>
       </div>
@@ -156,16 +170,17 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
           <Show when={active() && waiting() !== "cancel"}>
             <button
               type="button"
-              disabled={change.isPending || waiting() === "pause"}
+              disabled={pending() || waiting() === "pause"}
               onClick={() => void press("pause")}
             >
               Pause
             </button>
           </Show>
-          <Show when={canResume(props.job)}>
+          <Show when={props.resumeOffered}>
             <button
               type="button"
-              disabled={change.isPending}
+              disabled={pending()}
+              aria-describedby={resumeNote() ? "resume-note" : undefined}
               onClick={() => {
                 if (!spent()) {
                   void press("resume");
@@ -188,15 +203,8 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
               <form
                 onSubmit={async (event) => {
                   event.preventDefault();
-                  if (!budgetField || change.isPending) return;
-                  const message = await act("resume", budgetField.valueAsNumber);
-                  if (message) {
-                    if (budgetDialog?.open && budgetDialog.isConnected) {
-                      setBudgetFailure(message);
-                      flush();
-                      budgetField.focus();
-                    } else showPageFailure(message);
-                  }
+                  if (!budgetField || pending()) return;
+                  await press("resume", budgetField.valueAsNumber);
                 }}
               >
                 <h2 id="resume-heading" class="dialog-h">
@@ -211,9 +219,10 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
                       required
                       min="0"
                       step="any"
-                      aria-invalid={fieldFailure() ? "true" : undefined}
+                      readonly={pending()}
+                      aria-invalid={budgetFailure()?.field ? "true" : undefined}
                       aria-describedby={
-                        fieldFailure() ? "spent-budget budget-error" : "spent-budget"
+                        budgetFailure()?.field ? "spent-budget budget-error" : "spent-budget"
                       }
                       onInput={() => setBudgetFailure(undefined)}
                       autofocus
@@ -221,20 +230,20 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
                         budgetField = element;
                       }}
                     />
-                    <Show when={fieldFailure()}>
+                    <Show when={budgetFailure()?.field && budgetFailure()?.message}>
                       {(message) => <FieldError id="budget-error">{message()}</FieldError>}
                     </Show>
                     <p id="spent-budget" class="note">
-                      Cost so far {formatUsd(props.job.usage.cost.totalUsd)} USD, est. The new
-                      budget must exceed this cost.
+                      Cost so far {formatJobUsd(props.job.usage.cost.totalUsd, "cost")} USD, est.
+                      The new budget must exceed this cost.
                     </p>
                   </div>
-                  <Show when={change.isPending}>
+                  <Show when={pending()}>
                     <p class="note" role="status">
                       Working…
                     </p>
                   </Show>
-                  <Show when={!fieldFailure() && budgetFailure()}>
+                  <Show when={!budgetFailure()?.field && budgetFailure()?.message}>
                     {(message) => <Notice role="alert">{message()}</Notice>}
                   </Show>
                 </div>
@@ -242,7 +251,7 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
                   <button type="button" onClick={() => budgetDialog?.close()}>
                     Close
                   </button>
-                  <button type="submit" class="primary" disabled={change.isPending}>
+                  <button type="submit" class="primary" disabled={pending()}>
                     Resume the job
                   </button>
                 </div>
@@ -250,64 +259,76 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
             </dialog>
           </Show>
           <Show when={cancel()}>
-            <div class="ctl">
-              <Show
-                when={!props.job.startedAt && waiting() !== "cancel"}
-                fallback={
-                  <button
-                    class="danger"
-                    type="button"
-                    disabled={change.isPending || waiting() === "cancel"}
-                    onClick={() => void press("cancel")}
-                  >
-                    Cancel
-                  </button>
-                }
-              >
-                <ConfirmAction
-                  trigger="Cancel"
-                  triggerLabel="Cancel the job"
-                  confirm="Cancel the job"
-                  heading="Cancel this job?"
-                  disabled={change.isPending}
-                  act={() => act("cancel")}
-                  reportPageFailure={showPageFailure}
+            <Show
+              when={!props.job.startedAt && waiting() !== "cancel"}
+              fallback={
+                <button
+                  class="danger"
+                  type="button"
+                  aria-describedby={waiting() !== "cancel" ? "cancel-note" : undefined}
+                  disabled={pending() || waiting() === "cancel"}
+                  onClick={() => void press("cancel")}
                 >
-                  <p>{cancelConsequence(props.job)}</p>
-                </ConfirmAction>
-              </Show>
-              <Show when={waiting() !== "cancel"}>
-                <span class="consequence">{cancelConsequence(props.job)}</span>
-              </Show>
-            </div>
-          </Show>
-          <Show when={!cancel()}>
-            <div class="ctl">
+                  Cancel
+                </button>
+              }
+            >
               <ConfirmAction
-                trigger="Delete"
-                triggerLabel="Delete the job"
-                confirm="Delete the job"
-                heading="Delete this job?"
-                disabled={change.isPending}
-                act={() => act("delete")}
+                trigger="Cancel"
+                describedBy="cancel-note"
+                triggerLabel="Cancel the job"
+                confirm="Cancel the job"
+                heading="Cancel this job?"
+                disabled={pending()}
+                act={() => act("cancel")}
                 reportPageFailure={showPageFailure}
               >
-                <p>
-                  Its input, Input files, Events and Output go from the hub now
-                  <Show when={props.job.runner}>
-                    {(runner) => (
-                      <>, and from {runner().name} once that Runner has deleted its files</>
-                    )}
-                  </Show>
-                  . Its Usage record stays.
-                </p>
+                <p>{cancelConsequence(props.job)}</p>
               </ConfirmAction>
-              <span class="consequence">
-                Removes its input, Events and Output for good. Its Usage record stays.
-              </span>
-            </div>
+            </Show>
+          </Show>
+          <Show when={!cancel()}>
+            <ConfirmAction
+              trigger="Delete"
+              describedBy="delete-note"
+              triggerLabel="Delete the job"
+              confirm="Delete the job"
+              heading="Delete this job?"
+              disabled={pending()}
+              act={() => act("delete")}
+              reportPageFailure={showPageFailure}
+            >
+              <p>
+                Its input, Input files, Events and Output go from the hub now
+                <Show when={props.job.runner}>
+                  {(runner) => (
+                    <>, and from {runner().name} once that Runner has deleted its files</>
+                  )}
+                </Show>
+                . Its Usage record stays.
+              </p>
+            </ConfirmAction>
           </Show>
         </div>
+        <Show when={resumeNote()}>
+          <p class="note" id="resume-note">
+            <Show when={spent()}>Resume asks for a larger model budget.</Show>
+            <Show when={journalLost()}>
+              {spent() ? " " : ""}Resume carries on only once its journal is restored on its Runner.
+              Submitting the job again under a new custom ID starts it over.
+            </Show>
+          </p>
+        </Show>
+        <Show when={cancel() && waiting() !== "cancel"}>
+          <p class="note" id="cancel-note">
+            {cancelConsequence(props.job)}
+          </p>
+        </Show>
+        <Show when={!cancel()}>
+          <p class="note" id="delete-note">
+            Delete removes its input, Events and Output for good. Its Usage record stays.
+          </p>
+        </Show>
       </Show>
     </>
   );

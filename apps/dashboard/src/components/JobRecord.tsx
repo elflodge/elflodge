@@ -1,23 +1,30 @@
-import type { JSX } from "@solidjs/web";
+import { useQuery } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
 import { FAILURE_MESSAGE_MAX_LENGTH, type Job } from "contract";
-import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
+import { For, Show, createMemo, createSignal, flush, onSettled } from "solid-js";
 
 import {
   DATE_TIME_SECONDS,
   TIME_SECONDS,
-  USD_BUDGET,
   duration,
   elapsedSince,
   formatCount,
-  formatUsd,
+  formatJobUsd,
 } from "../format.ts";
+import { orpc } from "../query.ts";
 import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Instant } from "./Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "./JobReferences.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
+  const runners = useQuery(() => orpc.runners.list.queryOptions());
+  const runnerId = createMemo(() => {
+    const id = props.job.runner?.id;
+    if (!id) return undefined;
+    const listed = runners.dataUpdatedAt ? runners.data.map((runner) => runner.id) : [];
+    return shortIds([...listed, id]).get(id);
+  });
   return (
     <aside class="facts-aside" aria-labelledby="job-facts">
       <h2 id="job-facts">The job</h2>
@@ -37,12 +44,10 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             <>
               <dt>Batch</dt>
               <dd>
-                <span class="mono">{batch()}</span>
-                <span class="sub">
-                  <Link class="stands-alone" to="/jobs" search={{ batchId: batch() }}>
-                    its jobs
-                  </Link>
-                </span>
+                <span class="mono">{batch()}</span>{" "}
+                <Link class="stands-alone" to="/jobs" search={{ batchId: batch() }}>
+                  its jobs
+                </Link>
               </dd>
             </>
           )}
@@ -79,11 +84,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             <Show when={props.job.runner} fallback={props.job.startedAt ? "Removed" : "None yet"}>
               {(runner) => (
                 <>
-                  <RunnerOfJob
-                    linked
-                    runner={runner()}
-                    shortId={shortIds([runner().id]).get(runner().id) ?? runner().id}
-                  />
+                  <RunnerOfJob linked runner={runner()} shortId={runnerId() ?? runner().id} />
                   <span class="sub">
                     last seen {elapsedSince(runner().lastSeenAt, props.readAt)}, at{" "}
                     <Instant value={runner().lastSeenAt} format={TIME_SECONDS} />
@@ -142,14 +143,21 @@ export function JobFacts(props: { job: Job; readAt: number }) {
   );
 }
 
-export function JobLimits(props: { job: Job }) {
+export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
   const cost = () => props.job.usage.cost.totalUsd;
-  const suffix = () => (props.job.status === "succeeded" || props.job.deletedAt ? "" : " so far");
-  const showUsage = () =>
-    props.job.status !== "queued" || !!props.job.startedAt || !!props.job.deletedAt;
+  const suffix = () =>
+    (!props.job.deletedAt &&
+      (props.job.status === "queued" ||
+        props.job.status === "running" ||
+        props.job.status === "paused")) ||
+    props.resumeOffered
+      ? " so far"
+      : "";
   return (
     <section aria-labelledby="job-limits">
-      <h2 id="job-limits">{props.job.deletedAt ? "Usage" : "Limits and usage"}</h2>
+      <h2 id="job-limits">
+        {props.job.deletedAt ? "Usage" : props.job.startedAt ? "Limits and usage" : "Limits"}
+      </h2>
       <div class="limits">
         <div class="limit">
           <Show when={props.job.modelBudgetUsd}>
@@ -159,27 +167,27 @@ export function JobLimits(props: { job: Job }) {
                   Model budget <span class="unit">over its life</span>
                 </h3>
                 <p class="limit-value">
-                  {USD_BUDGET.format(budget())} <span class="unit">USD</span>
+                  {formatJobUsd(budget(), "budget")} <span class="unit">USD</span>
                 </p>
-                <Show when={showUsage()}>
+                <Show when={props.job.startedAt}>
                   <div class={["scale", { "is-over": cost() >= budget() }]}>
                     <meter
                       aria-label="Model budget used"
                       min={0}
                       max={budget()}
                       value={Math.min(cost(), budget())}
-                      aria-valuetext={`${formatUsd(cost())} of ${USD_BUDGET.format(budget())} USD, estimated`}
+                      aria-valuetext={`${formatJobUsd(cost(), "cost")} of ${formatJobUsd(budget(), "budget")} USD, estimated`}
                     />
                   </div>
                 </Show>
               </>
             )}
           </Show>
-          <Show when={showUsage()}>
+          <Show when={props.job.startedAt}>
             <dl>
               <dt>Cost{suffix()}</dt>
               <dd>
-                {formatUsd(cost())} <span class="unit">USD, est.</span>
+                {formatJobUsd(cost(), "cost")} <span class="unit">USD, est.</span>
               </dd>
               <dt>Tokens{suffix()}</dt>
               <dd>{formatCount(props.job.usage.totalTokens)}</dd>
@@ -194,7 +202,11 @@ export function JobLimits(props: { job: Job }) {
               </h3>
               <p class="limit-value">{duration(limit())}</p>
               <Show
-                when={props.job.status === "failed" && props.job.failure.reason === "runTimedOut"}
+                when={
+                  props.job.startedAt &&
+                  props.job.status === "failed" &&
+                  props.job.failure.reason === "runTimedOut"
+                }
               >
                 <div class="scale is-over">
                   <meter
@@ -214,9 +226,10 @@ export function JobLimits(props: { job: Job }) {
   );
 }
 
-export function JobResult(props: { text: string; failure?: boolean; children?: JSX.Element }) {
+export function JobResult(props: { text: string; failure?: boolean }) {
   const lines = createMemo(() => props.text.split("\n").length);
   const [long, setLong] = createSignal(false);
+  const [expanded, setExpanded] = createSignal(false);
   const title = () => (props.failure ? "Failure message" : "Output");
   return (
     <section class="job-result" aria-labelledby="job-result">
@@ -226,7 +239,6 @@ export function JobResult(props: { text: string; failure?: boolean; children?: J
           <CopyButton label="Copy Output" text={props.text} />
         </Show>
       </div>
-      {props.children}
       <Show when={props.failure && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
         <p class="note">
           {formatCount(FAILURE_MESSAGE_MAX_LENGTH)} characters, the most the hub keeps.
@@ -256,14 +268,24 @@ export function JobResult(props: { text: string; failure?: boolean; children?: J
         </code>
       </pre>
       <Show when={long()}>
-        <details class="disclose">
-          <summary aria-controls="job-result-text">
-            <span class="when-closed">
-              {props.failure ? "Show the whole message" : `Show all ${formatCount(lines())} lines`}
-            </span>
-            <span class="when-open">Show the first lines only</span>
-          </summary>
-        </details>
+        <button
+          type="button"
+          aria-controls="job-result-text"
+          aria-expanded={expanded() ? "true" : "false"}
+          onClick={(event) => {
+            setExpanded(!expanded());
+            if (!expanded()) {
+              flush();
+              event.currentTarget.scrollIntoView({ block: "nearest" });
+            }
+          }}
+        >
+          {expanded()
+            ? "Show the first lines only"
+            : props.failure
+              ? "Show the whole message"
+              : `Show all ${formatCount(lines())} lines`}
+        </button>
       </Show>
     </section>
   );

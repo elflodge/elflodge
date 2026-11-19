@@ -210,7 +210,12 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       </td>
       <td role="cell" class="c-job">
         <span class="cell-line">
-          <Link class="cut mono job-name" to="/jobs/$id" params={{ id: props.job.id }}>
+          <Link
+            class="cut mono job-name"
+            title={props.job.customId}
+            to="/jobs/$id"
+            params={{ id: props.job.id }}
+          >
             {props.job.customId}
           </Link>
           <span class="sid" title={props.job.id}>

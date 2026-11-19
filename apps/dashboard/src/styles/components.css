@@ -1580,32 +1580,34 @@ p mark.placeholder {
   color: var(--c-ink-2);
   font: var(--weight-medium) var(--text-sm) / var(--leading) var(--font-sans);
 }
-.job-layout,
-.job-body {
+.record-with-aside,
+.record-sections {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
 }
-.job-layout {
+.record-with-aside {
   margin-top: var(--space-4);
   align-items: start;
 }
-.job-body {
+.record-sections {
   grid-template-columns: minmax(0, 1fr);
 }
-@media (min-width: 1001px) {
-  .job-layout {
+/* Above 1000px the record has 36.5rem for its limits, 20rem for facts, a 3rem gap
+   and two page gutters of 1.5rem. Below that budget the facts follow the record. */
+@media (width > 62.5rem) {
+  .record-with-aside {
     grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
     column-gap: var(--space-7);
   }
 }
-.job-body section,
+.record-sections section,
 .facts-aside {
   border-top: var(--rule-heavy) solid var(--c-rule-strong);
   padding-top: var(--space-2);
   min-width: 0;
 }
-.job-layout h2 {
+.record-with-aside h2 {
   margin-bottom: var(--space-2);
 }
 .facts-aside .labels {
@@ -1618,12 +1620,28 @@ p mark.placeholder {
 .facts-aside .runner-ref > a {
   flex: 0 1 auto;
 }
+.facts-aside .stands-alone {
+  position: relative;
+  min-height: 0;
+}
+.facts-aside .stands-alone::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: max(100%, var(--target));
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .facts-aside .stands-alone::after {
+    min-height: max(100%, var(--control-touch));
+  }
+}
 .selectable {
   user-select: all;
   -webkit-user-select: all;
 }
-.sub,
-.consequence {
+.sub {
   display: block;
   font-size: var(--text-xs);
   color: var(--c-ink-2);
@@ -1653,19 +1671,15 @@ p mark.placeholder {
   margin-top: var(--space-3);
   align-items: flex-start;
 }
-.ctl {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.consequence {
+.job-controls ~ .note {
+  display: block;
+  margin-top: var(--space-1);
   max-width: var(--measure);
   overflow-wrap: anywhere;
 }
 
 /* ---------- Current activity is live only at the Runner’s report ---------- */
-.job-body .activity {
+.record-sections .activity {
   background: var(--c-lamp-wash);
   border-color: var(--c-lamp-ink);
   padding: var(--space-3);
@@ -1736,9 +1750,6 @@ p mark.placeholder {
   .limits {
     grid-template-columns: minmax(0, 1fr);
   }
-  .job-controls .ctl {
-    flex: 1 1 12rem;
-  }
 }
 
 /* ---------- Output or failure: the complete text once, with an eight-line preview ---------- */
@@ -1755,24 +1766,9 @@ p mark.placeholder {
   display: block;
   font: inherit;
 }
-.job-result:has(.disclose:not([open])) .res-preview {
+.job-result:has(button[aria-expanded="false"]) .res-preview {
   max-block-size: calc(var(--job-preview-lines) * 1lh + 2 * var(--space-2));
 }
-.disclose {
+.job-result > button {
   margin-top: var(--space-1);
-}
-.disclose summary {
-  width: fit-content;
-  min-height: var(--target);
-}
-.disclose:not([open]) .when-open,
-.disclose[open] .when-closed {
-  display: none;
-}
-
-@media (max-width: 640px), (pointer: coarse) {
-  .disclose summary {
-    min-height: var(--control-touch);
-    align-content: center;
-  }
 }

@@ -117,6 +117,14 @@ export const USD_BUDGET = new Intl.NumberFormat(LANGUAGE, {
   maximumFractionDigits: 4,
 });
 
+const FULL_AMOUNT = new Intl.NumberFormat(LANGUAGE, { maximumSignificantDigits: 21 });
+
+/** On the record, keep every digit when rounding would change the cost or the budget to exceed. */
+export function formatJobUsd(amount: number, kind: "cost" | "budget"): string {
+  if (Number(amount.toFixed(4)) !== amount) return FULL_AMOUNT.format(amount);
+  return kind === "cost" ? formatUsd(amount) : USD_BUDGET.format(amount);
+}
+
 const HOURS = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "hour" });
 const MINUTES = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "minute" });
 const SECONDS = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "second" });
