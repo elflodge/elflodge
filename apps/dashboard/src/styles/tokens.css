@@ -54,6 +54,11 @@
   /* ---- Ink. Text colours, each AA on --c-ground, --c-ground-2, --c-paper and --c-sunk. ---- */
   --c-ink: light-dark(#1e2a22, #e7eee1); /* body text, figures */
   --c-ink-2: light-dark(#4d594d, #b3c4ae); /* secondary text: labels of facts, units, notes */
+  --c-lamp-ink: light-dark(
+    #8e4426,
+    #ffa470
+  ); /* Running text. Contrast in light/dark on ground 5.73/6.43, ground-2 5.13/5.45,
+         paper 6.32/5.49, sunk 5.35/7.44, lamp-wash 4.86/4.76 and failed-wash 5.21/6.30, all to 1. */
   --c-link: var(--brand-shape); /* links */
   --c-underline: color-mix(
     in oklab,
@@ -153,10 +158,6 @@
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
-  --c-lamp-ink: light-dark(
-    #8e4426,
-    #ffa470
-  ); /* lamp as text: "Running", current activity's words */
   --line-sm: calc(
     var(--text-sm) * var(--leading)
   ); /* one working line, in length: mono beside sans keeps the sans's line */
@@ -169,7 +170,7 @@
   --jobs-runner: 13rem; /* "nuc-backroom faf24790" whole; a long name not connected is cut */
   --jobs-time: 10.625rem; /* "created 14:50, 52 min ago"; a time that shows its date shows no age */
   --jobs-tokens: 4.75rem; /* "1,402,118" */
-  --jobs-cost: 7rem; /* "10.0184 of 10.00", a budget's most and a little past it; the last column, no gap after it */
+  --jobs-cost: 7.5rem; /* 120px for "10.0184 of 9.9999" in the last column */
   --jobs-submitter: 10.5rem; /* the submitter’s name and kind */
 }
 

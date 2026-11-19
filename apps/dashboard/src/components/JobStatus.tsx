@@ -33,7 +33,7 @@ const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> 
 /**
  * A job's status, as a mark and a word, and beside it each condition the job reports with it: a
  * status the hub cannot confirm, a control its Runner has not yet acted on, what blocks it, and why
- * it failed. While the status is unknown, the word is the last status its Runner confirmed.
+ * it failed. While the status is unknown, the word is the last status the hub recorded.
  */
 export function JobStatus(props: { job: ListedJob | Job }) {
   return (
@@ -43,7 +43,7 @@ export function JobStatus(props: { job: ListedJob | Job }) {
       <span class={["mark", `mark-${props.job.status}`]} aria-hidden="true" />
       {STATUS_WORDS[props.job.status]}
       <Show when={props.job.statusUnknown}>
-        <span class="vh"> (last confirmed)</span>
+        <span class="vh"> (last recorded)</span>
       </Show>
     </span>
   );

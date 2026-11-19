@@ -406,25 +406,12 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       </td>
       <td role="cell" class="c-job">
         <span class="cell-line">
-          <Show
-            when={props.job.customId}
-            fallback={
-              <span class="cut sid job-name" title={props.job.id}>
-                {shortId()}
-              </span>
-            }
-          >
-            {(name) => (
-              <>
-                <span class="cut mono job-name" title={name()}>
-                  {name()}
-                </span>
-                <span class="sid" title={props.job.id}>
-                  {shortId()}
-                </span>
-              </>
-            )}
-          </Show>
+          <span class="cut mono job-name" title={props.job.customId}>
+            {props.job.customId}
+          </span>
+          <span class="sid" title={props.job.id}>
+            {shortId()}
+          </span>
         </span>
       </td>
       <td role="cell" class="c-batch">
@@ -437,14 +424,10 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
           {(submitter) => (
             <span class="cell-line">
               <span
-                class={[
-                  "cut",
-                  {
-                    mono: submitter().kind === "key",
-                    unnamed: submitter().kind === "key" && submitter().name === null,
-                  },
-                ]}
-                title={submitter().name ?? "Unnamed"}
+                class={{
+                  mono: submitter().kind === "key" && submitter().name !== null,
+                  unnamed: submitter().kind === "key" && submitter().name === null,
+                }}
               >
                 {submitter().name ?? "Unnamed"}
               </span>

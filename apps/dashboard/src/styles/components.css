@@ -955,7 +955,7 @@ p mark.placeholder {
   width: 70%;
 }
 
-/* ---------- A job’s last confirmed status and the conditions reported beside it ---------- */
+/* ---------- A job’s last recorded status and the conditions reported beside it ---------- */
 .status-word {
   display: inline-flex;
   align-items: center;
@@ -981,7 +981,7 @@ p mark.placeholder {
 .s-cancelled .mark {
   color: var(--c-waiting);
 }
-/* A status the hub cannot confirm: the word is only the last one its Runner confirmed, so it is quiet, the lamp included. */
+/* A status the hub cannot confirm: the word is only the last one the hub recorded, so it is quiet, the lamp included. */
 .status-word.is-unknown,
 .status-word.is-unknown .mark {
   color: var(--c-ink-2);
@@ -1001,6 +1001,7 @@ p mark.placeholder {
 /* Why a job failed, as the hub names it. */
 .beside code {
   color: var(--c-failed);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Labels: key = value, in the mono, no chips; in one line, the first and how many more ---------- */
@@ -1125,8 +1126,12 @@ p mark.placeholder {
 .cell-line > .cut {
   flex: 0 1 auto;
 }
-.cell-line > .sid {
+.cell-line > :is(.sid, .unit) {
   flex: none;
+}
+.job-list td.c-submitter {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .job-name {
   color: var(--c-ink);
@@ -1178,9 +1183,12 @@ p mark.placeholder {
 .job-list .job-name + .sid {
   display: none;
 }
-/* Each tier adds the visible --jobs-* widths and space for the Job name. Container
+/* Each tier adds the visible --jobs-* widths and 15.875rem for the Job name. Container
    conditions cannot use var(). A column at zero width still counts in the day heading’s span. */
-@container job-list (width < 97.25rem) {
+@container job-list (width < 97.75rem) {
+  .job-list .c-submitter > .cell-line {
+    display: none;
+  }
   .job-list :is(th, td).c-submitter {
     width: 0;
     padding: 0;
@@ -1188,7 +1196,7 @@ p mark.placeholder {
     visibility: hidden;
   }
 }
-@container job-list (width < 86.75rem) {
+@container job-list (width < 87.25rem) {
   .job-list :is(th, td).c-tokens {
     width: 0;
     padding: 0;
@@ -1196,7 +1204,7 @@ p mark.placeholder {
     visibility: hidden;
   }
 }
-@container job-list (width < 82rem) {
+@container job-list (width < 82.5rem) {
   .job-list :is(th, td).c-labels {
     width: 0;
     padding: 0;
@@ -1208,7 +1216,7 @@ p mark.placeholder {
 /* Two lines a job. Line 1: its status and name. Line 2: what stands beside its status, its Batch, its time, its cost.
    The row is a wrapping flex line; its ::before, a full-width item between the two, breaks it.
  */
-@container job-list (width < 74.125rem) {
+@container job-list (width < 74.625rem) {
   .job-list,
   .job-list tbody {
     display: block;
@@ -1333,7 +1341,7 @@ p mark.placeholder {
 }
 /* Each line is at least 44px on touch. */
 @media (max-width: 640px), (pointer: coarse) {
-  @container job-list (width < 74.125rem) {
+  @container job-list (width < 74.625rem) {
     .job-list tr.job-row {
       padding: 0;
       align-items: center;
@@ -1350,7 +1358,7 @@ p mark.placeholder {
 }
 /* Coarse pointers keep the same line height on wide screens. */
 @media (pointer: coarse) {
-  @container job-list (width >= 74.125rem) {
+  @container job-list (width >= 74.625rem) {
     .job-list tr.job-row > td {
       height: var(--control-touch);
       vertical-align: middle;
