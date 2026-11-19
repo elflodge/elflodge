@@ -20,8 +20,8 @@ const BLOCKED_WORDS: Record<BlockedBy, string> = {
 };
 
 const UNKNOWN_WORDS: Record<StatusUnknownReason, string> = {
-  runnerDisconnected: "Status unknown: Runner not connected",
-  notReported: "Status unknown: not reported",
+  runnerDisconnected: "Runner not connected",
+  notReported: "not reported",
 };
 
 const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> = {
@@ -37,19 +37,29 @@ const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> 
  */
 export function JobStatus(props: { job: ListedJob | Job }) {
   return (
-    <span class={["status", { "is-unknown": props.job.statusUnknown !== undefined }]}>
-      <span class={["status-word", `s-${props.job.status}`]}>
-        <span class={["mark", `mark-${props.job.status}`]} aria-hidden="true" />
-        {STATUS_WORDS[props.job.status]}
-        <Show when={props.job.statusUnknown}>
-          <span class="vh"> (last confirmed)</span>
-        </Show>
-      </span>
+    <span
+      class={["status-word", `s-${props.job.status}`, { "is-unknown": !!props.job.statusUnknown }]}
+    >
+      <span class={["mark", `mark-${props.job.status}`]} aria-hidden="true" />
+      {STATUS_WORDS[props.job.status]}
+      <Show when={props.job.statusUnknown}>
+        <span class="vh"> (last confirmed)</span>
+      </Show>
+    </span>
+  );
+}
+
+export function BesideStatus(props: { job: ListedJob | Job }) {
+  return (
+    <>
       <Show when={props.job.statusUnknown}>
         {(unknown) => (
-          <span class="beside is-unknown" title={`Since ${FULL.format(unknown().since)}`}>
+          <span
+            class="beside is-unknown"
+            title={`${UNKNOWN_WORDS[unknown().reason]}, since ${FULL.format(unknown().since)}`}
+          >
             <span class="mark mark-unknown" aria-hidden="true" />
-            {UNKNOWN_WORDS[unknown().reason]}
+            Status unknown<span class="vh">: {UNKNOWN_WORDS[unknown().reason]}</span>
           </span>
         )}
       </Show>
@@ -76,6 +86,6 @@ export function JobStatus(props: { job: ListedJob | Job }) {
           </span>
         )}
       </Show>
-    </span>
+    </>
   );
 }

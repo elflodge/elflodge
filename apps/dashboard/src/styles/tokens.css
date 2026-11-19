@@ -153,7 +153,24 @@
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
-  --cut-name: 12rem; /* the widest a name or ID beside a records table's identifier shows before it is cut */
+  --c-lamp-ink: light-dark(
+    #8e4426,
+    #ffa470
+  ); /* lamp as text: "Running", current activity's words */
+  --line-sm: calc(
+    var(--text-sm) * var(--leading)
+  ); /* one working line, in length: mono beside sans keeps the sans's line */
+  --weight-mono-strong: 500; /* a job's name in the jobs list, in the mono */
+  --row-day: 1.5rem; /* 24px: a day line between a list's days */
+  --jobs-status: 6rem; /* "Succeeded" */
+  --jobs-beside: 10.375rem; /* "Unconfirmed since 12:30" */
+  --jobs-batch: 11.25rem; /* a Batch ID of 24 characters; a hub-made UUID is cut */
+  --jobs-labels: 7.875rem; /* "team=finance +12" */
+  --jobs-runner: 13rem; /* "nuc-backroom faf24790" whole; a long name not connected is cut */
+  --jobs-time: 10.625rem; /* "created 14:50, 52 min ago"; a time that shows its date shows no age */
+  --jobs-tokens: 4.75rem; /* "1,402,118" */
+  --jobs-cost: 7rem; /* "10.0184 of 10.00", a budget's most and a little past it; the last column, no gap after it */
+  --jobs-submitter: 10.5rem; /* the submitter’s name and kind */
 }
 
 /* Dark: the mono drops a little weight, as light text on a dark ground reads heavier. */

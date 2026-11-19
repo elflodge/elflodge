@@ -3,16 +3,27 @@ import type { UseQueryResult } from "@tanstack/solid-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { jobStatusSchema } from "contract";
 import type { JobRunner, JobsPage, ListedJob, Runner } from "contract";
-import { Errored, For, Loading, Match, Show, Switch, createSignal } from "solid-js";
+import { For, Loading, Match, Repeat, Show, Switch, createMemo, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
-import { JobStatus, STATUS_WORDS } from "../../../components/JobStatus.tsx";
-import { Notice } from "../../../components/Notice.tsx";
+import { BesideStatus, JobStatus, STATUS_WORDS } from "../../../components/JobStatus.tsx";
 import { fieldText } from "../../../form.ts";
-import { formatCount, formatUsd, timeZoneNote } from "../../../format.ts";
+import {
+  DAY,
+  DAY_YEAR,
+  DAY_TIME,
+  TIME,
+  USD_BUDGET,
+  elapsedSince,
+  formatCount,
+  formatUsd,
+  timeZoneNote,
+} from "../../../format.ts";
 import { orpc } from "../../../query.ts";
+import { shortIds } from "../../../short-ids.ts";
 
 /** How many jobs a page holds: the hub's own default. */
 const PAGE = 50;
@@ -56,7 +67,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs")({
   validateSearch: jobsSearchSchema,
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
-    if (context.membership.status !== "member") return;
+    if (!context.member) return;
     await readFromHub("The jobs", () =>
       context.queryClient.query(
         orpc.jobs.list.queryOptions({ input: listInput(deps), staleTime: "static" }),
@@ -66,71 +77,82 @@ export const Route = createFileRoute("/_signed-in/_member/jobs")({
   // Shown while another page or other filters are read for longer than the router's wait, rather
   // than the list read before, under an address that no longer says what it shows.
   pendingComponent: Reading,
+  errorComponent: (props) => {
+    const search = Route.useSearch();
+    return (
+      <ReadErrorPage {...props} heading="Jobs">
+        <Show when={filterCount(search()) > 0}>
+          <p>
+            <Link to="/jobs" search={{}} class="stands-alone">
+              Clear the filters
+            </Link>
+          </p>
+        </Show>
+      </ReadErrorPage>
+    );
+  },
   component: Jobs,
 });
 
 /** The page while its list is read. */
 function Reading() {
+  const runners = useQuery(() => orpc.runners.list.queryOptions());
+  return (
+    <>
+      <JobsHeader runners={runners.isSuccess ? runners.data : undefined} />
+      <LoadingList />
+    </>
+  );
+}
+
+function JobsHeader(props: { runners?: Runner[] }) {
+  const search = Route.useSearch();
   return (
     <>
       <div class="head">
         <h1>Jobs</h1>
       </div>
-      <p class="list-note">Reading the jobs…</p>
+      <Filters search={search()} runners={props.runners} />
     </>
   );
 }
 
-/**
- * The Organization's jobs, newest first, a page at a time, narrowed by the filters in the address.
- * An empty hub says what to do next.
- */
 function Jobs() {
   const search = Route.useSearch();
   const jobs = useQuery(() =>
     orpc.jobs.list.queryOptions({ input: listInput(search()), refetchInterval: REFRESH }),
   );
-  // The strip reads the same, and reads it again.
   const runners = useQuery(() => orpc.runners.list.queryOptions());
-
   return (
     <>
-      <div class="head">
-        <h1>Jobs</h1>
-      </div>
-      <Filters search={search()} runners={runners.isSuccess ? runners.data : undefined} />
-      <Errored
-        fallback={(_error, reset) => (
-          <ReadFailed
-            error={jobs.error}
-            retry={() => {
-              reset();
-              void jobs.refetch();
-            }}
+      <JobsHeader runners={runners.isSuccess ? runners.data : undefined} />
+      <Loading fallback={<LoadingList />} on={search()}>
+        <Show when={jobs.isError || jobs.data.jobs.length}>
+          <p class="note">{timeZoneNote()}</p>
+        </Show>
+        <Show when={jobs.isError}>
+          <FailedReadNotice
+            what="The jobs"
+            detail={hubFailureMessage(jobs.error)}
+            failedAt={jobs.errorUpdatedAt}
+            readAt={jobs.dataUpdatedAt}
           />
-        )}
-      >
-        {/* Other filters or another page show nothing until their read answers; the same list read
-            again stays as it is meanwhile. */}
-        <Loading fallback={<p class="list-note">Reading the jobs…</p>} on={search()}>
-          {/* While the latest read has failed, what an earlier one read is not shown as current. */}
-          <Show
-            when={!jobs.isError && jobs.data}
-            fallback={<ReadFailed error={jobs.error} retry={() => void jobs.refetch()} />}
-          >
-            {(page) => (
-              <Show
-                when={page().jobs.length > 0}
-                fallback={<NoJobs search={search()} runners={runners} />}
-              >
-                <p class="note">{timeZoneNote()}</p>
-                <JobsTable jobs={page().jobs} />
-                <Paging search={search()} page={page()} />
-              </Show>
-            )}
-          </Show>
-        </Loading>
-      </Errored>
+        </Show>
+        <Show
+          when={jobs.data.jobs.length}
+          fallback={<NoJobs search={search()} runners={runners} />}
+        >
+          <a class="vh skip-list" href="#jobs-end">
+            Skip to the end of the list
+          </a>
+          <JobsTable
+            jobs={jobs.data.jobs}
+            runners={runners.isSuccess ? runners.data : []}
+            readAt={jobs.dataUpdatedAt}
+          />
+          <Paging search={search()} page={jobs.data} />
+        </Show>
+      </Loading>
     </>
   );
 }
@@ -257,86 +279,251 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
   );
 }
 
-/** A page of jobs, one ruled line a job. */
-function JobsTable(props: { jobs: ListedJob[] }) {
+const COLUMNS = [
+  { cell: "c-status", heading: "Status" },
+  { cell: "c-beside", heading: "Beside the status" },
+  { cell: "c-job", heading: "Job" },
+  { cell: "c-batch", heading: "Batch" },
+  { cell: "c-submitter", heading: "Submitter" },
+  { cell: "c-labels", heading: "Labels" },
+  { cell: "c-runner", heading: "Runner" },
+  { cell: "c-time", heading: "Time" },
+  { cell: "c-tokens num", heading: "Tokens", unit: "so far" },
+  { cell: "c-cost num", heading: "Cost of budget", unit: "so far, USD, est." },
+];
+
+function ListHead() {
   return (
-    <table class="records is-wide" role="table">
-      <caption class="vh">Jobs</caption>
-      <thead role="rowgroup">
-        <tr role="row">
-          <th scope="col" role="columnheader">
-            Job
+    <thead role="rowgroup">
+      <tr role="row">
+        {COLUMNS.map(({ cell, heading, unit }) => (
+          <th class={cell} scope="col" role="columnheader">
+            {heading}
+            <Show when={unit}>
+              <span class="unit">{unit}</span>
+            </Show>
           </th>
-          <th scope="col" role="columnheader">
-            Status
-          </th>
-          <th scope="col" role="columnheader">
-            Batch
-          </th>
-          <th scope="col" role="columnheader">
-            Runner
-          </th>
-          <th scope="col" role="columnheader">
-            Time
-          </th>
-          <th scope="col" role="columnheader" class="num">
-            Tokens
-          </th>
-          <th scope="col" role="columnheader" class="num">
-            Cost<span class="unit">USD</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody role="rowgroup">
-        <For each={props.jobs}>
-          {(job) => (
-            <tr role="row">
-              {/* A job's page comes later; until then its row leads nowhere. */}
-              <td role="cell" class="is-id">
-                <span class="cut mono" title={job.customId ?? job.id}>
-                  {job.customId ?? job.id}
-                </span>
-              </td>
-              <td role="cell" data-l="Status">
-                <JobStatus job={job} />
-              </td>
-              <td role="cell" data-l="Batch">
-                <Show when={job.batchId}>
-                  {(batchId) => (
-                    <span class="cut mono" title={batchId()}>
-                      {batchId()}
-                    </span>
-                  )}
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+function LoadingList() {
+  return (
+    <>
+      <div class="job-list-frame" aria-busy="true">
+        <table class="job-list" aria-hidden="true">
+          <ListHead />
+          <tbody>
+            <Repeat count={8}>
+              {() => (
+                <tr class="sk-row">
+                  {COLUMNS.map(({ cell }) => (
+                    <td class={cell}>{cell !== "c-beside" && <span class="sk" />}</td>
+                  ))}
+                </tr>
+              )}
+            </Repeat>
+          </tbody>
+        </table>
+      </div>
+      <p class="vh" role="status">
+        Loading jobs
+      </p>
+    </>
+  );
+}
+
+/** The page's creation days, in newest-first order, each followed by the jobs created that day. */
+function JobsTable(props: { jobs: ListedJob[]; runners: Runner[]; readAt: number }) {
+  const ids = createMemo(() =>
+    shortIds([
+      ...props.runners.map((runner) => runner.id),
+      ...props.jobs.flatMap((job) => (job.runner ? [job.runner.id] : [])),
+    ]),
+  );
+  const readDay = () => new Date(props.readAt);
+  return (
+    <div class="job-list-frame">
+      <table class="job-list" role="table">
+        <caption class="vh">Jobs</caption>
+        <ListHead />
+        <tbody role="rowgroup">
+          <For each={props.jobs} keyed={(job) => job.id}>
+            {(job, index) => (
+              <>
+                <Show
+                  when={
+                    props.jobs[index() - 1]?.createdAt.toDateString() !==
+                    job().createdAt.toDateString()
+                  }
+                >
+                  <tr class="day-line" role="row">
+                    <th colspan={COLUMNS.length} scope="colgroup" role="rowheader">
+                      Created{" "}
+                      {job().createdAt.toDateString() === readDay().toDateString() && "today, "}
+                      <Instant
+                        value={job().createdAt}
+                        format={
+                          job().createdAt.getFullYear() === readDay().getFullYear() ? DAY : DAY_YEAR
+                        }
+                      />
+                    </th>
+                  </tr>
                 </Show>
-              </td>
-              <td role="cell" data-l="Runner">
-                <Show when={job.runner}>{(runner) => <RunnerOfJob runner={runner()} />}</Show>
-              </td>
-              <td role="cell" data-l="Time">
-                <JobTime job={job} />
-              </td>
-              {/* A job that has not started has used nothing, which a blank says more quietly than
-                  zeros. */}
-              <td role="cell" class="num" data-l="Tokens">
-                <Show when={job.startedAt}>{formatCount(job.usage.totalTokens)}</Show>
-              </td>
-              <td role="cell" class="num" data-l="Cost, USD">
-                <Show when={job.startedAt}>{formatUsd(job.usage.cost.totalUsd)}</Show>
-              </td>
-            </tr>
+                <JobRow job={job()} runnerIds={ids()} readAt={props.readAt} />
+              </>
+            )}
+          </For>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt: number }) {
+  // The tail distinguishes jobs created together, which share their UUIDv7 timestamp prefix.
+  const shortId = () => `…${props.job.id.slice(-8)}`;
+  return (
+    <tr role="row" class={["job-row", { "is-deleted": !!props.job.deletedAt }]}>
+      <td role="cell" class="c-status">
+        <JobStatus job={props.job} />
+      </td>
+      <td role="cell" class="c-beside">
+        <BesideStatus job={props.job} />
+      </td>
+      <td role="cell" class="c-job">
+        <span class="cell-line">
+          <Show
+            when={props.job.customId}
+            fallback={
+              <span class="cut sid job-name" title={props.job.id}>
+                {shortId()}
+              </span>
+            }
+          >
+            {(name) => (
+              <>
+                <span class="cut mono job-name" title={name()}>
+                  {name()}
+                </span>
+                <span class="sid" title={props.job.id}>
+                  {shortId()}
+                </span>
+              </>
+            )}
+          </Show>
+        </span>
+      </td>
+      <td role="cell" class="c-batch">
+        <span class="cut mono" title={props.job.batchId}>
+          {props.job.batchId}
+        </span>
+      </td>
+      <td role="cell" class="c-submitter">
+        <Show when={props.job.submitter}>
+          {(submitter) => (
+            <span class="cell-line">
+              <span
+                class={[
+                  "cut",
+                  {
+                    mono: submitter().kind === "key",
+                    unnamed: submitter().kind === "key" && submitter().name === null,
+                  },
+                ]}
+                title={submitter().name ?? "Unnamed"}
+              >
+                {submitter().name ?? "Unnamed"}
+              </span>
+              <span class="unit">{submitter().kind}</span>
+            </span>
           )}
-        </For>
-      </tbody>
-    </table>
+        </Show>
+      </td>
+      <td role="cell" class="c-labels">
+        <Show when={props.job.labels}>{(labels) => <Labels labels={labels()} />}</Show>
+      </td>
+      <td role="cell" class="c-runner">
+        <Show when={props.job.runner}>
+          {(runner) => (
+            <RunnerOfJob
+              runner={runner()}
+              shortId={props.runnerIds.get(runner().id) ?? runner().id}
+            />
+          )}
+        </Show>
+      </td>
+      <td role="cell" class="c-time">
+        <JobTime job={props.job} readAt={props.readAt} />
+      </td>
+      <td role="cell" class="c-tokens num">
+        <Show when={props.job.startedAt}>{formatCount(props.job.usage.totalTokens)}</Show>
+      </td>
+      <td role="cell" class="c-cost num">
+        <Show when={props.job.startedAt}>
+          {formatUsd(props.job.usage.cost.totalUsd)}
+          <span class="unit-inline"> USD</span>
+          <Show when={props.job.modelBudgetUsd}>
+            {(budget) => <span class="of"> of {USD_BUDGET.format(budget())}</span>}
+          </Show>
+        </Show>
+      </td>
+    </tr>
+  );
+}
+
+function Labels(props: { labels: NonNullable<ListedJob["labels"]> }) {
+  const entries = createMemo(() => Object.entries(props.labels));
+  // The Labels column has 112px for text. Reserve the count and its gap only if more follow.
+  const count = createMemo(() => {
+    let width = 0;
+    let withCount = 1;
+    for (const [index, [key, value]] of entries().entries()) {
+      width += (index ? 8 : 0) + 7 * (key.length + 1 + value.length);
+      if (width > 112) return withCount;
+      if (width + 32 <= 112) withCount = index + 1;
+    }
+    return entries().length;
+  });
+  return (
+    <ul class="labels is-line">
+      <For each={entries().slice(0, count())}>
+        {([key, value]) => (
+          <li>
+            <span class="cut" title={`${key}=${value}`}>
+              <span class="lk">{key}</span>
+              <span class="leq">=</span>
+              {value}
+            </span>
+          </li>
+        )}
+      </For>
+      <Show when={count() < entries().length}>
+        <li
+          class="labels-more"
+          title={entries()
+            .map(([key, value]) => `${key}=${value}`)
+            .join(", ")}
+        >
+          +{entries().length - count()}
+          <span class="vh"> more Labels</span>
+        </li>
+      </Show>
+    </ul>
   );
 }
 
 /** The Runner a job was last sent to, and whether it is connected. */
-function RunnerOfJob(props: { runner: JobRunner }) {
+function RunnerOfJob(props: { runner: JobRunner; shortId: string }) {
   return (
     <span class="runner-ref">
       <span class="cut mono" title={props.runner.name}>
         {props.runner.name}
+      </span>
+      <span class="sid" title={props.runner.id}>
+        {props.shortId}
       </span>
       <span
         class={["mark", props.runner.connected ? "mark-connected" : "mark-disconnected"]}
@@ -348,16 +535,20 @@ function RunnerOfJob(props: { runner: JobRunner }) {
 }
 
 /** The latest of when the job was created, started and ended, and which it is. */
-function JobTime(props: { job: ListedJob }) {
+function JobTime(props: { job: ListedJob; readAt: number }) {
   const moment = (): [string, Date] => {
     const { createdAt, startedAt, endedAt } = props.job;
     if (endedAt) return ["ended", endedAt];
     if (startedAt) return ["started", startedAt];
     return ["created", createdAt];
   };
+  const sameDay = () => moment()[1].toDateString() === props.job.createdAt.toDateString();
   return (
     <>
-      {moment()[0]} <Instant value={moment()[1]} />
+      {moment()[0]} <Instant value={moment()[1]} format={sameDay() ? TIME : DAY_TIME} />
+      <Show when={sameDay() && !props.job.endedAt}>
+        <span class="age">, {elapsedSince(moment()[1], props.readAt)}</span>
+      </Show>
     </>
   );
 }
@@ -366,22 +557,28 @@ function JobTime(props: { job: ListedJob }) {
 function Paging(props: { search: JobsSearch; page: JobsPage }) {
   const last = () => props.page.jobs.at(-1)?.id;
   return (
-    <Show when={props.search.after !== undefined || props.page.hasMore}>
-      <p class="list-end">
-        <Show when={props.search.after !== undefined}>
-          <Link to="/jobs" search={{ ...props.search, after: undefined }} class="stands-alone">
-            Newest jobs
+    <p class="list-end" id="jobs-end" tabindex="-1">
+      <span>
+        {formatCount(props.page.jobs.length)} read;{" "}
+        {props.page.hasMore
+          ? "the hub gives no total."
+          : filterCount(props.search)
+            ? "no more match."
+            : "there are no older jobs."}
+      </span>
+      <Show when={props.search.after !== undefined}>
+        <Link to="/jobs" search={{ ...props.search, after: undefined }} class="stands-alone">
+          Newest jobs
+        </Link>
+      </Show>
+      <Show when={props.page.hasMore ? last() : undefined}>
+        {(after) => (
+          <Link to="/jobs" search={{ ...props.search, after: after() }} class="stands-alone">
+            Older jobs
           </Link>
-        </Show>
-        <Show when={props.page.hasMore ? last() : undefined}>
-          {(after) => (
-            <Link to="/jobs" search={{ ...props.search, after: after() }} class="stands-alone">
-              Older jobs
-            </Link>
-          )}
-        </Show>
-      </p>
-    </Show>
+        )}
+      </Show>
+    </p>
   );
 }
 
@@ -417,10 +614,8 @@ function NoJobs(props: { search: JobsSearch; runners: UseQueryResult<Runner[]> }
           <h2>No jobs yet</h2>
           <p>Jobs run on Runners, and no Runner is connected to this hub.</p>
           <p class="empty-act">
-            {/* The Runners page, at /runners: written through the route every address matches, as the
-                router checks a link only against the routes it has. */}
-            <Link to="/$" params={{ _splat: "runners" }} class="stands-alone">
-              Add a Runner
+            <Link to="/runners" class="stands-alone">
+              Add Runner
             </Link>
           </p>
         </Match>
@@ -432,19 +627,5 @@ function NoJobs(props: { search: JobsSearch; runners: UseQueryResult<Runner[]> }
         </Match>
       </Switch>
     </div>
-  );
-}
-
-/** What could not be read, in the hub's words where it gave any, and the way to read it again. */
-function ReadFailed(props: { error: Error | null; retry: () => void }) {
-  return (
-    <>
-      <Notice role="alert">The jobs could not be read: {hubFailureMessage(props.error)}</Notice>
-      <p>
-        <button type="button" onClick={() => props.retry()}>
-          Try again
-        </button>
-      </p>
-    </>
   );
 }

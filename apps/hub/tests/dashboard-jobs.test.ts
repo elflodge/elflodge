@@ -1,4 +1,5 @@
 import type { Browser, Page } from "playwright";
+import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
@@ -30,7 +31,10 @@ async function newPage() {
 
 /** The jobs the list shows, a row each. */
 function rows(page: Page) {
-  return page.getByRole("table", { name: "Jobs" }).locator("tbody").getByRole("row");
+  return page
+    .getByRole("table", { name: "Jobs" })
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell") });
 }
 
 test("in a browser, the dashboard opens on the jobs list, which on an empty hub says to add a Runner", async () => {
@@ -39,7 +43,7 @@ test("in a browser, the dashboard opens on the jobs list, which on an empty hub 
 
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
   await page.getByRole("heading", { name: "No jobs yet" }).waitFor();
-  const add = page.getByRole("link", { name: "Add a Runner" });
+  const add = page.getByRole("link", { name: "Add Runner" });
   expect(await add.getAttribute("href")).toBe("/dashboard/runners");
 }, 30_000);
 
@@ -52,7 +56,7 @@ test("in a browser, an empty hub with a Runner connected says to submit a Batch"
   await signInAt(system, page, "jobs", await newMember(system, "Second Reader"));
   await page.getByRole("heading", { name: "No jobs yet" }).waitFor();
   await page.getByText("elflodge batches submit").waitFor();
-  expect(await page.getByRole("link", { name: "Add a Runner" }).count()).toBe(0);
+  expect(await page.getByRole("link", { name: "Add Runner" }).count()).toBe(0);
 }, 30_000);
 
 test("in a browser, the list shows a submitted job with its status", async () => {
@@ -84,9 +88,9 @@ test("in a browser, filters held in the address narrow the list, and a reload ke
 
   /** Expects the list to show job b alone, cancelled, with the filters that say so. */
   async function expectFiltered() {
-    await expect
-      .poll(() => rows(page).allInnerTexts())
-      .toEqual([expect.stringMatching(/^b\s+Cancelled\s/)]);
+    await expectBrowser(rows(page)).toHaveCount(1);
+    await expectBrowser(rows(page).getByText("b", { exact: true })).toBeVisible();
+    await expectBrowser(rows(page).getByText("Cancelled", { exact: true })).toBeVisible();
     expect(await page.getByRole("checkbox", { name: "Cancelled" }).isChecked()).toBe(true);
     expect(await page.getByLabel("Batch").inputValue()).toBe(batch.id);
   }
@@ -110,7 +114,7 @@ test("in a browser, the list is read a page at a time, newest first", async () =
   const page = await newPage();
   await signInAt(system, page, `jobs?batchId=${batch.id}`, await newMember(system, "Page Reader"));
   /** The custom IDs of the jobs the list shows. */
-  const shown = async () => (await rows(page).allInnerTexts()).map((text) => text.split(/\s/)[0]);
+  const shown = async () => rows(page).locator(".job-name").allTextContents();
 
   await expect.poll(shown).toEqual(newestFirst.slice(0, 50));
   await page.getByRole("link", { name: "Older jobs" }).click();
@@ -130,7 +134,7 @@ test("in a browser, a count in the strip opens the list of the jobs it counts", 
     .getByRole("link", { name: `${jobCounts.queued} queued` })
     .click();
   await page.waitForURL(/status=/);
-  expect(await page.getByRole("checkbox", { name: "Queued" }).isChecked()).toBe(true);
+  await expectBrowser(page.getByRole("checkbox", { name: "Queued" })).toBeChecked();
   // Every job shown is queued, as many as a page holds.
   await expect.poll(() => rows(page).count()).toBe(Math.min(jobCounts.queued, 50));
   expect(await rows(page).filter({ hasNotText: "Queued" }).count()).toBe(0);

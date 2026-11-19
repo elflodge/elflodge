@@ -13,6 +13,17 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
+/** Creation days and event times in a Jobs list, where the day line supplies the date. */
+export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
+export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
+export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
+export const DAY_TIME = new Intl.DateTimeFormat(LANGUAGE, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 /** Second-precision instants where the page already names the reader's zone. */
 export const TIME_SECONDS = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "medium" });
 export const DATE_TIME_SECONDS = new Intl.DateTimeFormat(LANGUAGE, {
@@ -94,3 +105,8 @@ export function formatRoles(roles: string): string {
 export function formatUsd(amount: number): string {
   return USD.format(amount);
 }
+
+export const USD_BUDGET = new Intl.NumberFormat(LANGUAGE, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});

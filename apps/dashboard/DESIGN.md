@@ -326,7 +326,7 @@ A destructive control opens a modal `dialog` that says what it ends and whether 
 <span class="mono">robin@example.com</span>
 ```
 
-`span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. It is the ID's first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`).
+`span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. A Runner's short ID is the first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`). A job's short ID is an ellipsis followed by the last eight characters, such as `…3f9a2c1b`. Jobs created together share their UUIDv7 prefix. The ellipsis tells the reader where to look in the whole ID, given in its title.
 
 An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
@@ -382,50 +382,41 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 
 A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. Its name column takes a fifth of the table, leaving room for the permissions. An absent name reads "Unnamed" in the secondary sans (`.unnamed`).
 
-A value beside the identifier that may be long, such as a job's Batch or a Runner's name, is a `.cut` with the whole value in its `title`, and is cut past `--cut-name`.
+At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them. A cell with nothing in it is left out, its name with it.
 
-At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them. A cell with nothing in it is left out, its name with it. A table with more columns than leave its identifier room, such as the jobs list, is `table.records.is-wide`, which folds at 75rem.
+### Jobs list
+
+`div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Its columns are Status, Beside the status, Job, Batch, Submitter, Labels, Runner, Time, Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
+
+The frame's width sets the tiers. Below 97.25rem Submitter gives way, below 86.75rem Tokens, and below 82rem Labels. Below 74.125rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
+
+The job's name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. It becomes the link to the job when the job page exists. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`. A job without a custom ID has its short ID as its name at every width. A deleted job's row, `tr.is-deleted`, strikes through the name.
+
+The Batch is a cut identifier in the mono. A submitter's name has its kind beside it in `span.unit`. A member's name is in the sans, a key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans. An absent submitter leaves the cell empty.
+
+`ul.labels.is-line` shows whole Labels as a key, an equals sign and a value. The key and sign use the secondary ink. Allow 112px for the line, 7px per character, 8px between items and 24px for the count. At least one Label shows. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
+
+A `tr.day-line` spans all ten columns before the first job created on each local day. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows, when present, in secondary ink with two to four decimals. On two lines the cost carries its USD unit and the budget gives way.
 
 ### A job's status
 
-A job's status is a mark and a word, and beside it, small, each condition the job reports with it, with its own mark (`src/components/JobStatus.tsx`): a status the hub cannot confirm and why, a control its Runner has not yet acted on, what blocks it, and why it failed, as the hub names the reason. A condition never changes the word. While the status is unknown, the word is the last status the job's Runner confirmed: it is quiet, and says "(last confirmed)" to assistive technology.
+A strong status word and its mark occupy the first cell. Running takes the lamp text colour and its mark the running colour. When the status is unknown, both use the secondary ink and the word includes "(last confirmed)" for assistive technology.
 
-```tsx
-<span class="status is-unknown">
-  <span class="status-word s-running">
-    <span class="mark mark-running" aria-hidden="true" />
-    Running<span class="vh"> (last confirmed)</span>
-  </span>
-  <span class="beside is-unknown" title="Since Wednesday, 18 November 2026 at 15:41:22 CET">
-    <span class="mark mark-unknown" aria-hidden="true" />
-    Status unknown: Runner not connected
-  </span>
-</span>
-```
-
-`.s-` and the status colours the word's mark: the lamp for running, the green for succeeded, the failed colour for failed, words included, and the waiting colour for the rest. `.beside.is-unknown` is in `--c-unknown`, and a failure's reason is a `code` in the failed colour. The status and what stands beside it stay on one line, except on a phone, where what does not fit goes under it.
+The next cell holds each condition on its own line. "Status unknown" has the unknown mark and colour. Its title gives the reason and the full instant since which the status has been unknown, and its hidden text gives the reason. A pending control reads "Pause asked", "Cancel asked" or "Delete asked". A blocked job names its Batch pause, failure breaker or running Canary. A failure reason appears as code in the failed colour.
 
 ### Runner reference
 
-A Runner named beside something else, such as a job's: its name as a `.cut`, and whether it is connected, as a mark and as words for assistive technology.
-
-```tsx
-<span class="runner-ref">
-  <span class="cut mono" title="lodge-01">
-    lodge-01
-  </span>
-  <span class="mark mark-connected" aria-hidden="true" />
-  <span class="vh">connected</span>
-</span>
-```
+`span.runner-ref` holds the Runner name as a cut identifier, its short ID, and the connection mark with "connected" or "not connected" for assistive technology. The abbreviation takes account of both the Runners list and the Runners on the page.
 
 ### Filters
 
 The filters live in the address. The first `div.filters-row` holds the six status checks and Status unknown. The second holds Batch, Runner, Apply and, when a filter applies, Clear. The actions sit at the end of the row. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and starts expanded when any apply. Fields stack at full width and each checkbox label is at least 44px tall.
 
+The time-zone note sits below the filters when the list has jobs or a read failed. A slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
+
 ### The end of a list
 
-`p.list-end` holds the ways to newer and older pages of a list read a page at a time, as links standing alone. `p.list-note` stands in for the list while it is read.
+Before a populated list, `a.vh.skip-list` leads to `p.list-end#jobs-end`. The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest jobs and Older jobs follow where available.
 
 ### Command to copy, and a secret shown once
 
