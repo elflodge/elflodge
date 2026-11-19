@@ -292,7 +292,7 @@ async function startNodeHub(databaseUrl: string, settings: Record<string, string
 /**
  * Starts the hub this test project runs against, against the test run's Postgres and set up with
  * `OWNER`, and lets tests start a Runner beside it as a Node Runner on a host would run: registering
- * with a shared key, then dialling the hub's URL over a real WebSocket with its own key.
+ * with a registration key, then dialling the hub's URL over a real WebSocket with its own key.
  */
 export function startSystem(
   options: { hubVars?: Record<string, string>; heartbeatIntervalMs?: number } = {},

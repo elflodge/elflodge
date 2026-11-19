@@ -125,6 +125,7 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
     setAlreadyGone(undefined);
     const queryKey = orpc.apiKeys.list.queryKey();
     let notFound: string | undefined;
+    let refreshed: Promise<void>;
     try {
       await api.apiKeys.revoke({ id: key.id });
     } catch (error) {
@@ -132,13 +133,15 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       notFound = hubFailureMessage(error);
     } finally {
       // Even a refused revocation can mean the key is gone since the list was read.
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+      refreshed = queryClient.invalidateQueries({ queryKey, exact: true });
     }
     if (notFound !== undefined) {
+      await refreshed;
       const list = queryClient.getQueryState(queryKey);
-      if (list?.isInvalidated || !list?.data?.every((item) => item.id !== key.id)) return notFound;
+      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === key.id))
+        return notFound;
       setAlreadyGone(`${label} is already gone.`);
-    } else props.focusAfterRevoke();
+    } else void refreshed.then(props.focusAfterRevoke);
     return undefined;
   }
 

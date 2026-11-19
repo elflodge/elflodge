@@ -167,8 +167,8 @@ test("a key cannot reach member operations or permissions it was not granted", a
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(withRegistrationKey.runners.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 
-  // A shared key may register Runners but not connect as one; a Runner's own key, the reverse. Better
-  // Auth refuses a key without the permission as it refuses an unknown key.
+  // A registration key may register Runners. Only a Runner's own key may connect as that Runner.
+  // Better Auth refuses a key without the permission as it refuses an unknown key.
   const { key: runnerKey } = await system
     .runnerClient({ "x-api-key": registrationKey })
     .register({ name: "host" });

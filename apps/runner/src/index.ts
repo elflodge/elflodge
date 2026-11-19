@@ -319,7 +319,7 @@ function socketUrl(hubUrl: URL): URL {
 
 /**
  * The Runner's own key, kept in its data directory, or, on its first start, a new one from
- * registering with the shared key, as GitHub Actions and Buildkite runners do.
+ * registering with a registration key, as GitHub Actions and Buildkite runners do.
  */
 function loadOrRegister(
   hubUrl: URL,
@@ -374,7 +374,7 @@ interface ConnectionContext {
 }
 
 /**
- * The hub refused the shared key the Runner registers with (401): it expired, was revoked, lacks
+ * The hub refused the Runner's registration key (401): it expired, was revoked, lacks
  * `runner: ["register"]` or never was one, or a proxy in front of the hub refused the request. A
  * Runner registers on its first start, with `register`, and when its data directory, which keeps
  * its own key, is gone.

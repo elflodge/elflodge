@@ -389,7 +389,7 @@ What a person copies to run elsewhere, such as the command that starts a Runner,
 
 ### Runner record
 
-The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another. While visible, the page reads the list again every five seconds.
+The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another. While visible, the page reads the list again at the hub strip's `REFRESH_INTERVAL_MS` interval from `src/query.ts`.
 
 A direct visit stays blank until the first Runners read finishes because the router awaits the loader before mounting the shell. On navigation from another dashboard page, a slow first read shows three placeholder records in `ul.runners[aria-busy="true"]`, with a hidden status reading "Loading Runners". The records are hidden from assistive technology. Each `span.sk` is a line on `--c-skeleton`; `.is-title` and `.is-short` stand in for the name and connection, and `.is-part` for a shorter fact.
 

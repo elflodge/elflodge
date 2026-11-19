@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import { type Runner, type RunnerCapabilities, problemOf } from "contract";
-import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
@@ -44,7 +44,7 @@ function Runners() {
     orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
   );
   const [actionFailure, setActionFailure] = createSignal<string>();
-  const [removed, setRemoved] = createSignal<string>();
+  const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
   const ids = createMemo(() => shortIds(runners.data.map((runner) => runner.id)));
   const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
@@ -56,11 +56,16 @@ function Runners() {
   async function remove(runner: Runner, label: string) {
     setActionFailure(undefined);
     const queryKey = orpc.runners.list.queryKey();
-    let summary: string | undefined;
     let notFound: string | undefined;
+    let refreshed: Promise<void>;
     try {
       const { endedJobs, jobsWithFilesLeft } = await api.runners.delete({ id: runner.id });
-      summary = removalSummary(label, endedJobs.length, jobsWithFilesLeft.length);
+      setRemoved({
+        id: runner.id,
+        message: removalSummary(label, endedJobs.length, jobsWithFilesLeft.length),
+      });
+      // Show the outcome before the list and job counts start their background reads.
+      flush();
       // Jobs ended by the removal are stale wherever they are shown.
       void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
     } catch (error) {
@@ -68,14 +73,15 @@ function Runners() {
       notFound = hubFailureMessage(error);
     } finally {
       // Even a refused removal can mean the Runner is gone since the list was read.
-      await queryClient.invalidateQueries({ queryKey, exact: true });
+      refreshed = queryClient.invalidateQueries({ queryKey, exact: true });
     }
     if (notFound !== undefined) {
+      await refreshed;
       const list = queryClient.getQueryState(queryKey);
-      if (list?.isInvalidated || !list?.data?.every((item) => item.id !== runner.id))
+      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === runner.id))
         return notFound;
+      setRemoved({ id: runner.id, message: `${label} is already gone.` });
     }
-    setRemoved(summary ?? `${label} is already gone.`);
     return undefined;
   }
 
@@ -95,14 +101,20 @@ function Runners() {
         </p>
       </Show>
       <Show when={removed()} keyed>
-        {(message) => (
+        {(removal) => (
           <Notice
             role="status"
             focusRef={(element) => {
-              onSettled(() => focusIfLost(element));
+              // Closing the dialog can return focus to Remove until the page drops its row.
+              createEffect(
+                () => ids().has(removal.id),
+                (listed) => {
+                  if (!listed) focusIfLost(element);
+                },
+              );
             }}
           >
-            {message}
+            {removal.message}
           </Notice>
         )}
       </Show>
