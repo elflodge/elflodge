@@ -1,12 +1,4 @@
-import {
-  JOB_CANCELLED,
-  JOB_FAILED,
-  JOB_PAUSED,
-  JOB_RESUMED,
-  JOB_STARTED,
-  JOB_SUCCEEDED,
-  type Job,
-} from "contract";
+import { JOB_CANCELLED, JOB_FAILED, JOB_PAUSED, JOB_RESUMED, type Job } from "contract";
 import { Show } from "solid-js";
 
 import { DATE_TIME_SECONDS, TIME_SECONDS, duration, formatCount } from "../format.ts";
@@ -30,17 +22,13 @@ export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId
           <li class="run-gap">
             {end().kind === JOB_PAUSED ? (
               <>
-                Paused for {between(end().at, opening().at)}, {time(end().at)} to{" "}
+                {end().lifecycleWord} for {between(end().at, opening().at)}, {time(end().at)} to{" "}
                 {time(opening().at)}
               </>
             ) : (
               <>
-                {end().kind === JOB_CANCELLED
-                  ? "Cancelled"
-                  : end().kind === JOB_SUCCEEDED
-                    ? "Succeeded"
-                    : "Failed"}{" "}
-                {time(end().at)}, resumed {time(opening().at)}
+                {end().lifecycleWord} {time(end().at)}; {opening().lifecycleWord.toLowerCase()}{" "}
+                {time(opening().at)}
               </>
             )}
           </li>
@@ -48,7 +36,7 @@ export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId
       </Show>
       <li class="run-h">
         <h3>
-          Run {opening().kind === JOB_STARTED ? "started" : "resumed"}{" "}
+          Run {opening().lifecycleWord.toLowerCase()}{" "}
           <Instant value={opening().at} format={DATE_TIME_SECONDS} />
         </h3>
         <Show when={props.run.end} fallback={props.running && <span>still running</span>}>
@@ -69,8 +57,14 @@ export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId
 
 function previousStop(stop: TimedEvent, opening: TimedEvent) {
   if (stop.kind === JOB_PAUSED) return <>, after a pause of {between(stop.at, opening.at)}</>;
-  if (stop.kind === JOB_FAILED) return <>, after it failed at {time(stop.at)}</>;
-  if (stop.kind === JOB_CANCELLED) return <>, after it was cancelled at {time(stop.at)}</>;
+  if (stop.kind === JOB_FAILED || stop.kind === JOB_CANCELLED) {
+    return (
+      <>
+        , after it {stop.kind === JOB_CANCELLED && "was "}
+        {stop.lifecycleWord.toLowerCase()} at {time(stop.at)}
+      </>
+    );
+  }
   return null;
 }
 
@@ -90,7 +84,7 @@ export function RunSentence(props: { run: LoadedRun; job: Job }) {
           fallback={
             opening().kind === JOB_RESUMED ? (
               <>
-                Resumed {time(opening().at)}
+                {opening().lifecycleWord} {time(opening().at)}
                 <Show when={props.run.previousEnd}>{(end) => previousStop(end(), opening())}</Show>.
               </>
             ) : (
@@ -100,7 +94,8 @@ export function RunSentence(props: { run: LoadedRun; job: Job }) {
         >
           {(end) => (
             <>
-              Paused {time(end().at)}, {between(opening().at, end().at)} into its run.
+              {end().lifecycleWord} {time(end().at)}, {between(opening().at, end().at)} into its
+              run.
             </>
           )}
         </Show>
@@ -108,7 +103,7 @@ export function RunSentence(props: { run: LoadedRun; job: Job }) {
           {(last) => (
             <>
               {" "}
-              Recovered{" "}
+              {last().lifecycleWord}{" "}
               {props.run.recoveries.length === 1
                 ? "once, at"
                 : `${formatCount(props.run.recoveries.length)} times, most recently at`}{" "}

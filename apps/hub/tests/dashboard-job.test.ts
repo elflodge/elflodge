@@ -300,6 +300,8 @@ test("a member reading earlier Events can jump to new ones, and following ends a
   await page.locator("#latest").evaluate((el) => el.scrollIntoView({ block: "end" }));
   await report([message(255)]);
   await expectBrowser(page.locator("#event-255")).toBeInViewport({ timeout: 12_000 });
+  // Reading the new Event can still leave the bottom of Current activity below the viewport.
+  await page.locator("#latest").evaluate((el) => el.scrollIntoView({ block: "center" }));
   await expectBrowser(page.getByRole("button", { name: "Go to them" })).toHaveCount(0);
   const first = page.locator("#event-20");
   await first.evaluate((el) => el.scrollIntoView({ block: "center" }));

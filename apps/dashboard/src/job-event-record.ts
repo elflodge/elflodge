@@ -15,6 +15,16 @@ import {
 } from "contract";
 import * as z from "zod/mini";
 
+const LIFECYCLE_WORDS: ReadonlyMap<string, string> = new Map([
+  [JOB_STARTED, "Started"],
+  [JOB_RESUMED, "Resumed"],
+  [JOB_RECOVERED, "Recovered"],
+  [JOB_PAUSED, "Paused"],
+  [JOB_FAILED, "Failed"],
+  [JOB_SUCCEEDED, "Succeeded"],
+  [JOB_CANCELLED, "Cancelled"],
+]);
+
 // The contract keeps an open journal record. Read only what the row shows, leaving the original
 // Event available when an extension or a later Runner writes a different shape.
 const conversation = z.object({
@@ -88,10 +98,7 @@ export function readJobEvent(event: JobEvent) {
     event.type === "conversation" ? z.safeParse(conversation, event.record).data : undefined;
   const message = record && "model" in record ? record.model?.[0] : undefined;
   const data = record && "data" in record ? record.data : undefined;
-  const opening =
-    record?.kind === JOB_STARTED || record?.kind === JOB_RECOVERED || record?.kind === JOB_RESUMED
-      ? record.data
-      : undefined;
+  const runId = data && "runId" in data && typeof data.runId === "string" ? data.runId : undefined;
   const at = data && "timestamp" in data ? data.timestamp : message?.timestamp;
   const conversationId = event.type === "conversation" ? event.id : event.record["conversationId"];
   return {
@@ -108,10 +115,10 @@ export function readJobEvent(event: JobEvent) {
     ownerId: relation?.owner?.conversationId,
     conversationId: typeof conversationId === "number" ? conversationId : undefined,
     at: at === undefined ? undefined : new Date(at),
-    runId: opening?.runId,
+    runId,
     providerModel:
       message?.role === "assistant" ? `${message.provider}/${message.model}` : undefined,
-    runner: data !== undefined && "timestamp" in data,
+    lifecycleWord: record && LIFECYCLE_WORDS.get(record.kind),
     isError:
       record?.kind === JOB_FAILED ||
       (message?.role === "assistant" && message.stopReason === "error") ||

@@ -1692,7 +1692,7 @@ p mark.placeholder {
   padding: var(--space-3);
   overflow-wrap: anywhere;
 }
-.activity h3,
+.activity div > :is(h3, h4),
 .activity li {
   margin-top: var(--space-2);
 }
@@ -1789,13 +1789,6 @@ p mark.placeholder {
   margin-top: var(--space-1);
 }
 
-/* When earlier Events load, leave the existing Event rows eligible as scroll anchors.
-   A visible part of the job above them can otherwise hold the viewport while every Event moves. */
-.record-with-aside:has(.tl) > :is(.record-sections, .facts-aside),
-.tl :is(.tl-head, .stretch-end, .jump-row, .run-h, .run-gap, .day-line) {
-  overflow-anchor: none;
-}
-
 /* ---------- The Events heading and the two independent reading choices ---------- */
 .head-sentence {
   margin-block: var(--space-2) var(--space-1);
@@ -1816,7 +1809,7 @@ p mark.placeholder {
 .tl-head,
 .tl-choices,
 .jump-row,
-.stretch-end,
+.events-page,
 .run-h {
   display: flex;
   flex-wrap: wrap;
@@ -1869,7 +1862,7 @@ p mark.placeholder {
   text-decoration: underline;
 }
 .jump-row,
-.stretch-end {
+.events-page {
   border-top: var(--rule) solid var(--c-rule);
   padding-block: var(--space-2);
 }
@@ -1889,11 +1882,11 @@ p mark.placeholder {
   gap: var(--space-1);
   justify-content: center;
 }
-.stretch-end {
+.events-page {
   justify-content: space-between;
 }
 
-/* ---------- One ordered stretch, with dated runs and each Event’s original number ---------- */
+/* ---------- Events in journal order, with dated runs and each Event’s original number ---------- */
 .timeline {
   list-style: none;
   padding: 0;
@@ -2014,7 +2007,7 @@ p mark.placeholder {
   background: var(--c-ground);
   z-index: 2;
 }
-@media (width <= 640px), (pointer: coarse) {
+@media (max-width: 640px), (pointer: coarse) {
   .seg label {
     min-height: var(--control-touch);
   }
@@ -2025,7 +2018,7 @@ p mark.placeholder {
     min-width: var(--control-touch);
   }
 }
-@media (width <= 640px) {
+@media (max-width: 640px) {
   .tl-choices {
     margin-inline-start: 0;
   }

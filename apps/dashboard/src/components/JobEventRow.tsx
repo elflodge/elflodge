@@ -15,16 +15,6 @@ import { Instant } from "./Instant.tsx";
 import { FAILURE_WORDS } from "./JobStatus.tsx";
 import { TextPreview } from "./TextPreview.tsx";
 
-const RUNNER_WORD = {
-  [JOB_STARTED]: "Started",
-  [JOB_RESUMED]: "Resumed",
-  [JOB_RECOVERED]: "Recovered",
-  [JOB_PAUSED]: "Paused",
-  [JOB_FAILED]: "Failed",
-  [JOB_SUCCEEDED]: "Succeeded",
-  [JOB_CANCELLED]: "Cancelled",
-};
-
 interface RowProps {
   row: ReadJobEvent;
   shortRunId?: string;
@@ -115,15 +105,8 @@ function eventLabel({ row, userLabel }: RowProps) {
     if (parent) parts.push(`a fork of conversation ${parent.conversationId} at Event ${parent.at}`);
     return `Conversation ${row.id} begins: ${parts.length ? parts.join(", ") : "the job’s own"}`;
   }
+  if (row.lifecycleWord) return `Runner: ${row.lifecycleWord}`;
   switch (record?.kind) {
-    case JOB_STARTED:
-    case JOB_RESUMED:
-    case JOB_RECOVERED:
-    case JOB_PAUSED:
-    case JOB_FAILED:
-    case JOB_SUCCEEDED:
-    case JOB_CANCELLED:
-      return `Runner: ${RUNNER_WORD[record.kind]}`;
     case "pi.user":
       return userLabel ?? "Message to the agent";
     case "pi.assistant":
@@ -302,7 +285,7 @@ export function JobEventRow(props: RowProps) {
       class={[
         "ev",
         {
-          "is-runner": props.row.runner,
+          "is-runner": !!props.row.lifecycleWord,
           "is-error": props.row.isError,
           "conv-sub": !!props.subAgent,
         },

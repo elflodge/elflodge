@@ -11,7 +11,7 @@ import {
 import type { ReadJobEvent } from "./job-event-record.ts";
 import { shortIds } from "./short-ids.ts";
 
-export type TimedEvent = ReadJobEvent & { at: Date };
+export type TimedEvent = ReadJobEvent & { at: Date; lifecycleWord: string };
 export interface LoadedRun {
   opening: TimedEvent;
   previousEnd?: TimedEvent;
@@ -20,7 +20,7 @@ export interface LoadedRun {
   recoveries: TimedEvent[];
 }
 
-/** Derive only the relationships witnessed by this stretch, which may begin or end inside a run. */
+/** Derive only the relationships witnessed by the loaded Events, which may begin or end inside a run. */
 export function groupJobEvents(events: ReadJobEvent[]) {
   const runIds = new Set<string>();
   const headings = new Map<number, LoadedRun>();
@@ -41,8 +41,8 @@ export function groupJobEvents(events: ReadJobEvent[]) {
       if (previousDay && previousDay !== day) dayLines.add(row.id);
       previousDay = day;
     }
-    if (row.runner && row.at) {
-      const timed = { ...row, at: row.at };
+    if (row.lifecycleWord && row.at) {
+      const timed = { ...row, at: row.at, lifecycleWord: row.lifecycleWord };
       switch (row.kind) {
         case JOB_STARTED:
         case JOB_RESUMED:

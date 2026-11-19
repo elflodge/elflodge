@@ -1,6 +1,5 @@
 import {
   experimental_streamedQuery,
-  skipToken,
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -11,9 +10,8 @@ import {
   type Job,
   type JobEventOrder,
   type JobEventsPage,
-  type JobStatus,
 } from "contract";
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, until } from "solid-js";
 
 import { readJobEvent } from "./job-event-record.ts";
 import { REFRESH_INTERVAL_MS, orpc, refused } from "./query.ts";
@@ -23,16 +21,18 @@ const PAGE_SIZE = 100;
 
 type FollowedPage = JobEventsPage & { endedAt?: number };
 
-function withEnding(page: JobEventsPage, status: JobStatus, endedAt?: number): FollowedPage {
-  // A job read before this page may still say running when the Runner has just ended.
-  // The hub takes endedAt from its closing Event, or records an end itself without an Event.
-  if (status === page.status) return { ...page, endedAt };
-  const last = page.events.at(-1);
-  const end =
-    last?.type === "entry" && last.record.kind === `elflodge.job.${page.status}`
-      ? readJobEvent(last).at
-      : undefined;
-  return { ...page, endedAt: end?.getTime() };
+function isFinalPage(page: JobEventsPage) {
+  return !page.hasMore && FINAL_JOB_STATUSES.includes(page.status);
+}
+
+function closingTime(page: JobEventsPage) {
+  if (!isFinalPage(page)) return undefined;
+  const last = page.events.findLast(
+    (event) => event.type === "entry" && event.record.kind.startsWith("elflodge.job."),
+  );
+  return last?.type === "entry" && last.record.kind === `elflodge.job.${page.status}`
+    ? readJobEvent(last).at?.getTime()
+    : undefined;
 }
 
 function historyOptions(id: string, order: JobEventOrder) {
@@ -46,19 +46,17 @@ function historyOptions(id: string, order: JobEventOrder) {
     initialPageParam: 0,
     getNextPageParam: (last) => (last.hasMore ? last.events.at(-1)?.id : undefined),
     // These Events are immutable. A refresh of an infinite query rereads every page from
-    // the first cursor, which would move the stretch as new Events arrive.
+    // the first cursor, which would move the first Event shown as new Events arrive.
     staleTime: "static",
     gcTime: 0,
   });
 }
 
 /** The member extends one end on request. The other follows the journal once caught up. */
-export function useJobEventStretch(
-  job: () => Job,
-  enabled: () => boolean,
-  jobReadAt: () => number,
-) {
+export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: () => number) {
   const client = useQueryClient();
+  const pageLifetime = new AbortController();
+  onCleanup(() => pageLifetime.abort());
   const [order, setOrder] = createSignal<JobEventOrder>("desc");
   const [switching, setSwitching] = createSignal(false);
   const [jumpFailure, setJumpFailure] = createSignal<{ error: Error; failedAt: number }>();
@@ -82,24 +80,24 @@ export function useJobEventStretch(
   const follow = useQuery(() => {
     const cursor = tailCursor();
     const id = job().id;
-    const input =
-      cursor === undefined
-        ? skipToken
-        : { id, order: "asc" as const, after: cursor, limit: PAGE_SIZE };
+    const input = { id, order: "asc" as const, after: cursor, limit: PAGE_SIZE };
+    const mayFollow = enabled() && cursor !== undefined;
     const last = order() === "asc" && cursor !== undefined ? pages().at(-1) : undefined;
+    const endedAt = last && closingTime(last);
     const initial: FollowedPage = {
       events: [],
       hasMore: false,
       status: last?.status ?? job().status,
     };
     return {
-      queryKey: orpc.jobs.events.streamedKey({ input }),
-      enabled: enabled() && cursor !== undefined,
-      // An ascending history page that reached the end already supplied its status and cursor.
-      initialData: last
-        ? { ...withEnding(last, job().status, job().endedAt?.getTime()), events: [] }
-        : undefined,
-      staleTime: "static",
+      queryKey: orpc.jobs.events.key({ type: "streamed", input }),
+      enabled: ({ state }) =>
+        mayFollow &&
+        (state.error ? !refused(state.error) : !state.data || !isFinalPage(state.data)),
+      // An old page can arrive after another run has ended. Only its own closing Event
+      // identifies which ending it shows. Without one, read forward to confirm its cursor.
+      initialData:
+        last && (!isFinalPage(last) || endedAt !== undefined) ? { ...initial, endedAt } : undefined,
       gcTime: 0,
       queryFn: experimental_streamedQuery<FollowedPage, FollowedPage>({
         refetchMode: "append",
@@ -115,24 +113,23 @@ export function useJobEventStretch(
             0;
           for (;;) {
             const status = job().status;
-            const endedAt = job().endedAt?.getTime();
-            const read = orpc.jobs.events.queryOptions({
-              input: { id, order: "asc", after, limit: PAGE_SIZE },
-            });
-            const page = await read.queryFn({ ...context, queryKey: read.queryKey });
-            yield withEnding(page, status, endedAt);
+            const jobEndBeforeRead = job().endedAt?.getTime();
+            const page = await orpc.jobs.events.call(
+              { ...input, after },
+              { signal: context.signal },
+            );
             const newest = page.events.at(-1);
-            if (!page.hasMore || !newest) return;
+            const end = closingTime(page);
+            yield {
+              ...page,
+              endedAt: end ?? (!newest && status === page.status ? jobEndBeforeRead : undefined),
+            };
+            if (!newest || (!page.hasMore && (!isFinalPage(page) || end !== undefined))) return;
             after = newest.id;
           }
         },
       }),
-      refetchInterval: ({ state }) => {
-        if (state.error) return refused(state.error) ? false : REFRESH_INTERVAL_MS;
-        return state.data && !state.data.hasMore && FINAL_JOB_STATUSES.includes(state.data.status)
-          ? false
-          : REFRESH_INTERVAL_MS;
-      },
+      refetchInterval: REFRESH_INTERVAL_MS,
     };
   });
   // A job can end and resume between two job reads, even ending again with the same status.
@@ -148,8 +145,7 @@ export function useJobEventStretch(
       return;
     const last = follow.data;
     if (
-      !last.hasMore &&
-      FINAL_JOB_STATUSES.includes(last.status) &&
+      isFinalPage(last) &&
       (last.status !== job().status || job().endedAt?.getTime() !== last.endedAt)
     )
       void follow.refetch();
@@ -164,11 +160,29 @@ export function useJobEventStretch(
     setSwitching(true);
     setJumpFailure(undefined);
     try {
-      await client.infiniteQuery({ ...historyOptions(job().id, next), staleTime: 0, pages: 1 });
+      const answer = await client.infiniteQuery({
+        ...historyOptions(job().id, next),
+        staleTime: 0,
+        pages: 1,
+      });
+      if (pageLifetime.signal.aborted) return false;
       setOrder(next);
-      return true;
+      // Query resolves the read before Solid commits the new rows. Focus belongs to the
+      // requested end, even when an ascending read has already added a newer Event there.
+      const target = answer.pages[0]?.events[0]?.id;
+      await until(
+        () => {
+          if (!enabled() || target === undefined) return true;
+          return next === "asc"
+            ? events().at(0)?.id === target
+            : (events().at(-1)?.id ?? 0) >= target;
+        },
+        { signal: pageLifetime.signal },
+      );
+      return enabled();
     } catch (error) {
-      setJumpFailure({ error: asError(error), failedAt: Date.now() });
+      if (!pageLifetime.signal.aborted)
+        setJumpFailure({ error: asError(error), failedAt: Date.now() });
       return false;
     } finally {
       setSwitching(false);
@@ -206,4 +220,4 @@ export function useJobEventStretch(
   };
 }
 
-export type JobEventStretch = ReturnType<typeof useJobEventStretch>;
+export type JobEvents = ReturnType<typeof useJobEvents>;

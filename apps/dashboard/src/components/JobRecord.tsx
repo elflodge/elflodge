@@ -167,6 +167,7 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
     const report = props.job.lastReportedAt;
     if (!start || props.job.status !== "running" || props.job.statusUnknown || !report)
       return undefined;
+    // The Runner timestamps the opening Event. The hub timestamps receipt of the report.
     return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
   });
   return (
@@ -226,12 +227,12 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
                         min={0}
                         max={limit()}
                         value={Math.min(count().seconds, limit())}
-                        aria-valuetext={`${duration(count().seconds)} of ${duration(limit())} at the report`}
+                        aria-valuetext={`about ${duration(count().seconds)} of ${duration(limit())} at the report`}
                       />
                     </div>
                     <dl>
                       <dt>Counted so far</dt>
-                      <dd>{duration(count().seconds)} at the report</dd>
+                      <dd>about {duration(count().seconds)} at the report</dd>
                       <dt>Times out at about</dt>
                       <dd>
                         <Instant
