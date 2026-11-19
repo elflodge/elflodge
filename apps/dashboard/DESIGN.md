@@ -269,6 +269,8 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
 
+No page uses `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
+
 ### Records table
 
 Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole and carries `data-l`, the name of its column. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
@@ -325,7 +327,7 @@ A new page is the shell, a heading and the parts above. When it needs something 
 3. Describe the part here: its element, its classes, the attributes it needs, and a short example.
 4. Look at it in light and in dark at 1440, 1280, 960, 390 and 320px wide, and with the keyboard alone. Nothing may scroll sideways, and text and lines keep the contrast the tokens section gives.
 
-The part, its tokens and its description arrive in the change that builds the page that uses it.
+The part, its tokens and its description arrive in the change that builds the page that uses it. When two pages are built side by side and share parts, a change before both may bring those parts.
 
 ## Browser floor
 
