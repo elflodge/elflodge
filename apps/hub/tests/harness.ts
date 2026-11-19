@@ -24,7 +24,7 @@ import {
 } from "contract";
 import getPort from "get-port";
 import { sql } from "kysely";
-import { startRunner, type Runner as RunnerProcess } from "runner";
+import { startRunner, type Runner as RunnerProcess, type StartRunnerOptions } from "runner";
 import { expect, inject, vi } from "vite-plus/test";
 import { createTestHarness } from "wrangler";
 import WebSocket from "ws";
@@ -109,10 +109,15 @@ export type OneJob = AgentInput &
     files?: FileContent[];
   };
 
+/** The SHA-256 digest that names a blob of these bytes, with text encoded as UTF-8. */
+export function digestOf(content: string | Uint8Array) {
+  return `sha256:${hash("sha256", content)}`;
+}
+
 /** Uploads `content`, text as UTF-8, and answers its digest and size, as a job names it. */
 export async function uploadContent(client: ApiClient, content: string | Uint8Array) {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
-  const digest = `sha256:${hash("sha256", bytes)}`;
+  const digest = digestOf(bytes);
   return await client.blobs.upload({
     params: { digest },
     headers: { "content-length": bytes.length },
@@ -247,13 +252,13 @@ export function startSystem(
     return fetch(new URL(pathname, url), init);
   }
 
-  /** A new API key with every job permission, as a caller of the job API holds one. */
-  async function newJobsKey() {
-    const { key } = await owner.apiKeys.create({
-      name: "jobs",
-      permissions: { job: ["create", "read", "pause", "resume", "cancel", "delete"] },
-    });
-    return key;
+  /** Creates an API key and a client sending it. The default key has every job permission. */
+  async function createApiKey({
+    name = "jobs",
+    permissions = { job: ["create", "read", "pause", "resume", "cancel", "delete"] },
+  }: { name?: string; permissions?: Record<string, string[]> } = {}) {
+    const { id, key } = await owner.apiKeys.create({ name, permissions });
+    return { id, key, client: client({ "x-api-key": key }) };
   }
 
   /** A client of the hub's API sending `headers`, such as a member's session or an API key. */
@@ -291,15 +296,18 @@ export function startSystem(
   }
 
   /**
-   * Creates the account `member`, adds it to the Organization with the plain `member` role, and
+   * Creates the account for `email`, adds it to the Organization with the plain `member` role, and
    * returns a client signed in as it and the account's user ID.
    */
-  async function addMember(account: {
+  async function addMember({
+    email,
+    name,
+    password = "a member's own long password",
+  }: {
     email: string;
     password?: string;
     name: string;
   }): Promise<{ client: ApiClient; userId: string }> {
-    const member = { ...account, password: account.password ?? "a member's own long password" };
     const [organization] = await ownerAuth().organization.list();
     if (!organization) throw new Error("The hub has no Organization");
     // Public sign-up is off, so the account is created as setup creates the owner's.
@@ -313,19 +321,19 @@ export function startSystem(
         autoSignIn: false,
       },
     });
-    const { user } = await auth.api.signUpEmail({ body: member });
+    const { user } = await auth.api.signUpEmail({ body: { email, name, password } });
     await auth.api.addMember({
       body: { userId: user.id, organizationId: organization.id, role: "member" },
     });
     return {
-      client: client({ cookie: await signIn(member), origin: HUB_ORIGIN }),
+      client: client({ cookie: await signIn({ email, password }), origin: HUB_ORIGIN }),
       userId: user.id,
     };
   }
 
   /** Creates the key Runners share to register, as the owner. */
   async function createRegistrationKey(): Promise<string> {
-    const { key } = await owner.apiKeys.create({
+    const { key } = await createApiKey({
       name: "Runners",
       permissions: { runner: ["register"] },
     });
@@ -390,15 +398,12 @@ export function startSystem(
     signIn,
     /** A client signed in as `OWNER`. */
     owner: () => owner,
-    newJobsKey,
-    /** Creates a named API key and a client sending it. */
-    async withKey(permissions: Record<string, string[]>, name = "jobs") {
-      const { id, key } = await owner.apiKeys.create({ name, permissions });
-      return { id, key, client: client({ "x-api-key": key }) };
+    createApiKey,
+    async newJobsKey() {
+      return (await createApiKey()).key;
     },
-    /** Creates an API key allowed to submit, read and control jobs, and returns a client sending it. */
     async clientWithNewJobsKey() {
-      return client({ "x-api-key": await newJobsKey() });
+      return (await createApiKey()).client;
     },
     /** The session cookie of `OWNER`. */
     ownerCookie: () => ownerCookie,
@@ -432,12 +437,10 @@ export function startSystem(
      * since its data directory stays the same. Returns the Runner's ID.
      */
     async startRunner(
-      runnerOptions: {
-        register?: boolean;
-        onRemoved?: () => void;
-        maxJobs?: number;
-        extensions?: Parameters<typeof startRunner>[0]["extensions"];
-      } = {},
+      runnerOptions: Pick<
+        StartRunnerOptions,
+        "register" | "onRemoved" | "onReady" | "maxJobs" | "extensions"
+      > = {},
     ): Promise<string> {
       runnerDataDir ??= await mkdtemp(path.join(tmpdir(), "runner-"));
       runner = await startRunner({

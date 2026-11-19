@@ -131,24 +131,33 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
     }).errors,
   ).toEqual([]);
   // And no answer closes any object it holds, shared schemas included.
-  const schemas = new Set<JsonSchema>();
+  const schemas = new Map<JsonSchema, string>();
   for (const operation of operations) {
     for (const [status, definition] of Object.entries(operation.responses ?? {})) {
       if (status.startsWith("x-")) continue;
-      for (const media of Object.values<OpenAPIV3_2.MediaTypeObject>(definition.content ?? {})) {
-        if (media.schema !== undefined) schemas.add(media.schema);
+      // The generator inlines responses and media types. A reference here would hide their schemas.
+      const responseLocation = `${operation.operationId} response ${status}`;
+      expect(definition, responseLocation).not.toHaveProperty("$ref");
+      for (const [type, media] of Object.entries<OpenAPIV3_2.MediaTypeObject>(
+        definition.content ?? {},
+      )) {
+        const location = `${responseLocation} ${type}`;
+        expect(media, location).not.toHaveProperty("$ref");
+        if (media.schema !== undefined) schemas.set(media.schema, location);
       }
     }
   }
   // toSchemaNodes visits inline subschemas. Shared schemas live elsewhere in the OpenAPI document,
   // so follow their references from each response and check each target once.
-  for (const schema of schemas) {
+  for (const [schema, location] of schemas) {
     for (const node of compileSchema(schema).toSchemaNodes()) {
-      expect(node.schema.additionalProperties).not.toBe(false);
+      expect(node.schema.additionalProperties, `${location} ${node.schemaLocation}`).not.toBe(
+        false,
+      );
       if (node.$ref) {
         const target = resolveJsonSchemaLocalPointer(document, node.$ref);
         assert.isDefined(target, node.$ref);
-        schemas.add(target);
+        schemas.set(target, node.$ref);
       }
     }
   }

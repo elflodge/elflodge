@@ -29,16 +29,11 @@ export default async function setup(project: TestProject) {
     ["run", "dashboard#build"],
     { env },
   );
-  const container = await new PostgreSqlContainer("postgres:18-alpine").start();
-  try {
-    const databaseUrl = container.getConnectionUri();
-    await migrateDatabase(databaseUrl);
-    project.provide("databaseUrl", databaseUrl);
-  } catch (error) {
-    await container.stop();
-    throw error;
-  }
-  return async () => {
-    await container.stop();
-  };
+  await using resources = new AsyncDisposableStack();
+  const container = resources.use(await new PostgreSqlContainer("postgres:18-alpine").start());
+  const databaseUrl = container.getConnectionUri();
+  await migrateDatabase(databaseUrl);
+  project.provide("databaseUrl", databaseUrl);
+  const teardown = resources.move();
+  return () => teardown.disposeAsync();
 }

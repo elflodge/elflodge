@@ -94,18 +94,17 @@ describe("the Runner's command line", () => {
   it("says what to do when the hub refuses its registration key, and exits 1", async ({
     signal,
   }) => {
-    const hub = createServer((_request, response) => {
+    await using hub = createServer((_request, response) => {
       response.writeHead(401, { "content-type": "application/problem+json" });
       response.end(JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }));
     });
+    const onServerError = vi.fn();
+    hub.on("error", onServerError);
+    onTestFinished(() => {
+      expect(onServerError).not.toHaveBeenCalled();
+    });
     hub.listen(0, "127.0.0.1");
     await once(hub, "listening");
-    hub.on("error", (error) => {
-      throw error;
-    });
-    onTestFinished(() => {
-      hub.close();
-    });
     const address = hub.address();
     if (address === null || typeof address === "string") throw new Error("Not listening on TCP");
     const { port } = address;

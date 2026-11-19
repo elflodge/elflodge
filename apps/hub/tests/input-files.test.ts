@@ -1,4 +1,3 @@
-import { hash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
@@ -9,7 +8,14 @@ import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/tes
 
 import { sweepUnusedBlobs } from "../src/blobs.ts";
 import { Db, DB_SCHEMA, openDatabase } from "../src/db/database.ts";
-import { type OneJob, protocolClient, startSystem, submitJob, uploadContent } from "./harness.ts";
+import {
+  digestOf,
+  type OneJob,
+  protocolClient,
+  startSystem,
+  submitJob,
+  uploadContent,
+} from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
 // A job's Input files reach its Runner apart from the hub's answers, which name them only: the
@@ -31,12 +37,12 @@ function fileAt(filePath: string, content: string | Uint8Array) {
   return { path: filePath, content };
 }
 
+function blobRef(content: string) {
+  return { digest: digestOf(content), sizeBytes: Buffer.byteLength(content) };
+}
+
 /** Text of more than two chunks, with characters of several bytes across the chunks' boundaries. */
 const LARGE = "Grüße, 世界! ".repeat(150_000);
-
-function digestOf(content: string | Uint8Array): string {
-  return `sha256:${hash("sha256", content)}`;
-}
 
 /** Runs the hub's hourly sweep now, on the test run's database. */
 async function sweep() {
@@ -201,12 +207,15 @@ test("a check answers which content the Organization holds, and where to upload 
   const client = await system.clientWithNewJobsKey();
   const kept = "Kept by a job.";
   const lapsed = "Held by its upload alone.";
-  const ref = (content: string) => ({ digest: digestOf(content), sizeBytes: content.length });
-  const { files } = await client.blobs.check({ files: [ref(kept), ref(lapsed)] });
+  const { files } = await client.blobs.check({ files: [blobRef(kept), blobRef(lapsed)] });
   expect(files).toEqual([
-    { ...ref(kept), stored: false, upload: { transfer: "put", url: `/blobs/${digestOf(kept)}` } },
     {
-      ...ref(lapsed),
+      ...blobRef(kept),
+      stored: false,
+      upload: { transfer: "put", url: `/blobs/${digestOf(kept)}` },
+    },
+    {
+      ...blobRef(lapsed),
       stored: false,
       upload: { transfer: "put", url: `/blobs/${digestOf(lapsed)}` },
     },
@@ -214,20 +223,18 @@ test("a check answers which content the Organization holds, and where to upload 
 
   const job = await submitJob(client, { ...SUBMISSION, files: [fileAt("kept.txt", kept)] });
   await uploadContent(client, lapsed);
-  expect((await client.blobs.check({ files: [ref(kept), ref(lapsed)] })).files).toMatchObject([
-    { stored: true },
-    { stored: true },
-  ]);
+  expect(
+    (await client.blobs.check({ files: [blobRef(kept), blobRef(lapsed)] })).files,
+  ).toMatchObject([{ stored: true }, { stored: true }]);
   await expect(
-    client.blobs.check({ files: [{ ...ref(kept), sizeBytes: kept.length + 1 }] }),
+    client.blobs.check({ files: [{ ...blobRef(kept), sizeBytes: kept.length + 1 }] }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   // Seven days on, a job still holds its files' content, and an upload alone no longer does.
   await expireUploads();
-  expect((await client.blobs.check({ files: [ref(kept), ref(lapsed)] })).files).toMatchObject([
-    { stored: true },
-    { stored: false },
-  ]);
+  expect(
+    (await client.blobs.check({ files: [blobRef(kept), blobRef(lapsed)] })).files,
+  ).toMatchObject([{ stored: true }, { stored: false }]);
   await client.jobs.cancel({ id: job.id });
 });
 

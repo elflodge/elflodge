@@ -50,10 +50,10 @@ async function post(path: string, body: unknown) {
 }
 
 test("an ID used again with the same content returns what it named, whoever repeats it, and with other content is refused", async () => {
-  const { id: keyId, client } = await system.withKey(
-    { job: ["create", "read", "cancel"] },
-    "invoices",
-  );
+  const { id: keyId, client } = await system.createApiKey({
+    name: "invoices",
+    permissions: { job: ["create", "read", "cancel"] },
+  });
   const byKey = { kind: "key", id: keyId, name: "invoices" };
   const { client: member, userId } = await system.addMember({
     email: "retrier@example.com",
@@ -136,19 +136,19 @@ test("an add with an invalid job adds none, and its answer names every problem w
 
   // Problems only the hub sees, with the Batch: a custom ID given twice, labels over the limit with
   // the Batch's, and a job with neither input nor files.
-  const invalidJobs = client.batches.addJobs({
+  const pendingJobAdd = client.batches.addJobs({
     id: batch.id,
     jobs: [jobNamed("a"), jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
   });
   for (const path of ["jobs[1].customId", "jobs[2].labels", "jobs[3].input"]) {
-    await expect(invalidJobs).rejects.toMatchObject({
+    await expect(pendingJobAdd).rejects.toMatchObject({
       cause: { status: 400, detail: expect.stringContaining(path) },
     });
   }
 
   // Files whose content the Organization never uploaded, or of a size other than its content's.
   const rates = await uploadContent(client, "2.2");
-  const invalidFiles = client.batches.addJobs({
+  const pendingFileAdd = client.batches.addJobs({
     id: batch.id,
     jobs: [
       jobNamed("e", { files: [{ path: "rates.csv", ...rates }] }),
@@ -163,7 +163,7 @@ test("an add with an invalid job adds none, and its answer names every problem w
     expect.stringContaining("jobs[2].files[0].sizeBytes"),
     expect.not.stringContaining("jobs[0]"),
   ]) {
-    await expect(invalidFiles).rejects.toMatchObject({ cause: { status: 400, detail } });
+    await expect(pendingFileAdd).rejects.toMatchObject({ cause: { status: 400, detail } });
   }
 
   // A label value holds any text of at most 256 characters, but no NUL.

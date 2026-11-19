@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { afterAll, beforeAll, expect, test, vi } from "vite-plus/test";
+import { afterAll, assert, beforeAll, expect, test, vi } from "vite-plus/test";
 
 import { entryKinds, lifecycleOf } from "./entries.ts";
 import { type ApiClient, type OneJob, startSystem, submitJob, untilStatus } from "./harness.ts";
@@ -348,7 +348,7 @@ test("jobs can be listed by Runner and status, and removing the Runner ends the 
   await client.jobs.delete({ id: deleting });
   const { id: unassigned } = await submitJob(client, SUBMISSION);
   const [runner] = await system.owner().runners.list();
-  if (!runner) throw new Error("The hub lists no Runner");
+  assert(runner, "The hub lists no Runner");
   const runnerId = runner.id;
   // What it holds now, as its page reads them.
   const held = await client.jobs.list({ runnerId, status: ["queued", "running", "paused"] });

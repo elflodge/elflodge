@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 
-import { afterAll, afterEach, beforeAll, expect, test } from "vite-plus/test";
+import { Effect } from "effect";
+import { afterAll, assert, afterEach, beforeAll, expect, test } from "vite-plus/test";
 
 import { protocolClient, startSystem } from "./harness.ts";
 
@@ -40,21 +41,26 @@ test("a runner that connects is listed under its host's name with its capabiliti
 });
 
 test("a runner that restarts keeps its identity, listed once and seen again", async () => {
-  const runnerId = await system.startRunner();
+  async function startAndWaitForHello() {
+    const ready = Promise.withResolvers<void>();
+    const id = await system.startRunner({ onReady: Effect.sync(ready.resolve) });
+    await ready.promise;
+    return id;
+  }
+  const runnerId = await startAndWaitForHello();
   const before = await system.owner().runners.list();
   const runner = before.find(({ id }) => id === runnerId);
-  if (!runner) throw new Error("The hub did not list the started Runner");
+  assert(runner, "The hub did not list the started Runner");
   const { registeredAt, lastSeenAt } = runner;
 
   await system.stopRunner();
-  expect(await system.startRunner()).toBe(runnerId);
+  expect(await startAndWaitForHello()).toBe(runnerId);
 
-  await expect.poll(() => system.lastSeen(runnerId)).toBeGreaterThan(lastSeenAt.getTime());
   const listed = await system.owner().runners.list();
   expect(listed).toHaveLength(before.length);
-  expect(listed).toContainEqual(
-    expect.objectContaining({ id: runnerId, name: hostname(), registeredAt }),
-  );
+  const matches = listed.filter(({ id }) => id === runnerId);
+  expect(matches).toMatchObject([{ name: hostname(), registeredAt }]);
+  expect(matches[0]?.lastSeenAt.getTime()).toBeGreaterThan(lastSeenAt.getTime());
 });
 
 test("a runner whose capabilities the hub cannot read still connects, listed without it", async () => {

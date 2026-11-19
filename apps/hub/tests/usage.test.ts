@@ -1,6 +1,6 @@
 import type { Usage, UsageReport } from "contract";
 import { Duration, Struct } from "effect";
-import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { DB_SCHEMA, openDatabase, plusDuration } from "../src/db/database.ts";
 import { JobId } from "../src/db/types.ts";
@@ -16,7 +16,6 @@ beforeAll(() => system.start());
 afterAll(() => system.stop());
 
 const AGENT = { outputContract: { schema: { type: "integer" } } };
-const JOB_PERMISSIONS = { job: ["create", "read", "pause", "resume", "cancel", "delete"] };
 
 /** `usages` added up. */
 function sumOf(usages: Usage[]) {
@@ -70,8 +69,8 @@ function expectUsage(usage: Usage, expected: Usage) {
 }
 
 test("usage adds up by day and by group, counting each end of a resumed job once and deleted jobs", async () => {
-  const billing = await system.withKey(JOB_PERMISSIONS, "billing");
-  const support = await system.withKey(JOB_PERMISSIONS, "support");
+  const billing = await system.createApiKey({ name: "billing" });
+  const support = await system.createApiKey({ name: "support" });
   const batch = await billing.client.batches.create({
     agent: AGENT,
     labels: { customer: "acme" },
@@ -84,7 +83,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
       jobs: [{ customId: "unstarted", input: "Never mind.", labels: { customer: "globex" } }],
     })
   ).jobs;
-  if (!unstarted) throw new Error("The add answered without the job");
+  assert(unstarted, "The add answered without the job");
   await billing.client.jobs.cancel({ id: unstarted.job.id });
   const runnerId = await system.startRunner();
 
@@ -96,7 +95,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
       jobs: [{ customId: "resumed", input: "Wait." }],
     })
   ).jobs;
-  if (!resumed) throw new Error("The add answered without the job");
+  assert(resumed, "The add answered without the job");
   const resumedId = resumed.job.id;
   await expect
     .poll(async () => (await billing.client.jobs.get({ id: resumedId })).activity?.[0]?.tools, {
@@ -215,7 +214,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
 
 test("usage by submitter tells a member's jobs from a key's", async () => {
   const labels = { suite: "submitters" };
-  const key = await system.withKey(JOB_PERMISSIONS, "intake");
+  const key = await system.createApiKey({ name: "intake" });
   const { client: member, userId } = await system.addMember({
     email: "intake@example.com",
     name: "Ira Intake",
@@ -230,7 +229,7 @@ test("usage by submitter tells a member's jobs from a key's", async () => {
       id: batch.id,
       jobs: [{ customId: "intake", input: "Never mind." }],
     });
-    if (!added) throw new Error("The add answered without the job");
+    assert(added, "The add answered without the job");
     await client.jobs.cancel({ id: added.job.id });
   }
 
