@@ -13,7 +13,7 @@ On Ubuntu 24.04, let the Runner's job sandboxes create user namespaces before st
 `npx elflodge stack start` runs a hub, its Postgres and a Runner from the images released with the CLI, in the background, and keeps running after the terminal closes. It returns once the hub is healthy and the Runner has started. On its first start it creates the hub's owner and an API key for jobs and the Runner listing; `elflodge` commands use that hub and key while `ELFLODGE_URL` and `ELFLODGE_API_KEY` are unset, and `npx elflodge stack env` prints both for other clients, such as `curl`. If your jobs key predates `runner:read`, sourcing `stack env` selects that key and `elflodge runners list` gets a 401. Unset both variables so the CLI uses the separate listing key created on upgrade.
 
 - **Dashboard.** Open `http://localhost:8787/dashboard/` (use your chosen port if you set `--port`) and sign in as `owner@example.com`. Run `npx elflodge stack initial-password` for the initial password. After changing it in the dashboard, use the password you chose. The hub's origin check refuses sign-in from `http://127.0.0.1:<port>`.
-- **Models.** The default is OpenRouter's free models. Choose another with `--provider` and `--model`, as Pi names them, such as `--provider anthropic --model claude-sonnet-5-5`. On first use the command offers provider login and saves it in the Runner's volume; keys are hidden as you type. `npx elflodge stack login --provider <provider>` adds or replaces one provider's credential, offering an API key or account sign-in where Pi supports them; `--with-api-key` reads a key from stdin. If your environment already exports `OPENROUTER_API_KEY`, `npx elflodge stack start --env OPENROUTER_API_KEY` supplies it by name.
+- **Models.** The default is OpenRouter's free models. Choose another with `--provider` and `--model`, as Pi names them, such as `--provider anthropic --model claude-sonnet-5-5`. On first use the command offers provider login and saves it in the Runner's volume; keys are hidden as you type. `npx elflodge stack login --provider <provider>` adds or replaces one provider's credential, offering an API key or account sign-in where Pi supports them; `--with-api-key` reads a key from stdin. To supply a key from your environment instead, forward its variable by name: `OPENROUTER_API_KEY="$MY_KEY" npx elflodge stack start --env OPENROUTER_API_KEY`, where `MY_KEY` already holds the key, so it stays out of your shell history.
 - **Web access.** Jobs' agents read web pages and PDFs with pi-web-access. Web search is off, except through a ChatGPT subscription the model runs on. To let jobs search through a provider, name it and forward its key: `BRAVE_API_KEY="$MY_BRAVE_KEY" npx elflodge stack start --search brave --env BRAVE_API_KEY`. A forwarded key alone does not turn search on, and `--reset-search` goes back to the default. The Runner's README covers [extensions](../apps/runner/README.md#extensions).
 - **Status and logs.** `npx elflodge stack status` shows whether the stack is running, the hub's URL and health, the image versions in use and the Runner's authentication source. `npx elflodge stack logs` prints the logs; `--follow` keeps printing them. A job stays `queued` until a Runner has room for it, and the Runner's log shows any error that keeps it from connecting.
 - **Stopping.** `npx elflodge stack stop` keeps the containers, data and credentials for the next start. `npx elflodge stack delete` removes the database and Runner volumes, including saved logins, without a prompt.
@@ -63,7 +63,7 @@ The hub and a Runner from their published images on one machine, as a deployment
      export ELFLODGE_API_KEY
    ```
 
-3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`. In Bash or zsh, run `read -rs MY_KEY` on its own, paste the OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The command below saves it in the private `.env` so recreating the Runner keeps it:
+3. **Start a Runner** with the model every job runs on and its provider's key; it registers with the key step 2 put in `.env`. In Bash or zsh, run `read -rs MY_KEY` on its own, paste the OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The command below saves it in the private `.env` so recreating the Runner keeps it. An exported `OPENROUTER_API_KEY` takes precedence over `.env`, so unset it before running Compose, including for upgrades.
 
    ```sh
    (
@@ -176,7 +176,9 @@ Then set `HUB_URL=https://hub.example.com` in `.env` and run `docker compose up 
 
 ### Start a Runner on another machine
 
-A Runner needs the hub's URL and a registration key, such as the one step 2 of the Compose deployment puts in `.env`, and the other machine needs the same [host requirements](#host-requirements). In Bash or zsh on that machine, run `read -rs MY_KEY` on its own, paste your OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The following command saves it in the private `runner.env`.
+The new host needs the hub's URL and must meet the [host requirements](#host-requirements). Create a fresh registration key with **Add Runner** in the dashboard or the registration-key command in step 2 of the Compose deployment. That key expires after one day. Registered Runners keep using their own keys.
+
+In Bash or zsh on that machine, run `read -rs MY_KEY` on its own, paste your OpenRouter key, and press Enter. The shell hides the input and leaves it out of history. The following command saves it in the private `runner.env`.
 
 <!-- Keep the command in step with apps/dashboard/src/components/AddRunner.tsx. -->
 <!-- x-release-please-start-version -->
