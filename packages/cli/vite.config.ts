@@ -42,12 +42,8 @@ export default defineConfig({
     // import, which puts about 2.9 MB of Effect in the bundle that this CLI never runs.
     // TODO: remove the alias of cli-table before a command returns its result for trpc-cli to
     // print, as the fix of mmkal/trpc-cli#228 would let these commands do.
-    // Two more parts this CLI never uses stay in the bundle: all of Zod's locales, about 270 KB,
-    // which trpc-cli's import of Zod's core brings and the converters mmkal/trpc-cli#232 proposes
-    // would leave out, and json-rpc-2.0, about 30 KB, which the Runner protocol in `contract` uses.
-    // It is CommonJS without `"sideEffects": false`, so the bundle runs it although it leaves out
-    // the module that imports it; an entry of `contract`'s own for the Runner protocol would leave
-    // it out too.
+    // All of Zod's locales, about 270 KB, still enter through trpc-cli's import of Zod's core.
+    // The converters proposed in mmkal/trpc-cli#232 would leave them out.
     inputOptions: {
       resolve: {
         alias: {
