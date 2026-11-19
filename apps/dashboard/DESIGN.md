@@ -273,7 +273,7 @@ No page uses `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they
 
 ### Records table
 
-Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole and carries `data-l`, the name of its column. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
+Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole and carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
 
 ```tsx
 <table class="records" role="table">
@@ -303,7 +303,7 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 </table>
 ```
 
-At 640px and below a record is a block: its identifier on a line of its own, a 44px target, then each other value after its column's name, from `data-l`; the column heads are hidden. That layout drops a table's implicit roles, so the table states them.
+At 640px and below a record is a block: its identifier on a line of its own, then each other value after its column's name and unit, from `data-l`; the column heads are hidden but still read. That layout drops a table's implicit roles, so the table states them.
 
 ### Marks
 

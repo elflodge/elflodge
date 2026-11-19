@@ -557,20 +557,35 @@ thead .unit {
 /* ---------- Records table: records that each have a page, one ruled line each; a block each on a phone ----------
    The identifier column takes what the others leave and cuts its value; the others keep their values whole.
    At 640px and below a record is a block: the identifier on its own line, then each other value after its name
-   (data-l). The table carries explicit roles, since the block layout drops a table's implicit ones. */
+   and unit (data-l), the column heads hidden but read. The table carries explicit roles, since the block layout
+   drops a table's implicit ones. */
 .records td.is-id {
   width: 100%;
   max-width: 0;
 }
-.records td.is-id > .cut {
+/* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
+   It stays a block, so its value can be cut at its end, and is padded to the height. */
+.records td.is-id > a.cut {
   display: block;
+  padding-block: max(0px, (var(--target) - 1lh) / 2);
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .records td.is-id > a.cut {
+    padding-block: calc((var(--control-touch) - 1lh) / 2);
+  }
 }
 .records :is(th, td):not(.is-id) {
   white-space: nowrap;
 }
 @media (max-width: 640px) {
+  /* Hidden but read: each value is labelled by data-l, and the heads still name the columns. */
   .records thead {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .records,
   .records tbody {
@@ -593,10 +608,6 @@ thead .unit {
     flex: 0 0 100%;
     max-width: 100%;
     font-size: var(--text-sm);
-  }
-  /* The record's link is a target of its own, 44px tall. */
-  .records td.is-id > a.cut {
-    padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
   .records td[data-l]::before {
     content: attr(data-l) " ";
