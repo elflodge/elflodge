@@ -10,7 +10,7 @@ import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
+import { createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 
@@ -73,20 +73,12 @@ function OpenApiParagraph() {
 
 function ApiKeys() {
   const context = Route.useRouteContext();
-  let heading: HTMLHeadingElement | undefined;
   const [creating, setCreating] = createSignal(false);
 
   return (
     <>
       <div class="head">
-        <h1
-          tabindex="-1"
-          ref={(element) => {
-            heading = element;
-          }}
-        >
-          API keys
-        </h1>
+        <h1>API keys</h1>
         <Show when={context().managesKeys}>
           <div class="controls">
             <button type="button" class="primary" onClick={() => setCreating(true)}>
@@ -104,7 +96,7 @@ function ApiKeys() {
           </p>
         }
       >
-        <KeyList focusAfterRevoke={() => focusIfLost(heading)} />
+        <KeyList />
       </Show>
       <OpenApiParagraph />
       <Show when={context().managesKeys && creating()}>
@@ -114,37 +106,34 @@ function ApiKeys() {
   );
 }
 
-function KeyList(props: { focusAfterRevoke: () => void }) {
+function KeyList() {
   const queryClient = useQueryClient();
   const [actionFailure, setActionFailure] = createSignal<string>();
-  const [actionStatus, setActionStatus] = createSignal<string>();
+  const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
 
   async function revoke(key: ApiKey, label: string) {
     setActionFailure(undefined);
-    setActionStatus(undefined);
+    setRevoked(undefined);
     const queryKey = orpc.apiKeys.list.queryKey();
-    let notFound: string | undefined;
-    let refreshed: Promise<void>;
+    const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     try {
       await api.apiKeys.revoke({ id: key.id });
-      setActionStatus(`${label} is revoked.`);
-      // Show the outcome before the list starts its background read.
-      flush();
     } catch (error) {
-      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
-      notFound = hubFailureMessage(error);
-    } finally {
       // Even a refused revocation can mean the key is gone since the list was read.
-      refreshed = queryClient.invalidateQueries({ queryKey, exact: true });
-    }
-    if (notFound !== undefined) {
+      const refreshed = reread();
+      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
       await refreshed;
       const list = queryClient.getQueryState(queryKey);
       if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === key.id))
-        return notFound;
-      setActionStatus(`${label} is already gone.`);
-    } else void refreshed.then(props.focusAfterRevoke);
+        return hubFailureMessage(error);
+      setRevoked({ id: key.id, message: `${label} is already gone.` });
+      return undefined;
+    }
+    setRevoked({ id: key.id, message: `${label} is revoked.` });
+    // Render the outcome before starting a background read that may need to retry.
+    flush();
+    void reread();
     return undefined;
   }
 
@@ -153,10 +142,15 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
-      <Show when={actionStatus()} keyed>
-        {(message) => (
-          <Notice role="status" focusRef={(element) => onSettled(() => focusIfLost(element))}>
-            {message}
+      <Show when={revoked()} keyed>
+        {(revocation) => (
+          <Notice
+            role="status"
+            focusRef={(element) =>
+              focusAfterRowDrops(element, () => keys.data.some((key) => key.id === revocation.id))
+            }
+          >
+            {revocation.message}
           </Notice>
         )}
       </Show>

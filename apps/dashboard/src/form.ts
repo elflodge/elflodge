@@ -1,8 +1,15 @@
-import { action, createOptimistic } from "solid-js";
+import { action, createEffect, createOptimistic } from "solid-js";
 
 /** Restore keyboard focus only if the member has no focused control. */
 export function focusIfLost(target: HTMLElement | null | undefined) {
   if (!document.activeElement || document.activeElement === document.body) target?.focus();
+}
+
+/** Closing the dialog can return focus to its trigger until a later read drops the row. */
+export function focusAfterRowDrops(target: HTMLElement, isListed: () => boolean) {
+  createEffect(isListed, (listed) => {
+    if (!listed) focusIfLost(target);
+  });
 }
 
 /** Keep the form pending until its submission, including any navigation, settles. */
