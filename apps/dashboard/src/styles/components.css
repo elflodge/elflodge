@@ -1101,21 +1101,24 @@ p mark.placeholder {
   color: var(--c-unknown);
 }
 
-/* ---------- Filters: one form narrowing a list, behind its summary until a filter applies ---------- */
+/* ---------- Filters: one form, two rows at wide widths, behind a disclosure at narrow ones ---------- */
 .filters {
   margin-bottom: var(--space-3);
   border-bottom: var(--rule) solid var(--c-rule);
 }
-/* The summary keeps its disclosure mark, and is a control's height. */
-.filters > summary {
-  padding-block: calc((var(--control) - 1lh) / 2);
+.filter-toggle {
+  display: none;
 }
-.filters-form {
+
+.filters-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
-  padding: var(--space-1) 0 var(--space-3);
+  padding: var(--space-1) 0;
+}
+.filters-row + .filters-row {
+  padding-bottom: var(--space-2);
 }
 .filter-status {
   display: flex;
@@ -1123,11 +1126,10 @@ p mark.placeholder {
   align-items: center;
   gap: 0 var(--space-3);
 }
-.filter-status > legend {
+.filter-status legend {
   float: left;
   margin-right: var(--space-1);
-}
-.filter-status .mark {
+  font-size: var(--text-xs);
   color: var(--c-ink-2);
 }
 .filter-field {
@@ -1135,30 +1137,38 @@ p mark.placeholder {
   align-items: center;
   gap: var(--space-2);
 }
-.filter-status > legend,
-.filter-field > label {
+.filter-field > label,
+.filter-status legend {
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   color: var(--c-ink-2);
 }
 .filter-field > input {
-  width: 14rem;
+  width: 11rem;
 }
-.filter-field > select {
-  max-width: 16rem;
+.filter-field select {
+  max-width: 14rem;
 }
 .filter-act {
   display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  margin-left: auto;
 }
-@media (max-width: 640px), (pointer: coarse) {
-  .filters > summary {
-    padding-block: calc((var(--control-touch) - 1lh) / 2);
+
+.filter-status .mark {
+  color: var(--c-ink-2);
+}
+@media (max-width: 760px) {
+  .filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--control-touch);
   }
-}
-@media (max-width: 640px) {
-  .filters-form {
+  .filter-toggle[aria-expanded="false"] + form {
+    display: none;
+  }
+  .filters-row {
     flex-direction: column;
     align-items: stretch;
   }
@@ -1170,6 +1180,12 @@ p mark.placeholder {
   .filter-field > select {
     width: 100%;
     max-width: none;
+  }
+  .filter-act {
+    margin-left: 0;
+  }
+  .check {
+    min-height: var(--control-touch);
   }
 }
 

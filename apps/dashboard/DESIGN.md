@@ -421,7 +421,7 @@ A Runner named beside something else, such as a job's: its name as a `.cut`, and
 
 ### Filters
 
-The filters of a list are one form, `form.filters-form`, in `details.filters`, which is open while any filter applies; its summary says how many do. A choice of several values is a `fieldset.filter-status` of `label.check`s, each with its mark where the value has one; any other field is a `div.filter-field` holding its `label` and its control. `span.filter-act` holds the one button that applies them all, the page's primary action, and a link that clears them. The filters live in the address, so a link or a reload keeps them. At 640px and below the fields go one under another, full width.
+The filters live in the address. The first `div.filters-row` holds the six status checks and Status unknown. The second holds Batch, Runner, Apply and, when a filter applies, Clear. The actions sit at the end of the row. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and starts expanded when any apply. Fields stack at full width and each checkbox label is at least 44px tall.
 
 ### The end of a list
 

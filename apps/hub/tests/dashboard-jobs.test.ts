@@ -77,7 +77,6 @@ test("in a browser, filters held in the address narrow the list, and a reload ke
 
   const page = await newPage();
   await signInAt(system, page, "jobs", await newMember(system, "Filter Reader"));
-  await page.getByText("Filters").click();
   await page.getByRole("checkbox", { name: "Cancelled" }).check();
   await page.getByLabel("Batch").fill(batch.id);
   await page.getByRole("button", { name: "Apply" }).click();

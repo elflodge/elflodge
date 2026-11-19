@@ -3,7 +3,7 @@ import type { UseQueryResult } from "@tanstack/solid-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { jobStatusSchema } from "contract";
 import type { JobRunner, JobsPage, ListedJob, Runner } from "contract";
-import { Errored, For, Loading, Match, Show, Switch } from "solid-js";
+import { Errored, For, Loading, Match, Show, Switch, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
@@ -140,6 +140,8 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
   const navigate = useNavigate();
   const applied = () => filterCount(props.search);
 
+  const [open, setOpen] = createSignal(() => applied() > 0);
+
   function apply(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -174,74 +176,84 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
       : runner.name;
 
   return (
-    <details class="filters" open={applied() > 0}>
-      <summary>
+    <div class="filters">
+      <button
+        type="button"
+        class="filter-toggle"
+        aria-expanded={open() ? "true" : "false"}
+        aria-controls="jobs-filters"
+        onClick={() => setOpen(!open())}
+      >
         Filters
         <Show when={applied() > 0}> ({formatCount(applied())} applied)</Show>
-      </summary>
-      <form class="filters-form" aria-label="Filter the jobs" onSubmit={apply}>
-        <fieldset class="filter-status">
-          <legend>Status</legend>
-          <For each={STATUSES}>
-            {(status) => (
-              <label class="check">
-                <input
-                  type="checkbox"
-                  name="status"
-                  value={status}
-                  checked={props.search.status?.includes(status) ?? false}
-                />
-                <span class={["mark", `mark-${status}`]} aria-hidden="true" />
-                {STATUS_WORDS[status]}
-              </label>
-            )}
-          </For>
-        </fieldset>
-        <div class="filter-field">
-          <label for="jobs-status-unknown">Status unknown</label>
-          <select id="jobs-status-unknown" name="statusUnknown">
-            <option value="" selected={props.search.statusUnknown === undefined}>
-              Any
-            </option>
-            <option value="true" selected={props.search.statusUnknown === true}>
-              Only status unknown
-            </option>
-            <option value="false" selected={props.search.statusUnknown === false}>
-              Only status known
-            </option>
-          </select>
-        </div>
-        <div class="filter-field">
-          <label for="jobs-batch">Batch</label>
-          <input id="jobs-batch" name="batchId" value={props.search.batchId ?? ""} />
-        </div>
-        <div class="filter-field">
-          <label for="jobs-runner">Runner</label>
-          <select id="jobs-runner" name="runnerId">
-            <option value="" selected={props.search.runnerId === undefined}>
-              Any
-            </option>
-            <For each={choices()}>
-              {(runner) => (
-                <option value={runner.id} selected={props.search.runnerId === runner.id}>
-                  {runnerLabel(runner)}
-                </option>
+      </button>
+      <form id="jobs-filters" class="filters-form" aria-label="Filter the jobs" onSubmit={apply}>
+        <div class="filters-row">
+          <fieldset class="filter-status">
+            <legend>Status</legend>
+            <For each={STATUSES}>
+              {(status) => (
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    name="status"
+                    value={status}
+                    checked={props.search.status?.includes(status) ?? false}
+                  />
+                  <span class={["mark", `mark-${status}`]} aria-hidden="true" />
+                  {STATUS_WORDS[status]}
+                </label>
               )}
             </For>
-          </select>
+          </fieldset>
+          <div class="filter-field">
+            <label for="jobs-status-unknown">Status unknown</label>
+            <select id="jobs-status-unknown" name="statusUnknown">
+              <option value="" selected={props.search.statusUnknown === undefined}>
+                Any
+              </option>
+              <option value="true" selected={props.search.statusUnknown === true}>
+                Only status unknown
+              </option>
+              <option value="false" selected={props.search.statusUnknown === false}>
+                Only status known
+              </option>
+            </select>
+          </div>
         </div>
-        <span class="filter-act">
-          <button type="submit" class="primary">
-            Apply
-          </button>
-          <Show when={applied() > 0}>
-            <Link to="/jobs" search={{}} class="stands-alone">
-              Clear
-            </Link>
-          </Show>
-        </span>
+        <div class="filters-row">
+          <div class="filter-field">
+            <label for="jobs-batch">Batch</label>
+            <input id="jobs-batch" name="batchId" value={props.search.batchId ?? ""} />
+          </div>
+          <div class="filter-field">
+            <label for="jobs-runner">Runner</label>
+            <select id="jobs-runner" name="runnerId">
+              <option value="" selected={props.search.runnerId === undefined}>
+                Any
+              </option>
+              <For each={choices()}>
+                {(runner) => (
+                  <option value={runner.id} selected={props.search.runnerId === runner.id}>
+                    {runnerLabel(runner)}
+                  </option>
+                )}
+              </For>
+            </select>
+          </div>
+          <span class="filter-act">
+            <button type="submit" class="primary">
+              Apply
+            </button>
+            <Show when={applied() > 0}>
+              <Link to="/jobs" search={{}} class="stands-alone">
+                Clear
+              </Link>
+            </Show>
+          </span>
+        </div>
       </form>
-    </details>
+    </div>
   );
 }
 
