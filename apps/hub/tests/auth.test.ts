@@ -94,6 +94,19 @@ test("a member removed from the Organization is refused, though their session la
   });
 });
 
+test("key management refusals tell a member which permission their role needs", async () => {
+  const { client: member } = await system.addMember({
+    email: "member@example.com",
+    name: "Member",
+  });
+  await expect(member.apiKeys.list()).rejects.toMatchObject({
+    cause: { status: 403, detail: "This call requires read permission on apiKey." },
+  });
+  await expect(member.runners.delete({ id: crypto.randomUUID() })).rejects.toMatchObject({
+    cause: { status: 403, detail: "This call requires delete permission on apiKey." },
+  });
+});
+
 test("a member creates and lists keys, and a revoked key is refused at once", async () => {
   const owner = system.owner();
   const { id, key } = await owner.apiKeys.create({

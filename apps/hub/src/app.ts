@@ -34,7 +34,7 @@ import {
 import { except } from "hono/combine";
 import { csrf } from "hono/csrf";
 
-import { listApiKeys } from "./api-keys.ts";
+import { listServiceKeys } from "./api-keys.ts";
 import {
   Auth,
   authenticate,
@@ -223,7 +223,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       }),
       list: os.apiKeys.list.effect(function* ({ context }) {
         const { organization, role } = yield* callerMember(context.caller);
-        return yield* listApiKeys(organization.id, role);
+        return yield* listServiceKeys(organization.id, role);
       }),
       revoke: os.apiKeys.revoke.effect(function* ({ input, context }) {
         const auth = yield* Auth;

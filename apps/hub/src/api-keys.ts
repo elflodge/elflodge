@@ -7,13 +7,16 @@ import { API_KEY_CONFIG } from "./auth/options.ts";
 import { Db } from "./db/database.ts";
 import type { OrganizationId } from "./db/types.ts";
 
-export function listApiKeys(organizationId: OrganizationId, role: string) {
+/** Lists the Organization's unexpired API keys. A member whose role lacks apiKey:read gets a 403. */
+export function listServiceKeys(organizationId: OrganizationId, role: string) {
   return Effect.gen(function* () {
     yield* requireRolePermission(role, { apiKey: ["read"] });
     const database = yield* Db;
     return yield* database.query(async (db): Promise<ApiKey[]> => {
-      // Better Auth's listApiKeys reads at most 100 Organization keys before filtering, so paging
-      // cannot reach the rest. Use it again when it filters and pages in the database query.
+      // Better Auth's listApiKeys reads at most the adapter's default 100 Organization keys,
+      // Runner keys included, before filtering by configuration. Keys beyond those rows go missing.
+      // Use it again when it filters by configuration and pages in the query, provided it or the
+      // hub excludes expired keys so the list is the same before and after Better Auth's sweep.
       // The hub never disables a key, so this read needs no enabled filter.
       const keys = await db
         .selectFrom("apikey")
@@ -24,7 +27,7 @@ export function listApiKeys(organizationId: OrganizationId, role: string) {
         .execute();
       return keys.map((key) => ({
         ...key,
-        permissions: key.permissions ? safeJSONParse<ApiKey["permissions"]>(key.permissions) : null,
+        permissions: safeJSONParse<ApiKey["permissions"]>(key.permissions),
       }));
     });
   });

@@ -644,9 +644,10 @@ export const ControlRefused = error("CONFLICT");
 export const IdReused = error("UNPROCESSABLE_CONTENT");
 
 // Calls a member's role does not allow fail with `FORBIDDEN`, and invalid ones with `BAD_REQUEST`.
-// Where Better Auth decides, the hub passes its `FORBIDDEN` through; removing a Runner and reading
-// usage raise `Forbidden` themselves. The hub raises `BAD_REQUEST` itself only for what the
-// contract's schemas cannot check, such as an Output contract's schema.
+// Better Auth checks the member's role when creating or revoking API keys and the hub passes its
+// refusal through. The hub checks the role itself when listing API keys, removing a Runner or
+// reading usage. It raises `BAD_REQUEST` for what the contract's schemas cannot check, such as an
+// Output contract's schema.
 
 /**
  * The most bytes a request's body may hold, other than an upload's, which may hold a file
@@ -799,7 +800,8 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         openapi({
           method: "GET",
           path: "/api-keys",
-          description: "Lists all of the Organization's unexpired service keys.",
+          description:
+            "Lists all of the Organization's unexpired API keys. Only owners and admins may list them. Other members are refused with 403.",
         }),
         ...byMember,
       )
