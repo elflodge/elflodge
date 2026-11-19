@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, flush } from "solid-js";
 
 import { attemptAuth, authClient } from "../../auth-client.ts";
 import { FieldError } from "../../components/FieldError.tsx";
@@ -51,6 +51,9 @@ function ChangePassword() {
     if (failure?.code === INVALID_PASSWORD) {
       setResult(undefined);
       setCurrentRefused(true);
+      // Solid applies writes in a batch after this handler; flush applies them now, so the field
+      // has its error and description when the focus lands and a screen reader says them.
+      flush();
       currentPassword?.focus();
       return;
     }

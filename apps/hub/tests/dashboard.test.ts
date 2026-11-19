@@ -276,6 +276,8 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   expect(await page.locator(`#${describedBy}`).innerText()).toBe(
     "That is not your current password.",
   );
+  // The focus is on the field to correct, which already says why.
+  expect(await current.evaluate((input) => input.matches(":focus"))).toBe(true);
 
   await current.fill(OWNER.password);
   await page.getByLabel("New password", { exact: true }).fill(password);
