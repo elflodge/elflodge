@@ -10,8 +10,8 @@ import * as z from "zod/mini";
 z.config(en());
 
 /**
- * The permissions a call can require of an API key, by resource: `register` for the shared key
- * Runners start with, `actAs` for a Runner's own key, acting as that Runner over the socket and its
+ * The permissions a call can require of an API key, by resource: `register` for a registration key
+ * a Runner starts with, `actAs` for a Runner's own key, acting as that Runner over the socket and its
  * HTTP calls, `read` for the Runner listing, and the job calls. The hub's access control holds them
  * among its statements.
  */

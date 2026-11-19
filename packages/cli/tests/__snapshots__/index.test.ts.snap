@@ -597,7 +597,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Reads a job's events in the requested order. For example, if \`?order=desc&limit=2\` returns IDs 98 and 93, use \`?order=desc&after=93\` for older events and \`?after=98\` to follow new ones. Follow from 0 if the first page was empty. When following, read again at once while \`hasMore\` is true, or after a few seconds otherwise. Stop when an ascending page has a final \`status\` and \`hasMore\` is false. A page holds at most \`limit\` events and stops at about 1 MiB, always returning one eligible event if any exist. \`hasMore\` means more are already stored in that order. The job's status is read with the page.",
+          "description": "Reads a job's events, oldest first unless \`order\` is desc. With \`order\` desc and \`limit\` 2 returning IDs 98 and 93, pass \`after\` 93 in the same order for older events, and \`after\` 98 in ascending order to follow new ones, or \`after\` 0 if the first page was empty. \`hasMore\` says whether more events are stored in that order, and \`status\` is the job's status when the page was read. When following, read again at once while \`hasMore\` is true, or after a few seconds otherwise, and stop when an ascending page has a final \`status\` and \`hasMore\` is false. A page stops at about 1 MiB, but always holds one event if any are past the cursor.",
           "name": "events",
           "options": [
             {

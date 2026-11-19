@@ -63,7 +63,9 @@ test("revoking the last API key returns focus to the page and stops calls with t
     .click();
   await row.waitFor({ state: "detached" });
   await page.getByRole("heading", { name: "No API keys" }).waitFor();
-  await expectBrowser(page.getByRole("heading", { name: "API keys", exact: true })).toBeFocused();
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: /^old script .* is revoked\.$/ }),
+  ).toBeFocused();
   await expect(system.client({ "x-api-key": key }).jobs.counts({})).rejects.toThrow();
 }, 30_000);
 
@@ -86,13 +88,23 @@ test("dismissing a pending revocation still announces a refusal on the page", as
     await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
     await page.keyboard.press("Escape");
     await expectBrowser(dialog).toHaveCount(0);
-    await system.owner().apiKeys.revoke({ id });
+    const signedOut = await page.evaluate(
+      async () =>
+        (
+          await fetch("/api/auth/sign-out", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          })
+        ).ok,
+    );
+    expect(signedOut).toBe(true);
   } finally {
     release.resolve();
   }
-  await expectBrowser(page.getByRole("alert")).toHaveText(
-    /Revoke scheduled job .*: API Key not found/i,
-  );
+  await expectBrowser(
+    page.getByRole("alert").filter({ hasText: /Revoke scheduled job/ }),
+  ).toHaveText(/Revoke scheduled job .*: Unauthorized/);
 }, 30_000);
 
 test("in a browser, the Runners page lists a registered Runner by its name and short ID", async () => {
@@ -156,6 +168,26 @@ test("in a browser, removing a Runner takes it off the list", async () => {
   expect(await system.findRunner(id)).toBeUndefined();
 }, 30_000);
 
+test("removing an already removed Runner closes the dialog and explains its absence", async () => {
+  const id = await registerRunner("former-host");
+  const page = await signedInAt("runners");
+  const record = runnerRecord(page, "former-host");
+  const remove = { name: `Remove former-host ${id.slice(0, 8)}` };
+  await record.getByRole("button", remove).click();
+  const dialog = page.getByRole("dialog");
+  // Another member removes the Runner before the hub receives this member's confirmation.
+  await page.route(`**/runners/${id}`, async (route) => {
+    await system.owner().runners.delete({ id });
+    await route.continue();
+  });
+  await dialog.getByRole("button", remove).click();
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(record).toHaveCount(0);
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is already gone" })).toHaveText(
+    `former-host ${id.slice(0, 8)} is already gone.`,
+  );
+}, 30_000);
+
 test("in a browser, a new API key is shown once", async () => {
   const page = await signedInAt("api-keys");
   await page.getByRole("button", { name: "Create key" }).click();
@@ -188,6 +220,37 @@ test("in a browser, a new API key is shown once", async () => {
   await page.reload();
   await row.waitFor();
   expect(await page.content()).not.toContain(key);
+}, 30_000);
+
+test("a member can correct a refused key name and keep the permissions they chose", async () => {
+  const page = await signedInAt("api-keys");
+  await page.getByRole("button", { name: "Create key" }).click();
+  const dialog = page.getByRole("dialog");
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  let createRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api-keys")
+      createRequests++;
+  });
+  const corrected = "Monthly operations reporting key";
+  const submitted = `${corrected} archive`;
+  await name.fill(submitted);
+  await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
+  const create = dialog.getByRole("button", { name: "Create key" });
+  await create.click();
+  await expectBrowser(name).toHaveJSProperty(
+    "validationMessage",
+    "Use a name of 32 characters or fewer. This one has 40.",
+  );
+  await expectBrowser(name).toBeFocused();
+  await expectBrowser(name).toHaveValue(submitted);
+
+  expect(createRequests).toBe(0);
+
+  await name.fill(corrected);
+  await create.click();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(`The new key, ${corrected}`);
+  expect(createRequests).toBe(1);
 }, 30_000);
 
 test("in a browser, a plain member gets no owner's actions on Runners and API keys", async () => {

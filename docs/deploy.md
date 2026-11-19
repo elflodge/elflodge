@@ -48,14 +48,14 @@ The hub and a Runner from their published images on one machine, as a deployment
 
    <!-- x-release-please-end -->
 
-2. **Create keys.** Creating API keys takes a signed-in member, and the command cannot sign in yet, so this step uses `curl`. Each key comes back once, as `key`: the one Runners register with goes into `.env`, and the one for jobs into `ELFLODGE_API_KEY`.
+2. **Create keys.** Creating API keys takes a signed-in member, and the command cannot sign in yet, so this step uses `curl`. Each key comes back once, as `key`. The Compose Runner's registration key does not expire because it stays in the private `.env` beside the hub's secrets and the Runner needs it again if it loses its volume. The jobs key goes into `ELFLODGE_API_KEY`. For another machine, create a one-day key with **Add Runner** in the dashboard.
 
    ```sh
    curl -sS --fail-with-body -c cookies -H 'content-type: application/json' \
      -d '{"email":"you@example.com","password":"choose-a-password"}' "$HUB/api/auth/sign-in/email"
-   # The key Runners register with, kept in .env for the Runner
+   # The registration key for this host's Compose Runner
    key=$(curl -sS --fail-with-body -b cookies -H 'content-type: application/json' \
-     -d '{"name":"runners","expiresIn":86400,"permissions":{"runner":["register"]}}' "$HUB/api-keys" | jq -er .key) &&
+     -d '{"name":"runners","permissions":{"runner":["register"]}}' "$HUB/api-keys" | jq -er .key) &&
      printf 'RUNNER_REGISTRATION_KEY=%s\n' "$key" >> .env
    # A key for submitting and controlling jobs, for the command
    ELFLODGE_API_KEY=$(curl -sS --fail-with-body -b cookies -H 'content-type: application/json' \
@@ -216,5 +216,5 @@ The hub lists the Runner under its host's name, which `--hostname` gives the con
 The hub serves an OpenAPI document of its public calls at `/spec.json`, generated from the contract. Anyone can read it. `GET /setup` needs no credential. `POST /setup` takes the token from the setup link. Other calls take an API key in the `x-api-key` header with the listed permissions, a member's session cookie, or either. Errors are RFC 9457 Problem Details.
 
 - **Waiting for a job:** read it until its status is final, waiting longer between reads, as `elflodge jobs wait` does.
-- **Reading events.** Open recent history with `order=desc`, then pass `order=desc&after=<oldest ID shown>` until `hasMore` is false. New events can arrive while you walk back. To follow them, read forward from the newest ID seen, or from 0 if the first page was empty. The CLI call is `elflodge jobs events --id <id> --after <newest event id>`. Advance the cursor after each nonempty page. Read again at once while `hasMore` is true, or after a few seconds otherwise. Stop following when an ascending page has both a final `status` and `hasMore: false`.
+- **Reading events:** Open recent history with `order=desc`, then pass `order=desc&after=<oldest ID shown>` until `hasMore` is false. New events can arrive while you walk back. To follow them, read forward from the newest ID seen, or from 0 if the first page was empty. The CLI call is `elflodge jobs events --id <id> --after <newest event id>`. Advance the cursor after each nonempty page. Read again at once while `hasMore` is true, or after a few seconds otherwise. Stop following when an ascending page has both a final `status` and `hasMore: false`.
 - **Controls:** jobs and Batches can be paused, resumed (carrying on where they stopped) and cancelled, and jobs deleted once they have ended. The OpenAPI document describes when each control applies. A refused control says why.

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
-import type { Runner, RunnerCapabilities } from "contract";
-import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
+import { type Runner, type RunnerCapabilities, problemOf } from "contract";
+import { For, Show, createMemo, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
@@ -10,6 +10,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
+import { focusAfterRowDrops } from "../../../form.ts";
 import {
   DATE_TIME_SECONDS,
   TIME_SECONDS,
@@ -18,7 +19,7 @@ import {
   plural,
   timeZoneNote,
 } from "../../../format.ts";
-import { orpc } from "../../../query.ts";
+import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 const CONNECTION_NOTE =
@@ -39,9 +40,11 @@ export const Route = createFileRoute("/_signed-in/_member/runners")({
 function Runners() {
   const context = Route.useRouteContext();
   const queryClient = useQueryClient();
-  const runners = useQuery(() => orpc.runners.list.queryOptions());
+  const runners = useQuery(() =>
+    orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
+  );
   const [actionFailure, setActionFailure] = createSignal<string>();
-  const [removed, setRemoved] = createSignal<string>();
+  const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
   const ids = createMemo(() => shortIds(runners.data.map((runner) => runner.id)));
   const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
@@ -52,18 +55,32 @@ function Runners() {
 
   async function remove(runner: Runner, label: string) {
     setActionFailure(undefined);
+    const queryKey = orpc.runners.list.queryKey();
+    const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
+    let removal;
     try {
-      const { endedJobs, jobsWithFilesLeft } = await api.runners.delete({ id: runner.id });
-      setRemoved(removalSummary(label, endedJobs.length, jobsWithFilesLeft.length));
-      // The Runner is gone from the list and the strip, and the jobs it ended from every read of jobs.
-      void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
-      void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
-      return undefined;
+      removal = await api.runners.delete({ id: runner.id });
     } catch (error) {
-      // A refusal can mean the Runner is already gone, so read the list again.
-      void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
-      return hubFailureMessage(error);
+      // Even a refused removal can mean the Runner is gone since the list was read.
+      const refreshed = reread();
+      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
+      await refreshed;
+      const list = queryClient.getQueryState(queryKey);
+      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === runner.id))
+        return hubFailureMessage(error);
+      setRemoved({ id: runner.id, message: `${label} is already gone.` });
+      return undefined;
     }
+    setRemoved({
+      id: runner.id,
+      message: removalSummary(label, removal.endedJobs.length, removal.jobsWithFilesLeft.length),
+    });
+    // Render the outcome before starting a background read that may need to retry.
+    flush();
+    void reread();
+    // Jobs ended by the removal are stale wherever they are shown.
+    void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
+    return undefined;
   }
 
   return (
@@ -82,14 +99,12 @@ function Runners() {
         </p>
       </Show>
       <Show when={removed()} keyed>
-        {(message) => (
+        {(removal) => (
           <Notice
             role="status"
-            focusRef={(element) => {
-              onSettled(() => element.focus());
-            }}
+            focusRef={(element) => focusAfterRowDrops(element, () => ids().has(removal.id))}
           >
-            {message}
+            {removal.message}
           </Notice>
         )}
       </Show>

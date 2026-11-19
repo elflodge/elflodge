@@ -5,6 +5,10 @@ import { problemOf } from "contract";
 
 import { api } from "./api-client.ts";
 
+// Bull Board polls its queue counts and jobs at this interval while the dashboard is open.
+// https://github.com/felixmosh/bull-board/blob/4d98710f7e8bee0cfcd5a158caadf9fd109b4cb1/website/docs/recipes/change-polling-interval.md
+export const REFRESH_INTERVAL_MS = 5_000;
+
 /**
  * Query keys and options for every call of the hub's API, built from the contract, such as
  * `orpc.jobs.counts.queryOptions({ input: {} })`, or `orpc.jobs.key()` for every read of jobs.

@@ -2,7 +2,7 @@ import { apiKey } from "@better-auth/api-key";
 import type { BetterAuthOptions } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
-import { GRANTABLE_KEY_PERMISSIONS } from "contract";
+import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
@@ -166,6 +166,7 @@ export function authOptions(settings: AuthSettings) {
       apiKey([
         {
           configId: API_KEY_CONFIG,
+          maximumNameLength: MAX_API_KEY_NAME_LENGTH,
           references: "organization",
           // API rate limits are a separate concern; per-key limits would add a write to every request.
           rateLimit: { enabled: false },

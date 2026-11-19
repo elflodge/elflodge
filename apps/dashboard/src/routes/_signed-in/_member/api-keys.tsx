@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
-import { GRANTABLE_KEY_PERMISSIONS } from "contract";
-import { For, Loading, Show, createSignal, onSettled } from "solid-js";
+import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
+import { For, Show, createSignal, flush, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
@@ -10,8 +10,8 @@ import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
-import { timeZoneNote } from "../../../format.ts";
+import { createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
+import { formatCount, timeZoneNote } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/api-keys")({
@@ -34,14 +34,22 @@ export const Route = createFileRoute("/_signed-in/_member/api-keys")({
  * and listing Runners, and every job call. Only the Runner's own key, created by the hub when it
  * registers, holds `runner: actAs`.
  */
-const GRANTABLE = [
-  { resource: "job", legend: "Jobs", actions: GRANTABLE_KEY_PERMISSIONS.job },
-  { resource: "runner", legend: "Runners", actions: GRANTABLE_KEY_PERMISSIONS.runner },
-] as const;
+const GRANTABLE = Object.entries({
+  job: { legend: "Jobs", actions: GRANTABLE_KEY_PERMISSIONS.job },
+  runner: { legend: "Runners", actions: GRANTABLE_KEY_PERMISSIONS.runner },
+} satisfies {
+  [R in keyof typeof GRANTABLE_KEY_PERMISSIONS]: {
+    legend: string;
+    actions: (typeof GRANTABLE_KEY_PERMISSIONS)[R];
+  };
+});
 
 /**
  * Submitters and Runners can run unattended until their service key is revoked. The API, CLI
  * and form default to no expiry, as Cloudflare's account API tokens do without an end date.
+ * GitHub offers 7, 30, 60 and 90 days for personal access tokens. Our presets reach both hub bounds.
+ * We leave out 60: each preset is several times the one before, and 60 would sit between 30 and
+ * 90, where either neighbour serves.
  * The hub leaves keyExpiration unset: @better-auth/api-key (dist/index.mjs) allows 1 to 365 days.
  * https://developers.cloudflare.com/fundamentals/api/how-to/restrict-tokens/#time-to-live-ttl-constraints
  */
@@ -65,20 +73,12 @@ function OpenApiParagraph() {
 
 function ApiKeys() {
   const context = Route.useRouteContext();
-  let heading: HTMLHeadingElement | undefined;
   const [creating, setCreating] = createSignal(false);
 
   return (
-    <Loading fallback={null}>
+    <>
       <div class="head">
-        <h1
-          tabindex="-1"
-          ref={(element) => {
-            heading = element;
-          }}
-        >
-          API keys
-        </h1>
+        <h1>API keys</h1>
         <Show when={context().managesKeys}>
           <div class="controls">
             <button type="button" class="primary" onClick={() => setCreating(true)}>
@@ -96,40 +96,63 @@ function ApiKeys() {
           </p>
         }
       >
-        <KeyList focusAfterRevoke={() => focusIfLost(heading)} />
+        <KeyList />
       </Show>
       <OpenApiParagraph />
       <Show when={context().managesKeys && creating()}>
         <CreateKey onClose={() => setCreating(false)} />
       </Show>
-    </Loading>
+    </>
   );
 }
 
-function KeyList(props: { focusAfterRevoke: () => void }) {
+function KeyList() {
   const queryClient = useQueryClient();
   const [actionFailure, setActionFailure] = createSignal<string>();
+  const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
 
-  async function revoke(key: ApiKey) {
+  async function revoke(key: ApiKey, label: string) {
     setActionFailure(undefined);
+    setRevoked(undefined);
+    const queryKey = orpc.apiKeys.list.queryKey();
+    const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     try {
       await api.apiKeys.revoke({ id: key.id });
-      void queryClient
-        .invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
-        .then(props.focusAfterRevoke);
-      return undefined;
     } catch (error) {
-      // A refusal can mean the key is already gone, so read the list again.
-      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
-      return hubFailureMessage(error);
+      // Even a refused revocation can mean the key is gone since the list was read.
+      const refreshed = reread();
+      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
+      await refreshed;
+      const list = queryClient.getQueryState(queryKey);
+      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === key.id))
+        return hubFailureMessage(error);
+      setRevoked({ id: key.id, message: `${label} is already gone.` });
+      return undefined;
     }
+    setRevoked({ id: key.id, message: `${label} is revoked.` });
+    // Render the outcome before starting a background read that may need to retry.
+    flush();
+    void reread();
+    return undefined;
   }
 
   return (
     <>
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
+      </Show>
+      <Show when={revoked()} keyed>
+        {(revocation) => (
+          <Notice
+            role="status"
+            focusRef={(element) =>
+              focusAfterRowDrops(element, () => keys.data.some((key) => key.id === revocation.id))
+            }
+          >
+            {revocation.message}
+          </Notice>
+        )}
       </Show>
       <Show when={actionFailure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
@@ -179,9 +202,9 @@ function CreateKey(props: { onClose: () => void }) {
   async function create(element: HTMLFormElement) {
     const form = new FormData(element);
     const permissions = Object.fromEntries(
-      GRANTABLE.map(
-        ({ resource }) => [resource, form.getAll(resource).map(String)] as const,
-      ).filter(([, actions]) => actions.length > 0),
+      GRANTABLE.map(([resource]) => [resource, form.getAll(resource).map(String)] as const).filter(
+        ([, actions]) => actions.length > 0,
+      ),
     );
     setFailure(undefined);
     const name = fieldText(form, "name");
@@ -219,16 +242,21 @@ function CreateKey(props: { onClose: () => void }) {
             <div class="dialog-b">
               <div class="field">
                 <label for="key-name">Name</label>
-                {/* Better Auth defaults maximumNameLength to 32 for API keys. */}
                 <input
                   id="key-name"
                   name="name"
                   autocomplete="off"
-                  maxlength={32}
                   aria-describedby="key-name-hint"
+                  onInput={({ currentTarget }) =>
+                    currentTarget.setCustomValidity(
+                      currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
+                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
+                        : "",
+                    )
+                  }
                 />
                 <p class="note" id="key-name-hint">
-                  Optional, up to 32 characters.
+                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters.
                 </p>
               </div>
               <fieldset
@@ -244,13 +272,13 @@ function CreateKey(props: { onClose: () => void }) {
                   Choose at least one action.
                 </p>
                 <For each={GRANTABLE}>
-                  {(group) => (
+                  {([resource, group]) => (
                     <fieldset class="check-group">
                       <legend>{group.legend}</legend>
                       <For each={group.actions}>
                         {(action) => (
                           <label class="check">
-                            <input type="checkbox" name={group.resource} value={action} />
+                            <input type="checkbox" name={resource} value={action} />
                             <span class="mono">{action}</span>
                           </label>
                         )}
@@ -317,7 +345,7 @@ function CreateKey(props: { onClose: () => void }) {
 function KeyTable(props: {
   reportPageFailure: (message: string) => void;
   keys: ApiKey[];
-  revoke: (key: ApiKey) => Promise<string | undefined>;
+  revoke: (key: ApiKey, label: string) => Promise<string | undefined>;
 }) {
   return (
     <table class="records is-narrow" role="table">
@@ -380,7 +408,7 @@ function KeyTable(props: {
                       </>
                     }
                     confirm={`Revoke ${label()}`}
-                    act={() => props.revoke(key())}
+                    act={() => props.revoke(key(), label())}
                   >
                     <p>
                       Calls made with it are refused from now on. Final: a revoked key cannot be

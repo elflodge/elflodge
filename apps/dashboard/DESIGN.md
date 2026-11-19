@@ -114,7 +114,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 
 The strip is part of the shell: it is on every page inside it, an account page such as Change password included, so a page begins at the same height everywhere.
 
-Under the bar, for a member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again at the strip's `REFRESH` interval while the page is visible.
+Under the bar, for a member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again at the shared `REFRESH_INTERVAL_MS` interval in `src/query.ts` while the page is visible.
 
 ```tsx
 <section class="hubstrip" aria-label="The hub now">
@@ -259,7 +259,7 @@ which draws `p.field-error`: the error mark and the words, small, in the failed 
 
 Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
 
-Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. The API-key name displays its 32-character limit and sets `maxlength` to match. Elsewhere a longest length is the hub's to refuse, since `maxlength` cuts what is typed or pasted. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
+Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength` because it cuts what is typed or pasted. A limit the contract states may be checked at submit with native validation, and a limit it does not state is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
 
@@ -389,7 +389,7 @@ What a person copies to run elsewhere, such as the command that starts a Runner,
 
 ### Runner record
 
-The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another.
+The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another. While visible, the page reads the list again at the hub strip's `REFRESH_INTERVAL_MS` interval from `src/query.ts`.
 
 A direct visit stays blank until the first Runners read finishes because the router awaits the loader before mounting the shell. On navigation from another dashboard page, a slow first read shows three placeholder records in `ul.runners[aria-busy="true"]`, with a hidden status reading "Loading Runners". The records are hidden from assistive technology. Each `span.sk` is a line on `--c-skeleton`; `.is-title` and `.is-short` stand in for the name and connection, and `.is-part` for a shorter fact.
 

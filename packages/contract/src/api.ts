@@ -63,6 +63,8 @@ export type Runner = z.infer<typeof runnerSchema>;
 /** What an API key may do, as `{ resource: actions }`, for example `{ apiKey: ["create"] }`. */
 const permissionsSchema = z.record(z.string(), z.array(z.string()));
 
+export const MAX_API_KEY_NAME_LENGTH = 32;
+
 /** An API key as the hub lists it; the key itself is shown only once, when it is created. */
 export const apiKeySchema = z
   .object({
@@ -773,7 +775,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "DELETE",
           path: "/runners/{id}",
           description:
-            "Removes a Runner, for a host that is retired or compromised: its own key stops working and its connection is dropped at once. A compromised host also holds the shared key Runners register with, so revoke that too and create a new one for future hosts; Runners already registered keep working with their own keys. Nothing the host holds can be run, resumed or removed through the hub again, so the jobs the Runner held that had not ended end: `cancelled` where a cancel was waiting, otherwise `failed` with reason `runnerRemoved`. They may still run on the host unseen. The answer lists the jobs it ended, and every job whose files the host may still hold, which whoever looks after the host can remove.",
+            "Removes a Runner, for a host that is retired or compromised: its own key stops working and its connection is dropped at once. Revoke any still-valid registration key a compromised host holds so it cannot register again. Registered Runners keep working with their own keys. Nothing the host holds can be run, resumed or removed through the hub again, so the jobs the Runner held that had not ended end: `cancelled` where a cancel was waiting, otherwise `failed` with reason `runnerRemoved`. They may still run on the host unseen. The answer lists the jobs it ended, and every job whose files the host may still hold, which whoever looks after the host can remove.",
         }),
         ...byMember,
       )
@@ -796,7 +798,16 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       .meta(openapi({ method: "POST", path: "/api-keys" }), ...byMember)
       .input(
         z.strictObject({
-          name: z.string(),
+          // Better Auth and the form count UTF-16 code units, while Zod's maxLength and JSON Schema
+          // count code points. maxLength puts the limit in the document, the length check refuses
+          // what the hub would, and abort keeps a long plain name to one refusal.
+          name: z
+            .string()
+            .check(
+              z.maxLength(MAX_API_KEY_NAME_LENGTH, { abort: true }),
+              z.property("length", z.number().check(z.lte(MAX_API_KEY_NAME_LENGTH))),
+              z.describe(`At most ${MAX_API_KEY_NAME_LENGTH} UTF-16 code units.`),
+            ),
           permissions: permissionsSchema,
           expiresIn: z.optional(
             z
@@ -1100,7 +1111,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/jobs/{id}/events",
           description:
-            "Reads a job's events in the requested order. For example, if `?order=desc&limit=2` returns IDs 98 and 93, use `?order=desc&after=93` for older events and `?after=98` to follow new ones. Follow from 0 if the first page was empty. When following, read again at once while `hasMore` is true, or after a few seconds otherwise. Stop when an ascending page has a final `status` and `hasMore` is false. A page holds at most `limit` events and stops at about 1 MiB, always returning one eligible event if any exist. `hasMore` means more are already stored in that order. The job's status is read with the page.",
+            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. `hasMore` says whether more events are stored in that order, and `status` is the job's status when the page was read. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `status` and `hasMore` is false. A page stops at about 1 MiB, but always holds one event if any are past the cursor.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
