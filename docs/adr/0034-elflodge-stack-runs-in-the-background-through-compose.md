@@ -1,21 +1,22 @@
 # `elflodge stack` runs in the background through Docker Compose
 
-`elflodge stack` runs a hub, a Runner and the hub's Postgres on this machine from the images released with the same version of the CLI (ADR 0032). It serves both first tries and daily use: users can be done with their terminal before their jobs finish. The other namespaces, such as `jobs` and `batches`, act on the selected hub; `stack` always manages this machine's deployment.
+`elflodge stack` runs a hub, a Runner and the hub's Postgres on this machine from the images released with the same version of the CLI (ADR 0032). It serves both first tries and daily use: users can be done with their terminal before their jobs finish. At startup it prints the local dashboard URL, the owner's email and how to retrieve the initial password. The other namespaces, such as `jobs` and `batches`, act on the selected hub; `stack` always manages this machine's deployment.
 
 The command writes a Compose file following the repository's `compose.yaml`, with its saved settings in place of `.env`, its own project name, `elflodge-stack`, and the hub published on `127.0.0.1` only. All three containers use `restart: unless-stopped`, so Docker brings them back after a restart unless the user stopped them. `start` runs `docker compose up -d --wait`, first for the hub so it can create the initial keys, then for the Runner. Before creating or replacing a Runner, or restarting one with no forwarded variables, it checks model authentication in a temporary Runner container. It returns with the hub healthy and the Runner initialized and synced with it, and prints the hub URL. Repeating it leaves an unchanged, healthy stack running. A proper-lockfile lock covers each mutating command (`start`, `stop`, `delete`, `login`, `logout`), never the lifetime of the deployment.
 
-| Command        | Effect                                                                                                                                 |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `stack start`  | Starts in the background and waits for the hub and Runner startup; keeps existing data.                                                |
-| `stack stop`   | Runs `compose stop`; keeps containers, volumes and credentials.                                                                        |
-| `stack delete` | Runs `compose down --remove-orphans --volumes`; removes the database and Runner data and the saved credentials file, without a prompt. |
-| `stack status` | Shows Compose's container state, health and image versions, the saved hub URL and available authentication-source information.         |
-| `stack logs`   | Prints Compose's logs; `--follow` keeps following them.                                                                                |
-| `stack login`  | Saves a provider API key or account sign-in in the Runner's volume.                                                                    |
-| `stack logout` | Removes the selected provider's saved credential.                                                                                      |
-| `stack env`    | Prints the saved hub URL and jobs API key as shell exports.                                                                            |
+| Command                  | Effect                                                                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `stack start`            | Starts in the background and waits for the hub and Runner startup; keeps existing data.                                                |
+| `stack stop`             | Runs `compose stop`; keeps containers, volumes and credentials.                                                                        |
+| `stack delete`           | Runs `compose down --remove-orphans --volumes`; removes the database and Runner data and the saved credentials file, without a prompt. |
+| `stack status`           | Shows Compose's container state, health and image versions, the saved hub URL and available authentication-source information.         |
+| `stack logs`             | Prints Compose's logs; `--follow` keeps following them.                                                                                |
+| `stack login`            | Saves a provider API key or account sign-in in the Runner's volume.                                                                    |
+| `stack logout`           | Removes the selected provider's saved credential.                                                                                      |
+| `stack initial-password` | Prints the initial password for the dashboard owner.                                                                                   |
+| `stack env`              | Prints the saved hub URL and jobs API key as shell exports.                                                                            |
 
-What a start creates is kept for the next: the database and the Runner's data, which holds its registration and provider credentials, in the project's volumes; the secrets the database and hub were created with, the owner's password and the keys made on the hub, in one file readable only by the user, in their data folder, never the working directory. The Postgres password is fixed when its volume is created, so `delete` removes that file only once the volumes are gone. On its first start the command signs in as the owner the hub created and makes the two keys the Compose deployment's users make with `curl`: one Runners register with, one for jobs. Other `elflodge` commands use the saved hub and key as a pair when neither `ELFLODGE_URL` nor `ELFLODGE_API_KEY` is set, so a key is never sent to a hub it was not made for.
+What a start creates is kept for the next: the database and the Runner's data, which holds its registration and provider credentials, in the project's volumes; the secrets the database and hub were created with, the owner's password and the keys made on the hub, in one file readable only by the user, in their data folder, never the working directory. The Postgres password is fixed when its volume is created, so `delete` removes that file only once the volumes are gone. On its first start the command signs in as the owner the hub created and creates a registration key for Runners and a key for job commands and the Runner listing. The stack reads its Runner's capabilities with that second key even after the owner changes their password. On upgrade the jobs key may already be in other clients' hands and its grants are fixed, so the stack keeps it and creates a separate key for the listing when the initial password still works. Other `elflodge` commands use the saved hub and key as a pair when neither `ELFLODGE_URL` nor `ELFLODGE_API_KEY` is set, so a key is never sent to a hub it was not made for.
 
 `delete` names the destructive operation directly. `reset` left unclear whether the command starts again afterwards, while a deletion flag on `stop` would make a normally non-destructive operation capable of erasing data. Neither command prompts. `status` and `logs` replace watching a foreground terminal; `stop` and `delete` make cleanup explicit. To upgrade, stop the stack, back up its stopped volumes, then start with the new CLI version.
 
@@ -37,6 +38,8 @@ These lifetimes rule out both silently importing ambient keys and keeping anothe
 
 ## Precedents
 
+Argo CD also prints the initial administrator password on request. [`argocd admin initial-password`](https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_admin_initial-password/).
+
 Verified against documentation or source on 2026-10-28:
 
 - [Supabase's `start`, `stop` and `status`](https://supabase.com/docs/reference/cli/start) manage a background local stack; its [container specifications use `unless-stopped`](https://github.com/supabase/cli/blob/develop/apps/cli/src/command-internal/db-bootstrap/docker-create-args.ts).
@@ -47,6 +50,8 @@ Verified against documentation or source on 2026-10-28:
 
 ## Considered options
 
+- Reading Runner capabilities with `docker compose exec psql` would couple the CLI to the hub's private database schema. The CLI reads hub data through its HTTP API.
+- Keeping the Runner listing member-only would require signing in at every start. Once the owner changes the initial password, the stack could no longer read the listing.
 - A foreground server that removes its containers when the terminal closes: this tied job availability to a terminal's lifetime. The earlier objection that detached containers keep running after the user is done is reversed: daily users are done with their terminal before their jobs. Explicit lifecycle commands cover cleanup.
 - Bundling the hub and the Runner into the CLI and running them as processes on the host, with only Postgres in a container: the hub needs Node 26 while the CLI supports Node 22 (ADR 0024), and a Runner on the host needs bubblewrap, socat and ripgrep installed on Linux, which the image carries.
 - The Docker API through a library, such as dockerode or Testcontainers: Compose already declares the services, their order, health checks and volumes, and either library would add a Docker client to a bundle every user of the CLI downloads.

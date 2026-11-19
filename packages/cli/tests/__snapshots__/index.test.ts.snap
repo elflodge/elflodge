@@ -10,6 +10,23 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
+          "description": "Lists the Runners, when each was last seen, and the capabilities it reported.",
+          "name": "list",
+          "options": [],
+          "usage": "[options]",
+        },
+      ],
+      "description": "Available subcommands: list",
+      "name": "runners",
+      "options": [],
+      "usage": "[options] [command]",
+    },
+    {
+      "arguments": [],
+      "commands": [
+        {
+          "arguments": [],
+          "commands": [],
           "description": "Creates a Batch, without jobs, and answers with it: the \`agent\` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's \`id\` when adding its jobs. Giving the \`id\` makes the creation safe to retry: the same \`id\` with the same \`agent\`, \`labels\` and \`breaker\` answers with the Batch already created, and with any of them different is refused.",
           "name": "create",
           "options": [
@@ -994,19 +1011,27 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
+          "description": "Prints the initial password for the stack's dashboard owner. If you changed it, sign in with the password you chose.",
+          "name": "initial-password",
+          "options": [],
+          "usage": "[options]",
+        },
+        {
+          "arguments": [],
+          "commands": [],
           "description": "Prints the hub's address and the API key elflodge stack made as shell exports, for clients other than elflodge.",
           "name": "env",
           "options": [],
           "usage": "[options]",
         },
       ],
-      "description": "Available subcommands: start (default), stop, delete, status, logs, login, logout, env",
+      "description": "Available subcommands: start (default), stop, delete, status, logs, login, logout, initial-password, env",
       "name": "stack",
       "options": [],
       "usage": "[options] [command]",
     },
   ],
-  "description": "Available subcommands: batches, jobs, stack",
+  "description": "Available subcommands: runners, batches, jobs, stack",
   "name": "elflodge",
   "options": [
     {

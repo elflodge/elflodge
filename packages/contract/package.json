@@ -18,6 +18,7 @@
     "@orpc/openapi": "catalog:",
     "@orpc/zod": "catalog:",
     "content-type": "catalog:",
+    "ensure-error": "catalog:",
     "json-rpc-2.0": "catalog:",
     "statuses": "catalog:",
     "type-fest": "catalog:",

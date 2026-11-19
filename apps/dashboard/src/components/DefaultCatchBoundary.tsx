@@ -1,7 +1,7 @@
 import { useRouter } from "@tanstack/solid-router";
 import type { ErrorComponentProps } from "@tanstack/solid-router";
+import { asError } from "contract";
 
-import { asError } from "../error.ts";
 import { FallbackPage } from "./FallbackPage.tsx";
 import { Notice } from "./Notice.tsx";
 

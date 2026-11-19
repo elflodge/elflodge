@@ -18,6 +18,7 @@ import { getDotPath } from "@standard-schema/utils";
 import {
   agentSchema,
   apiContract,
+  asError,
   type Batch,
   batchCreationSchema,
   batchIdSchema,
@@ -27,6 +28,7 @@ import {
   type Job,
   jobRefSchema,
   type JobSubmission,
+  type KeyPermissions,
   jobSubmissionSchema,
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
@@ -97,14 +99,15 @@ const settingsFromEnv = Config.all({
 
 /**
  * Where the hub is and the API key to call it with, read when a command runs, not for `--help`:
- * from the environment, or, when neither is set there, the hub `elflodge stack` runs and the key it
- * made, together, so a key never goes to a hub it was not made for.
+ * from the environment, or, when neither setting is set, from the local stack. The stack uses
+ * its jobs key by default and its listing key for a call that requires `runner:read`. The hub
+ * and key come from the same source so the command sends the key only to its own hub.
  */
-const settings = Effect.gen(function* () {
+const settings = Effect.fn(function* (permissions?: KeyPermissions) {
   const url = yield* Config.option(Config.String("ELFLODGE_URL"));
   const apiKey = yield* Config.option(Config.String("ELFLODGE_API_KEY"));
   if (Option.isNone(url) && Option.isNone(apiKey)) {
-    const saved = yield* savedHub();
+    const saved = yield* savedHub(permissions);
     if (saved !== undefined) {
       yield* Effect.sync(() =>
         process.stderr.write(
@@ -118,17 +121,18 @@ const settings = Effect.gen(function* () {
 });
 
 /** The link to the hub, which calls any of its procedures by path. */
-const hubLink = Effect.map(settings, ({ url, apiKey }) =>
-  createProblemDetailsLink(apiContract, {
-    origin: url.origin,
-    // The hub's path, for a hub served under one. An HTTP URL's path always starts with `/`, which
-    // oRPC's type spells out.
-    url: `/${url.pathname.slice(1)}`,
-    headers: { "x-api-key": Redacted.value(apiKey) },
-  }),
-);
+const hubLink = (permissions?: KeyPermissions) =>
+  Effect.map(settings(permissions), ({ url, apiKey }) =>
+    createProblemDetailsLink(apiContract, {
+      origin: url.origin,
+      // The hub's path, for a hub served under one. An HTTP URL's path always starts with `/`, which
+      // oRPC's type spells out.
+      url: `/${url.pathname.slice(1)}`,
+      headers: { "x-api-key": Redacted.value(apiKey) },
+    }),
+  );
 
-const apiClient = Effect.map(hubLink, (link): ApiClient => createORPCClient(link));
+const apiClient = Effect.map(hubLink(), (link): ApiClient => createORPCClient(link));
 
 /**
  * Whether `error` may leave the hub able to answer differently next time: no answer at all, which
@@ -297,6 +301,7 @@ export async function readInput(argv: readonly string[]): Promise<string[]> {
 
 // Shell examples belong in the CLI because the OpenAPI document shares the contract's descriptions.
 const commandExamples = new Map<AnyProcedureContract, string>([
+  [apiContract.runners.list, "elflodge runners list"],
   [
     apiContract.jobs.list,
     'elflodge jobs list --labels \'{"customer":"acme"}\' --status queued running',
@@ -311,7 +316,11 @@ const commandExamples = new Map<AnyProcedureContract, string>([
  * The command for the procedure at `path`, which calls it with its input and prints the answer. Its
  * help combines the contract's description with any CLI examples for the procedure.
  */
-function command(procedure: AnyProcedureContract, path: readonly string[]) {
+function command(
+  procedure: AnyProcedureContract,
+  path: readonly string[],
+  permissions: KeyPermissions,
+) {
   // Only this module reads oRPC's internals: a procedure's input schema.
   const [input = z.object({})] = procedure["~orpc"].inputSchemas ?? [];
   return os
@@ -323,7 +332,7 @@ function command(procedure: AnyProcedureContract, path: readonly string[]) {
     .handler(({ input: given }) =>
       runCommand(
         Effect.gen(function* () {
-          const link = yield* hubLink;
+          const link = yield* hubLink(permissions);
           yield* printStep(
             yield* hubCall((signal) => link.call([...path], given, { context: {}, signal })),
           );
@@ -345,8 +354,9 @@ function commandsOf(router: RouterContract): Commands {
     // transfer, which `batches submit` does for the caller, hashing local files and uploading the
     // missing ones, so they have no commands. The command line authenticates with an API key only,
     // so a call only a member makes has no command either.
-    if (!Array.isArrayNonEmpty(path) || path[0] === "blobs" || !getAccess(procedure)?.key) return;
-    set(commands, path, command(procedure, path));
+    const permissions = getAccess(procedure)?.key;
+    if (!Array.isArrayNonEmpty(path) || path[0] === "blobs" || !permissions) return;
+    set(commands, path, command(procedure, path, permissions));
   });
   return commands;
 }
@@ -1359,5 +1369,5 @@ export function runElflodgeCli(version: string, argv: readonly string[], logger?
 
 /** What the command prints for `error`: its message, which is the hub's Problem Details for its errors. */
 export function formatError(error: unknown): string {
-  return ensureError(error).message;
+  return asError(error).message;
 }

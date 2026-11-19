@@ -34,6 +34,10 @@ elflodge jobs --help
   - When some of the Batch's jobs show their status unknown, as when their Runner has not been heard from for two minutes, it says so on stderr, and again once every status is known, whether or not stderr is a terminal: it is a warning, not progress. It keeps waiting, as those jobs may still be running.
 - `jobs wait` reads the job until it ends, every 10 seconds; a read that got no answer or a server error is retried as a submission is, and an error that remains ends the wait. It prints the job and exits with 1 unless it succeeded. A paused job keeps it waiting, as its work is still owed, until the job is resumed and ends or is cancelled. When the job's status turns unknown, it says why on stderr, and again once the status is known, and keeps waiting. Stopping it leaves the job running.
 
+## Runners
+
+`elflodge runners list` lists the Runners, when the hub last heard from each and their reported capabilities, including web search. The API key needs `runner:read`.
+
 ## A hub and a Runner on this machine
 
 `elflodge stack start` runs a hub, a Runner and Postgres with Docker, from the images released with this version of the command. It returns once the hub is healthy and the Runner has started, and leaves the stack running in the background. The containers restart with Docker unless explicitly stopped. `--provider` and `--model` select the model every job runs on, using Pi's exact names (`openrouter` and `openrouter/free` initially, then the last ones given). `--port` sets the local hub port, initially 8787.
@@ -58,6 +62,8 @@ OPENROUTER_API_KEY="$MY_KEY" elflodge stack start --env OPENROUTER_API_KEY
 The stack imports no provider keys merely because they exist in your shell. It saves forwarded names, never their values. Docker retains the values in the existing container, so an unchanged start or a restart after `stack stop` needs no original variables. Recreating the Runner requires them again. Omitting `--env` retains the names; an explicit list replaces them and refreshes their values; `--clear-env` removes them. Saved provider login takes precedence over ordinary environment credentials, as in Pi. A failed sign-in refresh requires repair rather than silently switching to an environment key.
 
 ### Operating the stack
+
+`stack initial-password` prints the saved initial password for `owner@example.com` on the local dashboard at `http://localhost:8787/dashboard/` (or the port set with `--port`). After changing it in the dashboard, sign in with your chosen password.
 
 `stack stop` keeps the containers, database, Runner data and credentials. `stack delete` removes the database and Runner volumes, including saved logins, and the stack's saved configuration, without a prompt. `stack status` shows the hub URL, container state and health, image versions, and authentication source where available. `stack logs` prints logs; `--follow` keeps following them.
 

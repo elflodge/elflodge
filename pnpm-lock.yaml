@@ -504,9 +504,6 @@ importers:
       contract:
         specifier: workspace:*
         version: link:../../packages/contract
-      ensure-error:
-        specifier: 'catalog:'
-        version: 5.0.0
       solid-js:
         specifier: 'catalog:'
         version: 2.0.0
@@ -864,6 +861,9 @@ importers:
       content-type:
         specifier: 'catalog:'
         version: 3.1.1
+      ensure-error:
+        specifier: 'catalog:'
+        version: 5.0.0
       json-rpc-2.0:
         specifier: 'catalog:'
         version: 1.8.1
