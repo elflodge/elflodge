@@ -15,7 +15,7 @@
 }
 
 :root {
-  /* ---- Brand, fixed. The six colours of the mark; nothing replaces them. ---- */
+  /* ---- Brand, fixed. The three colours of the mark; nothing replaces them. ---- */
   --brand-ground: light-dark(#f0e8d7, #29372d); /* the mark's ground: the page itself */
   --brand-shape: light-dark(
     #46634b,
@@ -45,6 +45,16 @@
   --c-ink: light-dark(#1e2a22, #e7eee1); /* body text, figures */
   --c-ink-2: light-dark(#4d594d, #b3c4ae); /* secondary text: labels of facts, units, notes */
   --c-link: var(--brand-shape); /* links */
+  --c-underline: color-mix(
+    in oklab,
+    currentColor 38%,
+    transparent
+  ); /* resting underline of a link or menu action */
+  --c-primary-hover: color-mix(
+    in oklab,
+    var(--brand-shape) 86%,
+    var(--c-ink)
+  ); /* primary button under the pointer */
   --c-on-shape: var(--brand-ground); /* text on a --brand-shape fill (the primary button) */
 
   /* ---- Lines that are not text: 3:1 where they must be seen, quieter where they only separate.

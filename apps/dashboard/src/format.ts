@@ -23,6 +23,13 @@ export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
   timeZoneName: "short",
 });
 
+/** The note a page shows once beside its instants, valid on both sides of a clock change. */
+export function timeZoneNote(): string {
+  const format = new Intl.DateTimeFormat(LANGUAGE, { timeZoneName: "longGeneric" });
+  const zone = format.formatToParts().find((part) => part.type === "timeZoneName");
+  return `Times are shown in ${zone?.value ?? format.resolvedOptions().timeZone}.`;
+}
+
 /** An instant in full, to the second and with its time zone: "Wednesday, 18 November 2026 at 15:41:22 CET". */
 export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeStyle: "long" });
 

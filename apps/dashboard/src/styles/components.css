@@ -30,7 +30,7 @@
 }
 @media (hover: hover) {
   .primary:hover:not(:disabled) {
-    background: color-mix(in oklab, var(--brand-shape) 86%, var(--c-ink));
+    background: var(--c-primary-hover);
   }
 }
 .quiet {
@@ -137,7 +137,7 @@
   gap: var(--space-2);
   min-width: 0;
 }
-/* The Member's name opens the account menu, which the chevron after it says. A long name is cut at its end. */
+/* The member's name opens the account menu, which the chevron after it says. A long name is cut at its end. */
 .topbar-end > button {
   min-width: 0;
 }
@@ -147,7 +147,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The account menu, opened by the Member's name: who is signed in, then the account's links. */
+/* The account menu, opened by the member's name: who is signed in, then the account's links. */
 .menu-pop {
   margin: 0;
   inset: auto;
@@ -216,7 +216,7 @@
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.22em;
-  text-decoration-color: color-mix(in oklab, currentColor 38%, transparent);
+  text-decoration-color: var(--c-underline);
 }
 .pop-list button:hover,
 .pop-list button:focus-visible {
@@ -224,7 +224,7 @@
 }
 /* The bar folds in two stages. Below 60rem the Organization's name leaves it, as the menu names the
    Organization. At 52rem and below the destinations fold into the menu: above that, six destinations
-   of ordinary length ("Batches", "API keys") still leave a Member's name its full width. */
+   of ordinary length ("Batches", "API keys") still leave a member's name its full width. */
 @media (width < 60rem) {
   .org {
     display: none;
@@ -282,7 +282,10 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--c-ink);
+}
+.hubstate a {
+  min-height: var(--target);
+  color: inherit;
 }
 .hubstate .mark-connected {
   color: var(--c-succeeded);
@@ -592,9 +595,7 @@ thead .unit {
     display: block;
   }
   .records tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 var(--space-4);
+    display: block;
     padding: var(--space-2) 0;
     border-bottom: var(--rule) solid var(--c-rule);
   }
@@ -605,12 +606,20 @@ thead .unit {
     font-size: var(--text-xs);
   }
   .records tr > td.is-id {
-    flex: 0 0 100%;
     max-width: 100%;
     font-size: var(--text-sm);
   }
+  .records td[data-l] {
+    text-align: start;
+  }
   .records td[data-l]::before {
-    content: attr(data-l) " ";
+    content: attr(data-l);
+    display: inline-block;
+    width: 7rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    vertical-align: top;
+    font-family: var(--font-sans);
     color: var(--c-ink-2);
   }
 }
