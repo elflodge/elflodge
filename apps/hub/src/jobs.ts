@@ -11,6 +11,7 @@ import {
   NotFound,
   type Job,
   type JobEvent,
+  type JobEventOrder,
   type JobCounts,
   type JobEventsPage,
   type JobsPage,
@@ -1498,80 +1499,100 @@ export function countJobs() {
 }
 
 /**
- * A page of the job `jobId`'s events after the position `after`, or a 404 error. Stored rows
- * each hold one report's events, so the page takes the rows after `after` in order, at most `limit`
- * of them and only as many as start within the byte budget, splits them into events, and drops
- * those at or before `after`.
+ * A page of a job's events, or a 404 if the job is missing. Each stored row holds one report.
+ * Split the selected rows into events and skip those at or before the cursor in the requested
+ * order (IDs at or below it for ascending, at or above it for descending). Zero starts the read.
  */
-export function readJobEvents(jobId: JobId, after: EventId, limit: number) {
+export function readJobEvents(
+  jobId: JobId,
+  after: EventId,
+  limit: number,
+  order: JobEventOrder = "asc",
+) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    // One statement, so the job's status, its position and its events are read at one moment. Read
-    // apart, events stored between two reads would be missing from a page whose status is final.
+    const descending = order === "desc";
+    // A final status and its last events must come from the same snapshot.
     const job = yield* database.query((db) =>
       db
         .selectFrom("job as j")
-        .innerJoin("jobProgress as p", "p.jobId", "j.id")
         .where("j.id", "=", jobId)
-        .select((eb) => [
-          "j.status",
-          "p.position",
-          jsonArrayFrom(
-            eb
-              .selectFrom((sized) =>
-                sized
-                  .selectFrom((next) =>
-                    next
-                      .selectFrom("jobEventChunk as c")
-                      .select((size) => [
-                        "c.lastId",
-                        "c.events",
-                        size.fn<number>("octet_length", ["c.events"]).as("size"),
-                      ])
-                      .whereRef("c.jobId", "=", "j.id")
-                      .where("c.lastId", ">", after)
-                      .orderBy("c.lastId")
-                      .limit(limit)
-                      .as("next"),
-                  )
-                  .select((sum) => [
-                    "next.lastId",
-                    "next.events",
-                    sum(
-                      sum.fn.sum<number>("next.size").over((over) => over.orderBy("next.lastId")),
-                      "-",
-                      sum.ref("next.size"),
-                    ).as("before"),
-                  ])
-                  .as("sized"),
-              )
-              .select(["sized.lastId", "sized.events"])
-              // The first row always, so an event larger than the budget is still read.
-              .where("sized.before", "<", MAX_PAGE_BYTES)
-              .orderBy("sized.lastId"),
-          ).as("chunks"),
-        ])
+        .select((eb) => {
+          const chunks = eb.selectFrom("jobEventChunk").whereRef("jobId", "=", "j.id");
+          const next = chunks
+            .select((size) => [
+              "lastId",
+              "events",
+              size.fn<number>("octet_length", ["events"]).as("size"),
+            ])
+            .$if(after > 0, (qb) => qb.where("lastId", descending ? "<" : ">", after))
+            .orderBy("lastId", order)
+            .limit(limit);
+          const sized = eb.selectFrom(next.as("next")).select((sum) => [
+            "next.lastId",
+            "next.events",
+            sum(
+              sum.fn.sum<number>("next.size").over((over) => over.orderBy("next.lastId", order)),
+              "-",
+              sum.ref("next.size"),
+            ).as("before"),
+          ]);
+          return [
+            "j.status",
+            chunks
+              .select("lastId")
+              .orderBy("lastId", descending ? "asc" : "desc")
+              .limit(1)
+              .as("endChunkId"),
+            jsonArrayFrom(
+              eb
+                .selectFrom(sized.as("sized"))
+                .select(["sized.lastId", "sized.events"])
+                // Include the first row even when one event alone exceeds the budget.
+                .where("sized.before", "<", MAX_PAGE_BYTES),
+            ).as("chunks"),
+            // The cursor's report may hold earlier events. Read it outside the older rows' byte
+            // budget because even a very large report might have no lines below the cursor.
+            descending && after > 0
+              ? jsonObjectFrom(
+                  chunks
+                    .select(["lastId", "events"])
+                    .where("lastId", ">=", after)
+                    .orderBy("lastId")
+                    .limit(1),
+                ).as("boundary")
+              : eb.lit(null).as("boundary"),
+          ];
+        })
         .executeTakeFirst(),
     );
     if (!job) return yield* Effect.fail(new NotFound());
 
+    // jsonArrayFrom aggregates the rows without an ORDER BY inside json_agg.
+    const chunks = Array.sortWith(
+      job.boundary ? [job.boundary, ...job.chunks] : job.chunks,
+      (chunk) => chunk.lastId,
+      descending ? Order.flip(Order.Number) : Order.Number,
+    );
     const events: JobEvent[] = [];
     let bytes = 0;
-    read: for (const chunk of Array.sortWith(job.chunks, (row) => row.lastId, Order.Number)) {
-      for (const line of String.linesIterator(chunk.events)) {
+    for (const chunk of chunks) {
+      const lines = String.linesIterator(chunk.events);
+      for (const line of descending ? Array.reverse(lines) : lines) {
         const event = z.parse(jobEventSchema, JSON.parse(line));
-        if (event.id <= after) continue;
+        if (after > 0 && (descending ? event.id >= after : event.id <= after)) continue;
         const size = Buffer.byteLength(line) + 1;
         if (events.length === limit || (events.length > 0 && bytes + size > MAX_PAGE_BYTES)) {
-          break read;
+          return { events, hasMore: true, status: job.status };
         }
         events.push(event);
         bytes += size;
       }
     }
-    const hasMore = (events.at(-1)?.id ?? after) < job.position;
+    const lastChunk = chunks.at(-1);
+    const hasMore = lastChunk !== undefined && lastChunk.lastId !== job.endChunkId;
     // Events are stored only for a job that has not ended (`applyReports`), and its end only with
-    // its last event, so nothing follows a page without more whose status is final.
+    // its last event, so nothing follows an ascending page without more whose status is final.
     return { events, hasMore, status: job.status } satisfies JobEventsPage;
   });
 }
