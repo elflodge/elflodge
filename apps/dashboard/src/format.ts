@@ -13,8 +13,9 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
-/** A local creation day, with its year when it differs from the year of the read. */
+/** A local creation day in the year of the read. */
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
+/** A local creation day outside the year of the read. */
 export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
 /** An event time, dated when it falls outside the row group’s creation day. */
 export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });

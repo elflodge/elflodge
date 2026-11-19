@@ -36,14 +36,14 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family. The code band (`--c-sunk`) mixes them in light and uses a darker ground in dark, where the mix cannot sink below the page. On the band, `--c-ink` measures 11.40:1 in light and 12.20:1 in dark. A placeholder's `--c-ink-3` outline measures 3.47:1 and 6.54:1 respectively.
 - **Inks** are explicit values. `--c-lamp-ink` is the text ink for Running. Text reaches 4.5:1 on every ground it is set on, in both themes.
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
-- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
+- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued, paused and cancelled, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
 - **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size), `--text-md` (15px, sentences that explain) and `--text-lg` (17px, section headings) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
 - **Space** is in steps of 4px: `--space-1` to `--space-4` (4 to 16px) and `--space-7` (48px). The page's side margin is `--gutter`.
 - A step that nothing uses is not defined, which is why the type sizes have no `--text-xl` and the spaces no `--space-5` or `--space-6`.
 - **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, `--strip`, `--mark` (a drawn mark), `--radius` (controls and dialogs), and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
 
-In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--jobs-submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`.
+In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--jobs-submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`. On two lines `--jobs-cost-narrow` holds the cost and its USD unit.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
 
@@ -394,11 +394,11 @@ Each tier allows 15.375rem for the Job name and adds the fixed widths of its vis
 
 The job's name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. It becomes the link to the job when the job page exists. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
-The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans. An absent submitter leaves the cell empty.
+The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
 
 `ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key and sign use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 
-Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows, when present, in secondary ink with two to four decimals. On two lines the cost carries its USD unit and the budget gives way.
+Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows in secondary ink with two to four decimals. A larger cost or budget wraps within its column. On two lines the cost carries its USD unit and the budget gives way.
 
 ### A job's status
 
@@ -408,11 +408,11 @@ The next cell holds each condition on its own line. "Status unknown" has the unk
 
 ### Runner reference
 
-`span.runner-ref` holds the Runner name as a cut identifier, its short ID, and the connection mark with "connected" or "not connected" for assistive technology. The abbreviation takes account of both the Runners list and the Runners on the page.
+`span.runner-ref` holds the Runner name as a cut identifier, its short ID, and the connection mark with "connected" or "not connected" for assistive technology. The abbreviation takes account of both the Runners list and the Runners on the page. The cell is empty before the job is placed or after its Runner is removed.
 
 ### Filters
 
-The filters live in the address. The first `div.filters-row` holds the six status checks and Status unknown. The second holds Batch, Runner, Apply and, when a filter applies, Clear. Apply and Clear follow Runner. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and starts expanded when any apply. Fields stack at full width. Checkboxes use the shared touch target.
+The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. The second holds Batch, Runner, Apply and, when a filter applies, Clear. Apply and Clear follow Runner. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. At 760px and below a Filters button controls it, reports how many filters apply and starts expanded when any apply. Applying from the open panel keeps it open, including when the last filter is cleared. Fields stack at full width. Checkboxes use the shared touch target.
 
 The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
 

@@ -29,10 +29,7 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
     } finally {
       // Disabling the focused button sends focus to the body. If the member or the form has
       // since focused another control (such as a refused field), keep that position.
-      // A slow navigation can replace the form with a loading view and mount it again.
-      if (restoreFocus) {
-        focusIfLost(submitter?.id ? document.getElementById(submitter.id) : submitter);
-      }
+      if (restoreFocus) focusIfLost(submitter);
     }
   }
   return { pending, onSubmit };

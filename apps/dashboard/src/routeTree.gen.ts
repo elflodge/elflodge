@@ -20,6 +20,7 @@ import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/
 import { Route as SignedInMemberApiKeysRouteImport } from './routes/_signed-in/_member/api-keys'
 import { Route as SignedInMemberJobsRouteImport } from './routes/_signed-in/_member/jobs'
 import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_member/runners'
+import { Route as SignedInMemberJobsIndexRouteImport } from './routes/_signed-in/_member/jobs.index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -74,6 +75,11 @@ const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
   path: '/runners',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberJobsIndexRoute = SignedInMemberJobsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SignedInMemberJobsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -83,8 +89,9 @@ export interface FileRoutesByFullPath {
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
   '/api-keys': typeof SignedInMemberApiKeysRoute
-  '/jobs': typeof SignedInMemberJobsRoute
+  '/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/runners': typeof SignedInMemberRunnersRoute
+  '/jobs/': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,8 +101,8 @@ export interface FileRoutesByTo {
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
   '/api-keys': typeof SignedInMemberApiKeysRoute
-  '/jobs': typeof SignedInMemberJobsRoute
   '/runners': typeof SignedInMemberRunnersRoute
+  '/jobs': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -108,8 +115,9 @@ export interface FileRoutesById {
   '/_signed-in/_member': typeof SignedInMemberRouteWithChildren
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
   '/_signed-in/_member/api-keys': typeof SignedInMemberApiKeysRoute
-  '/_signed-in/_member/jobs': typeof SignedInMemberJobsRoute
+  '/_signed-in/_member/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/_signed-in/_member/runners': typeof SignedInMemberRunnersRoute
+  '/_signed-in/_member/jobs/': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -123,6 +131,7 @@ export interface FileRouteTypes {
     | '/api-keys'
     | '/jobs'
     | '/runners'
+    | '/jobs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -132,8 +141,8 @@ export interface FileRouteTypes {
     | '/$'
     | '/change-password'
     | '/api-keys'
-    | '/jobs'
     | '/runners'
+    | '/jobs'
   id:
     | '__root__'
     | '/'
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/_signed-in/_member/api-keys'
     | '/_signed-in/_member/jobs'
     | '/_signed-in/_member/runners'
+    | '/_signed-in/_member/jobs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -236,18 +246,36 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberRunnersRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/jobs/': {
+      id: '/_signed-in/_member/jobs/'
+      path: '/'
+      fullPath: '/jobs/'
+      preLoaderRoute: typeof SignedInMemberJobsIndexRouteImport
+      parentRoute: typeof SignedInMemberJobsRoute
+    }
   }
 }
 
+interface SignedInMemberJobsRouteChildren {
+  SignedInMemberJobsIndexRoute: typeof SignedInMemberJobsIndexRoute
+}
+
+const SignedInMemberJobsRouteChildren: SignedInMemberJobsRouteChildren = {
+  SignedInMemberJobsIndexRoute: SignedInMemberJobsIndexRoute,
+}
+
+const SignedInMemberJobsRouteWithChildren =
+  SignedInMemberJobsRoute._addFileChildren(SignedInMemberJobsRouteChildren)
+
 interface SignedInMemberRouteChildren {
   SignedInMemberApiKeysRoute: typeof SignedInMemberApiKeysRoute
-  SignedInMemberJobsRoute: typeof SignedInMemberJobsRoute
+  SignedInMemberJobsRoute: typeof SignedInMemberJobsRouteWithChildren
   SignedInMemberRunnersRoute: typeof SignedInMemberRunnersRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberApiKeysRoute: SignedInMemberApiKeysRoute,
-  SignedInMemberJobsRoute: SignedInMemberJobsRoute,
+  SignedInMemberJobsRoute: SignedInMemberJobsRouteWithChildren,
   SignedInMemberRunnersRoute: SignedInMemberRunnersRoute,
 }
 
