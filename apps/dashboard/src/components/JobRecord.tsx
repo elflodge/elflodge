@@ -7,7 +7,7 @@ import {
   JOB_STARTED,
   type Job,
 } from "contract";
-import { For, Show, createMemo, createSignal, flush, onSettled } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 
 import {
   DATE_TIME_SECONDS,
@@ -23,6 +23,7 @@ import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Instant, LastContact } from "./Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "./JobReferences.tsx";
+import { TextPreview } from "./TextPreview.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
@@ -241,9 +242,10 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
                     </dl>
                     <Show when={count().start.kind !== JOB_STARTED}>
                       <p class="note">
-                        Counted from <Instant value={count().start.at} format={TIME_SECONDS} />,{" "}
-                        {count().start.kind === JOB_RESUMED ? "its resume" : "its Runner’s restart"}
-                        .
+                        Counted from <Instant value={count().start.at} format={TIME_SECONDS} />
+                        {count().start.kind === JOB_RESUMED
+                          ? ", its resume."
+                          : ", its Runner’s restart."}
                       </p>
                     </Show>
                   </>
@@ -292,70 +294,8 @@ export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
         text={props.text}
         label={title()}
         wraps={props.failure}
-        expandLabel={props.failure ? "Show the whole message" : undefined}
+        wholeTextLabel={props.failure ? "Show the whole message" : undefined}
       />
     </section>
-  );
-}
-
-export function TextPreview(props: {
-  id: string;
-  text: string;
-  label: string;
-  wraps?: boolean;
-  expandLabel?: string;
-}) {
-  const lines = createMemo(() => props.text.split("\n").length);
-  const [long, setLong] = createSignal(false);
-  const [expanded, setExpanded] = createSignal(false);
-  let code: HTMLElement | undefined;
-  // A single line of text can wrap beyond the preview when the page narrows.
-  onSettled(() => {
-    const element = code;
-    if (!element) return undefined;
-    const observer = new ResizeObserver(() => {
-      const style = getComputedStyle(element);
-      const previewLines = Number(style.getPropertyValue("--job-preview-lines"));
-      setLong(element.offsetHeight > previewLines * parseFloat(style.lineHeight) + 1);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  });
-  return (
-    <div class="preview">
-      <pre
-        id={props.id}
-        class={["code", "text-preview", { wraps: !!props.wraps }]}
-        tabindex="0"
-        aria-label={props.label}
-      >
-        <code
-          ref={(element) => {
-            code = element;
-          }}
-        >
-          {props.text}
-        </code>
-      </pre>
-      <Show when={long()}>
-        <button
-          type="button"
-          aria-controls={props.id}
-          aria-expanded={expanded() ? "true" : "false"}
-          onClick={(event) => {
-            const shortening = expanded();
-            setExpanded(!shortening);
-            if (shortening) {
-              flush();
-              event.currentTarget.scrollIntoView({ block: "nearest" });
-            }
-          }}
-        >
-          {expanded()
-            ? "Show the first lines only"
-            : (props.expandLabel ?? `Show all ${formatCount(lines())} lines`)}
-        </button>
-      </Show>
-    </div>
   );
 }

@@ -9,6 +9,7 @@ import {
 } from "contract";
 
 import type { ReadJobEvent } from "./job-event-record.ts";
+import { shortIds } from "./short-ids.ts";
 
 export type TimedEvent = ReadJobEvent & { at: Date };
 export interface LoadedRun {
@@ -21,6 +22,7 @@ export interface LoadedRun {
 
 /** Derive only the relationships witnessed by this stretch, which may begin or end inside a run. */
 export function groupJobEvents(events: ReadJobEvent[]) {
+  const runIds = new Set<string>();
   const headings = new Map<number, LoadedRun>();
   const dayLines = new Set<number>();
   const subAgents = new Set<number>();
@@ -32,6 +34,7 @@ export function groupJobEvents(events: ReadJobEvent[]) {
   let awaitingInput = false;
 
   for (const row of events) {
+    if (row.runId) runIds.add(row.runId);
     if (row.ownerId !== undefined) subAgents.add(row.id);
     if (row.at) {
       const day = row.at.toDateString();
@@ -78,6 +81,15 @@ export function groupJobEvents(events: ReadJobEvent[]) {
       awaitingInput = false;
     }
   }
-  return { events, headings, currentRun, countFrom, dayLines, subAgents, userLabels };
+  return {
+    events,
+    shortRunIds: shortIds([...runIds]),
+    headings,
+    currentRun,
+    countFrom,
+    dayLines,
+    subAgents,
+    userLabels,
+  };
 }
 export type JobEventGroups = ReturnType<typeof groupJobEvents>;

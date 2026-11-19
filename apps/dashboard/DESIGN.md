@@ -422,19 +422,57 @@ Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scop
 
 `.limits` sets each `.limit` beside the other or stacks them on a phone. A `.limit-value` gives the limit with its unit. A native, named `meter` in `.scale` measures cost against the lifetime budget. Its accessible value text carries the full cost even above budget. `.is-over` strikes the end tick when the limit is reached. For a running job with known status, the timeout meter measures seconds from the latest start, resume or Recovery through the last report. Show it and the approximate deadline only when the current count’s opening Event is in the loaded history. A job that failed for exceeding its timeout keeps a full scale. The record uses the same amount formats as the Jobs list. The Resume dialog gives the exact cost a new budget must exceed. Cost, tokens and meters appear only after the job starts. “So far” applies while the job is unfinished or Resume is offered. Before the job starts, the heading is “Limits”. Deleting it then removes the section. A job deleted after it starts keeps its cost and tokens under “Usage”.
 
-`section.output-or-failure` shows Output as indented JSON, or a wrapping failure message. Its `.output-or-failure-head` holds the heading and Output’s copy button. A `div.preview` holds the complete text in one `pre.code.text-preview` with its disclosure button. When the rendered text exceeds `--job-preview-lines` (eight lines), a button with `aria-expanded` and `aria-controls="output-or-failure-text"` switches between the preview and full height. The button stands under the text in both states, where a reader reaches the end of what is shown. After it shortens the text, the page keeps the button in view.
+`section.output-or-failure` shows Output as indented JSON, or a wrapping failure message. Its `.output-or-failure-head` holds the heading and Output’s copy button. A `div.preview` holds the complete text in one `pre.code.text-preview` with its disclosure button. When the rendered text exceeds `--job-preview-lines` (eight lines), a button with `aria-expanded` and `aria-controls="output-or-failure-text"` switches between the preview and full height. Limit the text inside its padding to eight whole lines. The button says “Show all N lines” when there are more logical lines than the preview holds. Text that wraps past the limit uses “Show the whole text”, or “Show the whole message” for a failure. The button stands under the text in both states, where a reader reaches the end of what is shown. After it shortens the text, the page keeps the button in view.
 
 ### A job’s Events
 
 The member reads from top to bottom. The first page holds up to the latest hundred Events. Earlier and later pages extend one continuous stretch. Place `section.tl` below the working record in its column. On a narrow screen the facts precede it. The section stays on the page if its read fails and keeps the Events read successfully.
 
-- In `.tl-head`, place the “Events” heading, the count in `span.read`, and `.tl-choices`. Each `fieldset.seg` has a visually hidden legend and two labelled native radios with one initially checked. The checked `.view-line` shows summaries. The checked `.view-records` shows Runner records and errors. Both choices work together.
-- The labelled `nav.jump-row` reaches Start and Latest, plus moments and numbered Events in the loaded stretch. Its `.jump-content` groups follow the kind filter. A `.stretch-end` at either unfinished edge gives the next read. After prepending, the Event that was first holds its screen position and the preceding number receives focus.
+- In `.tl-head`, place the “Events” heading, the count in `span.read[role=status]`, and `.tl-choices`. Each `fieldset.seg` has a visually hidden legend and two labelled native radios with one initially checked. The checked `.view-line` shows summaries. The checked `.view-records` shows Runner records and errors. Both choices work together and stay set when paging or jumping.
+- The labelled `nav.jump-row` reaches Start and Latest, plus moments and numbered Events in the loaded stretch. Its `.jump-content` groups follow the kind filter. A `.stretch-end` at either unfinished edge gives the next read. Walking back preserves the reader’s position, including a scroll while the read is pending. Focus the nearest added number the selected view shows. If there is none, keep focus on the pressed button. When the button goes, focus the nearest shown number or the Events heading. On touch screens the jump links and buttons have a 44px target in both directions and the wrapped lines have no extra row gap.
 - In `ol.timeline`, each opening gets a `li.run-h` with its heading, recorded time, run ID and known models. A `li.run-gap` between a closing and a resume gives the elapsed pause or previous ending. A `li.day-line` separates local days.
-- Each `li.ev` carries a linked journal number (`.ev-id`), time when recorded (`.ev-time`), summary (`.ev-line`) and full content (`.ev-body`). For example, `<a class="ev-id stands-alone" id="event-27" href="#event-27" aria-label="Event 27">27</a>`. Use `.rec` for Runner details, `.say` for message text, `.call` for tool arguments and `.result` for their answers. The agent step’s `.ev-rail` gives its USD cost to six decimals, tokens and model. The rail moves below the body on a phone. Long text uses the same preview as Output. Thinking and write contents open with native disclosures.
+- Each `li.ev` carries a linked journal number (`.ev-id`), time when recorded (`.ev-time`), summary (`.ev-line`) and full content (`.ev-body`). For example, `<a class="ev-id stands-alone" id="event-27" href="#event-27" aria-label="Event 27">27</a>`. Use `.rec` for Runner details, `.say` for message text, `.call` for tool arguments and `.result` for their answers. On phones the number and time share a line with a 44px hit target extended around the number. In the compact view, the number, time and summary occupy one 44px line. The agent step’s `.ev-rail` gives its USD cost, tokens and model. Use the job’s amount formatter. A provider-billed cost says “USD”, and other step costs say “USD, est.”. The rail moves below the body on a phone. Long Event bodies use the Output preview. Messages keep the wrapping sans and code keeps the mono. Thinking and write contents show in full when their native disclosures open.
 - Mark a Runner record `.is-runner` and a failed Event `.is-error`, with words and the cross mark. Indent a known sub-agent conversation with `.conv-sub` and name it in both views.
-- Only `li.ev.is-live#latest` takes the lamp in the timeline. It repeats the latest activity recorded by the hub when the job record is fresh and confirms the job is running. Keep `div.new-events[role=status]` mounted. It floats above the page when Events arrive below the reader, with the count and a button that focuses the first new number.
+- Only `li.ev.is-live#latest` takes the lamp in the timeline. It repeats the latest activity recorded by the hub when the job record is fresh and confirms the job is running. Keep `div.new-events[role=status]` mounted. While the timeline is in view, the notice sticks to its lower edge as a ground-coloured band across its column, with a rule above. Confirm the end is visible after an arrival before marking it seen. Give the count and the newest arrival’s time if recorded. The button reaches the first visible new number or the end when the filter hides every arrival.
 - Above the record, `p.head-sentence` dates the current run and any Recovery from Events the member has read. A partial stretch may establish a timeout’s restart without reaching the opening of its run.
+
+The two view choices share the same fieldset structure. Within the jump row, anchors reach loaded Events and buttons can request another page.
+
+```html
+<fieldset class="seg">
+  <legend class="vh">Show each Event</legend>
+  <label><input class="vh" type="radio" name="event-view" checked />In full</label>
+  <label><input class="vh view-line" type="radio" name="event-view" />One line each</label>
+</fieldset>
+<nav class="jump-row" aria-label="Go to a moment of the job">
+  <span>Go to</span>
+  <button type="button">Start</button>
+  <a class="stands-alone" href="#event-27"
+    >Paused <time datetime="2026-11-19T12:30:00Z">12:30:00</time></a
+  >
+  <button type="button">Latest</button>
+</nav>
+<div class="stretch-end">
+  <p>Earlier Events are not shown.</p>
+  <button type="button">Show earlier Events</button>
+</div>
+```
+
+The run heading is a list item. The arrivals band follows the list inside the section.
+
+```html
+<ol class="timeline">
+  <li class="run-h">
+    <h3>Run resumed <time datetime="2026-11-19T13:15:00Z">19 Nov 2026, 13:15:00</time></h3>
+    <span>still running</span>
+    <span class="sid">run 6a2e0371</span>
+  </li>
+</ol>
+<div class="new-events" role="status" aria-atomic="true">
+  <span><strong>3 new Events</strong> below.</span>
+  <button type="button">Go to them</button>
+</div>
+```
 
 ### A job's status
 

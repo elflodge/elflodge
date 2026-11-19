@@ -5,16 +5,26 @@ import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-
 import { hubFailureMessage } from "../api-client.ts";
 import { DAY_YEAR, TIME_SECONDS, formatCount, plural } from "../format.ts";
 import type { ReadJobEvent } from "../job-event-record.ts";
-import { JobEventRow } from "../job-event-row.tsx";
 import type { JobEventStretch } from "../job-event-stretch.ts";
 import type { JobEventGroups } from "../job-runs.ts";
 import { FailedReadNotice } from "./FailedReadNotice.tsx";
 import { Instant } from "./Instant.tsx";
 import { JobActivity } from "./JobActivity.tsx";
+import { JobEventRow } from "./JobEventRow.tsx";
 import { RunHeading } from "./JobRun.tsx";
 
 function linkTo(id?: number) {
   return id === undefined ? null : document.getElementById(`event-${id}`);
+}
+
+function shownNumber(events: readonly { id: number }[], fromEnd: boolean) {
+  const shown = (event: { id: number }) => linkTo(event.id)?.getClientRects().length;
+  return linkTo((fromEnd ? events.findLast(shown) : events.find(shown))?.id);
+}
+
+function reveal(target: HTMLElement | null) {
+  target?.scrollIntoView({ block: "center" });
+  target?.focus({ preventScroll: true });
 }
 
 function JumpGroup(props: {
@@ -31,7 +41,11 @@ function JumpGroup(props: {
           {(row) => (
             <>
               {" "}
-              <a href={`#event-${row().id}`} aria-label={`${props.name}, Event ${row().id}`}>
+              <a
+                class="stands-alone"
+                href={`#event-${row().id}`}
+                aria-label={`${props.name}, Event ${row().id}`}
+              >
                 {row().id}
               </a>
             </>
@@ -60,83 +74,92 @@ export function JobTimeline(props: {
   const last = () => rows().at(-1);
   const running = () => props.running && stretch.isAtLatest();
   let timeline: HTMLOListElement | undefined;
-  let everything: HTMLInputElement | undefined;
-  const [atEnd, setAtEnd] = createSignal(false);
-  const [seen, setSeen] = createSignal(0);
+  let heading: HTMLHeadingElement | undefined;
   const arrivals = stretch.liveEvents;
-  const newestArrival = () => arrivals().at(-1)?.id ?? 0;
-  const unread = createMemo(() => (atEnd() ? [] : arrivals().filter((row) => row.id > seen())));
-  const newestUnreadTime = () =>
-    unread().length
-      ? rows().findLast((row) => row.id >= (unread()[0]?.id ?? 0) && row.at)?.at
-      : undefined;
+  const [unread, setUnread] = createSignal<readonly { id: number }[]>([]);
+  let seenThrough = 0;
+  const newestUnreadTime = () => {
+    const id = unread().at(-1)?.id;
+    return rows().findLast((row) => row.id === id)?.at;
+  };
 
-  // The live row itself is the end, even on a screen that cannot fit its whole report.
+  // Each observation belongs to the arrivals already laid out. A burst can move the live row
+  // completely off a phone screen, even while it was visible throughout the preceding poll.
   createEffect(
-    () => (running() ? "latest" : last()?.id),
-    () => {
+    () => ({
+      end: running() ? "latest" : last()?.id,
+      newest: arrivals().at(-1)?.id ?? 0,
+    }),
+    ({ newest }) => {
+      if (!newest) {
+        seenThrough = 0;
+        setUnread([]);
+      }
       const end = timeline?.lastElementChild;
       if (!end) return undefined;
       const observer = new IntersectionObserver(([entry]) => {
-        setAtEnd(entry.isIntersecting);
-        if (entry.isIntersecting) setSeen(newestArrival());
+        if (entry.isIntersecting) seenThrough = newest;
+        setUnread(arrivals().filter((row) => row.id > seenThrough && row.id <= newest));
       });
       observer.observe(end);
       return () => observer.disconnect();
     },
   );
 
-  createEffect(newestArrival, (id) => {
-    if (atEnd() || !id) setSeen(id);
-  });
-
-  function reveal(target: HTMLElement | null) {
-    if (target && !target.getClientRects().length && everything) everything.checked = true;
-    target?.scrollIntoView({ block: "center" });
-    target?.focus({ preventScroll: true });
+  function goToEnd() {
+    const target = document.getElementById("latest") ?? shownNumber(rows(), true);
+    if (target) reveal(target);
+    else {
+      timeline?.scrollIntoView({ block: "end" });
+      timeline?.focus({ preventScroll: true });
+    }
   }
   async function jump(toStart: boolean) {
     if (toStart && stretch.hasEarlier() && !(await stretch.start())) return;
     if (!toStart && stretch.hasLater() && !(await stretch.latest())) return;
     flush();
-    reveal(
-      toStart ? linkTo(first()?.id) : (document.getElementById("latest") ?? linkTo(last()?.id)),
-    );
+    if (toStart) reveal(shownNumber(rows(), false) ?? heading ?? null);
+    else goToEnd();
   }
-  async function earlier() {
+
+  async function extend(earlier: boolean, button: HTMLButtonElement) {
+    const edge = earlier ? first()?.id : last()?.id;
+    if (edge === undefined) return;
     const anchor =
-      timeline &&
-      [...timeline.querySelectorAll<HTMLElement>(".ev-id")].find(
-        (el) => el.getClientRects().length,
-      );
-    const top = anchor?.getBoundingClientRect().top;
-    const oldest = first()?.id;
-    if (!(await stretch.showEarlier())) return;
+      earlier && !CSS.supports("overflow-anchor", "auto") ? shownNumber(rows(), false) : null;
+    const documentTop = () => (anchor?.getBoundingClientRect().top ?? 0) + window.scrollY;
+    let previousTop = documentTop();
+    const added = await (earlier ? stretch.showEarlier() : stretch.showLater());
     flush();
-    // A browser may anchor to the pressed button or a heading. Preserve the particular Event
-    // the member was reading, compensating only for the movement the browser actually left.
-    if (anchor && top !== undefined && anchor.isConnected) {
-      const preservePosition = () => window.scrollBy(0, anchor.getBoundingClientRect().top - top);
-      preservePosition();
-      // Long previews acquire their disclosure button when ResizeObserver measures the new rows.
-      // Its callback runs after animation callbacks and before paint. Take the final measurement
-      // on the following frame, once those controls occupy their space.
+    if (anchor?.isConnected && added) {
+      // Scroll anchoring first shipped in Safari 27; the dashboard also supports Safari 17.5.
+      // https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
+      // Correct the change in document coordinates so scrolling during the read is preserved.
+      const compensate = () => {
+        const nextTop = documentTop();
+        window.scrollBy(0, nextTop - previousTop);
+        previousTop = nextTop;
+      };
+      compensate();
+      // ResizeObserver measures new disclosures after the first animation callback.
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
       if (!anchor.isConnected) return;
-      preservePosition();
+      compensate();
     }
-    const previous = rows().findLast(
-      (row) => oldest !== undefined && row.id < oldest && linkTo(row.id)?.getClientRects().length,
-    );
-    linkTo(previous?.id)?.focus({ preventScroll: true });
-  }
-  async function later() {
-    const newest = last()?.id;
-    if (!(await stretch.showLater())) return;
-    flush();
-    reveal(linkTo(rows().find((row) => newest !== undefined && row.id > newest)?.id));
+    const addedNumber =
+      added &&
+      shownNumber(
+        rows().filter((row) => (earlier ? row.id < edge : row.id > edge)),
+        earlier,
+      );
+    if (addedNumber && !earlier) {
+      reveal(addedNumber);
+    } else {
+      const fallback = button.isConnected ? button : (shownNumber(rows(), !earlier) ?? heading);
+      (addedNumber || fallback)?.focus({ preventScroll: true });
+    }
   }
 
   const earlierTime = () => rows().find((row) => row.at)?.at;
@@ -148,9 +171,17 @@ export function JobTimeline(props: {
   return (
     <section class="tl" aria-labelledby="job-events">
       <div class="tl-head">
-        <h2 id="job-events">Events</h2>
+        <h2
+          id="job-events"
+          tabindex="-1"
+          ref={(el) => {
+            heading = el;
+          }}
+        >
+          Events
+        </h2>
         <Show when={rows().length}>
-          <span class="read">
+          <span class="read" role="status">
             {stretch.hasEarlier() ? "The latest" : stretch.hasLater() ? "The first" : "All"}{" "}
             {formatCount(rows().length)} read
           </span>
@@ -169,15 +200,7 @@ export function JobTimeline(props: {
             <fieldset class="seg">
               <legend class="vh">Which Events</legend>
               <label>
-                <input
-                  class="vh"
-                  type="radio"
-                  name="event-kinds"
-                  checked
-                  ref={(el) => {
-                    everything = el;
-                  }}
-                />
+                <input class="vh" type="radio" name="event-kinds" checked />
                 Everything
               </label>
               <label>
@@ -230,7 +253,7 @@ export function JobTimeline(props: {
           </button>
           <For each={moments()} keyed={(row) => row.id}>
             {(row) => (
-              <a href={`#event-${row().id}`}>
+              <a class="stands-alone" href={`#event-${row().id}`}>
                 {MOMENTS.get(row().kind)}{" "}
                 <Show when={row().at}>
                   {(at) => <Instant value={at()} format={TIME_SECONDS} />}
@@ -253,19 +276,27 @@ export function JobTimeline(props: {
       <Show when={stretch.hasEarlier()}>
         <div class="stretch-end">
           <p>
-            Events before{" "}
-            <Show when={earlierTime()} fallback="this stretch">
-              {(at) => <Instant value={at()} format={TIME_SECONDS} />}
-            </Show>{" "}
-            are not shown.
+            <Show when={earlierTime()} fallback="Earlier Events are not shown.">
+              {(at) => (
+                <>
+                  Events before <Instant value={at()} format={TIME_SECONDS} /> are not shown.
+                </>
+              )}
+            </Show>
           </p>
-          <button type="button" disabled={stretch.isFetchingPage()} onClick={() => void earlier()}>
-            Show 100 earlier Events
+          <button
+            type="button"
+            disabled={stretch.isFetchingPage()}
+            onClick={(e) => void extend(true, e.currentTarget)}
+          >
+            Show earlier Events
           </button>
         </div>
       </Show>
       <ol
         class="timeline"
+        aria-labelledby="job-events"
+        tabindex="-1"
         ref={(el) => {
           timeline = el;
         }}
@@ -284,12 +315,14 @@ export function JobTimeline(props: {
                 {(run) => (
                   <RunHeading
                     run={run()}
+                    shortRunId={props.groups.shortRunIds.get(row().runId ?? "")}
                     running={running() && props.groups.currentRun === run()}
                   />
                 )}
               </Show>
               <JobEventRow
                 row={row()}
+                shortRunId={props.groups.shortRunIds.get(row().runId ?? "")}
                 userLabel={props.groups.userLabels.get(row().id)}
                 subAgent={props.groups.subAgents.has(row().conversationId ?? 0)}
                 currentOutput={
@@ -316,46 +349,53 @@ export function JobTimeline(props: {
       <Show when={stretch.hasLater()}>
         <div class="stretch-end">
           <p>
-            Events after{" "}
-            <Show when={laterTime()} fallback="this stretch">
-              {(at) => <Instant value={at()} format={TIME_SECONDS} />}
-            </Show>{" "}
-            are not shown.
+            <Show when={laterTime()} fallback="Later Events are not shown.">
+              {(at) => (
+                <>
+                  Events after <Instant value={at()} format={TIME_SECONDS} /> are not shown.
+                </>
+              )}
+            </Show>
           </p>
-          <button type="button" disabled={stretch.isFetchingPage()} onClick={() => void later()}>
-            Show 100 later Events
+          <button
+            type="button"
+            disabled={stretch.isFetchingPage()}
+            onClick={(e) => void extend(false, e.currentTarget)}
+          >
+            Show later Events
           </button>
         </div>
       </Show>
       <div role="status" aria-atomic="true" class="new-events">
-        <Show when={unread()[0]}>
-          {(firstNew) => (
-            <>
-              <span>
-                <strong>
-                  {formatCount(unread().length)} new {plural(unread().length, "Event", "Events")}
-                </strong>{" "}
-                below
-                <Show when={newestUnreadTime()}>
-                  {(at) => (
-                    <>
-                      , the latest <Instant value={at()} format={TIME_SECONDS} />
-                    </>
-                  )}
-                </Show>
-                .
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  reveal(linkTo(firstNew().id));
-                  setSeen(arrivals().at(-1)?.id ?? 0);
-                }}
-              >
-                Go to them
-              </button>
-            </>
-          )}
+        <Show when={unread().length}>
+          <>
+            <span>
+              <strong>
+                {formatCount(unread().length)} new {plural(unread().length, "Event", "Events")}
+              </strong>{" "}
+              below
+              <Show when={newestUnreadTime()}>
+                {(at) => (
+                  <>
+                    , the latest <Instant value={at()} format={TIME_SECONDS} />
+                  </>
+                )}
+              </Show>
+              .
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const firstNew = shownNumber(unread(), false);
+                if (firstNew) reveal(firstNew);
+                else goToEnd();
+                seenThrough = unread().at(-1)?.id ?? seenThrough;
+                setUnread([]);
+              }}
+            >
+              Go to them
+            </button>
+          </>
         </Show>
       </div>
     </section>

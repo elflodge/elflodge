@@ -9,11 +9,11 @@ import {
 } from "contract";
 import { For, Show } from "solid-js";
 
-import { Instant } from "./components/Instant.tsx";
-import { TextPreview } from "./components/JobRecord.tsx";
-import { FAILURE_WORDS } from "./components/JobStatus.tsx";
-import { TIME_SECONDS, formatCount, formatUsd, plural } from "./format.ts";
-import type { EventToolCall, ReadJobEvent } from "./job-event-record.ts";
+import { TIME_SECONDS, formatCount, formatUsd, plural } from "../format.ts";
+import type { EventToolCall, ReadJobEvent } from "../job-event-record.ts";
+import { Instant } from "./Instant.tsx";
+import { FAILURE_WORDS } from "./JobStatus.tsx";
+import { TextPreview } from "./TextPreview.tsx";
 
 const RUNNER_WORD = {
   [JOB_STARTED]: "Started",
@@ -27,6 +27,7 @@ const RUNNER_WORD = {
 
 interface RowProps {
   row: ReadJobEvent;
+  shortRunId?: string;
   userLabel?: "Input" | "Note at the resume";
   subAgent?: boolean;
   currentOutput?: boolean;
@@ -38,15 +39,11 @@ function countLines(text: string) {
   return `${formatCount(count)} ${plural(count, "line", "lines")}`;
 }
 
-function Call(props: { call: EventToolCall; previewId: string }) {
+function Call(props: { call: EventToolCall }) {
   const { name, id, arguments: args } = props.call;
   function argumentsBody() {
     if (name === "bash" && typeof args["command"] === "string") {
-      return (
-        <pre class="code wraps" tabindex="0" aria-label={`Command for ${id}`}>
-          {args["command"]}
-        </pre>
-      );
+      return <TextPreview text={args["command"]} label={`Command for ${id}`} wraps />;
     }
     if (
       name === "write" &&
@@ -67,13 +64,7 @@ function Call(props: { call: EventToolCall; previewId: string }) {
         </>
       );
     }
-    return (
-      <TextPreview
-        id={props.previewId}
-        label={`Arguments of ${id}`}
-        text={JSON.stringify(args, null, 2)}
-      />
-    );
+    return <TextPreview label={`Arguments of ${id}`} text={JSON.stringify(args, null, 2)} />;
   }
   return (
     <div class="call">
@@ -154,12 +145,8 @@ function eventLabel({ row, userLabel }: RowProps) {
   }
 }
 
-function excerpt(text: string) {
-  const first = text.trimStart().split("\n", 1)[0] ?? "";
-  const limit = 96;
-  return first.length > limit || first.length < text.trim().length
-    ? `${first.slice(0, limit)}…`
-    : first;
+function firstLine(text: string) {
+  return text.trimStart().split("\n", 1)[0] ?? "";
 }
 
 function summary(row: ReadJobEvent) {
@@ -169,21 +156,21 @@ function summary(row: ReadJobEvent) {
       return `, ${record.data.reason}`;
     case "pi.user":
     case "pi.compaction":
-      return `: ${excerpt(messageText(record.model[0].content))}`;
+      return `: ${firstLine(messageText(record.model[0].content))}`;
     case "pi.tool-result": {
       const message = record.model[0];
       const body = messageText(message.content);
-      return `: ${message.isError ? "Error, " : ""}${body.includes("\n") && !message.isError ? countLines(body) : excerpt(body)}`;
+      return `: ${message.isError ? "Error, " : ""}${body.includes("\n") && !message.isError ? countLines(body) : firstLine(body)}`;
     }
     case "pi.assistant": {
       const message = record.model[0];
       const pieces = message.content.flatMap((part) => {
-        if (part.type === "text") return [excerpt(part.text)];
+        if (part.type === "text") return [firstLine(part.text)];
         if (part.type === "toolCall") return [`calls ${part.name} ${part.id}`];
         return [];
       });
       pieces.push(agentStop(message.stopReason));
-      if (message.errorMessage) pieces.push(excerpt(message.errorMessage));
+      if (message.errorMessage) pieces.push(firstLine(message.errorMessage));
       return `: ${pieces.filter(Boolean).join(" ")}`;
     }
     default:
@@ -192,9 +179,7 @@ function summary(row: ReadJobEvent) {
 }
 
 function EventBody(props: RowProps) {
-  const fullText = (text: string, label: string, wraps = true) => (
-    <TextPreview id={`event-${props.row.id}-text`} text={text} label={label} wraps={wraps} />
-  );
+  const prose = (text: string) => <TextPreview text={text} label={eventLabel(props)} prose />;
   function body() {
     const record = props.row.record;
     switch (record?.kind) {
@@ -203,8 +188,8 @@ function EventBody(props: RowProps) {
       case JOB_RECOVERED:
         return (
           <p class="rec">
-            run <code title={record.data.runId}>{record.data.runId.slice(0, 8)}</code> on a Runner
-            at version {record.data.runnerVersion}
+            run <code title={record.data.runId}>{props.shortRunId}</code> on a Runner at version{" "}
+            {record.data.runnerVersion}
           </p>
         );
       case JOB_PAUSED:
@@ -214,23 +199,33 @@ function EventBody(props: RowProps) {
         return (
           <div class="rec">
             <code>{record.data.reason}</code> — {FAILURE_WORDS[record.data.reason]}
-            {record.data.message && fullText(record.data.message, "Failure message")}
+            {record.data.message && (
+              <TextPreview
+                text={record.data.message}
+                label="Failure message"
+                wholeTextLabel="Show the whole message"
+                wraps
+              />
+            )}
           </div>
         );
       case JOB_SUCCEEDED:
         return (
           <Show
             when={props.currentOutput}
-            fallback={fullText(JSON.stringify(record.data.output, null, 2), "Output", false)}
+            fallback={
+              <TextPreview text={JSON.stringify(record.data.output, null, 2)} label="Output" />
+            }
           >
-            with its <a href="#output-or-failure">Output</a>
+            {", with its "}
+            <a href="#output-or-failure">Output</a>
           </Show>
         );
       case "pi.user":
       case "pi.compaction":
-        return <p class="say">{messageText(record.model[0].content)}</p>;
+        return prose(messageText(record.model[0].content));
       case "pi.reset":
-        return record.model && <p class="say">{messageText(record.model[0].content)}</p>;
+        return record.model && prose(messageText(record.model[0].content));
       case "pi.system":
         return undefined;
       case "pi.tool-result": {
@@ -242,11 +237,11 @@ function EventBody(props: RowProps) {
               {message.isError && <b>Error. </b>}
               {countLines(text)}
             </p>
-            {fullText(
-              text,
-              `Result of ${message.toolCallId}`,
-              message.isError || !text.includes("\n"),
-            )}
+            <TextPreview
+              text={text}
+              label={`Result of ${message.toolCallId}`}
+              wraps={message.isError || !text.includes("\n")}
+            />
           </div>
         );
       }
@@ -255,10 +250,10 @@ function EventBody(props: RowProps) {
         return (
           <>
             <For each={message.content}>
-              {(part, index) => {
+              {(part) => {
                 switch (part.type) {
                   case "text":
-                    return <p class="say">{part.text}</p>;
+                    return prose(part.text);
                   case "thinking":
                     return (
                       <details>
@@ -269,18 +264,20 @@ function EventBody(props: RowProps) {
                       </details>
                     );
                 }
-                return <Call call={part} previewId={`event-${props.row.id}-call-${index()}`} />;
+                return <Call call={part} />;
               }}
             </For>
             <Show when={agentStop(message.stopReason)}>{(stop) => <p>{stop()}</p>}</Show>
-            {message.errorMessage && fullText(message.errorMessage, "Agent error")}
+            {message.errorMessage && (
+              <TextPreview text={message.errorMessage} label="Agent error" wraps />
+            )}
           </>
         );
       }
       default:
-        return props.row.kind === "conversation" && props.row.relation
-          ? undefined
-          : fullText(JSON.stringify(props.row.event, null, 2), "Whole Event", false);
+        return props.row.kind === "conversation" && props.row.relation ? undefined : (
+          <TextPreview text={JSON.stringify(props.row.event, null, 2)} label="Whole Event" />
+        );
     }
   }
   return (
@@ -335,7 +332,10 @@ export function JobEventRow(props: RowProps) {
         {(message) => (
           <div class="ev-rail">
             <span>
-              {formatUsd(message().usage.cost.total, 6)} <span class="unit">USD, est.</span>
+              {formatUsd(message().usage.cost.total)}{" "}
+              <span class="unit">
+                {message().usage.cost.totalFromProvider ? "USD" : "USD, est."}
+              </span>
             </span>
             <span>
               {formatCount(message().usage.totalTokens)} <span class="unit">tokens</span>

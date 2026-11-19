@@ -91,11 +91,6 @@ const usdPrecision = {
 } satisfies Intl.NumberFormatOptions;
 const USD = new Intl.NumberFormat(LANGUAGE, { ...usdPrecision, minimumFractionDigits: 4 });
 
-const STEP_USD = new Intl.NumberFormat(LANGUAGE, {
-  minimumFractionDigits: 6,
-  maximumFractionDigits: 6,
-});
-
 const PLURAL = new Intl.PluralRules(LANGUAGE);
 
 /** `one` or `other`, the word that goes with `count`, such as "1 agent" and "2 agents". */
@@ -115,9 +110,9 @@ export function formatRoles(roles: string): string {
   return ROLE_LIST.format(roles.split(","));
 }
 
-/** An amount in US dollars, with two significant digits when four decimal places would be less precise. */
-export function formatUsd(amount: number, decimals?: 6): string {
-  return (decimals === 6 ? STEP_USD : USD).format(amount);
+/** A cost in US dollars: four decimal places, or two significant digits for smaller amounts. */
+export function formatUsd(amount: number): string {
+  return USD.format(amount);
 }
 
 /** Budgets use the same precision as costs, with a minimum of two decimal places. */

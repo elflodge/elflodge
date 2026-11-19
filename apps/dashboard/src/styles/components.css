@@ -1623,11 +1623,13 @@ p mark.placeholder {
 .facts-aside .runner-ref > a {
   flex: 0 1 auto;
 }
-.facts-aside .stands-alone {
+.facts-aside .stands-alone,
+.ev-id.stands-alone {
   position: relative;
   min-height: 0;
 }
-.facts-aside .stands-alone::after {
+.facts-aside .stands-alone::after,
+.ev-id.stands-alone::after {
   content: "";
   position: absolute;
   inset-inline: 0;
@@ -1636,7 +1638,8 @@ p mark.placeholder {
   min-height: max(100%, var(--target));
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .facts-aside .stands-alone::after {
+  .facts-aside .stands-alone::after,
+  .ev-id.stands-alone::after {
     min-height: max(100%, var(--control-touch));
   }
 }
@@ -1659,6 +1662,7 @@ p mark.placeholder {
   margin-right: var(--space-1);
 }
 .job-status .note,
+.limit .note,
 .activity .note,
 .output-or-failure .note,
 .job-controls .note {
@@ -1772,15 +1776,24 @@ p mark.placeholder {
 .output-or-failure .text-preview {
   margin-top: var(--space-2);
 }
-.text-preview code {
+.text-preview > *,
+.text-preview > * > span {
   display: block;
   font: inherit;
 }
-.preview:not(:has(> button[aria-expanded="true"])) > .text-preview {
-  max-block-size: calc(var(--job-preview-lines) * 1lh + 2 * var(--space-2));
+.preview:not(:has(> button[aria-expanded="true"])) > .text-preview > * {
+  max-block-size: calc(var(--job-preview-lines) * 1lh);
+  overflow-y: clip;
 }
 .preview > button {
   margin-top: var(--space-1);
+}
+
+/* When earlier Events load, leave the existing Event rows eligible as scroll anchors.
+   A visible part of the job above them can otherwise hold the viewport while every Event moves. */
+.record-with-aside:has(.tl) > :is(.record-sections, .facts-aside),
+.tl :is(.tl-head, .stretch-end, .jump-row, .run-h, .run-gap, .day-line) {
+  overflow-anchor: none;
 }
 
 /* ---------- The Events heading and the two independent reading choices ---------- */
@@ -1844,7 +1857,7 @@ p mark.placeholder {
 }
 .seg label:has(:checked) {
   background: var(--brand-shape);
-  color: var(--c-ground);
+  color: var(--c-on-shape);
   font-weight: var(--weight-strong);
 }
 .seg label:has(:focus-visible) {
@@ -1873,14 +1886,8 @@ p mark.placeholder {
   padding-inline: var(--space-1);
 }
 .jump-row a {
-  display: inline-flex;
   gap: var(--space-1);
-  align-items: center;
-  min-block-size: var(--target);
-}
-.jump-row span > a {
   justify-content: center;
-  min-inline-size: var(--target);
 }
 .stretch-end {
   justify-content: space-between;
@@ -1995,28 +2002,26 @@ p mark.placeholder {
 
 /* ---------- The polite notice stays within reach while the reader is above arriving Events ---------- */
 .new-events:not(:empty) {
-  position: fixed;
-  inset-inline: var(--gutter);
-  bottom: var(--space-3);
-  margin-inline: auto;
-  width: fit-content;
-  max-width: calc(100% - 2 * var(--gutter));
+  position: sticky;
+  bottom: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: var(--rule) solid var(--c-field-edge);
+  justify-content: space-between;
+  border-block-start: var(--rule) solid var(--c-field-edge);
   background: var(--c-ground);
-  box-shadow: var(--shadow-pop);
   z-index: 2;
 }
 @media (width <= 640px), (pointer: coarse) {
-  .seg label,
-  .jump-row a {
+  .seg label {
     min-height: var(--control-touch);
   }
-  .jump-row span > a {
+  .jump-row {
+    row-gap: 0;
+  }
+  .jump-row button {
     min-width: var(--control-touch);
   }
 }
@@ -2028,6 +2033,13 @@ p mark.placeholder {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "number time" ". body" ". rail";
     gap: var(--space-1) var(--space-2);
+  }
+  .tl:has(.view-line:checked) .ev:not(.is-live) {
+    grid-template-columns: auto max-content minmax(0, 1fr);
+    grid-template-areas: "number time body";
+    min-height: var(--control-touch);
+    align-items: center;
+    padding-block: 0;
   }
   .ev-time {
     align-self: center;

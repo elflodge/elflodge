@@ -21,7 +21,7 @@ function between(from: Date, to: Date) {
   return duration((to.getTime() - from.getTime()) / 1000);
 }
 
-export function RunHeading(props: { run: LoadedRun; running: boolean }) {
+export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId?: string }) {
   const opening = () => props.run.opening;
   return (
     <>
@@ -59,7 +59,7 @@ export function RunHeading(props: { run: LoadedRun; running: boolean }) {
           )}
         </Show>
         <span class="sid" title={opening().runId}>
-          run {opening().runId?.slice(0, 8)}
+          run {props.shortRunId}
         </span>
         <span class="mono">{[...props.run.models].join(", ")}</span>
       </li>

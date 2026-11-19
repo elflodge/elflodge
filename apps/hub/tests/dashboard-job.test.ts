@@ -240,20 +240,40 @@ test("a member opens the latest hundred Events in journal order, with their orig
   );
 }, 30_000);
 
-test("walking back keeps the first Event in place and focuses the Event just before it", async () => {
+test("walking back keeps the reader’s place even if they scroll during the read", async () => {
   const { id } = await jobWithHistory(102);
   const page = await openAsMember("Earlier Events", `jobs/${id}`);
-  const earlier = page.getByRole("button", { name: "Show 100 earlier Events" });
+  const earlier = page.getByRole("button", { name: "Show earlier Events" });
   await earlier.evaluate((button) => {
     button.scrollIntoView({ block: "center" });
     button.focus({ preventScroll: true });
   });
-  const first = page.locator("#event-30");
-  const top = await first.evaluate((el) => el.getBoundingClientRect().top);
+  const requested = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${id}/events?*`, async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (query.get("order") === "desc" && query.get("after") === "30") {
+      requested.resolve();
+      await release.promise;
+    }
+    await route.continue();
+  });
+  const reading = page.locator("#event-260");
   await page.keyboard.press("Enter");
+  let top: number;
+  try {
+    await requested.promise;
+    top = await reading.evaluate((el) => {
+      el.scrollIntoView({ block: "center" });
+      return el.getBoundingClientRect().top;
+    });
+  } finally {
+    release.resolve();
+  }
   await expectBrowser(page.locator("#event-20")).toBeFocused();
   await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
-  expect(await first.evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(top, 0);
+  const after = await reading.evaluate((el) => el.getBoundingClientRect().top);
+  expect(Math.abs(after - top)).toBeLessThan(1);
   await expectBrowser(earlier).toHaveCount(0);
 }, 30_000);
 
@@ -265,7 +285,11 @@ test("a member can read from the start and request the next page in order", asyn
   const numbers = page.locator("ol.timeline .ev-id");
   await expectBrowser(numbers.first()).toHaveText("1");
   await expectBrowser(numbers.last()).toHaveText("980");
-  await page.getByRole("button", { name: "Show 100 later Events" }).click();
+  const recordsAndErrors = page.getByRole("radio", { name: "Runner’s records and errors" });
+  await page.getByText("Runner’s records and errors", { exact: true }).click();
+  await page.getByRole("button", { name: "Show later Events" }).click();
+  await expectBrowser(recordsAndErrors).toBeChecked();
+  await expectBrowser(page.locator("#event-2")).toBeFocused();
   await expectBrowser(numbers.last()).toHaveText("1020");
   await expectBrowser(numbers).toHaveCount(104);
 }, 30_000);
@@ -285,9 +309,10 @@ test("a member reading earlier Events can jump to new ones, and following ends a
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === eventsPath) reads++;
   });
-  await report([message(260), message(264)]);
+  await report([message(260), { id: 264, type: "conversation", record: { id: 264 } }]);
   const notice = page.getByRole("status").filter({ hasText: "2 new Events below" });
   await expectBrowser(notice).toBeVisible({ timeout: 12_000 });
+  await expectBrowser(notice).not.toContainText("the latest");
   expect(await first.evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(top, 0);
   await notice.getByText("Go to them", { exact: true }).click();
   await expectBrowser(page.locator("#event-260")).toBeFocused();

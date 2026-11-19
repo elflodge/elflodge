@@ -9,6 +9,7 @@ import {
   jobEndingSchema,
   jobFailureSchema,
   jobOpeningSchema,
+  jobPauseSchema,
   jobSuccessSchema,
   type JobEvent,
 } from "contract";
@@ -35,7 +36,7 @@ const toolCall = z.object({
 });
 export type EventToolCall = z.infer<typeof toolCall>;
 
-const time = z.object({ timestamp: z.number().check(z.gte(0), z.lte(253_402_300_799_999)) });
+const time = z.pick(jobOpeningSchema, { timestamp: true });
 const user = z.extend(time, {
   role: z.literal("user"),
   content: z.union([z.string(), z.array(z.discriminatedUnion("type", [text, image]))]),
@@ -49,7 +50,7 @@ const assistant = z.extend(time, {
   model: z.string(),
   usage: z.object({
     totalTokens: z.number(),
-    cost: z.object({ total: z.number() }),
+    cost: z.object({ total: z.number(), totalFromProvider: z.optional(z.boolean()) }),
   }),
 });
 const toolResult = z.extend(time, {
@@ -61,7 +62,8 @@ const toolResult = z.extend(time, {
 });
 const entry = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal([JOB_STARTED, JOB_RESUMED, JOB_RECOVERED]), data: jobOpeningSchema }),
-  z.object({ kind: z.literal([JOB_PAUSED, JOB_CANCELLED]), data: jobEndingSchema }),
+  z.object({ kind: z.literal(JOB_PAUSED), data: jobPauseSchema }),
+  z.object({ kind: z.literal(JOB_CANCELLED), data: jobEndingSchema }),
   z.object({ kind: z.literal(JOB_FAILED), data: jobFailureSchema }),
   z.object({ kind: z.literal(JOB_SUCCEEDED), data: jobSuccessSchema }),
   z.object({ kind: z.literal("pi.assistant"), model: z.tuple([assistant]) }),
