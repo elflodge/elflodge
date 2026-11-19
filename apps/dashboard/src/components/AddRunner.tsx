@@ -27,7 +27,7 @@ type Piece = { text: string; mark?: "key" | "placeholder" };
 /**
  * Keep this command in step with "Start a Runner on another machine" in docs/deploy.md.
  * GitHub's self-hosted runners also take a short-lived registration token inline. The
- * provider credential is long-lived and comes from the reader's environment.
+ * two printf calls write the credentials literally to the private file that Docker reads on startup.
  * https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository
  */
 function dockerCommand(key: string | undefined, hub: Piece): Piece[] {
@@ -55,11 +55,11 @@ EOF
     { text: key ?? "<a registration key>", mark: key === undefined ? "placeholder" : "key" },
     {
       text: `'
-  OPENROUTER_API_KEY="$MY_KEY" \\
+  printf 'OPENROUTER_API_KEY=%s\\n' "$MY_KEY" >> runner.env
   docker run -d --name elflodge-runner --hostname "$(uname -n)" \\
     --security-opt seccomp=unconfined --security-opt systempaths=unconfined \\
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \\
-    --volume runner-data:/data --env-file runner.env --env OPENROUTER_API_KEY \\
+    --volume runner-data:/data --env-file runner.env \\
     ${IMAGE}
 )`,
     },
@@ -162,6 +162,11 @@ export function AddRunner(props: {
             API keys lists it, where it can be revoked.
           </p>
         </Show>
+        <p>
+          First, in Bash or zsh on that machine, run <code>read -rs MY_KEY</code> on its own. Paste
+          your OpenRouter key and press Enter. The shell hides the input and leaves it out of
+          history. The command below saves it in the private <code>runner.env</code>.
+        </p>
         <div class="copyable">
           <pre
             class="code wraps command"
@@ -204,8 +209,7 @@ export function AddRunner(props: {
           says how to open the hub to one.
         </p>
         <p>
-          Its jobs run on OpenRouter's free models. The command reads your OpenRouter key from the
-          shell variable <code>MY_KEY</code>. To use another model, follow{" "}
+          Its jobs run on OpenRouter's free models. To use another model, follow{" "}
           <a href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}>
             the Runner's README
           </a>
