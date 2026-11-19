@@ -123,6 +123,7 @@ function Read<T>(props: {
 
   return (
     <Switch>
+      {/* Both timestamps come from the same clock, which we assume does not step back between reads. */}
       <Match when={props.query.errorUpdatedAt > props.query.dataUpdatedAt}>
         <Failed>
           {props.what} could not be read at{" "}

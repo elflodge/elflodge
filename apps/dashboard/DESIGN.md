@@ -36,7 +36,7 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family in both themes.
 - **Inks** are explicit values. Text reaches 4.5:1 on every ground it is set on, in both themes.
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
-- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash; it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
+- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
 - **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size), `--text-md` (15px, sentences that explain) and `--text-lg` (17px, section headings) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
 - **Space** is in steps of 4px: `--space-1` to `--space-4` (4 to 16px) and `--space-7` (48px). The page's side margin is `--gutter`.
@@ -188,7 +188,7 @@ The router shows `DefaultCatchBoundary` in place of a page that failed and `NotF
 </FallbackPage>
 ```
 
-What failed is said in an alert notice above "Try again". A read that fails says what could not be read, then the hub's words where it gave any: "The session could not be read: …". `readApi` (`src/api-client.ts`) names the failed read for both Better Auth and oRPC.
+What failed is said in an alert notice above "Try again". A read that fails says what could not be read, then the hub's words where it gave any: "The session could not be read: …". `readFromHub` (`src/api-client.ts`) names the failed read for both Better Auth and oRPC.
 
 ### Fields
 
@@ -279,7 +279,7 @@ No page uses `.note`, `timeZoneNote()`, `Instant`'s default format, `.num`, `.un
 
 ### Records table
 
-Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole and carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
+Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole above 640px and carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
 
 ```tsx
 <table class="records" role="table">
@@ -309,7 +309,7 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 </table>
 ```
 
-At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
+At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
 ### Marks
 

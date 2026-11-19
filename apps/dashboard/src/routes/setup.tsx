@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal, onSettled } from "solid-js";
 
-import { api, apiFailureMessage, readApi } from "../api-client.ts";
+import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
@@ -12,7 +12,7 @@ import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText, focusIfLost } fr
 // link's token comes after `#`, so it never reaches the hub's request logs.
 export const Route = createFileRoute("/setup")({
   loader: async () => {
-    const { needed } = await readApi("Whether the hub is set up", () => api.setup.get());
+    const { needed } = await readFromHub("Whether the hub is set up", () => api.setup.get());
     if (!needed) throw redirect({ to: "/sign-in" });
   },
   component: Setup,
@@ -34,14 +34,14 @@ function Setup() {
       await api.setup.complete({ token: token(), organizationName, name, ...owner });
     } catch (failure) {
       if (failure instanceof ORPCError && failure.code === "CONFLICT") setAlreadySetUp(true);
-      else setError(apiFailureMessage(failure));
+      else setError(hubFailureMessage(failure));
       return;
     }
     try {
       await authClient.signIn.email(owner);
     } catch (failure) {
       // The owner exists, so the form is done with. The sign-in page can try again.
-      setError(`The owner was created, but signing in failed: ${apiFailureMessage(failure)}`);
+      setError(`The owner was created, but signing in failed: ${hubFailureMessage(failure)}`);
       setAlreadySetUp(true);
       return;
     }

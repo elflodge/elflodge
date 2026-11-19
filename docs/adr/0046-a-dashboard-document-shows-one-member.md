@@ -4,7 +4,7 @@ Tabs share the hub's session cookie. A member can sign out or sign in as someone
 
 The first signed-in shell records its member's user ID. If a later session read names someone else or finds no one signed in, the browser reloads the current page. An explicit sign-out takes the browser to the plain sign-in page instead. Only the first such observation starts a document navigation. The replacement document gets its own router, Query client and forms.
 
-## Alternatives considered
+## Considered options
 
 - A Query client per session isolates cached answers, but also requires switching clients and disposing of the right subscriptions. The shell and pending form actions have lifetimes of their own. Replacing the document ends them together.
 - Clearing one client's cache discards stored data, but a mounted view can retain the previous answer and a mutation callback can write into the cleared cache later.

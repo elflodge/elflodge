@@ -2,7 +2,7 @@ import { BetterFetchError } from "@better-fetch/fetch";
 import { createFileRoute } from "@tanstack/solid-router";
 import { Show, createSignal, flush } from "solid-js";
 
-import { apiFailureMessage } from "../../api-client.ts";
+import { hubFailureMessage } from "../../api-client.ts";
 import { authClient } from "../../auth-client.ts";
 import { FieldError } from "../../components/FieldError.tsx";
 import { Notice } from "../../components/Notice.tsx";
@@ -54,7 +54,7 @@ function ChangePassword() {
         flush();
         currentPassword.focus();
       } else {
-        setResult({ role: "alert", message: apiFailureMessage(failure) });
+        setResult({ role: "alert", message: hubFailureMessage(failure) });
       }
       return;
     }

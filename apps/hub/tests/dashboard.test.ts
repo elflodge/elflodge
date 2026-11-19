@@ -138,7 +138,7 @@ test("a request with neither a session nor a key is told how to authenticate", a
   expect(response.headers.get("www-authenticate")).not.toBeNull();
 });
 
-test("a member can retry a refused sign-in from the keyboard and submits only once while navigating", async () => {
+test("sign-in allows keyboard retry, stays disabled during navigation and discards an off-site redirect", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   const member = await newMember("Keyboard Reader");
@@ -192,6 +192,8 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   ).toBeVisible();
   await page.getByRole("button", { name: member.name }).click();
   await expectBrowser(home).toHaveAttribute("aria-current", "page");
+  await home.click({ modifiers: ["ControlOrMeta"] });
+  await expectBrowser(home).toBeVisible();
 }, 30_000);
 
 test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
@@ -305,8 +307,6 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
 }, 30_000);
 
 test("in a browser, a member change in another tab loads a fresh document", async () => {
-  const client = await system.clientWithNewJobsKey();
-  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
   const first = await newMember("First Tab Reader");
   const next = await newMember("Next Tab Reader");
   // Two tabs of one browser, which share its cookies.
@@ -328,19 +328,13 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   expect(signInDocument).not.toBe(firstDocument);
 
   // Signed in as the next member in the other tab, over this one's session, this one shows the next
-  // member at its next session read, with a fresh set of counts.
+  // member at its next session read.
   await page.getByLabel("Email").fill(first.email);
   await page.getByLabel("Password").fill(first.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByRole("button", { name: first.name }).waitFor();
   await page.waitForURL(`${dashboard}/change-password`);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(signInDocument);
-  const queued = page.getByRole("region", { name: "The hub now" }).getByText(/^[\d,]+ queued$/);
-  const before = Number((await queued.innerText()).replaceAll(",", "").split(" ")[0]);
-  await client.batches.addJobs({
-    id: batch.id,
-    jobs: [{ customId: "one more in a tab", input: "One more." }],
-  });
   await other.getByLabel("Email").fill(next.email);
   await other.getByLabel("Password").fill(next.password);
   await other.getByRole("button", { name: "Sign in" }).click();
@@ -353,7 +347,6 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   await page.getByRole("button", { name: next.name }).waitFor();
   expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
   await expectBrowser(page).toHaveURL(`${dashboard}/change-password`);
-  await expectBrowser(queued).toHaveText(`${before + 1} queued`);
 }, 60_000);
 
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {

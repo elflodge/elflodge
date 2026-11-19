@@ -25,6 +25,7 @@ export function reloadAndWaitIfMemberChanged(memberId: string | null) {
   return leaving;
 }
 
+/** Watch for a change of member after the signed-in shell first appears. */
 export function watchDocumentMember(memberId: string) {
   if (documentMember !== undefined) return;
   documentMember = memberId;
@@ -41,6 +42,7 @@ export function watchDocumentMember(memberId: string) {
   });
 }
 
+/** End the session and replace this document with the sign-in page at `href`. */
 export async function signOutTo(href: string) {
   // A session read can see the sign-out before the button gets its answer. Either one must
   // take the member to the plain sign-in page.

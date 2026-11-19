@@ -18,6 +18,7 @@ export function isSignedOutError(error: unknown): boolean {
   return error instanceof BetterFetchError && error.status === 401;
 }
 
+/** Read the current session, returning null when the hub reports that it has ended. */
 export async function getSession() {
   try {
     return await authClient.getSession();

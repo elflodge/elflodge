@@ -6,6 +6,8 @@ packages:
 catalogMode: prefer
 
 overrides:
+  # Better Auth and the dashboard must share one BetterFetchError constructor.
+  "@better-fetch/fetch@*": "catalog:"
   vite@*: "catalog:"
   vitest@*: "catalog:"
 peerDependencyRules:
@@ -30,7 +32,6 @@ allowBuilds:
 catalog:
   "@anthropic-ai/sandbox-runtime": ^0.0.83
   "@better-auth/api-key": 1.7.22
-  # Match Better Auth's exact dependency so its thrown errors share the dashboard's constructor.
   "@better-fetch/fetch": 1.3.3
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4

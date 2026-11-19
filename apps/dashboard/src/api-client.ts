@@ -2,7 +2,8 @@ import { BetterFetchError } from "@better-fetch/fetch";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { apiContract, createProblemDetailsLink } from "contract";
-import ensureError from "ensure-error";
+
+import { asError } from "./error.ts";
 
 /**
  * The hub's API, on the page's own origin, which serves it (ADR 0043): its calls go to paths the
@@ -13,9 +14,8 @@ export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
 );
 
 /** What went wrong with a call to the hub, in words for the member. */
-export function apiFailureMessage(caught: unknown): string {
-  // oRPC keeps the hub's Problem Details in cause. Preserve it for callers of readApi.
-  const error = caught instanceof Error ? caught : ensureError(caught);
+export function hubFailureMessage(caught: unknown): string {
+  const error = asError(caught);
   if (error instanceof ORPCError) return error.message;
   if (error instanceof BetterFetchError) {
     const message: unknown = error.error?.message;
@@ -32,11 +32,11 @@ export function apiFailureMessage(caught: unknown): string {
  * What `read`, a call of the hub's API, reads. A read that fails throws an error that names
  * `what`, for the page shown in place of the one that needed it.
  */
-export async function readApi<T>(what: string, read: () => Promise<T>): Promise<T> {
+export async function readFromHub<T>(what: string, read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (caught) {
-    throw new Error(`${what} could not be read: ${apiFailureMessage(caught)}`, {
+    throw new Error(`${what} could not be read: ${hubFailureMessage(caught)}`, {
       cause: caught,
     });
   }

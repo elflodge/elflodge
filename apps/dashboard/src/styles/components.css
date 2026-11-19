@@ -639,16 +639,19 @@ thead .unit {
     font-size: var(--text-sm);
   }
   .records td[data-l] {
+    --label-width: 7rem;
+    padding-inline-start: var(--label-width);
     text-align: start;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .records td[data-l]::before {
     /* Firefox before 128 needs the first declaration. The real header already names the cell. */
     content: attr(data-l);
     content: attr(data-l) / "";
     display: inline-block;
-    width: 7rem;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    margin-inline-start: calc(-1 * var(--label-width));
+    width: var(--label-width);
     vertical-align: top;
     font-family: var(--font-sans);
     color: var(--c-ink-2);

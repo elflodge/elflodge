@@ -1,7 +1,7 @@
 import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
 import { Show, createSignal, onSettled } from "solid-js";
 
-import { apiFailureMessage, readApi } from "../api-client.ts";
+import { hubFailureMessage, readFromHub } from "../api-client.ts";
 import { authClient, getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { CurrentDestination, Destinations } from "../components/Destinations.tsx";
@@ -20,11 +20,11 @@ import {
 // another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
-    const organizations = readApi("The Organization", () => authClient.organization.list());
+    const organizations = readFromHub("The Organization", () => authClient.organization.list());
     // Handle an early rejection until we can use this read. A change of member must reload the
     // document as soon as the session answers, even if the Organization read is still pending.
     void organizations.catch(() => {});
-    const session = await readApi("The session", getSession);
+    const session = await readFromHub("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
@@ -46,6 +46,13 @@ function SignedIn() {
   function closeMenu() {
     if (account?.matches(":popover-open")) account.hidePopover();
   }
+
+  // The router changes the page in this document. A link opened in another tab leaves its menu here.
+  onSettled(() =>
+    router.subscribe("onResolved", ({ hrefChanged }) => {
+      if (hrefChanged) closeMenu();
+    }),
+  );
 
   /** Whether `node` is the menu or the button that opens it, or is inside one of them. */
   function inMenuGroup(node: EventTarget | null) {
@@ -76,7 +83,7 @@ function SignedIn() {
       closeMenu();
       if (menuHadFocus) opener?.focus();
       else focusIfLost(opener);
-      setError(apiFailureMessage(failure));
+      setError(hubFailureMessage(failure));
     }
   });
 
@@ -127,10 +134,8 @@ function SignedIn() {
               account = element;
             }}
           >
-            {/* At narrow widths the destinations fold into the menu. The router changes the page
-                without loading it anew, which would leave the menu open. */}
             <nav class="pop-nav" aria-label="Destinations">
-              <Destinations class="nav-stack" onFollow={closeMenu} />
+              <Destinations class="nav-stack" />
             </nav>
             <p class="pop-who">
               <strong>{context().member.name}</strong>
@@ -149,10 +154,7 @@ function SignedIn() {
             </p>
             <ul class="pop-list">
               <li>
-                {/* The router changes the page without loading it anew, which would leave the menu open. */}
-                <Link to="/change-password" onClick={closeMenu}>
-                  Change password
-                </Link>
+                <Link to="/change-password">Change password</Link>
               </li>
               <li>
                 {/* Served by the hub itself, outside the dashboard. */}

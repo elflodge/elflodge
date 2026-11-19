@@ -12,16 +12,14 @@ const DESTINATIONS = linkOptions([
 
 /**
  * The bar's destinations as a list of links, the current one marked `aria-current="page"` by the
- * router. `onFollow` runs when one is followed.
+ * router.
  */
-export function Destinations(props: { class: string; onFollow?: () => void }) {
+export function Destinations(props: { class: string }) {
   return (
     <ul class={props.class}>
       {DESTINATIONS.map(({ label, ...options }) => (
         <li>
-          <Link {...options} onClick={() => props.onFollow?.()}>
-            {label}
-          </Link>
+          <Link {...options}>{label}</Link>
         </li>
       ))}
     </ul>
