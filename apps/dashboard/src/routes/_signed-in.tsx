@@ -27,7 +27,12 @@ export const Route = createFileRoute("/_signed-in")({
   },
   // A retry rebuilds route context while beforeLoad checks the session. Keep showing the last
   // completed session in the shell until that check and its loader finish.
-  loader: ({ context: { user, membership } }) => ({ user, membership }),
+  // A navigation within the shell can observe changed membership for the same user.
+  shouldReload: true,
+  loader: {
+    staleReloadMode: "blocking",
+    handler: ({ context: { user, membership } }) => ({ user, membership }),
+  },
   component: SignedIn,
 });
 
