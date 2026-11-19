@@ -42,7 +42,7 @@ function SignIn() {
       setPending,
     );
     if (failure) {
-      setError(failure);
+      setError(failure.message);
       return;
     }
     const target = search().redirect;

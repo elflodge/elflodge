@@ -162,6 +162,23 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice.
+
+```tsx
+<div class="field">
+  <label for="current-password">Current password</label>
+  <input
+    id="current-password"
+    type="password"
+    aria-invalid="true"
+    aria-describedby="current-password-error"
+  />
+  <FieldError id="current-password-error">That is not your current password.</FieldError>
+</div>
+```
+
+which draws `p.field-error`: the error mark and the words, small, in the failed colour.
+
 Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength`: it cuts what is typed or pasted instead of refusing it, so a longest length is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
@@ -198,7 +215,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are three: `mark-failed`, a cross; `mark-succeeded`, a tick; and `mark-opens`, a chevron after words that open a menu. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are four: `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; and `mark-opens`, a chevron after words that open a menu. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 

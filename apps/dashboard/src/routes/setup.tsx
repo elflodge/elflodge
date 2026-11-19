@@ -49,7 +49,7 @@ function Setup() {
       return;
     }
     // The owner exists, so the form is done with; the sign-in page can try again.
-    setError(`The owner was created, but signing in failed: ${signInFailure}`);
+    setError(`The owner was created, but signing in failed: ${signInFailure.message}`);
     setAlreadySetUp(true);
   }
 

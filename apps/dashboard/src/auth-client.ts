@@ -15,6 +15,8 @@ export const CONNECTION_FAILED = "The connection to the hub failed. Please try a
 
 /** A refusal or failure as Better Auth's client returns it. */
 interface AuthError {
+  /** Better Auth's name for the refusal, one of `authClient.$ERROR_CODES`, where it gave one. */
+  code?: string | undefined;
   message?: string | undefined;
   statusText: string;
   status: number;
@@ -26,24 +28,30 @@ export function failureMessage(error: AuthError): string {
   return error.message || error.statusText || `The hub answered with HTTP status ${error.status}.`;
 }
 
+/** What went wrong with a request to Better Auth: words for the member, and Better Auth's code. */
+export interface AuthFailure {
+  message: string;
+  code?: string | undefined;
+}
+
 /**
  * Runs `operation`, a call of Better Auth's client that a form makes, with `setPending` true
- * meanwhile, and gives what went wrong in words for the member, or `undefined` when it succeeded.
+ * meanwhile, and gives what went wrong, or `undefined` when it succeeded.
  */
 export async function attemptAuth(
   operation: () => Promise<{ error: AuthError | null }>,
   setPending: (pending: boolean) => void,
-): Promise<string | undefined> {
+): Promise<AuthFailure | undefined> {
   setPending(true);
   try {
     const { error } = await operation();
-    return error ? failureMessage(error) : undefined;
+    return error ? { message: failureMessage(error), code: error.code } : undefined;
   } catch (error) {
     // Better Auth's client rejects, rather than returning an error, when a request gets no answer
     // or its answer's body cannot be read (better-auth/better-auth#11284); this can go once it
     // returns one. Logged, as a mistake in `operation` lands here too.
     console.error(ensureError(error));
-    return CONNECTION_FAILED;
+    return { message: CONNECTION_FAILED };
   } finally {
     setPending(false);
   }

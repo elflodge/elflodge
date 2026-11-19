@@ -140,8 +140,22 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   const heading = page.getByRole("heading", { name: "Change password" });
   await heading.waitFor();
 
+  // A wrong current password is refused at its field, not with words that could mean any of three.
   const password = "a new password for the owner";
-  await page.getByLabel("Current password").fill(OWNER.password);
+  const current = page.getByLabel("Current password");
+  await current.fill("not the owner's password");
+  await page.getByLabel("New password", { exact: true }).fill(password);
+  await page.getByLabel("Confirm new password").fill(password);
+  await page.getByRole("button", { name: "Change password" }).click();
+  const refusal = page.getByText("That is not your current password.");
+  await refusal.waitFor();
+  expect(await current.getAttribute("aria-invalid")).toBe("true");
+  const describedBy = await current.getAttribute("aria-describedby");
+  expect(await page.locator(`#${describedBy}`).innerText()).toBe(
+    "That is not your current password.",
+  );
+
+  await current.fill(OWNER.password);
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password").fill(password);
   await page.getByRole("button", { name: "Change password" }).click();

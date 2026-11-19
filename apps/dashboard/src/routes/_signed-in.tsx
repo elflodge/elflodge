@@ -64,7 +64,7 @@ function SignedIn() {
       const focused = document.activeElement;
       closeMenu();
       if (!focused || focused === document.body || inMenuGroup(focused)) opener?.focus();
-      setError(failure);
+      setError(failure.message);
       return;
     }
     await navigate({ to: "/sign-in" });
