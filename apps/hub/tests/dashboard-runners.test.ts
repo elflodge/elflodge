@@ -2,7 +2,7 @@ import type { Browser, Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
-import { launchDashboardBrowser } from "./dashboard-browser.ts";
+import { launchDashboardBrowser, signInAt } from "./dashboard-browser.ts";
 import { OWNER, startSystem } from "./harness.ts";
 
 // The dashboard's Runners and API keys pages, as browsers reach them through the hub, on both
@@ -27,11 +27,7 @@ async function signedInAt(
 ): Promise<Page> {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
-  await page.goto(`${system.origin}/dashboard/${pathname}`);
-  await page.getByLabel("Email").fill(member.email);
-  await page.getByLabel("Password").fill(member.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(`${system.origin}/dashboard/${pathname}`);
+  await signInAt(system, page, pathname, member, pathname || "jobs");
   return page;
 }
 
