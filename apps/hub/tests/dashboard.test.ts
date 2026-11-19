@@ -236,6 +236,29 @@ async function pageWithPausedClock() {
   return page;
 }
 
+test("the strip lights the running lamp while the hub can confirm any running job", async () => {
+  const page = await pageWithPausedClock();
+  const counts = {
+    jobCounts: { queued: 4, running: 3, paused: 1 },
+    statusUnknownJobCounts: { queued: 4, running: 1 },
+  };
+  await page.route("**/jobs/counts", (route) => route.fulfill({ json: counts }));
+  await signInAt(page, "", await newMember("Running Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  const running = strip.getByRole("listitem").filter({ hasText: "agents running" });
+  await expectBrowser(running).toHaveText("3 agents running");
+  await expectBrowser(running.locator(".mark-running")).toBeVisible();
+  await expectBrowser(running.locator(".mark-running")).not.toHaveClass(/is-out/);
+  await expectBrowser(strip.getByText("5 status unknown", { exact: true })).toBeVisible();
+
+  counts.statusUnknownJobCounts.running = 3;
+  await page.clock.fastForward(5_000);
+  await expectBrowser(running).toHaveText("3 agents running, status unknown");
+  await expectBrowser(running).toHaveClass(/hub-unknown/);
+  await expectBrowser(running.locator(".mark-unknown")).toBeVisible();
+  await expectBrowser(strip.getByText("7 status unknown", { exact: true })).toBeVisible();
+}, 30_000);
+
 test("going offline immediately replaces all the strip's figures with one untimed line", async () => {
   const page = await pageWithPausedClock();
   await signInAt(page, "", await newMember("Offline Reader"));

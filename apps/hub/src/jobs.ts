@@ -1445,47 +1445,50 @@ export function countJobs() {
       // One statement, so every count is of the same moment. The partial index on unfinished jobs'
       // statuses can cover the counts by status, though Postgres still reads the rows on pages a
       // vacuum has not marked all-visible.
-      const { statusUnknownJobs, ...jobCounts } = await db
+      const totals = db
         .selectFrom("job as j")
         .where("j.status", "in", UNFINISHED)
         .select((eb) => {
           const count = <S extends JobStatus>(status: S) =>
             eb.fn.countAll<number>().filterWhere("j.status", "=", status).as(status);
-          return [
-            count("queued"),
-            count("running"),
-            count("paused"),
-            eb
-              .selectFrom("job as u")
-              // Only a placed job can be unknown, which has a Runner (`job_placedAt_check`); said
-              // here so an index on the Runner can serve the count.
-              .where("u.runnerId", "is not", null)
-              .where((where) =>
-                isStatusUnknown(
-                  {
-                    status: where.ref("u.status"),
-                    placedAt: where.ref("u.placedAt"),
-                    runnerId: where.ref("u.runnerId"),
-                    // Looked up only for the candidates the other conditions leave: joined instead,
-                    // the planner may read every job's row or every progress row. It differs from a
-                    // join only for a job without a progress row, which the hub never leaves.
-                    lastReportedAt: where
-                      .selectFrom("jobProgress as p")
-                      .select("p.lastReportedAt")
-                      .whereRef("p.jobId", "=", "u.id")
-                      .$asScalar(),
-                  },
-                  now,
-                ),
-              )
-              .select((agg) => agg.fn.countAll<number>().as("statusUnknownJobs"))
-              .$asScalar()
-              .$notNull()
-              .as("statusUnknownJobs"),
-          ];
-        })
+          return [count("queued"), count("running"), count("paused")];
+        });
+      const unknown = db
+        .selectFrom("job as u")
+        // Only a placed job can be unknown, which has a Runner (`job_placedAt_check`); said
+        // here so an index on the Runner can serve the count.
+        .where("u.runnerId", "is not", null)
+        .where((where) =>
+          isStatusUnknown(
+            {
+              status: where.ref("u.status"),
+              placedAt: where.ref("u.placedAt"),
+              runnerId: where.ref("u.runnerId"),
+              // Looked up only for the candidates the other conditions leave: joined instead,
+              // the planner may read every job's row or every progress row. It differs from a
+              // join only for a job without a progress row, which the hub never leaves.
+              lastReportedAt: where
+                .selectFrom("jobProgress as p")
+                .select("p.lastReportedAt")
+                .whereRef("p.jobId", "=", "u.id")
+                .$asScalar(),
+            },
+            now,
+          ),
+        )
+        .select((eb) => [
+          eb.fn.countAll<number>().filterWhere("u.status", "=", "queued").as("unknownQueued"),
+          eb.fn.countAll<number>().filterWhere("u.status", "=", "running").as("unknownRunning"),
+        ]);
+      const { unknownQueued, unknownRunning, ...jobCounts } = await db
+        .selectFrom(totals.as("t"))
+        .crossJoin(unknown.as("u"))
+        .selectAll()
         .executeTakeFirstOrThrow();
-      return { jobCounts, statusUnknownJobs } satisfies JobCounts;
+      return {
+        jobCounts,
+        statusUnknownJobCounts: { queued: unknownQueued, running: unknownRunning },
+      } satisfies JobCounts;
     }),
   );
 }
