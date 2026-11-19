@@ -23,6 +23,7 @@
     "@orpc/shared": "catalog:",
     "@orpc/zod": "catalog:",
     "@standard-schema/utils": "catalog:",
+    "@standard-server/core": "catalog:",
     "better-auth": "catalog:",
     "canonicalize": "catalog:",
     "chunk-data": "catalog:",

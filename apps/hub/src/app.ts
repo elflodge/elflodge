@@ -7,8 +7,9 @@ import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { implement, ValidationError } from "@orpc/server";
 import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
-import { isPlainObject } from "@orpc/shared";
+import { getOwn, isPlainObject, setOwn } from "@orpc/shared";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
+import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
   getAccess,
@@ -399,28 +400,27 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
 const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] });
 const bracketNotation = new BracketNotationSerializer();
 
-// A single bare status must read as a list, which oRPC's default query decoding refuses.
-// Remove this when oRPC preserves bracketed names on array-style parameters for strict validation.
-const preserveBracketedQueryNames: StandardHandlerInterceptor<ApiContext> = (options) => {
-  const meta = getOpenAPIMeta(options.procedure);
-  const styles = meta?.queryStyles;
-  if (!styles) return options.next();
+// One bare value must decode as a one-element list, which is why the array style stays.
+// For any declared query style, oRPC overwrites the bracket-decoded field and hides its name from
+// strict validation. No upstream issue yet. Remove this when oRPC preserves the name for validation
+// or returns a 400 that names it.
+const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiContext> = (options) => {
+  const styles = getOpenAPIMeta(options.procedure)?.queryStyles;
+  // oRPC's compact codec reads the query as the input object on GET and HEAD.
+  if (!styles || (options.request.method !== "GET" && options.request.method !== "HEAD")) {
+    return options.next();
+  }
+  const [, search] = parseStandardUrl(options.request.url);
   return options.next({
     ...options,
     decodeInput: async () => {
-      const input = await options.decodeInput();
-      if (!isPlainObject(input)) return input;
-      const query = meta.inputStructure === "detailed" ? input.query : input;
-      if (!isPlainObject(query)) return input;
-      const url = new URL(options.request.url, "http://localhost");
-      for (const name of url.searchParams.keys()) {
+      const query = await options.decodeInput();
+      if (!isPlainObject(query)) return query;
+      for (const name of new URLSearchParams(search).keys()) {
         const [root = name] = bracketNotation.parsePath(name);
-        if (root !== name && styles[root] === "array" && !Object.hasOwn(query, name)) {
-          // The strict schema needs only the missing name to report an unknown parameter.
-          query[name] = undefined;
-        }
+        if (root !== name && getOwn(styles, root) !== undefined) setOwn(query, name, undefined);
       }
-      return input;
+      return query;
     },
   });
 };
@@ -431,14 +431,13 @@ const preserveBracketedQueryNames: StandardHandlerInterceptor<ApiContext> = (opt
 const uploads = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-  interceptors: [preserveBracketedQueryNames],
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
 const api = new OpenAPIHandler(router, {
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-  interceptors: [preserveBracketedQueryNames],
+  interceptors: [restoreDroppedQueryNamesForValidation],
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,
