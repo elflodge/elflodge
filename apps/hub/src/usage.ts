@@ -325,7 +325,10 @@ type GroupIdentity = Pick<
   "batchUid" | "runnerId" | "submitterKind" | "submitterId" | "recordedAt"
 > & { status: string; labelValue: string | null };
 
-/** Each grouping declares its record fields, keys, any extra aggregate and the public field they supply. */
+/**
+ * Each grouping declares its record fields, keys, any extra aggregate and the public field they
+ * supply.
+ */
 function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>) {
   const record = expressionBuilder<Database, "usageRecord">();
   const top = expressionBuilder<Database & { g: GroupIdentity }, "g">();
