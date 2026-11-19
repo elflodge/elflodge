@@ -3,6 +3,7 @@ import { Show, createSignal, onSettled } from "solid-js";
 
 import { answered, attemptAuth, authClient, failureMessage, unreadError } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
+import { Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
 import { Notice } from "../components/Notice.tsx";
 
@@ -90,6 +91,9 @@ function SignedIn() {
             </span>
           )}
         </Show>
+        <nav class="nav-wide" aria-label="Destinations">
+          <Destinations class="nav" />
+        </nav>
         <div class="topbar-end">
           <button
             type="button"
@@ -113,6 +117,11 @@ function SignedIn() {
               account = element;
             }}
           >
+            {/* At narrow widths the destinations fold into the menu. The router changes the page
+                without loading it anew, which would leave the menu open. */}
+            <nav class="pop-nav" aria-label="Destinations">
+              <Destinations class="nav-stack" onFollow={closeMenu} />
+            </nav>
             <p class="pop-who">
               <strong>{context().member.name}</strong>
               <br />

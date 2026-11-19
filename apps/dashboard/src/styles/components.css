@@ -87,6 +87,38 @@
     display: none;
   }
 }
+/* The bar's destinations: words on the bar, the current one standing on the bar's rule as a tab of
+   the same green, twice its weight. They do not shrink: the names beside them are cut first. */
+.nav-wide {
+  flex: none;
+}
+.nav {
+  display: flex;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav a {
+  display: flex;
+  align-items: center;
+  min-height: var(--topbar);
+  padding: 0 var(--space-2);
+  margin-bottom: calc(-1 * var(--rule-heavy));
+  border-bottom: calc(2 * var(--rule-heavy)) solid transparent;
+  color: var(--c-ink);
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .nav a:hover {
+    color: var(--c-link);
+  }
+}
+.nav a[aria-current="page"] {
+  border-bottom-color: var(--brand-shape);
+  font-weight: var(--weight-strong);
+}
 /* A long name is cut at its end; the account menu shows it whole. */
 .org {
   min-width: 0;
@@ -128,6 +160,32 @@
   max-height: calc(100dvh - var(--topbar) - var(--space-3));
   overflow: auto;
 }
+/* Folded into the menu at narrow widths, the destinations come first, the current one marked by a rule at its start. */
+.pop-nav {
+  display: none;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: var(--rule) solid var(--c-rule);
+}
+.nav-stack {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav-stack a {
+  display: flex;
+  align-items: center;
+  min-height: var(--control);
+  padding-left: var(--space-2);
+  border-left: var(--rule-heavy) solid transparent;
+  color: var(--c-ink);
+}
+.nav-stack a[aria-current="page"] {
+  border-left-color: var(--brand-shape);
+  font-weight: var(--weight-strong);
+}
 .pop-who {
   padding-bottom: var(--space-2);
   border-bottom: var(--rule) solid var(--c-rule);
@@ -164,16 +222,30 @@
 .pop-list button:focus-visible {
   text-decoration-color: currentColor;
 }
-@media (max-width: 640px) {
+/* The bar folds in two stages. Below 60rem the Organization's name leaves it, as the menu names the
+   Organization. At 52rem and below the destinations fold into the menu: above that, six destinations
+   of ordinary length ("Batches", "API keys") still leave a Member's name its full width. */
+@media (max-width: 59.9375rem) {
   .org {
     display: none;
   }
+}
+@media (max-width: 52rem) {
+  .nav-wide {
+    display: none;
+  }
+  .pop-nav {
+    display: block;
+  }
+}
+@media (max-width: 640px) {
   .topbar {
     gap: var(--space-3);
   }
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .pop-list :is(a, button) {
+  .pop-list :is(a, button),
+  .nav-stack a {
     min-height: var(--control-touch);
   }
   /* The brand may be its mark alone, which is narrower than a target. */

@@ -70,12 +70,18 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
     <span class="brand-name" aria-hidden="true">Elflodge</span>
   </Link>
   <span class="org" title="Harbor & Pine">Harbor & Pine</span>
+  <nav class="nav-wide" aria-label="Destinations">
+    <Destinations class="nav" />
+  </nav>
   <div class="topbar-end">
     <button type="button" class="quiet" popovertarget="account" ref={(element) => { opener = element; }}>
       <span class="member-name" title="Robin Hale">Robin Hale</span>
       <span class="mark mark-opens" aria-hidden="true" />
     </button>
     <div id="account" class="menu-pop" popover ref={(element) => { account = element; }}>
+      <nav class="pop-nav" aria-label="Destinations">
+        <Destinations class="nav-stack" onFollow={closeMenu} />
+      </nav>
       <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
         <li><Link to="/change-password" onClick={closeMenu}>Change password</Link></li>
@@ -90,11 +96,13 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
 </main>
 ```
 
-- The bar holds the brand, the Organization's name and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
+- The bar holds the brand, the Organization's name, the destinations and, at its end, the Member's name. Its links are not underlined: the bar is a known place.
+- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's `exact` does.
 - The Member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
-- A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. At 640px and below the Organization's name is only in the menu; at 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
+- A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
+- The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. The stages hold six destinations of ordinary length beside a Member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
-  - a link in it changes the page through the router;
+  - a link in it, a destination included, changes the page through the router;
   - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
   - signing out fails, when the notice is in the page under the menu. The focus then goes to the Member's name, unless the Member has moved on to something else meanwhile.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.

@@ -1,4 +1,4 @@
-import { type Browser, chromium } from "playwright";
+import { type Browser, type Page, chromium } from "playwright";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { setUpOrganization } from "../src/setup.ts";
@@ -22,6 +22,26 @@ afterAll(async () => {
   await browser?.close();
   await system.stop();
 });
+
+/** A member of the Organization named `name`, added to it, whom a browser can sign in as. */
+async function newMember(name: string) {
+  const member = {
+    name,
+    email: `${name.toLowerCase().replaceAll(" ", ".")}@example.com`,
+    password: "a long enough password",
+  };
+  await system.addMember(member);
+  return member;
+}
+
+/** Opens the dashboard's `pathname` in `page`, signed out, and signs in there as `member`. */
+async function signInAt(page: Page, pathname: string, member: { email: string; password: string }) {
+  await page.goto(`${system.origin}/dashboard/${pathname}`);
+  await page.getByLabel("Email").fill(member.email);
+  await page.getByLabel("Password").fill(member.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/${pathname}`);
+}
 
 /**
  * Checks that the hub answers a browser's navigation to `pathname` with the app shell. The Workers
@@ -121,6 +141,28 @@ test("a request with neither a session nor a key is told how to authenticate", a
   expect(response.headers.get("www-authenticate")).not.toBeNull();
 });
 
+test("in a browser, the bar leads to the dashboard's pages", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const member = await newMember("Nav Reader");
+  await signInAt(page, "change-password", member);
+
+  const destinations = page.getByRole("navigation", { name: "Destinations" });
+  await destinations.getByRole("link", { name: "Home" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/`);
+  const home = destinations.getByRole("link", { name: "Home" });
+  expect(await home.getAttribute("aria-current")).toBe("page");
+
+  // On a phone the destinations are in the menu the Member's name opens.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: member.name }).click();
+  expect(await destinations.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+}, 30_000);
+
+// After the tests that add members: the owner's password change ends the owner's other sessions,
+// with which members are added.
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
