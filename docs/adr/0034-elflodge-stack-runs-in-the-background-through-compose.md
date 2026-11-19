@@ -1,6 +1,6 @@
 # `elflodge stack` runs in the background through Docker Compose
 
-`elflodge stack` runs a hub, a Runner and the hub's Postgres on this machine from the images released with the same version of the CLI (ADR 0032). It serves both first tries and daily use: users can be done with their terminal before their jobs finish. The other namespaces, such as `jobs` and `batches`, act on the selected hub; `stack` always manages this machine's deployment.
+`elflodge stack` runs a hub, a Runner and the hub's Postgres on this machine from the images released with the same version of the CLI (ADR 0032). It serves both first tries and daily use: users can be done with their terminal before their jobs finish. At startup it prints the local dashboard URL, the owner's email and how to retrieve the initial password. The other namespaces, such as `jobs` and `batches`, act on the selected hub; `stack` always manages this machine's deployment.
 
 The command writes a Compose file following the repository's `compose.yaml`, with its saved settings in place of `.env`, its own project name, `elflodge-stack`, and the hub published on `127.0.0.1` only. All three containers use `restart: unless-stopped`, so Docker brings them back after a restart unless the user stopped them. `start` runs `docker compose up -d --wait`, first for the hub so it can create the initial keys, then for the Runner. Before creating or replacing a Runner, or restarting one with no forwarded variables, it checks model authentication in a temporary Runner container. It returns with the hub healthy and the Runner initialized and synced with it, and prints the hub URL. Repeating it leaves an unchanged, healthy stack running. A proper-lockfile lock covers each mutating command (`start`, `stop`, `delete`, `login`, `logout`), never the lifetime of the deployment.
 
@@ -37,6 +37,8 @@ These lifetimes rule out both silently importing ambient keys and keeping anothe
 `status` reports authentication source without showing credentials. A running Runner can resolve its actual environment and store; a stopped container cannot be checked against the invoking shell as though it were its runtime environment. Logout removes stored authentication only: an explicitly forwarded environment credential can still apply.
 
 ## Precedents
+
+Argo CD also prints the initial administrator password on request. [`argocd admin initial-password`](https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_admin_initial-password/).
 
 Verified against documentation or source on 2026-10-28:
 
