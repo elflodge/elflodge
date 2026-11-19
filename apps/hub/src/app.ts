@@ -356,7 +356,12 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       }),
       events: os.jobs.events.effect(function* ({ input }) {
         // The IDs enter the hub here.
-        return yield* readJobEvents(JobId(input.id), EventId(input.after), input.limit);
+        return yield* readJobEvents(
+          JobId(input.id),
+          EventId(input.after),
+          input.limit,
+          input.order,
+        );
       }),
     },
     usage: {
