@@ -47,7 +47,7 @@
   color: var(--c-paper);
   border-color: var(--c-failed);
 }
-/* Hover deepens the fill toward the ink, so its words keep their contrast. */
+/* Hover moves the fill toward the ink, darker in light and lighter in dark. */
 @media (hover: hover) {
   .danger.is-fill:hover:not(:disabled) {
     background: var(--c-danger-hover);

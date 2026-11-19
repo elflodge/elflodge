@@ -1,4 +1,4 @@
-/** Eight characters are the first group of a UUID. */
+/** Eight characters are the first group of a UUID. Git's automatic abbreviations start at 7. */
 const SHORTEST = 8;
 
 /**

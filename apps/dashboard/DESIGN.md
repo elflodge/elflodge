@@ -259,11 +259,11 @@ which draws `p.field-error`: the error mark and the words, small, in the failed 
 
 Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
 
-Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength`: it cuts what is typed or pasted instead of refusing it, so a longest length is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
+Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. The API-key name displays its 32-character limit and sets `maxlength` to match. Elsewhere a longest length is the hub's to refuse, since `maxlength` cuts what is typed or pasted. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
 
-One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button.
+One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button. When an action removes its focused control, the notice can take focus: pass `focusRef` to focus its element after rendering. This gives it `tabindex="-1"` so it stays outside the tab order.
 
 ```tsx
 <Notice role="alert">The new password and its confirmation differ.</Notice>
@@ -285,7 +285,7 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 ### Dialogs
 
-A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). "Keep it" comes first and has the focus. What refuses the action is said in the dialog, as an alert notice. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` holds a command. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
+A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). "Keep it" comes first and has the focus. While the hub answers, the dialog reports progress and keeps both buttons and Escape from dismissing it. A refusal is shown in the open dialog as an alert notice. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
 
 ```tsx
 <dialog aria-labelledby="remove-h">
@@ -375,7 +375,7 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 ### Command to copy, and a secret shown once
 
-What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered machine appears. The line keeps its `role="status"` from the start. When a Runner registers, the line names it and its short ID beside the succeeded mark. Its contents are empty during a failed read. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
+What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered Runner appears. The line keeps its `role="status"` from the start. When a Runner registers, the line names it and its short ID beside the succeeded mark. Its contents are empty during a failed read. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
 
 ```tsx
 <div class="copyable">

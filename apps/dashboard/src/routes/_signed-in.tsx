@@ -1,4 +1,11 @@
-import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
+import {
+  Link,
+  MatchRoute,
+  Outlet,
+  createFileRoute,
+  redirect,
+  useRouter,
+} from "@tanstack/solid-router";
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../api-client.ts";
@@ -7,6 +14,7 @@ import { BrandMark } from "../components/BrandMark.tsx";
 import { CurrentDestination, Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
 import { HubStrip } from "../components/HubStrip.tsx";
+import { LoadingRunners } from "../components/LoadingRunners.tsx";
 import { Notice } from "../components/Notice.tsx";
 import { createFormAction, focusIfLost } from "../form.ts";
 import {
@@ -25,6 +33,17 @@ export const Route = createFileRoute("/_signed-in")({
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     return { user: session.user, membership: session.membership };
   },
+  // The SPA shell hydrates this boundary before it has a session or can render a child route.
+  // Keep an existing page during later session checks. Hydration already presents this boundary.
+  pendingMs: Infinity,
+  pendingMinMs: 0,
+  pendingComponent: () => (
+    <MatchRoute to="/runners" pending includeSearch={false}>
+      <main class="page">
+        <LoadingRunners />
+      </main>
+    </MatchRoute>
+  ),
   component: SignedIn,
 });
 

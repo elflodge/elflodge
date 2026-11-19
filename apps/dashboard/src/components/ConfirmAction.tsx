@@ -46,6 +46,7 @@ export function ConfirmAction(props: {
         aria-label={props.triggerLabel}
         onClick={() => {
           setFailure(undefined);
+          // Clear the previous refusal before the browser opens and announces the dialog.
           flush();
           dialog?.showModal();
         }}
@@ -54,6 +55,9 @@ export function ConfirmAction(props: {
       </button>
       <dialog
         aria-labelledby={headingId}
+        onCancel={(event) => {
+          if (pending()) event.preventDefault();
+        }}
         ref={(element) => {
           dialog = element;
         }}
@@ -64,10 +68,13 @@ export function ConfirmAction(props: {
           </h2>
           <div class="dialog-b">
             {props.children}
+            <p role="status" class={pending() ? "note" : "vh"}>
+              {pending() ? "Working…" : ""}
+            </p>
             <Show when={failure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
           </div>
           <div class="dialog-f">
-            <button value="keep" autofocus>
+            <button value="keep" autofocus disabled={pending()}>
               Keep it
             </button>
             <button

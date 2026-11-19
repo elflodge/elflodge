@@ -132,7 +132,11 @@ test("in a browser, a new API key is shown once", async () => {
   const page = await signedInAt("api-keys");
   await page.getByRole("button", { name: "Create key" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Name").fill("nightly report");
+  // Permissions are required; a name is optional.
+  await dialog.getByRole("button", { name: "Create key" }).click();
+  await expectBrowser(
+    dialog.getByRole("group", { name: "Permissions", exact: true }),
+  ).toHaveAttribute("aria-invalid", "true");
   await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
   await dialog.getByRole("group", { name: "Runners" }).getByLabel("read").check();
   await dialog.getByRole("button", { name: "Create key" }).click();
@@ -142,7 +146,9 @@ test("in a browser, a new API key is shown once", async () => {
   const client = system.client({ "x-api-key": key });
   await client.jobs.counts({});
   await client.runners.list();
-  const row = page.getByRole("row").filter({ hasText: "nightly report" });
+  const row = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: "Unnamed", exact: true }) });
   await row.getByText("job: read").waitFor();
   // Closing the dialog forgets it.
   await dialog.getByRole("button", { name: "Done" }).click();

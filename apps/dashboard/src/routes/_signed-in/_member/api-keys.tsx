@@ -1,29 +1,32 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createFileRoute, useRouter, type ErrorComponentProps } from "@tanstack/solid-router";
+import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS } from "contract";
-import { For, Loading, Show, createSignal, onSettled } from "solid-js";
+import { For, Loading, Show, createSignal, flush, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
-import { DefaultCatchBoundary } from "../../../components/DefaultCatchBoundary.tsx";
-import { FallbackPage } from "../../../components/FallbackPage.tsx";
+import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
+import { FieldError } from "../../../components/FieldError.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
-import { TIME_SECONDS, timeZoneNote } from "../../../format.ts";
-import { canManageKeys } from "../../../permissions.ts";
+import { timeZoneNote } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/api-keys")({
   loader: async ({ context }) => {
-    if (context.membership.status !== "member" || !canManageKeys(context.membership.role)) return;
+    if (!context.managesKeys) return;
     await readFromHub("The API keys", () =>
       context.queryClient.query(orpc.apiKeys.list.queryOptions({ staleTime: "static" })),
     );
   },
-  errorComponent: KeyReadErrorPage,
+  errorComponent: (props) => (
+    <ReadErrorPage {...props} heading="API keys">
+      <OpenApiParagraph />
+    </ReadErrorPage>
+  ),
   component: ApiKeys,
 });
 
@@ -40,6 +43,7 @@ const GRANTABLE = [
 /**
  * Submitters and Runners can run unattended until their service key is revoked. The API, CLI
  * and form default to no expiry, as Cloudflare's account API tokens do without an end date.
+ * The hub leaves keyExpiration unset: @better-auth/api-key (dist/index.mjs) allows 1 to 365 days.
  * https://developers.cloudflare.com/fundamentals/api/how-to/restrict-tokens/#time-to-live-ttl-constraints
  */
 const EXPIRIES = [
@@ -51,12 +55,17 @@ const EXPIRIES = [
   { label: "In 1 year", seconds: 365 * 86_400 },
 ] as const;
 
+function OpenApiParagraph() {
+  return (
+    <p class="prose">
+      The <a href="/spec.json">OpenAPI document</a> describes the hub's API as JSON, for an API
+      client or a code generator to read.
+    </p>
+  );
+}
+
 function ApiKeys() {
   const context = Route.useRouteContext();
-  const managesKeys = () => {
-    const { membership } = context();
-    return membership.status === "member" && canManageKeys(membership.role);
-  };
   let heading: HTMLHeadingElement | undefined;
   const [creating, setCreating] = createSignal(false);
 
@@ -71,7 +80,7 @@ function ApiKeys() {
         >
           API keys
         </h1>
-        <Show when={managesKeys()}>
+        <Show when={context().managesKeys}>
           <div class="controls">
             <button type="button" class="primary" onClick={() => setCreating(true)}>
               Create key
@@ -80,7 +89,7 @@ function ApiKeys() {
         </Show>
       </div>
       <Show
-        when={managesKeys()}
+        when={context().managesKeys}
         fallback={
           <p class="prose">
             Programs, scripts and Runners call the hub with API keys. Only owners and admins see and
@@ -90,56 +99,11 @@ function ApiKeys() {
       >
         <KeyList focusAfterRevoke={() => focusIfLost(heading)} />
       </Show>
-      <p class="prose">
-        The <a href="/spec.json">OpenAPI document</a> describes the hub's API as JSON, for an API
-        client or a code generator to read.
-      </p>
-      <Show when={managesKeys() && creating()}>
+      <OpenApiParagraph />
+      <Show when={context().managesKeys && creating()}>
         <CreateKey onClose={() => setCreating(false)} />
       </Show>
     </Loading>
-  );
-}
-
-function KeyReadNotice(props: { error: unknown; failedAt: number; readAt: number }) {
-  return (
-    <Notice role="alert">
-      The API keys could not be read at{" "}
-      <Instant value={new Date(props.failedAt)} format={TIME_SECONDS} />:{" "}
-      {hubFailureMessage(props.error)}
-      <Show when={props.readAt}>
-        {(readAt) => (
-          <>
-            {" "}
-            What is shown is from the read at{" "}
-            <Instant value={new Date(readAt())} format={TIME_SECONDS} />.
-          </>
-        )}
-      </Show>
-    </Notice>
-  );
-}
-
-function KeyReadErrorPage(props: ErrorComponentProps<unknown>) {
-  const router = useRouter();
-  const state = useQueryClient().getQueryState(orpc.apiKeys.list.queryKey());
-  if (!state?.error || !(props.error instanceof Error) || props.error.cause !== state.error) {
-    return <DefaultCatchBoundary {...props} />;
-  }
-  return (
-    <FallbackPage heading="API keys">
-      <p class="note">{timeZoneNote()}</p>
-      <KeyReadNotice
-        error={state.error}
-        failedAt={state.errorUpdatedAt}
-        readAt={state.dataUpdatedAt}
-      />
-      <p>
-        <button type="button" class="primary" onClick={() => void router.invalidate()}>
-          Try again
-        </button>
-      </p>
-    </FallbackPage>
   );
 }
 
@@ -161,34 +125,30 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
 
   return (
     <>
-      <Show when={keys.isError || keys.data?.length}>
+      <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
-        <KeyReadNotice
-          error={keys.error}
+        <FailedReadNotice
+          what="The API keys"
+          detail={hubFailureMessage(keys.error)}
           failedAt={keys.errorUpdatedAt}
           readAt={keys.dataUpdatedAt}
         />
       </Show>
-      <Show when={keys.data}>
-        {(list) => (
-          <Show
-            when={list().length > 0}
-            fallback={
-              <div class="empty">
-                <h2>No API keys</h2>
-                <p>
-                  A program, a script or a Runner calls the hub with a key. Create one with Create
-                  key.
-                </p>
-              </div>
-            }
-          >
-            <KeyTable keys={list()} revoke={revoke} />
-          </Show>
-        )}
+      <Show
+        when={keys.data.length}
+        fallback={
+          <div class="empty">
+            <h2>No API keys</h2>
+            <p>
+              A program, a script or a Runner calls the hub with a key. Create one with Create key.
+            </p>
+          </div>
+        }
+      >
+        <KeyTable keys={keys.data} revoke={revoke} />
       </Show>
     </>
   );
@@ -204,6 +164,7 @@ function CreateKey(props: { onClose: () => void }) {
   let dialog: HTMLDialogElement | undefined;
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
   const [failure, setFailure] = createSignal<string>();
+  const [missingPermission, setMissingPermission] = createSignal(false);
   const { pending, onSubmit } = createFormAction(create);
 
   async function create(element: HTMLFormElement) {
@@ -213,9 +174,16 @@ function CreateKey(props: { onClose: () => void }) {
         ({ resource }) => [resource, form.getAll(resource).map(String)] as const,
       ).filter(([, actions]) => actions.length > 0),
     );
+    setFailure(undefined);
+    if (!Object.keys(permissions).length) {
+      setMissingPermission(true);
+      // Make the error available to a screen reader before moving to the first action.
+      flush();
+      element.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus();
+      return;
+    }
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expires"))]?.seconds;
-    setFailure(undefined);
     try {
       const { key } = await api.apiKeys.create({
         name,
@@ -223,8 +191,6 @@ function CreateKey(props: { onClose: () => void }) {
         ...(expiresIn === undefined ? {} : { expiresIn }),
       });
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
-      // A key returned after this dialog closed belongs to its previous opening.
-      if (!dialog?.open || !dialog.isConnected) return;
       setCreated({ name, key });
     } catch (error) {
       setFailure(hubFailureMessage(error));
@@ -251,10 +217,34 @@ function CreateKey(props: { onClose: () => void }) {
             <div class="dialog-b">
               <div class="field">
                 <label for="key-name">Name</label>
-                <input id="key-name" name="name" autocomplete="off" required />
+                <input
+                  id="key-name"
+                  name="name"
+                  autocomplete="off"
+                  maxlength={32}
+                  aria-describedby="key-name-hint"
+                />
+                <p class="note" id="key-name-hint">
+                  Optional, up to 32 characters.
+                </p>
               </div>
-              <fieldset class="field">
+              <fieldset
+                class="field"
+                aria-invalid={missingPermission() ? "true" : undefined}
+                aria-describedby="key-permissions-hint"
+                onChange={() => setMissingPermission(false)}
+              >
                 <legend>Permissions</legend>
+                <Show
+                  when={missingPermission()}
+                  fallback={
+                    <p class="note" id="key-permissions-hint">
+                      Choose at least one action.
+                    </p>
+                  }
+                >
+                  <FieldError id="key-permissions-hint">Choose at least one action.</FieldError>
+                </Show>
                 <For each={GRANTABLE}>
                   {(group) => (
                     <fieldset class="check-group">
@@ -295,7 +285,8 @@ function CreateKey(props: { onClose: () => void }) {
         {(shown) => (
           <form method="dialog">
             <h2 class="dialog-h" id="create-key-heading">
-              The new key, <span class="mono">{shown().name}</span>
+              The new key,{" "}
+              <span class={shown().name ? "mono" : "unnamed"}>{shown().name || "Unnamed"}</span>
             </h2>
             <div class="dialog-b">
               <div class="copyable">

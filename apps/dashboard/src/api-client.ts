@@ -26,6 +26,21 @@ export function hubFailureMessage(caught: unknown): string {
   return "The connection to the hub failed. Please try again.";
 }
 
+/** The page keeps the failure it received even if another reader has already retried the query. */
+export class HubReadError extends Error {
+  readonly failedAt = Date.now();
+
+  readonly what: string;
+  readonly detail: string;
+
+  constructor(what: string, cause: unknown) {
+    const detail = hubFailureMessage(cause);
+    super(`${what} could not be read: ${detail}`, { cause });
+    this.what = what;
+    this.detail = detail;
+  }
+}
+
 /**
  * What `read`, a call of the hub's API, reads. A read that fails throws an error that names
  * `what`, for the page shown in place of the one that needed it.
@@ -34,8 +49,6 @@ export async function readFromHub<T>(what: string, read: () => Promise<T>): Prom
   try {
     return await read();
   } catch (caught) {
-    throw new Error(`${what} could not be read: ${hubFailureMessage(caught)}`, {
-      cause: caught,
-    });
+    throw new HubReadError(what, caught);
   }
 }
