@@ -240,9 +240,25 @@ test("a member opens the latest hundred Events in journal order, with their orig
   );
 }, 30_000);
 
-test("walking back keeps the reader’s place even if they scroll during the read", async () => {
+test("walking back keeps the first Event in place and focuses the nearest addition", async () => {
   const { id } = await jobWithHistory(102);
   const page = await openAsMember("Earlier Events", `jobs/${id}`);
+  const earlier = page.getByRole("button", { name: "Show earlier Events" });
+  const first = page.locator("#event-30");
+  await earlier.focus();
+  const top = await first.evaluate((el) => el.getBoundingClientRect().top);
+  await page.keyboard.press("Enter");
+  await expectBrowser(page.locator("#event-20")).toBeFocused();
+  await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
+  const after = await first.evaluate((el) => el.getBoundingClientRect().top);
+  expect(Math.abs(after - top)).toBeLessThan(1);
+}, 30_000);
+
+test("scrolling during an earlier read leaves scrolling and focus with the reader", async () => {
+  const { id } = await jobWithHistory(102);
+  const page = await openAsMember("Reading another Event", `jobs/${id}`);
+  // Without browser anchoring, any correction by the dashboard changes scrollY.
+  await page.addStyleTag({ content: "body { overflow-anchor: none }" });
   const earlier = page.getByRole("button", { name: "Show earlier Events" });
   await earlier.evaluate((button) => {
     button.scrollIntoView({ block: "center" });
@@ -260,21 +276,27 @@ test("walking back keeps the reader’s place even if they scroll during the rea
   });
   const reading = page.locator("#event-260");
   await page.keyboard.press("Enter");
-  let top: number;
+  let chosenScroll: number;
   try {
     await requested.promise;
-    top = await reading.evaluate((el) => {
+    chosenScroll = await reading.evaluate((el) => {
       el.scrollIntoView({ block: "center" });
-      return el.getBoundingClientRect().top;
+      return el.ownerDocument.documentElement.scrollTop;
     });
   } finally {
     release.resolve();
   }
-  await expectBrowser(page.locator("#event-20")).toBeFocused();
-  await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
-  const after = await reading.evaluate((el) => el.getBoundingClientRect().top);
-  expect(Math.abs(after - top)).toBeLessThan(1);
   await expectBrowser(earlier).toHaveCount(0);
+  await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
+  const scrollAfterLayout = await page.locator("html").evaluate(async (root) => {
+    const view = root.ownerDocument.defaultView;
+    await new Promise<void>((resolve) =>
+      view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())),
+    );
+    return root.scrollTop;
+  });
+  expect(scrollAfterLayout).toBe(chosenScroll);
+  await expectBrowser(page.locator("body")).toBeFocused();
 }, 30_000);
 
 test("a member can read from the start and request the next page in order", async () => {

@@ -117,47 +117,50 @@ export function JobTimeline(props: {
 
   async function extend(earlier: boolean, button: HTMLButtonElement) {
     const edge = earlier ? first()?.id : last()?.id;
-    if (edge === undefined) return;
+    const list = timeline;
+    if (edge === undefined || !list || list.dataset.paging !== undefined) return;
     const focused = document.activeElement;
     const anchor = earlier
       ? (shownNumber(rows(), false) ?? document.getElementById("latest"))
       : null;
-    let top = anchor?.getBoundingClientRect().top;
-    let scrollAfterLayout = window.scrollY;
-    const rememberScroll = () => {
-      if (!anchor || !timeline || window.scrollY === scrollAfterLayout) return;
-      scrollAfterLayout = window.scrollY;
-      const bounds = timeline.getBoundingClientRect();
-      top =
-        bounds.top < window.innerHeight && bounds.bottom > 0
-          ? anchor.getBoundingClientRect().top
-          : undefined;
+    const top = anchor?.getBoundingClientRect().top;
+    let expectedScrollY = window.scrollY;
+    // Suspend native anchoring to distinguish a reader scroll from an anchoring adjustment.
+    // The browser can still clamp the offset when the last paging control disappears.
+    // Restore anchoring on a reader scroll or before the correction’s queued event is delivered.
+    // Safari 17.5 predates native anchoring (Safari 27) and uses the same measured correction.
+    // https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
+    list.dataset.paging = "keep-position";
+    const observeScroll = () => {
+      const y = window.scrollY;
+      if (y === expectedScrollY || list.dataset.paging === "reader-scrolled") return;
+      const root = document.documentElement;
+      const bottom = root.scrollHeight - root.clientHeight;
+      if (expectedScrollY > bottom && Math.abs(y - bottom) < 1) expectedScrollY = y;
+      else list.dataset.paging = "reader-scrolled";
     };
-    if (anchor) window.addEventListener("scroll", rememberScroll);
+    window.addEventListener("scroll", observeScroll);
     let added: boolean;
     try {
       added = await (earlier ? events.readEarlier() : events.readLater());
       flush();
       if (anchor && added) {
-        // Inserting above Chromium's native anchor can itself queue a scroll event.
-        scrollAfterLayout = window.scrollY;
-        // Safari 17.5 predates native anchoring, which MDN records from 27:
-        // https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
-        // Chromium can anchor outside this timeline. Check after the new previews settle.
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         );
       }
+      observeScroll();
       if (
-        !timeline?.isConnected ||
-        (document.activeElement !== focused && document.activeElement !== document.body) ||
-        (anchor && top === undefined)
+        !list.isConnected ||
+        list.dataset.paging === "reader-scrolled" ||
+        (document.activeElement !== focused && document.activeElement !== document.body)
       )
         return;
       if (added && anchor?.isConnected && top !== undefined)
         window.scrollBy(0, anchor.getBoundingClientRect().top - top);
     } finally {
-      window.removeEventListener("scroll", rememberScroll);
+      window.removeEventListener("scroll", observeScroll);
+      delete list.dataset.paging;
     }
     const addedNumber =
       added &&

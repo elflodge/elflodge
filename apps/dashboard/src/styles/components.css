@@ -1887,6 +1887,9 @@ p mark.placeholder {
 }
 
 /* ---------- Events in journal order, with dated runs and each Event’s original number ---------- */
+body:has(.timeline[data-paging="keep-position"]) {
+  overflow-anchor: none;
+}
 .timeline {
   list-style: none;
   padding: 0;
