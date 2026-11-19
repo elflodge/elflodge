@@ -1,6 +1,6 @@
 # Deploying Elflodge
 
-The README starts one machine with `npx elflodge stack start`. This page has what running it for longer needs: host requirements, operating the local stack, a Compose deployment, opening the hub to Runners and callers on other machines, and how to call the hub's API directly.
+The README starts one machine with `npx elflodge stack start`. This guide covers host requirements, the local stack and a Docker Compose deployment. It also explains how to upgrade on rolling platforms and Cloudflare Workers, connect Runners and callers on other machines, and call the API directly.
 
 ## Host requirements
 
@@ -16,7 +16,7 @@ On Ubuntu 24.04, let the Runner's job sandboxes create user namespaces before st
 - **Web access.** Jobs' agents read web pages and PDFs with pi-web-access. Web search is off, except through a ChatGPT subscription the model runs on. To let jobs search through a provider, name it and forward its key: `BRAVE_API_KEY="$MY_BRAVE_KEY" npx elflodge stack start --search brave --env BRAVE_API_KEY`. A forwarded key alone does not turn search on, and `--reset-search` goes back to the default. The Runner's README covers [extensions](../apps/runner/README.md#extensions).
 - **Status and logs.** `npx elflodge stack status` shows whether the stack is running, the hub's URL and health, the image versions in use and the Runner's authentication source. `npx elflodge stack logs` prints the logs; `--follow` keeps printing them. A job stays `queued` until a Runner has room for it, and the Runner's log shows any error that keeps it from connecting.
 - **Stopping.** `npx elflodge stack stop` keeps the containers, data and credentials for the next start. `npx elflodge stack delete` removes the database and Runner volumes, including saved logins, without a prompt.
-- **Upgrading.** Let the local Runner's jobs finish first. `npx elflodge stack stop` stops that Runner along with the hub and Postgres. Back up the stopped volumes, then run `npx elflodge@<new-version> stack start` with the new CLI version. It starts Postgres on the existing volume, waits for the new hub to migrate the database and become healthy, then brings up the matching Runner with its saved data and logins. If you forwarded variables with `--env`, have their values in your environment again. To go back, restore the pre-upgrade volumes and start with the previous CLI version.
+- **Upgrading.** Let the local Runner's jobs finish before running `npx elflodge stack stop`, which stops the Runner, hub and Postgres. A restarted Runner recovers its jobs from their journals, but a tool call cut off by the stop gets an `interrupted` result. Back up the stopped volumes. If you pin the images with `ELFLODGE_VERSION`, set it to the target version or unset it before starting, including when going back. Run `npx elflodge@<new-version> stack start`. It starts Postgres on its existing volume, waits up to 60 seconds for the hub to migrate and become healthy, then starts the matching Runner with its saved data and logins. If you forwarded variables with `--env`, have their values in your environment again. To go back, restore the pre-upgrade volumes and start with the previous CLI version.
 
 ## Several machines: Docker Compose
 
@@ -75,29 +75,41 @@ The hub and a Runner from their published images on one machine, as a deployment
 
 ### Upgrading the Compose hub
 
-Allow a window for the hub to restart and migrate its database. For a predictable window, stop new submissions, pause Batches to hold queued jobs, and let jobs already on Runners finish reporting. Take a Postgres backup before upgrading. Going back after migration requires both this backup and the previous hub release.
+Allow a window for the hub to restart and migrate its database. Rerun only the `curl` line in step 1 from the new release's guide to get its Compose file. If you pin the image tags with `ELFLODGE_VERSION` in your shell or Compose `.env`, update it to the target version or unset it to use the file's tags. Do the same with the previous release's file if you go back.
 
-Rerun only the `curl` line in step 1 from the new release's guide to get its Compose file. With Postgres running, upgrade just the hub:
+For a predictable window, stop new submissions, pause Batches to block their queued jobs from placement, and let jobs already on Runners finish reporting. Run `docker compose stop hub`, leaving Postgres running, then back up the database. This way the old hub cannot accept writes after the backup. Going back after migration requires this backup and the previous hub release.
+
+Use [Docker Compose `up`](https://docs.docker.com/reference/cli/docker/compose/up/) to start just the new hub and wait for it to become healthy. It migrates before it listens.
 
 ```sh
 docker compose up --wait --no-deps hub
 ```
 
-Compose stops the old hub before starting its replacement. The new hub migrates before it listens. A command in flight can fail during that window. Run it again once the hub is healthy, using the same IDs when retrying a submission. Runners keep working through the outage and reconnect by themselves to report what finished. Targeting the hub leaves a busy local Runner running. [Docker Compose `up`](https://docs.docker.com/reference/cli/docker/compose/up/)
+Runners keep working and reconnect by themselves to report what finished. Targeting just the hub leaves a busy local Runner running. After a restart the Runner recovers its jobs from their journals, but a tool call cut off by the stop is reported as `interrupted`.
+
+If a command fails during the window, retry reads and calls that are safe to repeat once the hub is healthy. Retry a submission with the same IDs. For other writes, first check whether the hub committed the change before the connection closed. For example, repeating a request to create an API key can create a second key.
 
 Once the local Runner's jobs have finished, upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported.
 
-On platforms that roll out containers, choose a replacement deployment for the single hub process. Stop the old hub before the new one starts its migrations.
+## Upgrading on a rolling platform
+
+Stop the old hub instance before starting the new one so only the new hub serves on the migrated database. For a Kubernetes Deployment, set `spec.strategy.type` to [`Recreate`](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#recreate-deployment).
 
 ## Upgrading a hub on Cloudflare Workers
 
-Back up the hub's Postgres database. From the new release's `apps/hub` directory, with `DATABASE_URL` pointing directly to that database, run setup and deploy as soon as it succeeds:
+Before migrating, carry your deployed Hyperdrive binding and other edits in `wrangler.jsonc` over to the new release's `apps/hub/wrangler.jsonc`. Check the deployment from that directory first, because a failed deploy after setup leaves the old Worker on the new schema.
+
+1. Run `vp exec wrangler whoami` and confirm you are signed in to the account that runs the hub.
+2. Take the ID of the `HYPERDRIVE` binding from the new configuration and run `vp exec wrangler hyperdrive get <id>`. Confirm it points to the hub's Postgres database with caching disabled, as in [the hub's Workers setup](../apps/hub/README.md).
+3. Run `vp run dashboard#build && vp exec wrangler deploy --dry-run` to build the dashboard assets and check that Wrangler can bundle the Worker with them.
+
+Back up the hub's Postgres database. With `DATABASE_URL` pointing directly to that database, run setup and deploy as soon as it succeeds:
 
 ```sh
 vp run setup && vp run deploy
 ```
 
-The old Worker serves on the new schema from the migration until the deployment has spread. Creating a Batch can return HTTP 500, and Runner reports can fail. Those errors clear as the new code takes over. Runners reconnect and resend outstanding reports. To go back, restore the database backup together with the old Worker version.
+The old Worker serves on the new schema from the migration until the deployment has spread. Creating a Batch can return HTTP 500, and Runner reports can fail. Those errors clear as the new code takes over. Runners reconnect and resend outstanding reports. To go back, restore the database backup together with the old Worker version. Restoring the backup loses writes accepted after it was taken.
 
 Runner reports reach a Durable Object. By default an active object can keep running old code until it hibernates or its five-minute delay expires. Wrangler's `durable_objects.code_update_strategy` can shorten that part of the window. In `deferred` mode, `max_delay` sets the maximum wait for hibernation in seconds. In `immediate` mode the active object resets onto the new code without waiting to hibernate. [Cloudflare's Durable Object code updates](https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/)
 
