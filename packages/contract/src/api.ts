@@ -773,7 +773,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "DELETE",
           path: "/runners/{id}",
           description:
-            "Removes a Runner, for a host that is retired or compromised: its own key stops working and its connection is dropped at once. Revoke any still-valid registration key a compromised host holds so it cannot register again. Add Runner issues one-day keys for other machines. Registered Runners keep working with their own keys. Nothing the host holds can be run, resumed or removed through the hub again, so the jobs the Runner held that had not ended end: `cancelled` where a cancel was waiting, otherwise `failed` with reason `runnerRemoved`. They may still run on the host unseen. The answer lists the jobs it ended, and every job whose files the host may still hold, which whoever looks after the host can remove.",
+            "Removes a Runner, for a host that is retired or compromised: its own key stops working and its connection is dropped at once. Revoke any still-valid registration key a compromised host holds so it cannot register again. Registered Runners keep working with their own keys. Nothing the host holds can be run, resumed or removed through the hub again, so the jobs the Runner held that had not ended end: `cancelled` where a cancel was waiting, otherwise `failed` with reason `runnerRemoved`. They may still run on the host unseen. The answer lists the jobs it ended, and every job whose files the host may still hold, which whoever looks after the host can remove.",
         }),
         ...byMember,
       )

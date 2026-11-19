@@ -502,7 +502,7 @@ export type RegisteredRunner = z.infer<typeof registeredRunnerSchema>;
 /**
  * The HTTP calls only a Runner makes, beside its socket, and governed with it by the Runner
  * protocol's version (ADR 0026), not by the public API's compatibility: registering, which a Runner
- * does once with the shared key, and reading its jobs' Input files. They are kept out of `apiContract`,
+ * does with a registration key, and reading its jobs' Input files. They are kept out of `apiContract`,
  * so the CLI, the OpenAPI document and the TypeScript client, which derive from it, leave them out;
  * the hub serves both.
  */
@@ -513,7 +513,7 @@ export const runnerHttpContract = {
         method: "POST",
         path: "/runners/register",
         description:
-          "Registers a new Runner, called with the shared key Runners start with. Returns the Runner's ID and its own key, which the Runner keeps and connects with.",
+          "Registers a new Runner, called with a registration key. Returns the Runner's ID and its own key, which the Runner keeps and connects with.",
       }),
       ...byKey({ runner: ["register"] }),
     )

@@ -76,7 +76,7 @@ test("dismissing a pending revocation still announces a refusal on the page", as
   const release = Promise.withResolvers<void>();
   await page.route(`**/api-keys/${id}`, async (route) => {
     await release.promise;
-    await route.fulfill({ status: 403, contentType: "text/plain", body: "Forbidden" });
+    await route.continue();
   });
   const revoke = { name: /^Revoke scheduled job / };
   await page.getByRole("button", revoke).click();
@@ -86,10 +86,23 @@ test("dismissing a pending revocation still announces a refusal on the page", as
     await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
     await page.keyboard.press("Escape");
     await expectBrowser(dialog).toHaveCount(0);
+    const signedOut = await page.evaluate(
+      async () =>
+        (
+          await fetch("/api/auth/sign-out", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          })
+        ).ok,
+    );
+    expect(signedOut).toBe(true);
   } finally {
     release.resolve();
   }
-  await expectBrowser(page.getByRole("alert")).toHaveText(/Revoke scheduled job .*: Forbidden/);
+  await expectBrowser(
+    page.getByRole("alert").filter({ hasText: /Revoke scheduled job/ }),
+  ).toHaveText(/Revoke scheduled job .*: Unauthorized/);
 }, 30_000);
 
 test("in a browser, the Runners page lists a registered Runner by its name and short ID", async () => {
@@ -168,9 +181,9 @@ test("removing an already removed Runner closes the dialog and explains its abse
   await dialog.getByRole("button", remove).click();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(record).toHaveCount(0);
-  await expectBrowser(
-    page.getByRole("status").filter({ hasText: "was already removed" }),
-  ).toHaveText(`former-host ${id.slice(0, 8)} was already removed.`);
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is already gone" })).toHaveText(
+    `former-host ${id.slice(0, 8)} is already gone.`,
+  );
 }, 30_000);
 
 test("in a browser, a new API key is shown once", async () => {

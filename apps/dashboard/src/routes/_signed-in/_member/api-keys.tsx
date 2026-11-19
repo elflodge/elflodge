@@ -1,3 +1,4 @@
+import { API_KEY_ERROR_CODES } from "@better-auth/api-key/client";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
@@ -122,18 +123,22 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
   async function revoke(key: ApiKey, label: string) {
     setActionFailure(undefined);
     setAlreadyGone(undefined);
+    const queryKey = orpc.apiKeys.list.queryKey();
+    let notFound: string | undefined;
     try {
       await api.apiKeys.revoke({ id: key.id });
     } catch (error) {
-      if (problemOf(error)?.status !== 404) {
-        void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
-        return hubFailureMessage(error);
-      }
-      setAlreadyGone(`${label} was already revoked.`);
+      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
+      notFound = hubFailureMessage(error);
+    } finally {
+      // Even a refused revocation can mean the key is gone since the list was read.
+      await queryClient.invalidateQueries({ queryKey, exact: true });
     }
-    void queryClient
-      .invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
-      .then(props.focusAfterRevoke);
+    if (notFound !== undefined) {
+      const list = queryClient.getQueryState(queryKey);
+      if (list?.isInvalidated || !list?.data?.every((item) => item.id !== key.id)) return notFound;
+      setAlreadyGone(`${label} is already gone.`);
+    } else props.focusAfterRevoke();
     return undefined;
   }
 
@@ -144,7 +149,7 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       </Show>
       <Show when={alreadyGone()} keyed>
         {(message) => (
-          <Notice role="status" focusRef={(element) => onSettled(() => element.focus())}>
+          <Notice role="status" focusRef={(element) => onSettled(() => focusIfLost(element))}>
             {message}
           </Notice>
         )}
@@ -220,7 +225,7 @@ function CreateKey(props: { onClose: () => void }) {
       const problem = problemOf(error);
       if (
         problem?.status === 400 &&
-        problem.detail === "The name length is either too large or too small."
+        problem.detail === API_KEY_ERROR_CODES.INVALID_NAME_LENGTH.message
       ) {
         if (nameInput?.value !== name) return;
         setNameRefused(true);
@@ -250,7 +255,6 @@ function CreateKey(props: { onClose: () => void }) {
             <div class="dialog-b">
               <div class="field">
                 <label for="key-name">Name</label>
-                {/* Better Auth defaults maximumNameLength to 32 for API keys. */}
                 <input
                   id="key-name"
                   name="name"
@@ -262,6 +266,7 @@ function CreateKey(props: { onClose: () => void }) {
                   aria-describedby={nameRefused() ? "key-name-error" : "key-name-hint"}
                   onInput={() => setNameRefused(false)}
                 />
+                {/* The hub keeps Better Auth's default maximumNameLength of 32. */}
                 <Show
                   when={nameRefused()}
                   fallback={

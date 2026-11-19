@@ -10,6 +10,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
+import { focusIfLost } from "../../../form.ts";
 import {
   DATE_TIME_SECONDS,
   TIME_SECONDS,
@@ -54,17 +55,27 @@ function Runners() {
 
   async function remove(runner: Runner, label: string) {
     setActionFailure(undefined);
+    const queryKey = orpc.runners.list.queryKey();
+    let summary: string | undefined;
+    let notFound: string | undefined;
     try {
       const { endedJobs, jobsWithFilesLeft } = await api.runners.delete({ id: runner.id });
-      setRemoved(removalSummary(label, endedJobs.length, jobsWithFilesLeft.length));
+      summary = removalSummary(label, endedJobs.length, jobsWithFilesLeft.length);
       // Jobs ended by the removal are stale wherever they are shown.
       void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
     } catch (error) {
       if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
-      setRemoved(`${label} was already removed.`);
+      notFound = hubFailureMessage(error);
     } finally {
-      void queryClient.invalidateQueries({ queryKey: orpc.runners.list.key() });
+      // Even a refused removal can mean the Runner is gone since the list was read.
+      await queryClient.invalidateQueries({ queryKey, exact: true });
     }
+    if (notFound !== undefined) {
+      const list = queryClient.getQueryState(queryKey);
+      if (list?.isInvalidated || !list?.data?.every((item) => item.id !== runner.id))
+        return notFound;
+    }
+    setRemoved(summary ?? `${label} is already gone.`);
     return undefined;
   }
 
@@ -88,7 +99,7 @@ function Runners() {
           <Notice
             role="status"
             focusRef={(element) => {
-              onSettled(() => element.focus());
+              onSettled(() => focusIfLost(element));
             }}
           >
             {message}

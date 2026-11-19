@@ -8,6 +8,7 @@
     "build": "vp build"
   },
   "dependencies": {
+    "@better-auth/api-key": "catalog:",
     "@better-fetch/fetch": "catalog:",
     "@fontsource-variable/instrument-sans": "catalog:",
     "@fontsource-variable/jetbrains-mono": "catalog:",
