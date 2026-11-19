@@ -15,6 +15,7 @@ import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Instant } from "./Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "./JobReferences.tsx";
+import { ResumeGuidance } from "./JobStatus.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
   return (
@@ -225,15 +226,7 @@ export function JobResult(props: { text: string; failureReason?: string }) {
           <CopyButton label="Copy Output" text={props.text} />
         </Show>
       </div>
-      <Show when={props.failureReason === "journalLost"}>
-        <p>
-          Resume carries on only once its journal is restored on its Runner. Submitting it again
-          under a new custom ID starts it over.
-        </p>
-      </Show>
-      <Show when={props.failureReason === "modelBudgetExceeded"}>
-        <p>Resume asks for a larger budget.</p>
-      </Show>
+      <Show when={props.failureReason}>{(reason) => <ResumeGuidance reason={reason()} />}</Show>
       <Show when={props.failureReason && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
         <p class="note">
           {formatCount(FAILURE_MESSAGE_MAX_LENGTH)} characters, the most the hub keeps.
@@ -249,11 +242,11 @@ export function JobResult(props: { text: string; failureReason?: string }) {
           ref={(element) => {
             // A single line of a failure can wrap beyond the preview when the page narrows.
             onSettled(() => {
-              const observer = new ResizeObserver(() =>
-                setLong(
-                  element.offsetHeight > 8 * parseFloat(getComputedStyle(element).lineHeight) + 1,
-                ),
-              );
+              const observer = new ResizeObserver(() => {
+                const style = getComputedStyle(element);
+                const previewLines = Number(style.getPropertyValue("--job-preview-lines"));
+                setLong(element.offsetHeight > previewLines * parseFloat(style.lineHeight) + 1);
+              });
               observer.observe(element);
               return () => observer.disconnect();
             });

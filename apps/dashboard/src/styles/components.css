@@ -1142,6 +1142,8 @@ p mark.placeholder {
   overflow-wrap: anywhere;
 }
 .job-name {
+  min-height: var(--target);
+  align-content: center;
   min-width: var(--target);
   font-family: var(--font-mono);
   font-size: var(--mono-size);
@@ -1750,7 +1752,7 @@ p mark.placeholder {
   font: inherit;
 }
 .job-result:has(.disclose:not([open])) .res-preview {
-  max-block-size: calc(8lh + 2 * var(--space-2));
+  max-block-size: calc(var(--job-preview-lines) * 1lh + 2 * var(--space-2));
 }
 .disclose {
   margin-top: var(--space-1);

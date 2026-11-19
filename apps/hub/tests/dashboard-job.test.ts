@@ -55,7 +55,7 @@ test("a member opens a listed job, sees its pause requested, and finds the pause
 test("a member confirms deletion and sees when the job has gone", async () => {
   const client = await system.clientWithNewJobsKey();
   const job = await submitJob(client, { ...submission, customId: "withdrawn-invoices" });
-  const page = await openAsMember("Job deletion", `jobs/${job.id}`);
+  const page = await openAsMember("Job deletion", `jobs/${job.id.toUpperCase()}`);
   await page.getByRole("button", { name: "Cancel the job" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Cancel the job" }).click();
   await page.getByText("It ended before it started, so it cannot be resumed.").waitFor();
@@ -80,6 +80,7 @@ test("a member can correct a refused budget and resume the job to its Output", a
   const job = await submitJob(client, { ...submission, modelBudgetUsd: 0.000001 });
   await untilStatus(client, job.id, "failed");
   const page = await openAsMember("Job budget", `jobs/${job.id}`);
+  await page.getByText("Resume asks for a larger budget.").waitFor();
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const field = dialog.getByLabel("New model budget (USD)");
@@ -90,7 +91,9 @@ test("a member can correct a refused budget and resume the job to its Output", a
   );
   await field.fill("6");
   await dialog.getByRole("button", { name: "Resume the job" }).click();
-  await expectBrowser(dialog.getByRole("alert")).toContainText(/maximum/i);
+  await expectBrowser(field).toBeFocused();
+  await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(field).toHaveAccessibleDescription(/maximum/i);
   system.model.setResponses([callTool("submit_output", { value: 17 })]);
   await field.fill("1");
   await dialog.getByRole("button", { name: "Resume the job" }).click();

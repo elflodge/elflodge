@@ -13,14 +13,17 @@ import { focusIfLost } from "../../../form.ts";
 import { timeZoneNote } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 
+// UUIDs in addresses accept either case. The hub returns them in lowercase, including on a control.
+function jobQuery(id: string) {
+  return orpc.jobs.get.queryOptions({ input: { id: id.toLowerCase() } });
+}
+
 export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
   loader: async ({ context, params }) => {
     if (!context.member) return;
     if (!jobRefSchema.safeParse(params).success) throw notFound({ data: params.id });
     try {
-      await context.queryClient.query(
-        orpc.jobs.get.queryOptions({ input: { id: params.id }, staleTime: "static" }),
-      );
+      await context.queryClient.query({ ...jobQuery(params.id), staleTime: "static" });
     } catch (error) {
       if (problemOf(error)?.status === 404) throw notFound({ data: params.id });
       throw new HubReadError("The job", error);
@@ -79,14 +82,12 @@ function JobPage() {
   const params = Route.useParams();
   const session = useLoaderData({ from: "/_signed-in" });
   const [deletedHere, setDeletedHere] = createSignal(false);
-  const read = useQuery(() =>
-    orpc.jobs.get.queryOptions({
-      input: { id: params().id },
-      enabled: session().membership.status === "member",
-      refetchInterval: (query) =>
-        problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
-    }),
-  );
+  const read = useQuery(() => ({
+    ...jobQuery(params().id),
+    enabled: session().membership.status === "member",
+    refetchInterval: (query) =>
+      problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
+  }));
   const job = () => read.data;
   const output = createMemo(() => {
     const record = job();

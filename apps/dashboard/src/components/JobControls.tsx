@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
-import type { Job } from "contract";
+import { problemOf, type Job } from "contract";
 import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
 import { formatUsd } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
-import { BesideStatus, JobStatus } from "./JobStatus.tsx";
+import { FieldError } from "./FieldError.tsx";
+import { BesideStatus, JobStatus, ResumeGuidance } from "./JobStatus.tsx";
 import { Notice } from "./Notice.tsx";
 
 type Control = "pause" | "resume" | "cancel" | "delete";
@@ -50,6 +51,10 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
     }) =>
       control === "resume" ? api.jobs.resume({ id, modelBudgetUsd }) : api.jobs[control]({ id }),
   }));
+
+  // Resume sends the validated job ID and one editable field. Its 400 is the budget's refusal.
+  const fieldFailure = () =>
+    problemOf(change.error)?.status === 400 ? budgetFailure() : undefined;
 
   async function act(control: Control, modelBudgetUsd?: number) {
     setPageFailure(undefined);
@@ -103,6 +108,16 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
           <JobStatus job={props.job} />
         </div>
         <BesideStatus job={props.job} detailed />
+        <Show
+          when={
+            !props.job.deletedAt &&
+            props.job.status === "failed" &&
+            !props.job.failure.message &&
+            props.job.failure.reason
+          }
+        >
+          {(reason) => <ResumeGuidance reason={reason()} />}
+        </Show>
         <Show when={props.job.statusUnknown}>
           <p class="note">
             It may still be running on its Runner’s host. A pause or cancel asked now waits for its
@@ -186,6 +201,7 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
                   if (message) {
                     if (budgetDialog?.open && budgetDialog.isConnected) {
                       setBudgetFailure(message);
+                      flush();
                       budgetField.focus();
                     } else showPageFailure(message);
                   }
@@ -203,12 +219,19 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
                       required
                       min="0"
                       step="any"
-                      aria-describedby="spent-budget"
+                      aria-invalid={fieldFailure() ? "true" : undefined}
+                      aria-describedby={
+                        fieldFailure() ? "spent-budget budget-error" : "spent-budget"
+                      }
+                      onInput={() => setBudgetFailure(undefined)}
                       autofocus
                       ref={(element) => {
                         budgetField = element;
                       }}
                     />
+                    <Show when={fieldFailure()}>
+                      {(message) => <FieldError id="budget-error">{message()}</FieldError>}
+                    </Show>
                     <p id="spent-budget" class="note">
                       Cost so far {formatUsd(props.job.usage.cost.totalUsd)} USD, est. The new
                       budget must exceed this cost.
@@ -219,7 +242,7 @@ export function JobControls(props: { job: Job; deletedHere: boolean; onDeleted: 
                       Working…
                     </p>
                   </Show>
-                  <Show when={budgetFailure()}>
+                  <Show when={!fieldFailure() && budgetFailure()}>
                     {(message) => <Notice role="alert">{message()}</Notice>}
                   </Show>
                 </div>

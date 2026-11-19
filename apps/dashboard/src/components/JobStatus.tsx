@@ -60,6 +60,22 @@ const FAILURE_WORDS = new Map([
   ["journalLost", "its Runner’s journal of it was lost"],
 ]);
 
+export function ResumeGuidance(props: { reason: string }) {
+  return (
+    <>
+      <Show when={props.reason === "journalLost"}>
+        <p class="note">
+          Resume carries on only once its journal is restored on its Runner. Submitting it again
+          under a new custom ID starts it over.
+        </p>
+      </Show>
+      <Show when={props.reason === "modelBudgetExceeded"}>
+        <p class="note">Resume asks for a larger budget.</p>
+      </Show>
+    </>
+  );
+}
+
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
   return (
     <>
