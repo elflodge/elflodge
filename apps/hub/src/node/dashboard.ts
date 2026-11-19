@@ -13,7 +13,7 @@ import { DASHBOARD_BASE } from "../dashboard.ts";
  */
 export function dashboardFiles(root: string) {
   return (
-    new Hono()
+    new Hono<{ Bindings: object }>()
       // The base path without its `/`, redirected as Workers Static Assets redirect it, query kept.
       .get("/", (c) => c.redirect(DASHBOARD_BASE + new URL(c.req.url).search, 307))
       .use(

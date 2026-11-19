@@ -1,8 +1,10 @@
 import { type Cause, Context, Duration, Effect, Layer } from "effect";
 import ensureError from "ensure-error";
 import {
+  type AbortableQueryOptions,
   type Expression,
   type ExpressionBuilder,
+  type InflightQueryAbortStrategy,
   Kysely,
   PostgresDialect,
   type RawBuilder,
@@ -59,14 +61,17 @@ export class Db extends Context.Service<
   {
     /** Runs one Kysely call on the hub's database, naming its schema in every statement. */
     readonly query: <A>(
-      run: (db: Kysely<Database>) => Promise<A>,
+      run: (db: Kysely<Database>, options: AbortableQueryOptions) => Promise<A>,
     ) => Effect.Effect<A, Cause.UnknownError>;
   }
 >()("hub/Db", {
   /** The service on `db`, a Kysely instance that does not name the schema itself. */
-  make: (db: Kysely<Database>) => {
+  make: (db: Kysely<Database>, inflightQueryAbortStrategy?: InflightQueryAbortStrategy) => {
     const inSchema = db.withSchema(DB_SCHEMA);
-    return Effect.succeed({ query: (run) => Effect.tryPromise(() => run(inSchema)) });
+    return Effect.succeed({
+      query: (run) =>
+        Effect.tryPromise((signal) => run(inSchema, { signal, inflightQueryAbortStrategy })),
+    });
   },
 }) {}
 

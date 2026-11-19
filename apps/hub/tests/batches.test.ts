@@ -320,6 +320,13 @@ test("Batches are listed newest first, by status and label, in pages", async () 
   const next = await client.batches.list({ labels, limit: 2, after: paused.id });
   expect(next).toMatchObject({ batches: [{ id: cancelled.id }], hasMore: false });
 
+  expect(
+    await client.batches.list({ after: paused.id, labels: { ...labels, team: "ops" } }),
+  ).toEqual({
+    batches: [],
+    hasMore: false,
+  });
+
   for (const [status, batch] of [
     ["active", active],
     ["paused", paused],

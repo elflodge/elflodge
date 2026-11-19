@@ -8,7 +8,6 @@ import type { BlobSha256 as BlobSha256Type } from "./generated/elflodge/Blob.ts"
 import type { InputFilePath as InputFilePathType } from "./generated/elflodge/InputFile.ts";
 import type { JobId as JobIdType } from "./generated/elflodge/Job.ts";
 import type { JobEventChunkLastId } from "./generated/elflodge/JobEventChunk.ts";
-import type { MemberId as MemberIdType } from "./generated/elflodge/Member.ts";
 import type { OrganizationId } from "./generated/elflodge/Organization.ts";
 import type { RunnerId as RunnerIdType } from "./generated/elflodge/Runner.ts";
 import type { UploadId as UploadIdType } from "./generated/elflodge/Upload.ts";
@@ -42,8 +41,6 @@ export type RunnerId = RunnerIdType;
 export const RunnerId = Brand.nominal<RunnerId>();
 export type ApikeyId = ApikeyIdType;
 export const ApikeyId = Brand.nominal<ApikeyId>();
-export type MemberId = MemberIdType;
-export const MemberId = Brand.nominal<MemberId>();
 export type UserId = UserIdType;
 export const UserId = Brand.nominal<UserId>();
 export type InputFilePath = InputFilePathType;

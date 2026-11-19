@@ -712,6 +712,7 @@ export const apiContract = {
     complete: forAnyone
       .errors({
         BAD_REQUEST: {},
+        UNPROCESSABLE_CONTENT: {},
         [SetupLinkRefused.code]: SetupLinkRefused,
         [AlreadySetUp.code]: AlreadySetUp,
       })

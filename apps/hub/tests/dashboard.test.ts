@@ -24,8 +24,8 @@ afterAll(async () => {
 });
 
 /**
- * Checks that the hub answers a browser's navigation to `pathname` with the app shell. Workers Static
- * Assets answer a path with no file of its own with it only for a navigation, by `Sec-Fetch-Mode`.
+ * Checks that the hub answers a browser's navigation to `pathname` with the app shell. The Workers
+ * hub serves the shell for a path with no file of its own only for a navigation.
  */
 async function expectShellAt(pathname: string) {
   // Inspect the HTML the hub served before the dashboard can change it or navigate away.
@@ -46,6 +46,11 @@ test("the dashboard's pages, deep links included, load its app shell", async () 
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
   await expectShellAt("/dashboard/.vite/manifest.json");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const missing = await page.goto(`${system.origin}/dashboard/assets/missing.js`);
+  expect(missing?.status()).toBe(404);
+  expect(missing?.headers()["cache-control"] ?? "").not.toContain("immutable");
   const notices = await system.hub.fetch("/dashboard/THIRD_PARTY_NOTICES.md");
   expect(notices.headers.get("content-type")).toMatch(/^text\/markdown/);
 

@@ -1,8 +1,10 @@
+import { once } from "node:events";
 import { Server } from "node:http";
 
 import { serve } from "@hono/node-server";
 import { selectProtocolVersion } from "contract";
 import crossws from "crossws/adapters/node";
+import ensureError from "ensure-error";
 
 import type { RunnerId } from "../db/types.ts";
 import type { RunnerSockets } from "./runner-sockets.ts";
@@ -44,17 +46,14 @@ export async function startServer(
       close: (peer) => sockets.close(peer),
     },
   });
-  let server!: Server;
-  const listening = new Promise<void>((resolve) => {
-    const started = serve({ fetch, port, hostname }, () => resolve());
-    // Without a `createServer` option, Hono serves plain HTTP, which `upgrade` below relies on.
-    if (!(started instanceof Server)) throw new Error("The hub's server is not an HTTP/1 server");
-    server = started;
-  });
+  const server = serve({ fetch, port, hostname });
+  // Without a `createServer` option, Hono serves plain HTTP, which `upgrade` below relies on.
+  if (!(server instanceof Server)) throw new Error("The hub's server is not an HTTP/1 server");
+  server.on("error", (error) => console.error("Hub server error:", ensureError(error).message));
   server.on("upgrade", (request, socket, head) => {
     void websockets.handleUpgrade(request, socket, head);
   });
-  await listening;
+  await once(server, "listening");
   console.info(`The hub is listening on port ${port}`);
   return server;
 }

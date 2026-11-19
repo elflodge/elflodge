@@ -1,3 +1,5 @@
+import ensureError from "ensure-error";
+
 import { migrateDatabase } from "../src/db/migrate.ts";
 import { setUpOrganization } from "../src/setup.ts";
 
@@ -24,6 +26,6 @@ try {
       : "The setup link is printed only to a terminal, as others may read this output, such as a CI log: run vp run setup in a terminal, or set ADMIN_EMAIL and ADMIN_PASSWORD",
   });
 } catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(ensureError(error).message);
   process.exit(1);
 }

@@ -143,8 +143,7 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
  * Auth's refusals are thrown as its `APIError`s.
  *
  * Better Auth has no way to join a transaction it did not open (better-auth/better-auth#10609), so
- * an instance is built on this one. That holds while the hub's options leave Better Auth's own
- * `transaction` setting off, as a Kysely transaction cannot open another.
+ * an instance is built on this one. The hub's options disable nested transactions on that instance.
  */
 export async function createOwnerAndOrganization(
   db: Kysely<Database>,

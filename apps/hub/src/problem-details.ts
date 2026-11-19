@@ -1,11 +1,6 @@
-import {
-  COMMON_ERROR_STATUS_MAP,
-  DEFAULT_ERROR_STATUS,
-  ORPCError,
-  ValidationError,
-  type AnyORPCError,
-} from "@orpc/server";
+import { DEFAULT_ERROR_STATUS, ORPCError, ValidationError, type AnyORPCError } from "@orpc/server";
 import { getOwn } from "@orpc/shared";
+import { errorStatusMap } from "contract";
 import { problemDetails, type ProblemDetails } from "hono-problem-details";
 import { prettifyError } from "zod/mini";
 
@@ -19,7 +14,7 @@ export function toProblemDetails(error: AnyORPCError): ProblemDetails {
 
 /** The status oRPC's handler answers `code` with, including its default for codes it does not know. */
 function statusOf(code: string): number {
-  return getOwn(COMMON_ERROR_STATUS_MAP, code) ?? DEFAULT_ERROR_STATUS;
+  return getOwn(errorStatusMap, code) ?? DEFAULT_ERROR_STATUS;
 }
 
 /**

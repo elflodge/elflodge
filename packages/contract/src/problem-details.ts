@@ -29,12 +29,18 @@ export const problemDetailsSchema = z
 export type ProblemDetails = z.infer<typeof problemDetailsSchema>;
 
 /** The oRPC code for `status`, such as `NOT_FOUND` for 404. */
-function codeOf(status: number): string {
+export function errorCodeOf(status: number): string {
   return (
     Object.entries(COMMON_ERROR_STATUS_MAP).find(([, codeStatus]) => codeStatus === status)?.[0] ??
     String(status)
   );
 }
+
+/** oRPC's HTTP statuses, including numeric codes for statuses without an oRPC name. */
+export const errorStatusMap: Record<string, number> = {
+  ...COMMON_ERROR_STATUS_MAP,
+  ...Object.fromEntries(statuses.codes.map((status) => [status, status])),
+};
 
 /**
  * The Problem Details an error from the API carries, which the link below keeps as the error's
@@ -90,7 +96,7 @@ export function createProblemDetailsLink<T extends ClientContext>(
       if (!problem.success) return defaultError();
       const { status, title, detail } = problem.data;
       // The document itself is kept as the cause, for a client that shows it as the hub sent it.
-      return new ORPCError(codeOf(status), { message: detail ?? title, cause: problem.data });
+      return new ORPCError(errorCodeOf(status), { message: detail ?? title, cause: problem.data });
     },
     plugins: [
       ...(options.plugins ?? []),

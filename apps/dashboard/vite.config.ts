@@ -36,8 +36,8 @@ export default defineConfig({
   plugins: [
     tanstackStart({
       // A static app shell the hub serves (ADR 0043), with no server of its own. The shell is
-      // written as `index.html`, the file Workers Static Assets answer a navigation with when it
-      // matches no other, rather than Start's default `_shell.html`.
+      // written as `index.html` so Workers Static Assets serve it at the dashboard's base path.
+      // Both hubs use that shell for dashboard page navigations.
       spa: { enabled: true, prerender: { outputPath: "/index" } },
     }),
     solid({ ssr: true }),

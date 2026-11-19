@@ -1,9 +1,9 @@
 import { ORPCError, type ORPCErrorCode } from "@orpc/server";
 import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
-import { type Access, Forbidden, HubNotSetUp, Unauthorized } from "contract";
+import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
-import { type Kysely, sql } from "kysely";
+import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
 import { Db, openScopedDatabase } from "../db/database.ts";
@@ -42,7 +42,7 @@ export class Auth extends Context.Service<
  */
 export function fromBetterAuth(error: unknown) {
   return isAPIError(error)
-    ? new ORPCError(String(error.status), { message: error.body?.message })
+    ? new ORPCError(errorCodeOf(error.statusCode), { message: error.body?.message })
     : new Cause.UnknownError(error);
 }
 
@@ -52,11 +52,15 @@ export function fromBetterAuth(error: unknown) {
  * initialization can wait forever after a cancelled request leaves its promise unsettled
  * (better-auth/better-auth#10315).
  */
-export function databaseAndAuthLayer(connectionString: string, settings: Omit<AuthSettings, "db">) {
+export function databaseAndAuthLayer(
+  connectionString: string,
+  settings: Omit<AuthSettings, "db">,
+  inflightQueryAbortStrategy: InflightQueryAbortStrategy,
+) {
   return Layer.effectContext(
     Effect.gen(function* () {
       const db = yield* openScopedDatabase(connectionString);
-      return Context.make(Db, yield* Db.make(db)).pipe(
+      return Context.make(Db, yield* Db.make(db, inflightQueryAbortStrategy)).pipe(
         Context.add(Auth, yield* Auth.make(db, settings)),
       );
     }),

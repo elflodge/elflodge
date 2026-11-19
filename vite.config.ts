@@ -27,8 +27,8 @@ export default defineConfig({
       // An assertion that narrows is a claim the compiler cannot check; parse or narrow instead.
       "typescript/no-unsafe-type-assertion": "error",
       "typescript/no-non-null-assertion": "error",
-      // Zod Mini names its default wrapper `_default`, as `default` is reserved.
-      "no-underscore-dangle": ["error", { allow: ["_default"] }],
+      // Zod Mini names its default wrapper `_default`, and Zod Core exposes schema definitions via `_zod`.
+      "no-underscore-dangle": ["error", { allow: ["_default", "_zod"] }],
     },
     overrides: [
       {

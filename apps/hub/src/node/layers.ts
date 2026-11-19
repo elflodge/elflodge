@@ -18,7 +18,11 @@ export class NodeRunnerSockets extends Context.Service<NodeRunnerSockets, Runner
 export function nodeServices(settings: HubSettings, connectionString: string) {
   // One Better Auth instance serves every request: unlike on Workers, connections and promises may
   // outlive the request that made them.
-  const databaseAndAuth = databaseAndAuthLayer(connectionString, authSettings(settings));
+  const databaseAndAuth = databaseAndAuthLayer(
+    connectionString,
+    authSettings(settings),
+    "cancel query",
+  );
   const socketsLayer = Layer.effect(
     NodeRunnerSockets,
     Effect.gen(function* () {

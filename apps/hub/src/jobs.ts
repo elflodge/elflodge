@@ -1392,7 +1392,7 @@ export function listJobs(query: JobListQuery) {
       }
       if (labels !== undefined && Object.keys(labels).length > 0) {
         selection = selection.where((eb) =>
-          eb("j.labels", "@>", eb.cast<Labels>(eb.val(JSON.stringify(labels)), "jsonb")),
+          eb("j.labels", "@>", eb.cast<Labels>(eb.val(labels), "jsonb")),
         );
       }
       if (batchId !== undefined) {

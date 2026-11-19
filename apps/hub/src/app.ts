@@ -12,6 +12,7 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
+  errorStatusMap,
   getAccess,
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
@@ -429,12 +430,14 @@ const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiConte
 // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
 // JSON body.
 const uploads = new OpenAPIHandler(router, {
+  errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
 const api = new OpenAPIHandler(router, {
+  errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
   interceptors: [restoreDroppedQueryNamesForValidation],
@@ -465,7 +468,7 @@ const api = new OpenAPIHandler(router, {
 export const AUTH_CHALLENGE = 'ApiKey realm="elflodge"';
 
 /** What the app needs from the platform it runs on. */
-export interface HubPlatform<Bindings> {
+export interface HubPlatform<Bindings extends object> {
   /** Runs `effect` with the platform's services, for a request made with `env`. */
   run<A, E>(env: Bindings, effect: Effect.Effect<A, E, HubServices>): Promise<A>;
   /**
@@ -476,10 +479,9 @@ export interface HubPlatform<Bindings> {
   /** The hub's public URL, its `HUB_URL` setting. */
   hubUrl(env: Bindings): string;
   /**
-   * Serves the dashboard's files under its base path, on platforms where requests for them reach
-   * the app: on Workers, Workers Static Assets answer them before the Worker runs.
+   * Serves dashboard requests under the base path. On Workers only misses reach the app.
    */
-  dashboard?: Hono;
+  dashboard?: Hono<{ Bindings: Bindings }>;
 }
 
 /**
