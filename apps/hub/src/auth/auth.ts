@@ -70,6 +70,7 @@ export function databaseAndAuthLayer(
 /**
  * The deployment's Organization (ADR 0007), which owns every member and key, or `undefined` before
  * the hub is set up. There is only one, so the first row is it.
+ * Better Auth lists a signed-in user's Organizations. This lookup also runs without a session.
  */
 export async function findOrganization(db: Kysely<Database>) {
   return await db.selectFrom("organization").select("id").executeTakeFirst();
@@ -97,7 +98,11 @@ function requireMember(headers: Headers) {
     if (!session) return yield* Effect.fail(new Unauthorized());
     // The ID enters the hub here.
     const userId = UserId(session.user.id);
-    // The Organization and the membership in one read, so both come from the same moment.
+    // getSession plus this statement takes three reads per member call and distinguishes 401,
+    // 403 and 503. The statement reads the Organization and membership from one snapshot.
+    // getActiveMemberRole returns only the role, so we still need getSession for the user, at
+    // seven reads in total. getActiveMember returns 400 even for a valid member because sign-in
+    // leaves the active Organization unset.
     const organization = yield* Db.use((database) =>
       database.query((db) =>
         db

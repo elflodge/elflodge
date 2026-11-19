@@ -54,6 +54,7 @@ export async function setUpOrganization(
   log: (message: string) => void = console.info,
 ): Promise<void> {
   await using db = openDatabase(connectionString);
+  // At startup there is no signed-in member whose Organizations Better Auth could list.
   if (await findOrganization(db.withSchema(DB_SCHEMA))) {
     if (owner.email || owner.password) {
       log("The Organization exists, so ADMIN_EMAIL and ADMIN_PASSWORD are ignored");
@@ -111,7 +112,7 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
           .as("locked"),
       )
       .execute();
-    // The digests name no token, so older links are found by their value.
+    // Better Auth revokes by identifier. Older links have unknown tokens, so revoke by value.
     await transaction
       .withSchema(DB_SCHEMA)
       .deleteFrom("verification")
@@ -152,6 +153,7 @@ export async function createOwnerAndOrganization(
 ): Promise<"created" | "alreadySetUp" | "linkRefused"> {
   try {
     return await db.transaction().execute(async (transaction) => {
+      // Check inside the setup transaction before it claims a token or creates an owner.
       if (await findOrganization(transaction.withSchema(DB_SCHEMA))) return "alreadySetUp";
       const auth = offlineAuth(transaction, {
         // Public sign-up stays off; only this instance may sign up the owner.
@@ -164,7 +166,7 @@ export async function createOwnerAndOrganization(
         const consumed = await context.internalAdapter.consumeVerificationValue(
           SETUP_TOKEN_PREFIX + token,
         );
-        // A setup at once with the same link may have used it and committed meanwhile.
+        // A fresh read distinguishes a concurrent setup that used the token from an invalid link.
         if (!consumed) {
           const organization = await findOrganization(transaction.withSchema(DB_SCHEMA));
           return organization ? "alreadySetUp" : "linkRefused";
@@ -188,6 +190,7 @@ export async function createOwnerAndOrganization(
       return "created";
     });
   } catch (error) {
+    // After rollback, check whether a competing setup committed while this one was writing.
     if (await findOrganization(db.withSchema(DB_SCHEMA))) return "alreadySetUp";
     throw error;
   }
