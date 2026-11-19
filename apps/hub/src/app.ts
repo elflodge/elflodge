@@ -413,7 +413,7 @@ const bracketNotation = new BracketNotationSerializer();
 
 // One bare value must decode as a one-element list, which is why the array style stays.
 // For any declared query style, oRPC overwrites the bracket-decoded field and hides its name from
-// strict validation. No upstream issue yet. Remove this when oRPC preserves the name for validation
+// strict validation (middleapi/orpc#2500). Remove this when oRPC preserves the name for validation
 // or returns a 400 that names it.
 const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiContext> = (options) => {
   const styles = getOpenAPIMeta(options.procedure)?.queryStyles;
