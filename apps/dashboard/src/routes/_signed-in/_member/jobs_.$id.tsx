@@ -8,8 +8,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { FallbackPage } from "../../../components/FallbackPage.tsx";
 import { JobActivity } from "../../../components/JobActivity.tsx";
 import { JobControls } from "../../../components/JobControls.tsx";
-import { JobFacts, JobLimits, JobResult } from "../../../components/JobRecord.tsx";
-import { canResume } from "../../../components/JobStatus.tsx";
+import { JobFacts, JobLimits, JobOutputOrFailure } from "../../../components/JobRecord.tsx";
 import { focusIfLost } from "../../../form.ts";
 import { timeZoneNote } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
@@ -57,6 +56,10 @@ export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
 });
 
 function MissingJob(props: { id: string; deleted?: boolean }) {
+  let jobsLink: HTMLAnchorElement | undefined;
+  onSettled(() => {
+    if (props.deleted) focusIfLost(jobsLink);
+  });
   return (
     <FallbackPage heading={props.deleted ? "This job was deleted" : "Job not found"}>
       <Show when={!props.deleted}>
@@ -69,7 +72,7 @@ function MissingJob(props: { id: string; deleted?: boolean }) {
           to="/jobs"
           class="stands-alone"
           ref={(element) => {
-            if (props.deleted) onSettled(() => focusIfLost(element));
+            jobsLink = element;
           }}
         >
           See the jobs
@@ -90,17 +93,36 @@ function JobPage() {
       problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
   }));
   const job = () => read.data;
+  const stopped = () => {
+    const record = job();
+    return (
+      !record.deletedAt &&
+      !record.pendingControl &&
+      (record.status === "paused" || record.status === "failed" || record.status === "cancelled")
+    );
+  };
+  const endedBeforeStart = () => job().status !== "paused" && !job().startedAt;
   const batch = useQuery(() => {
     const id = job().batchId;
     return orpc.batches.get.queryOptions({
-      input: id && canResume(job()) ? { id } : skipToken,
+      input: id && stopped() && !endedBeforeStart() ? { id } : skipToken,
       refetchInterval: REFRESH_INTERVAL_MS,
     });
   });
-  // Until the Batch read succeeds, offer Resume and let the hub explain any refusal.
-  const resumeOffered = () =>
-    canResume(job()) &&
-    (batch.isError || !batch.dataUpdatedAt || batch.data.status !== "cancelled");
+  const cannotResume = () => {
+    if (!stopped()) return undefined;
+    if (endedBeforeStart()) return "It ended before it started, so it cannot be resumed.";
+    // Until the Batch read succeeds, offer Resume and let the hub explain any Batch refusal.
+    const lastBatch = batch.dataUpdatedAt ? batch.data : undefined;
+    if (lastBatch?.status === "cancelled")
+      return "Its Batch was cancelled, so it cannot be resumed.";
+    if (lastBatch?.pendingControl?.type === "cancel")
+      return "Its Batch is being cancelled, so it cannot be resumed.";
+    if (job().status !== "paused" && !job().runner)
+      return "Its Runner was removed, so it cannot be resumed.";
+    return undefined;
+  };
+  const resumeOffered = () => stopped() && !cannotResume();
   const output = createMemo(() => {
     const record = job();
     return record.status === "succeeded" && record.output !== undefined
@@ -136,6 +158,7 @@ function JobPage() {
           <div>
             <JobControls
               job={job()}
+              cannotResume={cannotResume()}
               resumeOffered={resumeOffered()}
               deletedHere={deletedHere()}
               onDeleted={() => setDeletedHere(true)}
@@ -147,9 +170,9 @@ function JobPage() {
           <Show when={!job().deletedAt || job().startedAt}>
             <JobLimits job={job()} resumeOffered={resumeOffered()} />
           </Show>
-          <Show when={output()}>{(text) => <JobResult text={text()} />}</Show>
+          <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>
           <Show when={failure()?.message}>
-            {(message) => <JobResult text={message()} failure />}
+            {(message) => <JobOutputOrFailure text={message()} failure />}
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />

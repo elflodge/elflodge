@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/solid-query";
-import { problemOf, type Job } from "contract";
+import { FINAL_JOB_STATUSES, problemOf, type Job } from "contract";
 import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
-import { formatJobUsd } from "../format.ts";
+import { focusIfLost } from "../form.ts";
+import { USD_THRESHOLD } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
 import { FieldError } from "./FieldError.tsx";
@@ -13,19 +14,25 @@ import { Notice } from "./Notice.tsx";
 type Control = "pause" | "resume" | "cancel" | "delete";
 
 function cancelConsequence(job: Job) {
-  const finality = job.startedAt
-    ? "Not final: it can be resumed."
-    : "Final: it has not started, so it cannot be resumed.";
+  const sentBeforeStart = job.status === "queued" && !!job.runner && !job.startedAt;
+  const finality = sentBeforeStart
+    ? "Final if it has not started by then; otherwise it can be resumed."
+    : job.startedAt
+      ? "Not final: it can be resumed."
+      : "Final: it has not started, so it cannot be resumed.";
   if (job.pendingControl?.type === "pause") return `Cancel replaces the waiting pause. ${finality}`;
   if (job.status === "paused") return `Cancel ends it now. ${finality}`;
-  if (job.status === "running" && job.runner)
+  if ((job.status === "running" || sentBeforeStart) && job.runner)
     return `Cancel ${job.statusUnknown ? "waits for" : "asks"} ${job.runner.name} to stop it. ${finality}`;
-  return job.startedAt ? "Cancel is not final: it can be resumed." : `Cancel ends it. ${finality}`;
+  return job.startedAt
+    ? "Cancel is not final: it can be resumed."
+    : `Cancel ends it now. ${finality}`;
 }
 
 export function JobControls(props: {
   job: Job;
   resumeOffered: boolean;
+  cannotResume?: string;
   deletedHere: boolean;
   onDeleted: () => void;
 }) {
@@ -70,9 +77,12 @@ export function JobControls(props: {
       const message = hubFailureMessage(error);
       if (modelBudgetUsd !== undefined && budgetDialog?.open && budgetDialog.isConnected) {
         // Resume sends the validated job ID and one editable field. Its 400 is the budget’s refusal.
-        setBudgetFailure({ message, field: problemOf(error)?.status === 400 });
-        flush();
-        budgetField?.focus();
+        const field = problemOf(error)?.status === 400;
+        setBudgetFailure({ message, field });
+        if (field) {
+          flush();
+          budgetField?.focus();
+        }
         return undefined;
       }
       return message;
@@ -86,12 +96,24 @@ export function JobControls(props: {
     if (message) showPageFailure(message);
   }
 
+  // createFormAction holds shared signal writes until its action settles. The budget field and
+  // every job control must reflect this request while the hub is still answering it.
+  async function submitBudget(event: SubmitEvent) {
+    event.preventDefault();
+    if (!budgetField || pending()) return;
+    const { submitter } = event;
+    await press("resume", budgetField.valueAsNumber);
+    if (budgetDialog?.open) {
+      flush();
+      focusIfLost(submitter);
+    }
+  }
+
   const active = () => props.job.status === "queued" || props.job.status === "running";
-  const stopped = () => props.job.status === "failed" || props.job.status === "cancelled";
   const spent = () =>
     props.job.modelBudgetUsd !== undefined &&
     props.job.usage.cost.totalUsd >= props.job.modelBudgetUsd;
-  const cancel = () => active() || props.job.status === "paused";
+  const canCancel = () => !FINAL_JOB_STATUSES.includes(props.job.status);
   const waiting = () => props.job.pendingControl?.type;
 
   const journalLost = () =>
@@ -114,7 +136,9 @@ export function JobControls(props: {
         <BesideStatus job={props.job} detailed />
         <Show when={props.job.statusUnknown}>
           <p class="note">
-            It may still be running on its Runner’s host.{" "}
+            {props.job.startedAt
+              ? "It may still be running on its Runner’s host."
+              : "It may have started on its Runner’s host."}{" "}
             <Show
               when={waiting() === "cancel"}
               fallback={
@@ -130,15 +154,7 @@ export function JobControls(props: {
             </Show>
           </p>
         </Show>
-        <Show
-          when={!props.job.deletedAt && stopped() && (!props.job.startedAt || !props.job.runner)}
-        >
-          <p class="note">
-            {props.job.startedAt
-              ? "Its Runner was removed, so it cannot be resumed."
-              : "It ended before it started, so it cannot be resumed."}
-          </p>
-        </Show>
+        <Show when={props.cannotResume}>{(reason) => <p class="note">{reason()}</p>}</Show>
         <Show when={pending()}>
           <p class="note">Working…</p>
         </Show>
@@ -200,13 +216,7 @@ export function JobControls(props: {
                 budgetDialog = element;
               }}
             >
-              <form
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  if (!budgetField || pending()) return;
-                  await press("resume", budgetField.valueAsNumber);
-                }}
-              >
+              <form onSubmit={submitBudget}>
                 <h2 id="resume-heading" class="dialog-h">
                   Resume the job
                 </h2>
@@ -234,7 +244,7 @@ export function JobControls(props: {
                       {(message) => <FieldError id="budget-error">{message()}</FieldError>}
                     </Show>
                     <p id="spent-budget" class="note">
-                      Cost so far {formatJobUsd(props.job.usage.cost.totalUsd, "cost")} USD, est.
+                      Cost so far {USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est.
                       The new budget must exceed this cost.
                     </p>
                   </div>
@@ -258,7 +268,7 @@ export function JobControls(props: {
               </form>
             </dialog>
           </Show>
-          <Show when={cancel()}>
+          <Show when={canCancel()}>
             <Show
               when={!props.job.startedAt && waiting() !== "cancel"}
               fallback={
@@ -287,7 +297,7 @@ export function JobControls(props: {
               </ConfirmAction>
             </Show>
           </Show>
-          <Show when={!cancel()}>
+          <Show when={!canCancel()}>
             <ConfirmAction
               trigger="Delete"
               describedBy="delete-note"
@@ -319,14 +329,15 @@ export function JobControls(props: {
             </Show>
           </p>
         </Show>
-        <Show when={cancel() && waiting() !== "cancel"}>
+        <Show when={canCancel() && waiting() !== "cancel"}>
           <p class="note" id="cancel-note">
             {cancelConsequence(props.job)}
           </p>
         </Show>
-        <Show when={!cancel()}>
+        <Show when={!canCancel()}>
           <p class="note" id="delete-note">
-            Delete removes its input, Events and Output for good. Its Usage record stays.
+            Delete removes its input, Input files, Events and Output for good. Its Usage record
+            stays.
           </p>
         </Show>
       </Show>

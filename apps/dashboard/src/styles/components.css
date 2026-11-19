@@ -1657,7 +1657,7 @@ p mark.placeholder {
 }
 .job-status .note,
 .activity .note,
-.job-result .note,
+.output-or-failure .note,
 .job-controls .note {
   display: block;
 }
@@ -1753,22 +1753,22 @@ p mark.placeholder {
 }
 
 /* ---------- Output or failure: the complete text once, with an eight-line preview ---------- */
-.result-head {
+.output-or-failure-head {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   justify-content: space-between;
 }
-.job-result .res-preview {
+.output-or-failure .text-preview {
   margin-top: var(--space-2);
 }
-.res-preview code {
+.text-preview code {
   display: block;
   font: inherit;
 }
-.job-result:has(button[aria-expanded="false"]) .res-preview {
+.output-or-failure:has(button[aria-expanded="false"]) .text-preview {
   max-block-size: calc(var(--job-preview-lines) * 1lh + 2 * var(--space-2));
 }
-.job-result > button {
+.output-or-failure > button {
   margin-top: var(--space-1);
 }

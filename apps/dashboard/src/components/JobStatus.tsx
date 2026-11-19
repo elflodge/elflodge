@@ -67,16 +67,6 @@ const FAILURE_WORDS: Record<Failure["reason"], string> = {
   journalLost: "its Runner’s journal of it was lost",
 };
 
-export function canResume(job: Job) {
-  if (job.deletedAt || job.pendingControl) return false;
-  return (
-    job.status === "paused" ||
-    ((job.status === "failed" || job.status === "cancelled") &&
-      job.startedAt !== null &&
-      job.runner !== undefined)
-  );
-}
-
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
   return (
     <>

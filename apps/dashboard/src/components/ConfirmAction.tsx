@@ -15,7 +15,9 @@ import { Notice } from "./Notice.tsx";
 export function ConfirmAction(props: {
   /** The words on the button that opens the dialog, such as "Remove". */
   trigger: string;
+  /** Disable the trigger while another control is acting on the same record. */
   disabled?: boolean;
+  /** The ID of the visible note explaining the trigger’s consequence. */
   describedBy?: string;
   /** The button's whole name, which starts with its words and names what it acts on. */
   triggerLabel: string;

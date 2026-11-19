@@ -101,19 +101,21 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const field = dialog.getByLabel("New model budget (USD)");
+  const submit = dialog.getByRole("button", { name: "Resume the job" });
   await field.fill("0.000001");
-  await dialog.getByRole("button", { name: "Resume the job" }).click();
+  await submit.click();
   await expectBrowser(dialog.getByRole("alert")).toContainText(
     "only with a modelBudgetUsd above that",
   );
+  await expectBrowser(submit).toBeFocused();
   await field.fill("6");
-  await dialog.getByRole("button", { name: "Resume the job" }).click();
+  await submit.click();
   await expectBrowser(field).toBeFocused();
   await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
   await expectBrowser(field).toHaveAccessibleDescription(/maximum/i);
   system.model.setResponses([callTool("submit_output", { value: 17 })]);
   await field.fill("1");
-  await dialog.getByRole("button", { name: "Resume the job" }).click();
+  await submit.click();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText("17", {
     timeout: 15_000,
