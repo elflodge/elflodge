@@ -19,8 +19,8 @@ try {
   await setUpOrganization(databaseUrl, {
     owner: { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD },
     hubUrl: process.env.HUB_URL,
-    // A deploy step may run in CI, whose log others can read, as anyone can a public repository's;
-    // whoever reads the link first claims the hub.
+    // Most CI jobs capture stdout without a terminal. Some allocate one and log it too, so CI
+    // deploys set the owner's credentials. Whoever reads the setup link first can claim the hub.
     noLinkReason: process.stdout.isTTY
       ? undefined
       : "The setup link is printed only to a terminal, as others may read this output, such as a CI log: run vp run setup in a terminal, or set ADMIN_EMAIL and ADMIN_PASSWORD",

@@ -65,7 +65,7 @@ Kept from being sent to a Runner by its Batch: a queued job whose Batch is pause
 _Avoid_: held, paused
 
 **Status unknown**:
-Said of a job sent to a Runner and not yet ended or paused whose current status the hub cannot confirm: it has heard nothing of the job for two minutes, from its Runner at all or about this job. The job keeps the last status its Runner confirmed, with the reason shown beside it, as it may still be running and carries on once its Runner reports again.
+Said of a job sent to a Runner and not yet ended or paused whose current status the hub cannot confirm: it has heard nothing of the job for two minutes, from its Runner at all or about this job. The job keeps its recorded status, `queued` before its first report and the last status its Runner confirmed thereafter. The reason is shown beside it, as the job may still be running and carries on once its Runner reports again.
 _Avoid_: stranded, unavailable, lost (a lost journal fails its job)
 
 **Label**:

@@ -30,7 +30,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 - Before writing the queries that use a schema change, show the maintainer its tables, columns and constraints, one table per message, and wait for approval.
 - Until a migration is released, it is edited in place; no fix-up migration follows it.
-- Every foreign key states, in the migration, what deleting the parent means for the row. Where the row must outlive the parent, the parent's ID is copied and not referenced, as a job's Runner and `keyCreatorUserId` are; `kanel.config.cjs` keeps such a column typed as the parent's ID.
+- Every foreign key states, in the migration, what deleting the parent means for the row. Where the row must outlive the parent, the parent's ID is copied and not referenced, as a job's Runner and `keyCreatorUserId` are; `kanel.config.cjs` keeps such a column typed as the parent's ID. A column that copies IDs from several tables stays unbranded, as `submitterId` holds an API key's ID or a user's ID.
 - Every nullable column states, in the migration, why it can be null. A counter or flag is not null with a database default.
 - A column carrying a protocol field uses the field's name. A column nothing reads yet holds only a fact that could not be recorded later, such as who submitted a job.
 - A CHECK or unique constraint reflects a rule the data must hold; do not add one to make the schema look rigorous.
@@ -48,7 +48,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - `executeTakeFirst()` adds no `LIMIT 1`; add `.limit(1)` to a non-unique lookup.
 - Filter a parent by its children with `EXISTS`, not a join and `GROUP BY`. In a grouped query every selected non-aggregate column is grouped or aggregated: Kysely type-checks what Postgres rejects.
 - An empty child collection is `[]`, never an object of nulls.
-- pg returns a `date` as a calendar string and a `timestamptz` as a `Date`. The hub's pool reads an `int8`, `COUNT` and `SUM` of integers included, as a number, and fails the query beyond `Number.MAX_SAFE_INTEGER`; it reads a `numeric`, `AVG` and `SUM` of an `int8` included, as the nearest number. Kanel types both `number`. Inside JSON, such as `jsonArrayFrom`, pg's `JSON.parse` reads both as the nearest number. Add up money in SQL, where `numeric` is exact, and cast a `SUM` of an `int8` back to `int8` to keep it exact.
+- pg reads scalar `date` and `timestamptz` results as JavaScript `Date` objects. Inside JSON both are strings, with a `date` in `YYYY-MM-DD` form. The hub's pool reads an `int8`, `COUNT` and `SUM` of integers included, as a number, and fails the query beyond `Number.MAX_SAFE_INTEGER`; it reads a `numeric`, `AVG` and `SUM` of an `int8` included, as the nearest number. Kanel types both `number`. Inside JSON, such as `jsonArrayFrom`, pg's `JSON.parse` reads both as the nearest number. Add up money in SQL, where `numeric` is exact, and cast a `SUM` of an `int8` back to `int8` to keep it exact.
 
 ## API
 
