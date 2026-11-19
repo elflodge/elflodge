@@ -290,14 +290,23 @@
 .hubstate .mark-running {
   color: var(--c-running);
 }
-.hubstate :is(.mark-queued, .mark-paused, .mark-disconnected) {
+/* None running is not live: the lamp stays out. */
+.hubstate :is(.mark-queued, .mark-paused, .mark-disconnected, .mark-running.is-zero) {
   color: var(--c-waiting);
 }
-.hubstate .hub-unknown {
+/* What the hub cannot confirm, mark and words: jobs whose status is unknown, Runners none of which is connected. */
+.hubstate .hub-unknown,
+.hubstate .hub-unknown .mark {
   color: var(--c-unknown);
 }
 .hubstate .hub-failed {
   color: var(--c-failed);
+}
+/* On a phone the items wrap from the start, so the strip's first item stays where it is whether it reads counts or a failure. */
+@media (max-width: 640px) {
+  .hubstrip {
+    justify-content: flex-start;
+  }
 }
 @media (max-width: 640px), (pointer: coarse) {
   .hubstate a {

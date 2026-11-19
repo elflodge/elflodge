@@ -192,6 +192,27 @@ test("in a browser, the strip under the bar counts the Organization's Runners an
   await strip.getByText("No Runners").waitFor();
 }, 30_000);
 
+test("in a browser, a failed read of the counts says so in the strip, not with the last counts", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await signInAt(page, "", await newMember("Failing Reader"));
+  const strip = page.getByRole("region", { name: "The hub now" });
+  await strip.getByText(/ queued$/).waitFor();
+
+  // The hub stops answering; the strip's next read, within its refresh, fails.
+  await page.route("**/jobs/counts", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/problem+json",
+      body: JSON.stringify({ title: "Service Unavailable", status: 503 }),
+    }),
+  );
+  await strip.getByText(/^The job counts could not be read at /).waitFor({ timeout: 45_000 });
+  expect(await strip.getByText(/ queued$/).count()).toBe(0);
+  // The bar stays.
+  await page.getByRole("navigation", { name: "Destinations" }).waitFor();
+}, 60_000);
+
 test("in a browser, signing out forgets what was read, so the next member reads afresh", async () => {
   const client = await system.clientWithNewJobsKey();
   const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });

@@ -110,7 +110,7 @@ Every page for a signed-in Member is inside it (`src/routes/_signed-in.tsx`).
 
 ### The hub strip
 
-Under the bar, for a Member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many unconfirmed. It reads `GET /runners` and `GET /jobs/counts` again every 15 seconds while the page is visible.
+Under the bar, for a Member, a band says what the hub says now of the Organization's Runners and unfinished jobs (`src/components/HubStrip.tsx`): how many Runners are connected, how many agents are running, how many jobs are queued, and, when there are any, how many are paused and how many have a status the hub cannot confirm ("status unknown"). It reads `GET /runners` and `GET /jobs/counts` again every 15 seconds while the page is visible.
 
 ```tsx
 <section class="hubstrip" aria-label="The hub now">
@@ -128,15 +128,16 @@ Under the bar, for a Member, a band says what the hub says now of the Organizati
       303 queued
     </li>
     <li class="hub-unknown">
-      <span class="mark mark-unknown" aria-hidden="true" />4 unconfirmed
+      <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
     </li>
   </ul>
 </section>
 ```
 
 - Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, drawn as the item is.
-- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour, with the hub's words in its `title`: an earlier answer is not shown as current. The bar and the page stay.
-- At 640px and below, or with a coarse pointer, a link in it is 44px tall.
+- The running mark takes the lamp's colour only when something runs; at zero it is plain, as queued and paused are. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
+- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour: an earlier answer is not shown as current. The bar and the page stay.
+- At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
 
 ### A page
 

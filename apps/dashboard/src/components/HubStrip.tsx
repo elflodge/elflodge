@@ -3,12 +3,16 @@ import type { UseQueryResult } from "@tanstack/solid-query";
 import { useQuery } from "@tanstack/solid-query";
 import { Errored, Loading, Show } from "solid-js";
 
-import { apiFailureMessage } from "../api-client.ts";
 import { TIME, formatCount, plural } from "../format.ts";
 import { orpc } from "../query.ts";
 import { Instant } from "./Time.tsx";
 
-/** How often the strip reads the hub again while the page is visible. */
+/**
+ * How often the strip reads the hub again while the page is visible. Each read is one small count
+ * and one short list for the hub, so this costs it little; a person watching work start and end
+ * sees the strip follow within a quarter of a minute, and a Runner's connection itself changes only
+ * on a scale of minutes.
+ */
 const REFRESH = 15_000;
 
 /**
@@ -32,8 +36,10 @@ export function HubStrip() {
         <Read query={runners} what="The Runners">
           {(list) => {
             const connected = () => list().filter((runner) => runner.connected).length;
+            // Runners there are, none of them connected: their jobs' statuses are unknown.
+            const noneConnected = () => list().length > 0 && connected() === 0;
             return (
-              <li>
+              <li class={noneConnected() ? "hub-unknown" : undefined}>
                 <span
                   class={connected() > 0 ? "mark mark-connected" : "mark mark-disconnected"}
                   aria-hidden="true"
@@ -50,7 +56,13 @@ export function HubStrip() {
             <>
               {/* A count of running jobs may say agents (CONTEXT.md). */}
               <li>
-                <span class="mark mark-running" aria-hidden="true" />
+                {/* The lamp is for what is live: none running lights nothing. */}
+                <span
+                  class={
+                    read().jobCounts.running > 0 ? "mark mark-running" : "mark mark-running is-zero"
+                  }
+                  aria-hidden="true"
+                />
                 {formatCount(read().jobCounts.running)}{" "}
                 {plural(read().jobCounts.running, "agent", "agents")} running
               </li>
@@ -67,7 +79,7 @@ export function HubStrip() {
               <Show when={read().statusUnknownJobs > 0}>
                 <li class="hub-unknown">
                   <span class="mark mark-unknown" aria-hidden="true" />
-                  {formatCount(read().statusUnknownJobs)} unconfirmed
+                  {formatCount(read().statusUnknownJobs)} status unknown
                 </li>
               </Show>
             </>
@@ -104,13 +116,13 @@ function Read<T>(props: {
   );
 }
 
-/** What the strip could not read, and when, with the hub's words in its title. */
+/**
+ * What the strip could not read, and when. The hub's words are left out: the strip has room for one
+ * short line.
+ */
 function Failed(props: { query: UseQueryResult; what: string }) {
   return (
-    <li
-      class="hub-failed"
-      title={props.query.error ? apiFailureMessage(props.query.error) : undefined}
-    >
+    <li class="hub-failed">
       <span class="mark mark-failed" aria-hidden="true" />
       <span>
         {props.what} could not be read at{" "}
