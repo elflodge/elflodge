@@ -21,9 +21,7 @@ try {
     hubUrl: process.env.HUB_URL,
     // Most CI jobs capture stdout without a terminal. Some allocate one and log it too, so CI
     // deploys set the owner's credentials. Whoever reads the setup link first can claim the hub.
-    noLinkReason: process.stdout.isTTY
-      ? undefined
-      : "The setup link is printed only to a terminal, as others may read this output, such as a CI log: run vp run setup in a terminal, or set ADMIN_EMAIL and ADMIN_PASSWORD",
+    canPrintSetupLink: process.stdout.isTTY,
   });
 } catch (error) {
   console.error(ensureError(error).message);

@@ -26,11 +26,14 @@ export const GRANTABLE_KEY_PERMISSIONS = ac.newRole({
 /** The permissions of a Runner's own key, which the hub creates when the Runner registers. */
 export const RUNNER_KEY_PERMISSIONS = ac.newRole({ runner: ["actAs"] });
 
+/** The `value` of a setup link's `verification` row, by which a new link revokes older ones. */
+export const SETUP_LINK_VALUE = "hub-setup";
+
 /**
  * What starts the identifier of a setup link's token in Better Auth's `verification` table, which
  * Better Auth stores by its digest.
  */
-export const SETUP_TOKEN_PREFIX = "hub-setup:";
+export const SETUP_TOKEN_PREFIX = `${SETUP_LINK_VALUE}:`;
 
 /** The API key configurations: keys for services, and each Runner's own key. */
 export const API_KEY_CONFIG = "default";

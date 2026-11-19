@@ -3,7 +3,7 @@ import { generateRandomString } from "better-auth/crypto";
 import type { Kysely } from "kysely";
 
 import { findOrganization } from "./auth/auth.ts";
-import { offlineAuthOptions, SETUP_TOKEN_PREFIX } from "./auth/options.ts";
+import { offlineAuthOptions, SETUP_LINK_VALUE, SETUP_TOKEN_PREFIX } from "./auth/options.ts";
 import { dashboardUrl } from "./dashboard.ts";
 import { DB_SCHEMA, openDatabase } from "./db/database.ts";
 import type { Database } from "./db/types.ts";
@@ -29,9 +29,6 @@ const SETUP_LINK_LIFETIME_MS = 24 * 60 * 60 * 1000;
  */
 const SETUP_LINK_LOCK = [0x65_6c_66_6c, 1] as const;
 
-/** The `value` of a setup link's `verification` row, by which a new link revokes older ones. */
-const SETUP_LINK_VALUE = "hub-setup";
-
 /** The owner to create, from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. */
 export interface OwnerSettings {
   email?: string | undefined;
@@ -42,15 +39,15 @@ export interface OwnerSettings {
  * Sets the hub up unless its Organization exists: from `owner` when both its settings are given,
  * else by printing a setup link to the hub at `hubUrl` through `log`. Throws when only one of the
  * owner's settings is given, or when a link is needed and there is no `hubUrl` to make it from, or
- * `log` must not print one, for the reason `noLinkReason` gives.
+ * the caller disallows printing the link.
  */
 export async function setUpOrganization(
   connectionString: string,
   {
     owner,
     hubUrl,
-    noLinkReason,
-  }: { owner: OwnerSettings; hubUrl: string | undefined; noLinkReason?: string },
+    canPrintSetupLink,
+  }: { owner: OwnerSettings; hubUrl: string | undefined; canPrintSetupLink: boolean },
   log: (message: string) => void = console.info,
 ): Promise<void> {
   await using db = openDatabase(connectionString);
@@ -75,7 +72,11 @@ export async function setUpOrganization(
       "Set both ADMIN_EMAIL and ADMIN_PASSWORD to create the owner from them, or neither to create the owner from a setup link",
     );
   }
-  if (noLinkReason) throw new Error(noLinkReason);
+  if (!canPrintSetupLink) {
+    throw new Error(
+      "The setup link is printed only to a terminal, as others may read this output, such as a CI log: run vp run setup in a terminal, or set ADMIN_EMAIL and ADMIN_PASSWORD",
+    );
+  }
   if (!hubUrl) {
     throw new Error(
       "Set HUB_URL to the hub's URL to print its setup link, or ADMIN_EMAIL and ADMIN_PASSWORD to create the owner from them",

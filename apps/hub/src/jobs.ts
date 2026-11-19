@@ -64,7 +64,7 @@ import type { HubSettings } from "./settings.ts";
 export const FINAL_STATUSES: JobStatus[] = [...FINAL_JOB_STATUSES];
 
 /** The statuses of a job a Runner may be running or about to run, which a control waits for. */
-export const QUEUED_OR_RUNNING: JobStatus[] = ["queued", "running"];
+export const QUEUED_OR_RUNNING = ["queued", "running"] as const satisfies readonly JobStatus[];
 
 /** About how many bytes of events, as JSON Lines, one page of a job's events holds. */
 const MAX_PAGE_BYTES = 1024 * 1024;
@@ -330,7 +330,7 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 }
 
 /** The statuses of a job that has not ended. */
-export const UNFINISHED: JobStatus[] = ["queued", "running", "paused"];
+export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
 /** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
 export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
@@ -509,6 +509,7 @@ export function submitterColumns(
 
 /** The submitter `row`'s columns record, as the API shows it. */
 export function apiSubmitterOf(row: Pick<JobRow, (typeof SUBMITTER_COLUMNS)[number]>) {
+  // The row type allows a null name for either kind. Only an API key can have one.
   return z.parse(submitterSchema, {
     kind: row.submitterKind,
     id: row.submitterId,
@@ -1434,9 +1435,10 @@ const LISTED_JOB_COLUMNS = [
   ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
-function countJobsWithStatus<S extends JobStatus>(status: S) {
-  return (eb: ExpressionBuilder<Database, "job">) =>
-    eb.fn.countAll<number>().filterWhere("job.status", "=", status).as(status);
+export function countJobsWithStatus(column: Expression<JobStatus>) {
+  const eb = expressionBuilder();
+  return <S extends JobStatus>(status: S) =>
+    eb.fn.countAll<number>().filterWhere(column, "=", status).as(status);
 }
 
 /**
@@ -1453,11 +1455,7 @@ export function countJobs() {
       const totals = db
         .selectFrom("job")
         .where("job.status", "in", UNFINISHED)
-        .select([
-          countJobsWithStatus("queued"),
-          countJobsWithStatus("running"),
-          countJobsWithStatus("paused"),
-        ]);
+        .select((eb) => UNFINISHED.map(countJobsWithStatus(eb.ref("job.status"))));
       const unknown = db
         .selectFrom("job")
         // A placed job has a Runner (`job_placedAt_check`). When most queued jobs are unplaced,
@@ -1481,7 +1479,7 @@ export function countJobs() {
             now,
           ),
         )
-        .select([countJobsWithStatus("queued"), countJobsWithStatus("running")]);
+        .select((eb) => QUEUED_OR_RUNNING.map(countJobsWithStatus(eb.ref("job.status"))));
       return db
         .selectFrom(totals.as("totals"))
         .crossJoin(unknown.as("unknown"))
