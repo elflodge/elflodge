@@ -7,10 +7,11 @@ import { expect, test } from "vite-plus/test";
 // Checked on each input's top-level object; the batches tests send an unknown field nested in a job.
 // The Runner's own calls ignore unknown fields instead, as the Runner protocol does (ADR 0026).
 
-test("every call's input refuses a parameter it does not define", async () => {
+test("every call with input declares BAD_REQUEST and refuses a parameter it does not define", async () => {
   const checks: Promise<void>[] = [];
   walkProcedureContractsSync({ apiContract }, (procedure, path) => {
     for (const schema of procedure["~orpc"].inputSchemas ?? []) {
+      expect(procedure["~orpc"].errorMap, path.join(".")).toHaveProperty("BAD_REQUEST");
       // The upload's input is oRPC's request parts: oRPC fills the outer object and `headers` with
       // more than the call reads, so they stay open, and only `params` is the caller's to check.
       const stray =

@@ -879,7 +879,7 @@ export const apiContract = {
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An input that fails schema validation gets 400. After validation, the hub looks up the Batch and answers with 404 if it cannot find it. For an existing Batch, it checks every job and answers with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise the add is refused with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -933,7 +933,7 @@ export const apiContract = {
       )
       .output(batchesPageSchema),
     get: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/batches/{id}", description: "Reads a Batch." }),
         ...byKeyOrMember({ job: ["read"] }),
@@ -982,7 +982,7 @@ export const apiContract = {
   },
   jobs: {
     get: forMembers
-      .errors({ [NotFound.code]: NotFound })
+      .errors({ BAD_REQUEST: {}, [NotFound.code]: NotFound })
       .meta(
         openapi({ method: "GET", path: "/jobs/{id}", description: "Reads a job." }),
         ...byKeyOrMember({ job: ["read"] }),
@@ -1168,7 +1168,7 @@ export const apiContract = {
           method: "GET",
           path: "/jobs/counts",
           description:
-            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. The hub refuses any filter or other input with 400.",
+            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. Any filter or other input is refused.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )

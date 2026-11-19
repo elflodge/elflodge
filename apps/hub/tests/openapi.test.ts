@@ -101,15 +101,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
     ].filter((operation) => operation !== undefined),
   );
 
-  // A call with query or body input advertises the 400 a caller gets for invalid input.
-  for (const operation of operations.filter(
-    (each) =>
-      each.requestBody !== undefined ||
-      each.parameters?.some((param) => "in" in param && param.in === "query"),
-  )) {
-    expect(operation.responses, operation.operationId).toHaveProperty("400");
-  }
-
   // A call a member may make answers 403 to a signed-in account that is not a member.
   for (const operation of operations.filter((each) =>
     each.security?.some((scheme) => "session" in scheme),
