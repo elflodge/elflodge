@@ -46,6 +46,7 @@ function refused(error: Error) {
 export function followMember(queryClient: QueryClient) {
   // The member whose reads the client holds: `null` for none, `undefined` before the first answer.
   const [confirmedMember, setConfirmedMember] = createSignal<string | null | undefined>(undefined);
+  // Kept beside the signal, whose new value a read gets only after Solid 2 flushes the write.
   let seen: string | null | undefined;
   return {
     /** The member the hub last said is signed in, for the shell to hide another member's page. */

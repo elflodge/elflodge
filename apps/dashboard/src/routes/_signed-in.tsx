@@ -19,10 +19,14 @@ export const Route = createFileRoute("/_signed-in")({
     if (error && error.status !== 401) throw unreadError("The session", failureMessage(error));
     // Before any loader warms the cache: what was read for another member is forgotten first. Not
     // by a navigation another has replaced, which the router aborts, as its answer may be older
-    // than the one the other reads. Nor by a preload, which shows nothing: the router documents no
-    // way for one to stop short, so its loaders may warm the cache with the next member's reads
-    // while it still holds the last one's. The navigation that would show them forgets them all
-    // first, and the hub answers every read for the member its cookie names anyway.
+    // than the one the other reads. Nor by a preload, which shows nothing. The router has no clean
+    // way for a preload to stop short: the route option `preload: false` stops every preload of
+    // the route, and an error thrown here stops it as a failure. So its loaders may warm the cache
+    // with the next member's reads while it holds the last one's; the navigation that would show
+    // them forgets them all first, and the hub answers every read for the member its cookie names
+    // anyway. What is left: a preload warms a read as member B, then another tab signs in as A
+    // again before the next navigation, which then finds A, whose reads the cache holds, and keeps
+    // B's read.
     if (!preload && !abortController.signal.aborted) context.memberSeen(data?.user.id ?? null);
     if (!data) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
