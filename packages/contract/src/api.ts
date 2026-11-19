@@ -459,7 +459,7 @@ export const jobCountsSchema = z
   .object({
     /** How many jobs have each unfinished status. */
     jobCounts: z.pick(batchSchema.shape.jobCounts, { queued: true, running: true, paused: true }),
-    /** How many of each status's jobs show `statusUnknown`. */
+    /** How many queued and running jobs show `statusUnknown`. Each is also counted in `jobCounts`. */
     statusUnknownJobCounts: z.pick(batchSchema.shape.jobCounts, { queued: true, running: true }),
   })
   .register(z.globalRegistry, { id: "JobCounts" });

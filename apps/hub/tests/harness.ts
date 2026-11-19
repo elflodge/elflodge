@@ -16,7 +16,10 @@ import {
   createJsonRpcClient,
   createProblemDetailsLink,
   hubNotifications,
+  JOB_STARTED,
+  type JobReport,
   KEY_PERMISSIONS,
+  type RunRef,
   RUNNER_CONNECT_PATH,
   RUNNER_PROTOCOL_VERSION,
   registeredRunnerSchema,
@@ -33,6 +36,8 @@ import * as z from "zod/mini";
 
 import { offlineAuthOptions } from "../src/auth/options.ts";
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
+import { JobId, RunnerId } from "../src/db/types.ts";
+import { GONE_AFTER_MS } from "../src/runners.ts";
 import { setUpOrganization } from "../src/setup.ts";
 import { scriptedModel } from "./scripted-model.ts";
 
@@ -52,6 +57,52 @@ export function protocolClient(socket: WebSocket, rewrite = (message: string) =>
     if (typeof event.data === "string") client.receive(event.data);
   });
   return client;
+}
+
+/** A Runner's first report of a job it has started. */
+export function startedJobReport({ jobId, runId }: RunRef): JobReport {
+  return {
+    jobId,
+    runId,
+    intent: "run",
+    position: 0,
+    events: [
+      {
+        id: 1,
+        type: "entry",
+        record: {
+          kind: JOB_STARTED,
+          data: { timestamp: Date.now(), runId, runnerVersion: "0.0.0" },
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Moves the jobs' placement and last report, and optionally their Runner's last contact, three
+ * minutes back. Returns the time their status became unknown.
+ */
+export async function threeMinutesPass(jobIds: string[], runnerId?: string) {
+  await using database = openDatabase(inject("databaseUrl"));
+  const db = database.withSchema(DB_SCHEMA);
+  const back = new Date(Date.now() - 3 * 60_000);
+  const ids = jobIds.map(JobId);
+  await db.updateTable("job").set({ placedAt: back }).where("id", "in", ids).execute();
+  await db
+    .updateTable("jobProgress")
+    .set({ lastReportedAt: back })
+    .where("jobId", "in", ids)
+    .where("lastReportedAt", "is not", null)
+    .execute();
+  if (runnerId !== undefined) {
+    await db
+      .updateTable("runner")
+      .set({ lastSeenAt: back })
+      .where("id", "=", RunnerId(runnerId))
+      .execute();
+  }
+  return new Date(back.getTime() + GONE_AFTER_MS);
 }
 
 /** The hub's API as a caller sees it through the contract's link. */
