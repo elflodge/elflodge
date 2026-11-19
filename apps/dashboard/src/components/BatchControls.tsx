@@ -4,16 +4,13 @@ import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
 import { unfinishedJobs } from "../batch.ts";
-import { formatCount } from "../format.ts";
+import { formatCount, plural } from "../format.ts";
 import { orpc } from "../query.ts";
 import { BatchConditions, BatchStatus } from "./BatchStatus.tsx";
 import { ConfirmAction } from "./ConfirmAction.tsx";
 import { Notice } from "./Notice.tsx";
 
 const finality = "It takes no new jobs, and none of its jobs can be resumed.";
-function jobs(count: number) {
-  return count === 1 ? "job" : "jobs";
-}
 
 export function BatchControls(props: { batch: Batch; canary: boolean }) {
   const client = useQueryClient();
@@ -53,12 +50,13 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
     if (message) showFailure(message);
   }
   const unfinished = () => unfinishedJobs(props.batch.jobCounts);
-  const unfinishedText = () => `${formatCount(unfinished())} unfinished ${jobs(unfinished())}`;
+  const unfinishedText = () =>
+    `${formatCount(unfinished())} unfinished ${plural(unfinished(), "job", "jobs")}`;
   const resume = () => {
     const breaker = props.batch.breaker;
     if (props.batch.pausedBy !== "breaker" || !breaker) return "Resume releases its blocked jobs.";
     return breaker.canary
-      ? `Resume starts a new Canary of the next ${formatCount(breaker.canary)} ${jobs(breaker.canary)} and counts failures afresh.`
+      ? `Resume starts a new Canary of the next ${formatCount(breaker.canary)} ${plural(breaker.canary, "job", "jobs")} and counts failures afresh.`
       : "Resume releases its blocked jobs and counts failures afresh.";
   };
   return (
@@ -141,7 +139,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
             >
               <p>
                 <Show when={unfinished()}>
-                  Its {unfinishedText()} {unfinished() === 1 ? "is" : "are"} cancelled:{" "}
+                  Its {unfinishedText()} {plural(unfinished(), "is", "are")} cancelled:{" "}
                   {unfinished() === 1
                     ? "at once if no Runner may be running it, otherwise once its Runner stops it"
                     : "those no Runner may be running at once, the others once their Runners stop them"}
@@ -152,7 +150,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
               <Show when={props.batch.statusUnknownJobs}>
                 {(n) => (
                   <p>
-                    {formatCount(n())} of its jobs {n() === 1 ? "has" : "have"} status unknown: the
+                    {formatCount(n())} of its jobs {plural(n(), "has", "have")} status unknown: the
                     cancel waits until{" "}
                     {n() === 1 ? "its Runner reports or is" : "their Runners report or are"}{" "}
                     removed.
@@ -172,8 +170,8 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
                   {(n) => (
                     <>
                       {" "}
-                      Its {formatCount(n())} paused {jobs(n())} {n() === 1 ? "stays" : "stay"}{" "}
-                      paused.
+                      Its {formatCount(n())} paused {plural(n(), "job", "jobs")}{" "}
+                      {plural(n(), "stays", "stay")} paused.
                     </>
                   )}
                 </Show>

@@ -12,7 +12,13 @@ import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
-import { DATE_TIME_SECONDS, formatCount, formatUsd, timeZoneNote } from "../../../format.ts";
+import {
+  DATE_TIME_SECONDS,
+  formatCount,
+  formatUsd,
+  plural,
+  timeZoneNote,
+} from "../../../format.ts";
 import { orpc, REFRESH_INTERVAL_MS } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
@@ -235,7 +241,7 @@ function BatchJobs(props: { batch: Batch }) {
           {(n) => (
             <p class="note is-unknown">
               <span class="mark mark-unknown" aria-hidden="true" /> {formatCount(n())} of these{" "}
-              {n() === 1 ? "has" : "have"} status unknown: each is counted under its last recorded
+              {plural(n(), "has", "have")} status unknown: each is counted under its last recorded
               status.{" "}
               <Link to="/jobs" search={{ batchId: props.batch.id, statusUnknown: true }}>
                 See them<span class="vh">: its jobs with status unknown</span>
@@ -250,7 +256,7 @@ function BatchJobs(props: { batch: Batch }) {
 
 function breakerSettings(breaker: Batch["breaker"]) {
   if (!breaker) return "Off";
-  const canary = `Canary of ${formatCount(breaker.canary)} ${breaker.canary === 1 ? "job" : "jobs"}`;
+  const canary = `Canary of ${formatCount(breaker.canary)} ${plural(breaker.canary, "job", "jobs")}`;
   if (breaker.canary && breaker.maxFailurePercent === 100) return canary + " only";
   return `${breaker.canary ? canary + ", then" : "No Canary;"} at most ${breaker.maxFailurePercent}% failed`;
 }

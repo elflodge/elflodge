@@ -15,11 +15,11 @@ const searchSchema = z.pipe(
   z.object({
     status: statusFilter(batchStatusSchema),
     labelKey: optionalText,
-    labelValue: z.catch(z.optional(z.string()), undefined),
+    labelValue: optionalText,
     after: optionalText,
   }),
   z.transform((search) =>
-    search.labelKey && search.labelValue !== undefined
+    search.labelKey && search.labelValue
       ? search
       : { ...search, labelKey: undefined, labelValue: undefined },
   ),
@@ -31,9 +31,7 @@ export function listInput(search: BatchesSearch) {
     status: search.status,
     after: search.after,
     labels:
-      search.labelKey && search.labelValue !== undefined
-        ? { [search.labelKey]: search.labelValue }
-        : undefined,
+      search.labelKey && search.labelValue ? { [search.labelKey]: search.labelValue } : undefined,
   };
 }
 
