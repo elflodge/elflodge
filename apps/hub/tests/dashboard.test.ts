@@ -161,6 +161,16 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   );
 }, 30_000);
 
+test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  // Signed out, it is a page like any other: signing in comes first.
+  await signInAt(page, "nowhere", await newMember("Lost Reader"));
+  // Signed in, the bar stays.
+  await page.getByRole("heading", { name: "Not found" }).waitFor();
+  await page.getByRole("navigation", { name: "Destinations" }).waitFor();
+}, 30_000);
+
 // After the tests that add members: the owner's password change ends the owner's other sessions,
 // with which members are added.
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {
@@ -209,13 +219,6 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   // The new password signs in.
   await system.signIn({ email: OWNER.email, password });
 }, 30_000);
-
-test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  await page.goto(`${system.origin}/dashboard/nowhere`);
-  await page.getByRole("heading", { name: "Not found" }).waitFor();
-});
 
 // Last, as it empties the hub.
 test("in a browser, the setup link creates the Organization and its owner, who is then signed in", async () => {

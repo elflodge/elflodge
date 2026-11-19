@@ -135,7 +135,7 @@ The mark's `alt` is empty here because the heading names the product.
 
 ### A page that failed or was not found
 
-The router shows `DefaultCatchBoundary` in place of a page that failed and `NotFound` in place of one that does not exist (`src/components/`). Both are a `FallbackPage`, which takes a heading and what goes under it. Inside the shell it is a page like any other, its heading in `div.head`. Outside the shell, as when the session could not be read, it is a page without the shell.
+The router shows `DefaultCatchBoundary` in place of a page that failed and `NotFound` in place of one that does not exist (`src/components/`). An address no page has is a page inside the shell (`src/routes/_signed-in/$.tsx`), so a Member keeps the bar there, and someone signed out signs in first, as at any other page. Both are a `FallbackPage`, which takes a heading and what goes under it. Inside the shell it is a page like any other, its heading in `div.head`. Outside the shell, as when the session could not be read, it is a page without the shell.
 
 ```tsx
 <FallbackPage heading="This page could not be shown">
