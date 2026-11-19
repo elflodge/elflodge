@@ -101,14 +101,15 @@ test("in a browser, filters held in the address narrow the list, and a reload ke
 
 test("in a browser, a link reads the exact Batch a page at a time, newest first", async () => {
   const client = await system.clientWithNewJobsKey();
-  const batch = await client.batches.create({ id: "1e3", agent: AGENT, breaker: false });
+  const batch = await client.batches.create({ id: "2026", agent: AGENT, breaker: false });
   const customIds = Array.from({ length: 51 }, (_, index) => `page-${index}`);
   await client.batches.addJobs({
     id: batch.id,
     jobs: customIds.map((customId) => ({ customId, input: "A job." })),
   });
+  await submitJob(client, { ...AGENT, customId: "another-batch", input: "Another job." });
   const newestFirst = (await client.jobs.list({ batchId: batch.id, limit: 100 })).jobs.map(
-    ({ customId }) => customId ?? "",
+    ({ customId }) => customId,
   );
 
   const page = await newPage();

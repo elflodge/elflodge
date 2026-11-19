@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { createRouter, defaultParseSearch, stringifySearchWith } from "@tanstack/solid-router";
+import { createRouter } from "@tanstack/solid-router";
 
 import { DefaultCatchBoundary } from "./components/DefaultCatchBoundary.tsx";
 import { NotFound } from "./components/NotFound.tsx";
@@ -10,13 +10,27 @@ export function getRouter() {
   const queryClient = createQueryClient();
   const router = createRouter({
     routeTree,
-    // Batch IDs compare as text. JSON decoding would turn the ID 1e3 into the number 1000.
+    // Match the hub's query spelling: every value is text, and a repeated key is an ordered list.
+    // The router's JSON default converts 2026, 1e3 and true. query-string adds 3.7 kB gzipped
+    // and a null case for a bare key, which the dashboard reads as empty text.
     parseSearch: (search) => {
-      const filters = defaultParseSearch(search);
-      if ("batchId" in filters) filters.batchId = new URLSearchParams(search).get("batchId");
-      return filters;
+      const params = new URLSearchParams(search);
+      return Object.fromEntries(
+        Array.from(new Set(params.keys()), (key) => {
+          const values = params.getAll(key);
+          return [key, values.length === 1 ? values[0] : values];
+        }),
+      );
     },
-    stringifySearch: stringifySearchWith(JSON.stringify),
+    stringifySearch: (search) => {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(search)) {
+        for (const item of Array.isArray(value) ? value : [value]) {
+          if (item !== undefined) params.append(key, String(item));
+        }
+      }
+      return params.size ? `?${params}` : "";
+    },
     context: { queryClient },
     // Every page, and every route's component, has the client.
     Wrap: (props) => (

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/solid-query";
 import type { UseQueryResult } from "@tanstack/solid-query";
-import { Link, createFileRoute, useNavigate, useRouterState } from "@tanstack/solid-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, jobStatusSchema } from "contract";
 import type { JobRunner, JobsPage, ListedJob, Runner } from "contract";
 import { For, Loading, Match, Repeat, Show, Switch, createMemo, createSignal } from "solid-js";
@@ -10,7 +10,7 @@ import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { BesideStatus, JobStatus, STATUS_WORDS } from "../../../components/JobStatus.tsx";
-import { fieldText } from "../../../form.ts";
+import { createFormAction, fieldText } from "../../../form.ts";
 import {
   DAY,
   DAY_YEAR,
@@ -34,8 +34,27 @@ const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undef
  * hub refuses, such as a Batch ID it does not allow, is the hub's to name when the list is read.
  */
 const jobsSearchSchema = z.object({
-  status: z.catch(z.optional(z.array(jobStatusSchema).check(z.minLength(1))), undefined),
-  statusUnknown: z.catch(z.optional(z.boolean()), undefined),
+  status: z.catch(
+    z.optional(
+      z.union([
+        z.array(jobStatusSchema).check(z.minLength(1)),
+        z.pipe(
+          jobStatusSchema,
+          z.transform((status) => [status]),
+        ),
+      ]),
+    ),
+    undefined,
+  ),
+  statusUnknown: z.catch(
+    z.optional(
+      z.union([
+        z.boolean(),
+        z.stringbool({ truthy: ["true"], falsy: ["false"], case: "sensitive" }),
+      ]),
+    ),
+    undefined,
+  ),
   batchId: optionalText,
   runnerId: optionalText,
   after: optionalText,
@@ -86,20 +105,20 @@ function Reading() {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
   return (
     <>
-      <JobsHeader runners={runners.dataUpdatedAt ? runners.data : undefined} />
+      <JobsHeader reading runners={runners.dataUpdatedAt ? runners.data : undefined} />
       <LoadingList />
     </>
   );
 }
 
-function JobsHeader(props: { runners?: Runner[] }) {
+function JobsHeader(props: { reading?: boolean; runners?: Runner[] }) {
   const search = Route.useSearch();
   return (
     <>
       <div class="head">
         <h1>Jobs</h1>
       </div>
-      <Filters search={search()} runners={props.runners} />
+      <Filters reading={props.reading} search={search()} runners={props.runners} />
     </>
   );
 }
@@ -145,31 +164,28 @@ function Jobs() {
 }
 
 /** The filters, as one form that applies them all at once. */
-function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
+function Filters(props: { reading?: boolean; search: JobsSearch; runners: Runner[] | undefined }) {
   const navigate = useNavigate();
   const applied = () => filterCount(props.search);
-  const navigating = useRouterState({ select: (state) => state.status === "pending" });
 
   const [open, setOpen] = createSignal(() => applied() > 0);
 
-  function apply(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  const { pending, onSubmit } = createFormAction((element) => {
+    const form = new FormData(element);
     const chosen = form.getAll("status");
-    const unknown = fieldText(form, "statusUnknown");
     const batchId = fieldText(form, "batchId").trim();
     const runnerId = fieldText(form, "runnerId");
     const status = STATUSES.filter((value) => chosen.includes(value));
-    void navigate({
+    return navigate({
       to: "/jobs",
       search: {
         status: status.length > 0 ? status : undefined,
-        statusUnknown: unknown === "true" ? true : unknown === "false" ? false : undefined,
+        statusUnknown: fieldText(form, "statusUnknown") || undefined,
         batchId: batchId || undefined,
         runnerId: runnerId || undefined,
       },
     });
-  }
+  });
 
   /** The Runners to choose from, with the one chosen even when the hub no longer lists it. */
   const choices = () => {
@@ -197,7 +213,7 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
         Filters
         <Show when={applied() > 0}> ({formatCount(applied())} applied)</Show>
       </button>
-      <form id="jobs-filters" class="filters-form" aria-label="Filter the jobs" onSubmit={apply}>
+      <form id="jobs-filters" class="filters-form" aria-label="Filter the jobs" onSubmit={onSubmit}>
         <div class="filters-row">
           <fieldset class="filter-status">
             <legend>Status</legend>
@@ -238,7 +254,6 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
               id="jobs-batch"
               name="batchId"
               pattern={BATCH_ID_PATTERN.source}
-              maxlength={100}
               title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
               value={props.search.batchId ?? ""}
             />
@@ -259,7 +274,12 @@ function Filters(props: { search: JobsSearch; runners: Runner[] | undefined }) {
             </select>
           </div>
           <span class="filter-act">
-            <button type="submit" class="primary" disabled={navigating()}>
+            <button
+              id="jobs-apply"
+              type="submit"
+              class="primary"
+              disabled={props.reading || pending()}
+            >
               Apply
             </button>
             <Show when={applied() > 0}>
