@@ -157,6 +157,8 @@
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
+  --batch-id-max: 30rem; /* about 60 mono characters, enough for UUIDs and most named Batches */
+  --ledger-bar: 8rem; /* the measure of a ledger bar in the dashboard study */
   --job-preview-lines: 8; /* At the working mono size, eight lines and padding take 155px. With the 44px button the preview fits in a quarter of an 844px phone screen. */
   --line-sm: calc(
     var(--text-sm) * var(--leading)

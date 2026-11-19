@@ -15,13 +15,13 @@ const searchSchema = z.pipe(
   z.object({
     status: statusFilter(batchStatusSchema),
     labelKey: optionalText,
-    labelValue: optionalText,
+    labelValue: z.catch(z.optional(z.string()), undefined),
     after: optionalText,
   }),
-  z.transform((search) =>
-    search.labelKey && search.labelValue
-      ? search
-      : { ...search, labelKey: undefined, labelValue: undefined },
+  z.transform(({ labelKey, labelValue, ...page }) =>
+    labelKey && labelValue !== undefined
+      ? { ...page, labelKey, labelValue }
+      : { ...page, labelKey: undefined, labelValue: undefined },
   ),
 );
 export type BatchesSearch = z.infer<typeof searchSchema>;
@@ -30,8 +30,7 @@ export function listInput(search: BatchesSearch) {
   return {
     status: search.status,
     after: search.after,
-    labels:
-      search.labelKey && search.labelValue ? { [search.labelKey]: search.labelValue } : undefined,
+    labels: search.labelKey ? { [search.labelKey]: search.labelValue } : undefined,
   };
 }
 
@@ -52,16 +51,7 @@ function Batches() {
   const failed = useChildMatches({
     select: (matches) => matches.some((match) => match.status === "error"),
   });
-  function submit(form: FormData) {
-    const values = searchSchema.parse({
-      ...Object.fromEntries(form),
-      status: form.getAll("status"),
-    });
-    return navigate({
-      to: "/batches",
-      search: values,
-    });
-  }
+
   return (
     <>
       <div hidden={failed()}>
@@ -71,7 +61,7 @@ function Batches() {
         <ListFilters
           to="/batches"
           label="Filter the Batches"
-          submit={submit}
+          submit={(values) => navigate({ to: "/batches", search: searchSchema.parse(values) })}
           applied={filterCount(search())}
           firstRow={
             <StatusFilters
@@ -96,7 +86,6 @@ function Batches() {
             <input
               id="batch-label-value"
               name="labelValue"
-              required={!!labelKey()}
               value={labelValue()}
               onInput={({ currentTarget }) => setLabelValue(currentTarget.value)}
             />

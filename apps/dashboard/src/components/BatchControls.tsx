@@ -1,9 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { useQueryClient } from "@tanstack/solid-query";
 import type { Batch } from "contract";
 import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
 import { unfinishedJobs } from "../batch.ts";
+import { focusIfLost } from "../form.ts";
 import { formatCount, plural } from "../format.ts";
 import { orpc } from "../query.ts";
 import { BatchConditions, BatchStatus } from "./BatchStatus.tsx";
@@ -15,34 +16,36 @@ const finality = "It takes no new jobs, and none of its jobs can be resumed.";
 export function BatchControls(props: { batch: Batch; canary: boolean }) {
   const client = useQueryClient();
   const [failure, setFailure] = createSignal<string>();
+  const [pending, setPending] = createSignal(false);
   let status: HTMLDivElement | undefined;
   let alert: HTMLDivElement | undefined;
-  const mutation = useMutation(() => ({
-    mutationFn: (control: "pause" | "resume" | "cancel") =>
-      api.batches[control]({ id: props.batch.id }),
-  }));
   function showFailure(message: string) {
     setFailure(message);
     flush();
-    alert?.focus();
+    focusIfLost(alert);
   }
-  async function act(control: "pause" | "resume" | "cancel") {
+  async function act(control: "pause" | "resume" | "cancel", close?: () => boolean) {
+    setPending(true);
     setFailure(undefined);
-    const queryKey = orpc.batches.get.queryKey({ input: { id: props.batch.id } });
+    const id = props.batch.id;
+    const queryKey = orpc.batches.get.queryKey({ input: { id } });
     try {
-      const batch = await mutation.mutate(control);
+      const batch = await api.batches[control]({ id });
       await client.cancelQueries({ queryKey, exact: true });
+      const closed = close?.();
       client.setQueryData(queryKey, batch);
       flush();
-      status?.focus();
+      if (closed === false) focusIfLost(status);
+      else status?.focus();
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
       void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.jobs.get.key() });
       return undefined;
     } catch (error) {
-      void client.invalidateQueries({ queryKey, exact: true });
       return hubFailureMessage(error);
+    } finally {
+      setPending(false);
     }
   }
   async function press(control: "pause" | "resume") {
@@ -52,9 +55,12 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
   const unfinished = () => unfinishedJobs(props.batch.jobCounts);
   const unfinishedText = () =>
     `${formatCount(unfinished())} unfinished ${plural(unfinished(), "job", "jobs")}`;
-  const resume = () => {
+  const resumeNote = () => {
     const breaker = props.batch.breaker;
-    if (props.batch.pausedBy !== "breaker" || !breaker) return "Resume releases its blocked jobs.";
+    if (props.batch.pausedBy !== "breaker" || !breaker)
+      return breaker && breaker.canary > 0
+        ? "Resume ends the pause. Its Canary may still hold jobs: one that is running, or a new one if its failure breaker tripped during the pause."
+        : "Resume releases its blocked jobs.";
     return breaker.canary
       ? `Resume starts a new Canary of the next ${formatCount(breaker.canary)} ${plural(breaker.canary, "job", "jobs")} and counts failures afresh.`
       : "Resume releases its blocked jobs and counts failures afresh.";
@@ -77,7 +83,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
         <Show when={props.batch.pendingControl || props.batch.status === "cancelled"}>
           <p class="note">{finality}</p>
         </Show>
-        <Show when={mutation.isPending}>
+        <Show when={pending()}>
           <p class="note">Working…</p>
         </Show>
       </div>
@@ -99,7 +105,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
             <button
               type="button"
               aria-describedby="pause-note"
-              disabled={mutation.isPending}
+              disabled={pending()}
               onClick={() => void press("pause")}
             >
               Pause
@@ -109,7 +115,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
             <button
               type="button"
               aria-describedby="resume-note"
-              disabled={mutation.isPending}
+              disabled={pending()}
               onClick={() => void press("resume")}
             >
               Resume
@@ -133,9 +139,9 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
                 </>
               }
               describedBy="cancel-note"
-              disabled={mutation.isPending}
-              act={() => act("cancel")}
-              reportPageFailure={showFailure}
+              disabled={pending()}
+              act={(close) => act("cancel", close)}
+              reportPageFailure={(message) => showFailure(`Cancel the Batch: ${message}`)}
             >
               <p>
                 <Show when={unfinished()}>
@@ -165,7 +171,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
             when={props.batch.status === "active"}
             fallback={
               <p class="note" id="resume-note">
-                {resume()}
+                {resumeNote()}
                 <Show when={props.batch.jobCounts.paused}>
                   {(n) => (
                     <>

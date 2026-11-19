@@ -180,7 +180,7 @@ function JobPage() {
       when={!(read.isError && problemOf(read.error)?.status === 404)}
       fallback={<MissingJob id={params().id} deleted={deletedHere() || !!job().deletedAt} />}
     >
-      <RecordCrumbs parent="Jobs" batchId={job().batchId} />
+      <RecordCrumbs to="/jobs" batchId={job().batchId} />
       <div class="head">
         <h1 class="subject">
           <span class="kind">Job</span>

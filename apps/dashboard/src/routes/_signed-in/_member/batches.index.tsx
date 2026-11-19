@@ -9,10 +9,12 @@ import { BatchStatus, BatchConditions } from "../../../components/BatchStatus.ts
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
-import { EmptyList, ListEnd, availableRunners } from "../../../components/ListEnd.tsx";
+import { EmptyList, ListEnd } from "../../../components/ListEnd.tsx";
 import { formatCount, timeZoneNote } from "../../../format.ts";
+import { listPages } from "../../../list-pages.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { filterCount, listInput } from "./batches.tsx";
+import { availableRunners } from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/batches/")({
   loaderDeps: ({ search }) => listInput(search),
@@ -90,7 +92,7 @@ function BatchList() {
           />
         }
       >
-        <a class="vh skip-list" href="#batches-end">
+        <a class="vh skip-list" href={`#${listPages["/batches"].end}`}>
           Skip to the end of the list
         </a>
         <BatchTable batches={list.data.batches} />
@@ -125,7 +127,7 @@ function BatchTable(props: { batches?: ListedBatch[] }) {
           <Show
             when={props.batches}
             fallback={
-              <Repeat count={6}>
+              <Repeat count={8}>
                 {() => (
                   <tr>
                     {columns.map((column, i) => (

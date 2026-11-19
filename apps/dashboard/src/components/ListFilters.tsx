@@ -5,6 +5,7 @@ import * as z from "zod/mini";
 
 import { createFormAction } from "../form.ts";
 import { formatCount } from "../format.ts";
+import { listPages } from "../list-pages.ts";
 
 export const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undefined);
 
@@ -51,15 +52,15 @@ export function StatusFilters<T extends string>(props: {
 }
 
 export function ListFilters(props: {
-  to: "/jobs" | "/batches";
+  to: keyof typeof listPages;
   applied: number;
   label: string;
-  submit: (form: FormData) => Promise<void>;
+  submit: (values: Record<string, unknown>) => Promise<void>;
   firstRow: JSX.Element;
   children: JSX.Element;
 }) {
   let toggle: HTMLButtonElement | undefined;
-  const id = () => props.to.slice(1) + "-filters";
+  const id = () => listPages[props.to].filters;
   // CSS reads aria-expanded directly so a press takes effect even during a pending form action.
   function closeFilters() {
     if (toggle) {
@@ -69,7 +70,8 @@ export function ListFilters(props: {
   }
   const { pending, onSubmit } = createFormAction((form) => {
     closeFilters();
-    return props.submit(new FormData(form));
+    const data = new FormData(form);
+    return props.submit({ ...Object.fromEntries(data), status: data.getAll("status") });
   });
   return (
     <div class="filters">

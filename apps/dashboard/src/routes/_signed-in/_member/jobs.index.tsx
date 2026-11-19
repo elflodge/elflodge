@@ -227,7 +227,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
         <Link
           to="/batches/$id"
           params={{ id: props.job.batchId }}
-          class="cut mono"
+          class="cut mono stands-alone"
           title={props.job.batchId}
         >
           {props.job.batchId}

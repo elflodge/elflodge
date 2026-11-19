@@ -667,6 +667,10 @@ thead .unit {
   vertical-align: top;
 }
 
+.cut.stands-alone {
+  align-content: center;
+}
+
 /* ---------- Records table: records that each have a page, one ruled line each; a block each on a phone ----------
    The identifier column takes what the others leave and cuts its value; the others keep their values whole.
    At 640px and below a record is a block: the identifier on its own line, then each other value after its name
@@ -789,17 +793,30 @@ p:has(> button) + .prose {
   }
 }
 
-/* The six Batch columns leave the rest of the record line for its ID. */
+/* A Batch status and its condition share a cell. */
 .batch-status {
   display: inline-grid;
   vertical-align: top;
 }
 @container records (width > 48rem) {
   .batch-list .records td.batch-submitter {
-    min-width: 10rem;
-    max-width: 12rem;
+    width: var(--jobs-submitter);
+    max-width: var(--jobs-submitter);
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+}
+/* The six other columns need about 36rem. Once the full ID measure fits, end the rules at Created. */
+@container records (width >= 66rem) {
+  .batch-list .records {
+    width: auto;
+  }
+  .batch-list .records td.is-id {
+    width: auto;
+    max-width: none;
+  }
+  .batch-list .records td.is-id > .cut {
+    max-inline-size: var(--batch-id-max);
   }
 }
 .s-active .mark {
@@ -1403,8 +1420,18 @@ p mark.placeholder {
 @media (max-width: 640px), (pointer: coarse) {
   @container job-list (width < 73.625rem) {
     .job-list tr.job-row {
+      position: relative;
       padding: 0;
       align-items: center;
+    }
+    .job-list .job-name::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+    }
+    .job-list .c-batch a {
+      position: relative;
+      z-index: 1;
     }
     .job-list tr.job-row > td {
       min-height: var(--control-touch);
@@ -1423,17 +1450,6 @@ p mark.placeholder {
   .job-list .c-job .job-name {
     min-width: min(100%, var(--control-touch));
     line-height: var(--control-touch);
-  }
-}
-.job-list .c-batch a.cut {
-  min-width: var(--target);
-  min-height: var(--target);
-  align-content: center;
-}
-@media (max-width: 640px), (pointer: coarse) {
-  .job-list .c-batch a.cut {
-    min-width: var(--control-touch);
-    min-height: var(--control-touch);
   }
 }
 @container job-list (width < 30rem) {
@@ -2158,16 +2174,6 @@ p mark.placeholder {
   color: var(--c-ink-2);
   font-size: var(--text-xs);
 }
-.crumbs .cut {
-  min-width: var(--target);
-  line-height: var(--target);
-}
-@media (max-width: 640px), (pointer: coarse) {
-  .crumbs .cut {
-    min-width: var(--control-touch);
-    line-height: var(--control-touch);
-  }
-}
 /* A ledger measures each row against the same total. */
 .ledger td:last-child {
   text-align: end;
@@ -2178,7 +2184,7 @@ p mark.placeholder {
   display: block;
 }
 .ledger thead th:nth-child(3) {
-  width: 42%;
+  width: calc(var(--ledger-bar) + var(--space-3));
 }
 .ledger :is(th, td) {
   vertical-align: middle;

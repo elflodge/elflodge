@@ -37,7 +37,7 @@ export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
   remountDeps: ({ params }) => params.id,
   pendingComponent: () => (
     <>
-      <RecordCrumbs parent="Batches" />
+      <RecordCrumbs to="/batches" />
       <div class="head">
         <h1 class="subject">
           <span class="kind">Batch</span>
@@ -90,15 +90,22 @@ function BatchPage() {
   );
   const batch = () => read.data;
   const missing = () => problemOf(read.error)?.status === 404;
+  const canShowCanary = () => {
+    const { status, pendingControl, breaker, jobCounts } = batch();
+    return (
+      status === "active" &&
+      !pendingControl &&
+      breaker &&
+      breaker.canary > 0 &&
+      jobCounts.queued > 0
+    );
+  };
   // As in CLI progress, the newest queued job tells whether the Canary holds the rest.
   // A Batch read carrying its Canary condition would replace this read.
   const queued = useQuery(() =>
     orpc.jobs.list.queryOptions({
       input:
-        session().membership.status === "member" &&
-        !missing() &&
-        batch().breaker &&
-        batch().jobCounts.queued > 0
+        session().membership.status === "member" && !missing() && canShowCanary()
           ? { batchId: batch().id, status: ["queued"], limit: 1 }
           : skipToken,
       refetchInterval: REFRESH_INTERVAL_MS,
@@ -106,7 +113,7 @@ function BatchPage() {
   );
   return (
     <Show when={!missing()} fallback={<MissingBatch id={params().id} />}>
-      <RecordCrumbs parent="Batches" />
+      <RecordCrumbs to="/batches" />
       <div class="head">
         <h1 class="subject">
           <span class="kind">Batch</span>
@@ -128,8 +135,7 @@ function BatchPage() {
             <BatchControls
               batch={batch()}
               canary={
-                batch().status === "active" &&
-                !batch().pendingControl &&
+                canShowCanary() &&
                 !!queued.dataUpdatedAt &&
                 queued.data.jobs[0]?.blockedBy === "batchCanary"
               }
@@ -277,7 +283,7 @@ function BatchFacts(props: { batch: Batch }) {
           <JobSubmitter submitter={props.batch.submitter} />
         </dd>
         <Show when={Object.keys(props.batch.labels).length}>
-          <dt>Labels for every job</dt>
+          <dt>Labels</dt>
           <dd>
             <ul class="labels">
               <For each={Object.entries(props.batch.labels)}>

@@ -31,7 +31,7 @@ test("a member pages through Batches matching a status and a Label, including af
   for (let i = 0; i < 51; i++) await create(`statements-${i}`);
   const paused = await create("paused-statements");
   await client.batches.pause({ id: paused.id });
-  await client.batches.create({ id: "other-team", agent, labels: { "example.com/team": "West" } });
+  await client.batches.create({ id: "other-team", agent, labels: { "example.com/team": "" } });
 
   const page = await open("Batch reader", "batches");
   await page.getByRole("button", { name: "Filters", exact: true }).click();
@@ -49,6 +49,13 @@ test("a member pages through Batches matching a status and a Label, including af
   await expectBrowser(links).toHaveText(["statements-0"]);
   await page.getByRole("link", { name: "Newest Batches" }).click();
   await expectBrowser(links.first()).toHaveText("statements-50");
+
+  await page.getByRole("button", { name: "Filters (2 applied)" }).click();
+  await page.getByLabel("Label value").fill("");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expectBrowser(links).toHaveText(["other-team"]);
+  await page.reload();
+  await expectBrowser(links).toHaveText(["other-team"]);
 }, 60_000);
 
 test("a member sees a Batch control in flight and its result on the record and list", async () => {
@@ -91,7 +98,11 @@ test("cancelling a Batch asks first and removes its controls once final", async 
   await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
   await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
-  await expectBrowser(page.getByRole("main").getByRole("button")).toHaveCount(0);
+  await expectBrowser(
+    page
+      .getByRole("main")
+      .getByRole("button", { name: /^(Pause|Resume|Cancel(?: the Batch .+)?)$/ }),
+  ).toHaveCount(0);
 }, 30_000);
 
 test("a Batch ledger opens the jobs it counts and a job links back to the Batch", async () => {

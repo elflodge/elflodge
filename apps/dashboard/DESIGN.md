@@ -388,115 +388,11 @@ A record with no page of its own, such as an API key, has its identifier as a `s
 
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
-### Batches list
-
-Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator’s name can wrap. This table folds when its frame is 48rem wide or narrower to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
-
-An active Batch may take jobs even when all of its jobs have ended. Its mark is the filled dot in the hood’s green. A waiting cancel or a pause’s cause appears under the status word in the list.
-
-```tsx
-<td role="cell" data-l="Status">
-  <span class="batch-status">
-    <span class="status-word s-active">
-      <span class="mark mark-active" aria-hidden="true" />
-      Active
-    </span>
-    <span class="beside">
-      <span class="mark mark-pending" aria-hidden="true" />
-      Cancel asked
-    </span>
-  </span>
-</td>
-```
-
-### Parent links
-
-Above a record heading, `nav.crumbs` lists its parents in order. The heading names the current record. A Batch has one parent link, Batches. A job has Jobs and its Batch while the job read holds the Batch ID. A long ID fits on one line with its whole value in the title.
-
-```tsx
-<nav class="crumbs" aria-label="Where this is">
-  <ol>
-    <li>
-      <Link class="stands-alone" to="/jobs">
-        Jobs
-      </Link>
-    </li>
-    <li>
-      <span aria-hidden="true">/</span>
-      <Link class="cut mono" to="/batches/$id" params={{ id }} title={id}>
-        {id}
-      </Link>
-    </li>
-  </ol>
-</nav>
-```
-
-### Ledger
-
-A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights only when the number running exceeds the number with unknown status. The total goes under the double rule in `tfoot`.
-
-```tsx
-<table class="ledger">
-  <caption class="vh">Jobs by status</caption>
-  <thead>
-    <tr>
-      <th scope="col">Status</th>
-      <th scope="col" class="num">
-        Jobs
-      </th>
-      <th scope="col">Share</th>
-      <th scope="col">
-        <span class="vh">Jobs list</span>
-      </th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th scope="row">
-        <JobStatus job={queuedJob} />
-      </th>
-      <td class="num">3</td>
-      <td>
-        <meter
-          min={0}
-          max={12}
-          value={3}
-          aria-label="Share of queued jobs"
-          aria-valuetext="3 of 12 jobs"
-        />
-      </td>
-      <td>
-        <Link class="stands-alone" to="/jobs" search={{ batchId: id, status: ["queued"] }}>
-          See them<span class="vh">: its queued jobs</span>
-        </Link>
-      </td>
-    </tr>
-  </tbody>
-  <tfoot>
-    <tr>
-      <th scope="row">
-        <Link class="stands-alone" to="/jobs" search={{ batchId: id }}>
-          All its jobs
-        </Link>
-      </th>
-      <td class="num">12</td>
-      <td colspan={2} />
-    </tr>
-  </tfoot>
-</table>
-```
-
-### Batch page
-
-The subject, zone, status, control row and facts use the job page’s parts. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
-
-Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens. Its cost and tokens come from its present jobs. Facts give the full ID, creation time, creator, Labels for every job and the failure breaker settings.
-
 ### Jobs list
 
 `div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Headers and cells share these classes in column order: `c-status`, `c-beside`, `c-job`, `c-batch`, `c-submitter`, `c-labels`, `c-runner`, `c-time`, `c-tokens` and `c-cost`. The last two headings give Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
 
-Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
+Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall. In this two-line layout, tapping anywhere in the row opens the job, except for the Batch link, which opens the Batch.
 
 Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as `a.cut.mono.job-name`. Its title gives the whole name, and it opens the job. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
@@ -650,6 +546,116 @@ content. Plain-text identifiers, addresses and the names of inviters and key cre
 A dialog offering roles uses a fieldset and legend. Each `label.role-choice` holds a native
 radio and the role name, with a `small.note` on the next line describing what it permits.
 
+### Batches list
+
+Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator uses the Jobs submitter measure and can wrap. At 66rem and above the table fits its contents. The Batch ID takes up to 30rem, with the whole ID in its title. This table folds when its frame is 48rem wide or narrower to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
+
+An active Batch may take jobs even when all of its jobs have ended. Its mark is the filled dot in the hood’s green. A waiting cancel or a pause’s cause appears under the status word in the list.
+
+```tsx
+<td role="cell" data-l="Status">
+  <span class="batch-status">
+    <span class="status-word s-active">
+      <span class="mark mark-active" aria-hidden="true" />
+      Active
+    </span>
+    <span class="beside">
+      <span class="mark mark-pending" aria-hidden="true" />
+      Cancel asked
+    </span>
+  </span>
+</td>
+```
+
+### Parent links
+
+Above a record heading, `nav.crumbs` lists its parents in order. The heading names the current record. A Batch has one parent link, Batches. A job has Jobs and its Batch while the job read holds the Batch ID. Parent links use exact route matching. A long ID fits on one line with its whole value in the title.
+
+```tsx
+<nav class="crumbs" aria-label="Where this is">
+  <ol>
+    <li>
+      <Link class="stands-alone" to="/jobs" activeOptions={{ exact: true }}>
+        Jobs
+      </Link>
+    </li>
+    <li>
+      <span aria-hidden="true">/</span>
+      <Link
+        class="cut mono stands-alone"
+        to="/batches/$id"
+        params={{ id }}
+        activeOptions={{ exact: true }}
+        title={id}
+      >
+        {id}
+      </Link>
+    </li>
+  </ol>
+</nav>
+```
+
+### Ledger
+
+A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights only when the number running exceeds the number with unknown status. The total goes under the double rule in `tfoot`.
+
+```tsx
+<table class="ledger">
+  <caption class="vh">Jobs by status</caption>
+  <thead>
+    <tr>
+      <th scope="col">Status</th>
+      <th scope="col" class="num">
+        Jobs
+      </th>
+      <th scope="col">Share</th>
+      <th scope="col">
+        <span class="vh">Jobs list</span>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th scope="row">
+        <JobStatus job={queuedJob} />
+      </th>
+      <td class="num">3</td>
+      <td>
+        <meter
+          min={0}
+          max={12}
+          value={3}
+          aria-label="Share of queued jobs"
+          aria-valuetext="3 of 12 jobs"
+        />
+      </td>
+      <td>
+        <Link class="stands-alone" to="/jobs" search={{ batchId: id, status: ["queued"] }}>
+          See them<span class="vh">: its queued jobs</span>
+        </Link>
+      </td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <th scope="row">
+        <Link class="stands-alone" to="/jobs" search={{ batchId: id }}>
+          All its jobs
+        </Link>
+      </th>
+      <td class="num">12</td>
+      <td colspan={2} />
+    </tr>
+  </tfoot>
+</table>
+```
+
+### Batch page
+
+The subject, zone, status, control row and facts use the job page’s parts. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
+
+Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens. Its cost and tokens come from its present jobs. Facts give the full ID, creation time, creator, Labels and the failure breaker settings.
+
 ### Command to copy, and a secret shown once
 
 What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered Runner appears. The line keeps its `role="status"` from the start. When a Runner registers, the line names it and its short ID beside the succeeded mark. Its contents are empty during a failed read. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
@@ -672,7 +678,7 @@ A direct visit stays blank until the first Runners read finishes because the rou
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-cancelled`, a ring struck through; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; beside a status, `mark-blocked`, an arrow against a bar, and `mark-pending`, an hourglass, for a control waiting for its Runner or for Add Runner waiting for a connection; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-active`, a filled dot for an active Batch; `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-cancelled`, a ring struck through; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; beside a status, `mark-blocked`, an arrow against a bar, and `mark-pending`, an hourglass, for a control waiting for its Runner or for Add Runner waiting for a connection; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 

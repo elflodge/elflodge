@@ -1,27 +1,28 @@
-import type { UseQueryResult } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
 import type { Runner } from "contract";
 import { Match, Show, Switch } from "solid-js";
 
 import { formatCount } from "../format.ts";
+import { listPages } from "../list-pages.ts";
 
-type List = {
-  to: "/jobs" | "/batches";
+type ListAddressState = {
+  to: keyof typeof listPages;
   filtered: boolean;
   after?: string;
 };
 
-export function ListEnd(props: List & { length: number; older?: string }) {
-  const noun = () => (props.to === "/jobs" ? "jobs" : "Batches");
+/** The way to newer and older pages, where there are any. */
+export function ListEnd(props: ListAddressState & { length: number; older?: string }) {
+  const list = () => listPages[props.to];
   return (
-    <p class="list-end" id={`${props.to.slice(1)}-end`} tabindex="-1">
+    <p class="list-end" id={list().end} tabindex="-1">
       <span>
         {formatCount(props.length)} read;{" "}
         {props.older
           ? "the hub gives no total."
           : props.filtered
             ? "no more match."
-            : `there are no older ${noun()}.`}
+            : `there are no older ${list().plural}.`}
       </span>
       <Show when={props.after}>
         <Link
@@ -30,7 +31,7 @@ export function ListEnd(props: List & { length: number; older?: string }) {
           search={(previous) => ({ ...previous, after: undefined })}
           class="stands-alone"
         >
-          Newest {noun()}
+          Newest {list().plural}
         </Link>
       </Show>
       <Show when={props.older}>
@@ -41,7 +42,7 @@ export function ListEnd(props: List & { length: number; older?: string }) {
             search={(previous) => ({ ...previous, after: after() })}
             class="stands-alone"
           >
-            Older {noun()}
+            Older {list().plural}
           </Link>
         )}
       </Show>
@@ -49,13 +50,17 @@ export function ListEnd(props: List & { length: number; older?: string }) {
   );
 }
 
-export function EmptyList(props: List & { runners?: Runner[] }) {
-  const noun = () => (props.to === "/jobs" ? "jobs" : "Batches");
+/**
+ * What an empty list means, and what to do next: clear the filters that match nothing, or, on an
+ * empty hub, connect a Runner first, then submit a Batch.
+ */
+export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
+  const list = () => listPages[props.to];
   return (
     <div class="empty">
       <Switch>
         <Match when={props.after}>
-          <h2>No older {noun()}</h2>
+          <h2>No older {list().plural}</h2>
           <p class="empty-act">
             <Link
               from={props.to}
@@ -63,12 +68,12 @@ export function EmptyList(props: List & { runners?: Runner[] }) {
               search={(previous) => ({ ...previous, after: undefined })}
               class="stands-alone"
             >
-              Newest {noun()}
+              Newest {list().plural}
             </Link>
           </p>
         </Match>
         <Match when={props.filtered}>
-          <h2>No {props.to === "/jobs" ? "job" : "Batch"} matches these filters</h2>
+          <h2>No {list().singular} matches these filters</h2>
           <p class="empty-act">
             <Link to={props.to} search={{}} class="stands-alone">
               Clear the filters
@@ -76,7 +81,7 @@ export function EmptyList(props: List & { runners?: Runner[] }) {
           </p>
         </Match>
         <Match when={true}>
-          <h2>No {noun()} yet</h2>
+          <h2>No {list().plural} yet</h2>
           <Show
             when={props.runners?.every((runner) => !runner.connected)}
             fallback={
@@ -96,9 +101,4 @@ export function EmptyList(props: List & { runners?: Runner[] }) {
       </Switch>
     </div>
   );
-}
-
-// Reading data before the first Runner answer suspends the list, even after its own list arrived.
-export function availableRunners(query: UseQueryResult<Runner[]>) {
-  return query.dataUpdatedAt ? query.data : undefined;
 }
