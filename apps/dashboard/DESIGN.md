@@ -84,13 +84,13 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
     </button>
     <div id="account" class="menu-pop" popover ref={(element) => { account = element; }}>
       <nav class="pop-nav" aria-label="Destinations">
-        <Destinations class="nav-stack" onFollow={closeMenu} />
+        <Destinations class="nav-stack" />
       </nav>
       <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
-        <li><Link to="/change-password" onClick={closeMenu}>Change password</Link></li>
+        <li><Link to="/change-password">Change password</Link></li>
         <li><a href="/docs">API reference</a></li>
-        <li><form onSubmit={signOut}><button type="submit" class="quiet">Sign out</button></form></li>
+        <li><form onSubmit={signOut}><button type="submit" class="quiet" disabled={pending()}>Sign out</button></form></li>
       </ul>
     </div>
   </div>
@@ -106,7 +106,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
 - The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
-  - a link in it, a destination included, changes the page through the router;
+  - the router resolves a navigation in this tab, including one to the current page;
   - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
   - signing out fails, when the notice is in the page under the menu. The focus then goes to the member's name, unless the member has moved on to something else meanwhile.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
@@ -179,7 +179,7 @@ The router shows `DefaultCatchBoundary` in place of a page that failed and `NotF
 
 ```tsx
 <FallbackPage heading="This page could not be shown">
-  <Notice role="alert">{ensureError(props.error).message}</Notice>
+  <Notice role="alert">{asError(props.error).message}</Notice>
   <p>
     <button type="button" class="primary" onClick={() => void router.invalidate()}>
       Try again

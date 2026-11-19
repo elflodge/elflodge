@@ -366,7 +366,7 @@
   margin-top: 0;
 }
 
-/* ---------- Note: a small line that explains the part it stands under or beside ---------- */
+/* ---------- Notes and field errors: small lines explaining a part or a refused field ---------- */
 .note,
 .field-error {
   display: flex;
@@ -376,6 +376,13 @@
 }
 .note {
   color: var(--c-ink-2);
+}
+/* Why the hub refused what a field holds, under the field, which names it with aria-describedby. */
+.field-error {
+  color: var(--c-failed);
+}
+.field-error > .mark {
+  align-self: center;
 }
 
 /* ---------- A link standing alone, outside a sentence: a target of its own, full size at narrow widths or on touch ---------- */
@@ -510,13 +517,6 @@
 }
 .field > label {
   font-weight: var(--weight-medium);
-}
-/* Why the hub refused what a field holds, under the field, which names it with aria-describedby. */
-.field-error {
-  color: var(--c-failed);
-}
-.field-error > .mark {
-  align-self: center;
 }
 .check {
   display: inline-flex;

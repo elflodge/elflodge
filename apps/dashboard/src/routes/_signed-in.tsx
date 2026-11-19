@@ -47,12 +47,8 @@ function SignedIn() {
     if (account?.matches(":popover-open")) account.hidePopover();
   }
 
-  // The router changes the page in this document. A link opened in another tab leaves its menu here.
-  onSettled(() =>
-    router.subscribe("onResolved", ({ hrefChanged }) => {
-      if (hrefChanged) closeMenu();
-    }),
-  );
+  // Following the current link also resolves a navigation. Opening another tab leaves this menu open.
+  onSettled(() => router.subscribe("onResolved", closeMenu));
 
   /** Whether `node` is the menu or the button that opens it, or is inside one of them. */
   function inMenuGroup(node: EventTarget | null) {
