@@ -213,35 +213,7 @@ test("in a browser, a failed read of the counts says so in the strip, not with t
   await page.getByRole("navigation", { name: "Destinations" }).waitFor();
 }, 60_000);
 
-test("in a browser, signing out forgets what was read, so the next member reads afresh", async () => {
-  const client = await system.clientWithNewJobsKey();
-  const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  const first = await newMember("First Reader");
-  const next = await newMember("Next Reader");
-  await signInAt(page, "", first);
-  const strip = page.getByRole("region", { name: "The hub now" });
-  const queued = strip.getByText(/^[\d,]+ queued$/);
-  const before = Number((await queued.innerText()).replaceAll(",", "").split(" ")[0]);
-
-  // A job more, while what the first member read is still fresh, then the next member signs in.
-  await client.batches.addJobs({
-    id: batch.id,
-    jobs: [{ customId: "one more", input: "One more." }],
-  });
-  await page.getByRole("button", { name: first.name }).click();
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await page.waitForURL(`${system.origin}/dashboard/sign-in`);
-  await page.getByLabel("Email").fill(next.email);
-  await page.getByLabel("Password").fill(next.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(`${system.origin}/dashboard/`);
-  // The strip shows nothing until its read answers, which counts the new job.
-  expect(await queued.innerText()).toBe(`${before + 1} queued`);
-}, 30_000);
-
-test("in a browser, a session that ends or changes in another tab is followed", async () => {
+test("in a browser, a member change in another tab loads a fresh document", async () => {
   const client = await system.clientWithNewJobsKey();
   const batch = await client.batches.create({ agent: { outputContract: { schema: {} } } });
   const first = await newMember("First Tab Reader");
@@ -253,32 +225,16 @@ test("in a browser, a session that ends or changes in another tab is followed", 
   const other = await context.newPage();
   const dashboard = `${system.origin}/dashboard`;
 
-  // Signed out in the other tab, this one leaves the shell for signing in without a reload. It has
-  // not opened the page for signing in yet, whose read of the hub is held here, so the first
-  // member's page is seen to go as soon as this tab hears of the sign-out, before the router can
-  // show the next page.
   await signInAt(other, "", first);
-  await page.goto(`${dashboard}/`);
+  await page.goto(`${dashboard}/change-password`);
   await page.getByRole("button", { name: first.name }).waitFor();
-  let release!: () => void;
-  const released = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route(`${system.origin}/setup`, async (route) => {
-    await released;
-    await route.continue();
-  });
+  const firstDocument = await page.evaluate(() => performance.timeOrigin);
   await other.getByRole("button", { name: first.name }).click();
   await other.getByRole("button", { name: "Sign out" }).click();
   await other.waitForURL(`${dashboard}/sign-in`);
-  const signInHeading = page.getByRole("heading", { name: "Sign in to Elflodge" });
-  await page
-    .getByRole("button", { name: first.name })
-    .waitFor({ state: "detached", timeout: 5_000 });
-  expect(await signInHeading.count()).toBe(0);
-  release();
-  await signInHeading.waitFor({ timeout: 5_000 });
-  await page.unroute(`${system.origin}/setup`);
+  await page.getByRole("heading", { name: "Sign in to Elflodge" }).waitFor();
+  const signInDocument = await page.evaluate(() => performance.timeOrigin);
+  expect(signInDocument).not.toBe(firstDocument);
 
   // Signed in as the next member in the other tab, over this one's session, this one shows the next
   // member at its next navigation, with what it reads afresh rather than the first member's reads.
@@ -286,7 +242,8 @@ test("in a browser, a session that ends or changes in another tab is followed", 
   await page.getByLabel("Password").fill(first.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByRole("button", { name: first.name }).waitFor();
-  await page.goto(`${dashboard}/change-password`);
+  await page.waitForURL(`${dashboard}/change-password`);
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(signInDocument);
   const queued = page.getByRole("region", { name: "The hub now" }).getByText(/^[\d,]+ queued$/);
   const before = Number((await queued.innerText()).replaceAll(",", "").split(" ")[0]);
   await client.batches.addJobs({
@@ -297,11 +254,17 @@ test("in a browser, a session that ends or changes in another tab is followed", 
   await other.getByLabel("Password").fill(next.password);
   await other.getByRole("button", { name: "Sign in" }).click();
   await other.getByRole("button", { name: next.name }).waitFor();
-  await page
+  const home = page
     .getByRole("navigation", { name: "Destinations" })
-    .getByRole("link", { name: "Home" })
-    .click();
-  await page.getByRole("button", { name: next.name }).waitFor({ timeout: 5_000 });
+    .getByRole("link", { name: "Home" });
+  // Hovering reads the session for the destination, but only following it changes this page.
+  const preload = page.waitForResponse(`${system.origin}/api/auth/organization/list`);
+  await home.hover();
+  await preload;
+  await page.getByRole("button", { name: first.name }).waitFor();
+  await home.click();
+  await page.getByRole("button", { name: next.name }).waitFor();
+  expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
   expect(await queued.innerText()).toBe(`${before + 1} queued`);
 }, 60_000);
 
@@ -358,9 +321,12 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.waitForLoadState("networkidle");
   expect(await page.getByRole("status").innerText()).toMatch(/^Your password is changed/);
 
+  const signedInDocument = await page.evaluate(() => performance.timeOrigin);
   await account.click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL(`${dashboard}/sign-in`);
+  await page.getByRole("heading", { name: "Sign in to Elflodge" }).waitFor();
+  expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signedInDocument);
   // The new password signs in.
   await system.signIn({ email: OWNER.email, password });
 }, 30_000);

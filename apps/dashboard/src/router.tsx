@@ -3,14 +3,14 @@ import { createRouter } from "@tanstack/solid-router";
 
 import { DefaultCatchBoundary } from "./components/DefaultCatchBoundary.tsx";
 import { NotFound } from "./components/NotFound.tsx";
-import { createQueryClient, followMember } from "./query.ts";
+import { createQueryClient } from "./query.ts";
 import { routeTree } from "./routeTree.gen.ts";
 
 export function getRouter() {
   const queryClient = createQueryClient();
   const router = createRouter({
     routeTree,
-    context: { queryClient, ...followMember(queryClient) },
+    context: { queryClient },
     // Every page, and every route's component, has the client.
     Wrap: (props) => (
       <QueryClientProvider client={queryClient}>{props.children}</QueryClientProvider>
