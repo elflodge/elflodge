@@ -2,7 +2,7 @@ import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/so
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../api-client.ts";
-import { authClient, getSession } from "../auth-client.ts";
+import { getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { CurrentDestination, Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
@@ -20,17 +20,16 @@ import {
 // another device, sends the member to sign in again.
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
-    const organizations = readFromHub("The Organization", () => authClient.organization.list());
-    // Handle an early rejection until we can use this read. A change of member must reload the
-    // document as soon as the session answers, even if the Organization read is still pending.
-    void organizations.catch(() => {});
     const session = await readFromHub("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
-    // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
-    const list = await organizations;
-    // Removing a member leaves their session, which then lists no Organization.
-    return { member: session.user, organization: list[0] };
+    const { membership } = session;
+    if (membership.status === "hubNotSetUp") throw redirect({ to: "/setup" });
+    return {
+      member: session.user,
+      organization: membership.organization,
+      role: membership.role,
+    };
   },
   component: SignedIn,
 });

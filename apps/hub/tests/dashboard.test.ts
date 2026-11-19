@@ -155,11 +155,11 @@ test("sign-in allows keyboard retry, stays disabled during navigation and discar
 
   // Hold the destination's first read after the hub has accepted the password.
   const release = Promise.withResolvers<void>();
-  await page.route("**/api/auth/organization/list", async (route) => {
+  await page.route("**/api/auth/get-session", async (route) => {
     await release.promise;
     await route.continue();
   });
-  const reading = page.waitForRequest("**/api/auth/organization/list");
+  const reading = page.waitForRequest("**/api/auth/get-session");
   await password.fill(member.password);
   await submit.click();
   try {

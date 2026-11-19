@@ -40,9 +40,9 @@ import {
   type Caller,
   callerKey,
   callerMember,
+  callerOrganizationId,
   findOrganization,
   fromBetterAuth,
-  getOrganization,
   type KeyMetadata,
   requireKey,
 } from "./auth/auth.ts";
@@ -187,10 +187,11 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       delete: os.runners.delete.effect(function* ({ input, context }) {
         // The ID enters the hub here.
         const runnerId = RunnerId(input.id);
+        const member = yield* callerMember(context.caller);
         // Its steps run to the end once begun, also when the caller goes away and the Node hub
         // interrupts the request, so a removal leaves no Runner gone with its jobs still running.
         return yield* Effect.uninterruptible(
-          removeRunner(context.headers, runnerId).pipe(
+          removeRunner(context.headers, member.role, runnerId).pipe(
             Effect.tap(() => RunnerConnections.use((connections) => connections.drop(runnerId))),
           ),
         );
@@ -201,7 +202,6 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         const member = yield* callerMember(context.caller);
         const grant = GRANTABLE_KEY_PERMISSIONS.authorize(input.permissions);
         if (!grant.success) return yield* Effect.fail(errors.BAD_REQUEST({ message: grant.error }));
-        const organization = yield* getOrganization;
         const auth = yield* Auth;
         // Without request headers, as a call from the hub itself: Better Auth sets a key's permissions
         // only then, and still checks that the member may create the Organization's keys.
@@ -209,7 +209,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
           betterAuth.api.createApiKey({
             body: {
               configId: API_KEY_CONFIG,
-              organizationId: organization.id,
+              organizationId: member.organization.id,
               userId: member.id,
               name: input.name,
               permissions: input.permissions,
@@ -221,7 +221,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         return { id: key.id, key: key.key };
       }),
       list: os.apiKeys.list.effect(function* ({ context }) {
-        const organization = yield* getOrganization;
+        const { organization } = yield* callerMember(context.caller);
         const auth = yield* Auth;
         const { apiKeys } = yield* auth.call((betterAuth) =>
           betterAuth.api.listApiKeys({
@@ -242,20 +242,27 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       }),
     },
     blobs: {
-      check: os.blobs.check.effect(function* ({ input, errors }) {
-        const files = yield* checkBlobs(input.files).pipe(
+      check: os.blobs.check.effect(function* ({ input, context, errors }) {
+        const organizationId = yield* callerOrganizationId(context.caller);
+        const files = yield* checkBlobs(organizationId, input.files).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
         );
         return { files };
       }),
-      upload: os.blobs.upload.effect(function* ({ input, errors }) {
+      upload: os.blobs.upload.effect(function* ({ input, context, errors }) {
         const { params, headers, body } = input;
         // The `octet-stream` hint has oRPC hand over the body as a stream, whatever sent it; the
         // `Blob` branch only narrows the type the contract shares with clients.
         const stream = body instanceof Blob ? body.stream() : body;
-        return yield* uploadBlob(params.digest, headers["content-length"], stream).pipe(
+        const organizationId = yield* callerOrganizationId(context.caller);
+        return yield* uploadBlob(
+          organizationId,
+          params.digest,
+          headers["content-length"],
+          stream,
+        ).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, { params, headers }, problems)),
           ),
@@ -264,8 +271,7 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     batches: {
       create: os.batches.create.effect(function* ({ input, context, errors }) {
-        const submitter = yield* submitterOf(context.caller);
-        return yield* createBatch(input, submitter, yield* JobLimitSettings).pipe(
+        return yield* createBatch(input, context.caller, yield* JobLimitSettings).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
@@ -367,7 +373,8 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
           statuses: status ?? [],
           runnerId: runnerId === undefined ? undefined : RunnerId(runnerId),
         };
-        return yield* readUsage(context.headers, query).pipe(
+        const member = yield* callerMember(context.caller);
+        return yield* readUsage(member.role, query).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),

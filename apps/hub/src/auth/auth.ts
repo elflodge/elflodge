@@ -1,6 +1,7 @@
 import { ORPCError, type ORPCErrorCode } from "@orpc/server";
 import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
+import { clientSideHasPermission } from "better-auth/client/plugins";
 import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
 import ensureError from "ensure-error";
@@ -8,11 +9,12 @@ import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
 import { Db, openScopedDatabase } from "../db/database.ts";
-import { type Database, UserId } from "../db/types.ts";
+import { type Database, OrganizationId, UserId } from "../db/types.ts";
+import { ac, roles } from "./access.ts";
 import { authOptions, type AuthSettings } from "./options.ts";
 
 /** A Better Auth instance with the hub's options. */
-type BetterAuth = ReturnType<typeof betterAuth<ReturnType<typeof authOptions>>>;
+export type BetterAuth = ReturnType<typeof betterAuth<ReturnType<typeof authOptions>>>;
 
 /** Better Auth on the hub's database. */
 export class Auth extends Context.Service<
@@ -97,39 +99,20 @@ function requireMember(headers: Headers) {
     const auth = yield* Auth;
     const session = yield* auth.call((instance) => instance.api.getSession({ headers }));
     if (!session) return yield* Effect.fail(new Unauthorized());
-    // The ID enters the hub here.
-    const userId = UserId(session.user.id);
-    // getSession plus this statement takes three reads per member call and distinguishes 401,
-    // 403 and 503. The statement reads the Organization and membership from one snapshot.
-    // getActiveMemberRole returns only the role, so the hub still needs getSession for the user, at
-    // seven reads in total.
-    const organization = yield* Db.use((database) =>
-      database.query((db) =>
-        db
-          .selectFrom("organization")
-          .select((eb) =>
-            eb
-              .exists(
-                eb
-                  .selectFrom("member")
-                  .select("member.id")
-                  .whereRef("member.organizationId", "=", "organization.id")
-                  .where("member.userId", "=", userId),
-              )
-              .as("isMember"),
-          )
-          .executeTakeFirst(),
-      ),
-    );
-    // An account without the Organization is an owner left by a setup that stopped halfway in
-    // 0.10.0 or earlier, before setup became one transaction: the hub is not set up for them.
-    if (!organization) return yield* Effect.fail(new HubNotSetUp());
-    if (!organization.isMember) {
+    // getSession joins session and user, then reads membership once for both the guard and caller.
+    const { membership } = session;
+    if (membership.status === "hubNotSetUp") return yield* Effect.fail(new HubNotSetUp());
+    if (membership.status === "notMember") {
       return yield* Effect.fail(
         new Forbidden({ message: "This account is not a member of the Organization" }),
       );
     }
-    return { ...session.user, id: userId };
+    return {
+      ...session.user,
+      id: UserId(session.user.id),
+      organization: { ...membership.organization, id: OrganizationId(membership.organization.id) },
+      role: membership.role,
+    };
   });
 }
 
@@ -159,19 +142,12 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
   });
 }
 
-/**
- * Fails with a 403 error unless the role of the member signed in with `headers` grants
- * `permissions`, as Better Auth decides it from the Organization's roles.
- */
-export function requireRolePermission(headers: Headers, permissions: RolePermissions) {
-  return Effect.gen(function* () {
-    const auth = yield* Auth;
-    const { id: organizationId } = yield* getOrganization;
-    const { success } = yield* auth.call((instance) =>
-      instance.api.hasPermission({ headers, body: { organizationId, permissions } }),
-    );
-    if (!success) yield* Effect.fail(new Forbidden());
-  });
+/** Check the role from this request's session against the Organization's static permissions. */
+export function requireRolePermission(role: string, permissions: RolePermissions) {
+  // Better Auth exposes the static evaluator used by the organization client under this name.
+  return clientSideHasPermission({ role, permissions, options: { ac, roles } })
+    ? Effect.void
+    : Effect.fail(new Forbidden());
 }
 
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
@@ -213,6 +189,13 @@ export function authenticate(headers: Headers, access: Access) {
   }
   if (access.anyone) return Effect.succeed<Caller>({ kind: "anyone" });
   return Effect.fail(new Unauthorized());
+}
+
+/** A member's session already identifies the Organization. Key calls reach it separately. */
+export function callerOrganizationId(caller: Caller) {
+  return caller.kind === "member"
+    ? Effect.succeed(caller.member.organization.id)
+    : getOrganization.pipe(Effect.map((organization) => organization.id));
 }
 
 /** The key that made a call the contract declares as by key; a member there is a hub defect. */

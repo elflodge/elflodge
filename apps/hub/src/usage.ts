@@ -56,12 +56,12 @@ const DEFAULT_DAYS = 30;
 const FIRST_DAY = DateTime.makeUnsafe("0001-01-01");
 
 /**
- * The usage `query` asks for, read by the member signed in with `headers`, whose role must grant
- * reading it; a 403 error otherwise, and the window's problem when it is refused.
+ * The usage `query` asks for, read under the signed-in member's role. A role lacking the permission
+ * gets a 403. An invalid window gets the problem with the window.
  */
-export function readUsage(headers: Headers, query: UsageQuery) {
+export function readUsage(role: string, query: UsageQuery) {
   return Effect.gen(function* () {
-    yield* requireRolePermission(headers, { usage: ["read"] });
+    yield* requireRolePermission(role, { usage: ["read"] });
     const today = DateTime.startOf(yield* DateTime.now, "day");
     const window = yield* windowOf(query, today);
     const { groupBy } = query;

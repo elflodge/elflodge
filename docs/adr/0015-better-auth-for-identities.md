@@ -6,6 +6,8 @@ A new hub gets its Organization and owner in one of two ways, both ignored once 
 
 Better Auth runs inside the Workers hub with a fresh instance per request and its runtime schema check off. better-auth/better-auth#10315 describes auth calls hanging in a Workers isolate after a cancelled request leaves a promise shared across requests unsettled; 1.7.8 fixes the module-level part and 1.7.21 the runtime schema check (better-auth/better-auth#11651), and instances built per request avoid the rest. Rate-limit counts are kept in the database, so they hold across hub replicas and Workers isolates, and the header carrying the client's address is a deployment setting, because a proxy that rewrites `X-Forwarded-For` puts every client into one bucket.
 
+Removing a member leaves their account and session valid. Better Auth joins the session to its user in one read. Its custom session then reads the deployment's Organization and the user's membership together, so a missing Organization and a removed member have distinct answers. A member's session includes the Organization's ID and name and the member's role. The hub's guard consumes that result. The dashboard reads the same session on navigation, including for an account that can still change its password after removal. Both check the returned role locally against the Organization plugin's shared static roles. Reconsider the local check if deployments can define roles dynamically.
+
 ## Considered options
 
 - Writing our own token handling: small at first, but members, SSO, scoped keys and device login together are a large, security-sensitive subsystem.
@@ -16,6 +18,8 @@ Better Auth runs inside the Workers hub with a fresh instance per request and it
 - A table of the hub's own for the token: Better Auth's `verification` table already keeps one-time values with an expiry, consumes them atomically and can store them by their digest.
 - Only environment variables, as before the dashboard: they remain for automated deploys, but a person setting up a hub by hand should not have to put a password in a file.
 - Environment variables that set the owner on every start (n8n's opt-in mode): rare, and it makes the environment a second source of truth for a member managed in the hub.
+- A typed `GET /me` could return the same membership, but a session renewal through that route sends neither `Set-Cookie` nor `Cache-Control`. Its 403 also omits the account, so a removed member's pages need a second request. Better Auth's session endpoint preserves the renewal headers and the account.
+- A permission flag per feature in the session would change its response with every new feature. The role and the shared role definitions already answer those checks.
 
 ## Consequences
 

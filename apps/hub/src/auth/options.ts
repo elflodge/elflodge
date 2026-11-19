@@ -1,34 +1,16 @@
 import { apiKey } from "@better-auth/api-key";
 import type { BetterAuthOptions } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
-import { organization } from "better-auth/plugins";
-import { createAccessControl } from "better-auth/plugins/access";
-import {
-  adminAc,
-  defaultStatements,
-  memberAc,
-  ownerAc,
-} from "better-auth/plugins/organization/access";
+import { customSession, organization } from "better-auth/plugins";
 import { KEY_PERMISSIONS } from "contract";
 import type { Kysely } from "kysely";
 
 import { DB_SCHEMA } from "../db/database.ts";
+import { type Database, UserId } from "../db/types.ts";
+import { ac, roles } from "./access.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
-
-/** What an API key or a member's role may do, in Better Auth's `{ resource: actions }` shape. */
-const statements = {
-  ...defaultStatements,
-  // Better Auth's own names for managing organization-owned keys. Only members manage keys: Better
-  // Auth lists and deletes keys for a signed-in member's session, not for an API key.
-  apiKey: ["create", "read", "update", "delete"],
-  ...KEY_PERMISSIONS,
-  // Reading the Organization's usage, which a member's role grants; no key may be granted it yet.
-  usage: ["read"],
-} as const;
-
-const ac = createAccessControl(statements);
 
 /**
  * The permissions a member may grant an API key, as a role whose `authorize` checks a request. A
@@ -42,27 +24,6 @@ export const GRANTABLE_KEY_PERMISSIONS = ac.newRole({
 
 /** The permissions of a Runner's own key, which the hub creates when the Runner registers. */
 export const RUNNER_KEY_PERMISSIONS = ac.newRole({ runner: ["actAs"] });
-
-/**
- * Better Auth's default organization roles, with key management granted to owners and admins, as in
- * Better Auth's API key docs. Its key routes let owners do everything anyway; granting it in the role
- * makes a check of the role's permissions, as the hub makes before removing a Runner, decide as they
- * do. Members have none, so keys stay with admins and owners, as Buildkite's agent tokens do. Owners
- * and admins also read the Organization's usage, which shows what every member's work cost.
- */
-const roles = {
-  owner: ac.newRole({
-    ...ownerAc.statements,
-    apiKey: ["create", "read", "update", "delete"],
-    usage: ["read"],
-  }),
-  admin: ac.newRole({
-    ...adminAc.statements,
-    apiKey: ["create", "read", "update", "delete"],
-    usage: ["read"],
-  }),
-  member: memberAc,
-};
 
 /**
  * What starts the identifier of a setup link's token in Better Auth's `verification` table, which
@@ -79,8 +40,7 @@ export interface AuthSettings {
    * The hub's database. Better Auth names `schemaName` itself, so a schema plugin on it must name
    * the same schema, as the hub's does.
    */
-  // oxlint-disable-next-line typescript/no-explicit-any -- Better Auth types its database as Kysely<any>.
-  db: Kysely<any>;
+  db: Kysely<Database>;
   secret: string;
   /** The hub's public URL, which Better Auth uses for its routes and cookies. */
   baseURL: string;
@@ -97,6 +57,29 @@ export interface AuthSettings {
   trustedProxies: string[];
   /** Whether Better Auth's rate limits apply; tests turn them off. */
   rateLimit: boolean;
+}
+
+/** Read the Organization and this user's role from one snapshot, even after membership removal. */
+async function findMembership(db: Kysely<Database>, userId: UserId) {
+  const row = await db
+    .withSchema(DB_SCHEMA)
+    .selectFrom("organization")
+    .leftJoin("member", (join) =>
+      join.onRef("member.organizationId", "=", "organization.id").on("member.userId", "=", userId),
+    )
+    .select(["organization.id", "organization.name", "member.role"])
+    .limit(1)
+    .executeTakeFirst();
+  // Setup in 0.10.0 and earlier could leave an owner account behind before creating the Organization.
+  if (!row) return { status: "hubNotSetUp" } as const;
+  if (row.role === null) return { status: "notMember" } as const;
+  // Better Auth infers the JSON response from this value. Database ID brands are local to the hub.
+  const id: string = row.id;
+  return {
+    status: "member",
+    organization: { id, name: row.name },
+    role: row.role,
+  } as const;
 }
 
 /** Better Auth's options for the hub. */
@@ -136,6 +119,7 @@ export function authOptions(settings: AuthSettings) {
         // Each request builds its own instance, which would otherwise introspect the database on its
         // first auth call; the schema comes from migrations.
         validateSchema: false,
+        joins: true,
       },
       // Which header carries the client's address, and which proxies may have written it, depend on
       // the deployment: Cloudflare sets `cf-connecting-ip`, Railway `x-real-ip`.
@@ -159,6 +143,10 @@ export function authOptions(settings: AuthSettings) {
       log: (level, message, ...args) => console[level](`[Better Auth] ${message}`, ...args),
     },
     plugins: [
+      customSession(async ({ user, session }) => {
+        const membership = await findMembership(settings.db, UserId(user.id));
+        return { user, session, membership };
+      }),
       // One Organization per deployment (ADR 0007): only the hub's setup creates it, and nothing
       // deletes it, since a hub without it answers no member or key.
       organization({
@@ -194,8 +182,7 @@ export function authOptions(settings: AuthSettings) {
  * `auth secret` makes) and a placeholder URL do. Rate limits stay on so the CLI's draft includes the
  * table they are kept in; calls made without a request are never limited.
  */
-// oxlint-disable-next-line typescript/no-explicit-any -- Better Auth types its database as Kysely<any>.
-export function offlineAuthOptions(db: Kysely<any>) {
+export function offlineAuthOptions(db: Kysely<Database>) {
   return authOptions({
     db,
     secret: generateRandomString(64),

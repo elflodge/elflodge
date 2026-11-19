@@ -8,7 +8,7 @@ import type { BlobSha256 as BlobSha256Type } from "./generated/elflodge/Blob.ts"
 import type { InputFilePath as InputFilePathType } from "./generated/elflodge/InputFile.ts";
 import type { JobId as JobIdType } from "./generated/elflodge/Job.ts";
 import type { JobEventChunkLastId } from "./generated/elflodge/JobEventChunk.ts";
-import type { OrganizationId } from "./generated/elflodge/Organization.ts";
+import type { OrganizationId as OrganizationIdType } from "./generated/elflodge/Organization.ts";
 import type { RunnerId as RunnerIdType } from "./generated/elflodge/Runner.ts";
 import type { UploadId as UploadIdType } from "./generated/elflodge/Upload.ts";
 import type { UploadChunkIndex as UploadChunkIndexType } from "./generated/elflodge/UploadChunk.ts";
@@ -26,7 +26,7 @@ export type { default as JobFailureReason } from "./generated/elflodge/JobFailur
 export type { default as SubmitterKind } from "./generated/elflodge/SubmitterKind.ts";
 export type { JobDeletion as JobDeletionRow } from "./generated/elflodge/JobDeletion.ts";
 export type { RunnerUpdate } from "./generated/elflodge/Runner.ts";
-export type { OrganizationId, UsageRecordId };
+export type { UsageRecordId };
 export type { NewUploadChunk } from "./generated/elflodge/UploadChunk.ts";
 
 // Each ID type with its constructor under the same name, as Effect brands are declared. A string
@@ -41,6 +41,8 @@ export type RunnerId = RunnerIdType;
 export const RunnerId = Brand.nominal<RunnerId>();
 export type ApikeyId = ApikeyIdType;
 export const ApikeyId = Brand.nominal<ApikeyId>();
+export type OrganizationId = OrganizationIdType;
+export const OrganizationId = Brand.nominal<OrganizationId>();
 export type UserId = UserIdType;
 export const UserId = Brand.nominal<UserId>();
 export type InputFilePath = InputFilePathType;

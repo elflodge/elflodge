@@ -68,9 +68,9 @@ export function findRunnerByKey(keyId: ApikeyId) {
  * Returns the jobs the removal concerns. The caller drops the Runner's connection. Every way the hub
  * deletes a Runner's key comes here: Better Auth's own key routes are disabled for this reason.
  */
-export function removeRunner(headers: Headers, runnerId: RunnerId) {
+export function removeRunner(headers: Headers, role: string, runnerId: RunnerId) {
   return Effect.gen(function* () {
-    yield* requireRolePermission(headers, { apiKey: ["delete"] });
+    yield* requireRolePermission(role, { apiKey: ["delete"] });
     const auth = yield* Auth;
     const removed = yield* deleteRunnerWithItsWork(runnerId).pipe(
       Effect.filterOrFail(Predicate.isNotUndefined, () => new NotFound()),

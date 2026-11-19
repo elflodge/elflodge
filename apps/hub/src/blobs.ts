@@ -6,7 +6,6 @@ import { chunkFromAsync } from "chunk-data";
 import { Cause, Effect, Stream } from "effect";
 import { type ExpressionBuilder, type Kysely } from "kysely";
 
-import { getOrganization } from "./auth/auth.ts";
 import { Db, greatest } from "./db/database.ts";
 import {
   BlobSha256,
@@ -174,14 +173,16 @@ export function sizeProblem(held: number | undefined, sizeBytes: number) {
  * For each of `files`, in order, whether the caller's Organization holds its Blob, or where to
  * upload it; fails with a problem for each file whose size is not that of the Blob it holds.
  */
-export function checkBlobs(files: readonly { digest: string; sizeBytes: number }[]) {
+export function checkBlobs(
+  organizationId: OrganizationId,
+  files: readonly { digest: string; sizeBytes: number }[],
+) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const organization = yield* getOrganization;
     const held = yield* database.query((db) =>
       selectHeldBlobs(
         db,
-        organization.id,
+        organizationId,
         files.map(({ digest }) => digest),
       ).execute(),
     );
@@ -211,10 +212,14 @@ export function checkBlobs(files: readonly { digest: string; sizeBytes: number }
  * statements of their own, so no transaction waits on the caller; one transaction at the end
  * publishes them as the blob, or, when the blob is stored already, drops them and keeps the blob.
  */
-export function uploadBlob(digest: string, sizeBytes: number, body: ReadableStream<Uint8Array>) {
+export function uploadBlob(
+  organizationId: OrganizationId,
+  digest: string,
+  sizeBytes: number,
+  body: ReadableStream<Uint8Array>,
+) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const organization = yield* getOrganization;
     const sha256 = sha256Of(digest);
     const uploadId = UploadId(randomUUID());
     yield* database.query((db) =>
@@ -277,7 +282,7 @@ export function uploadBlob(digest: string, sizeBytes: number, body: ReadableStre
             const until = holdUntil();
             await trx
               .insertInto("organizationBlob")
-              .values({ organizationId: organization.id, sha256, expiresAt: until })
+              .values({ organizationId, sha256, expiresAt: until })
               .onConflict((conflict) =>
                 conflict.columns(["organizationId", "sha256"]).doUpdateSet((eb) => ({
                   expiresAt: greatest(eb.ref("organizationBlob.expiresAt"), eb.val(until)),
