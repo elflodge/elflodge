@@ -122,6 +122,37 @@ export type Usage = z.infer<typeof usageSchema>;
 /** Any JSON value, such as a job's output: what its Output contract's schema accepts. */
 export type { JsonValue } from "type-fest";
 
+/** The `kind` of a submitter that is an API key. */
+export const KEY_SUBMITTER = "key";
+/** The `kind` of a submitter that is a member, who submitted with their session. */
+export const MEMBER_SUBMITTER = "member";
+
+/** Who submitted a Batch or a job, by `kind`: an API key or a member. */
+export const submitterSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal(KEY_SUBMITTER),
+      /** The key's ID. */
+      id: z.string(),
+      /** The key's name as it was at submission, which stays once the key is revoked. */
+      name: z.nullable(z.string()),
+    }),
+    z.object({
+      kind: z.literal(MEMBER_SUBMITTER),
+      /** The member's user ID, as Better Auth's organization routes give a member's `userId`. */
+      id: z.string(),
+      /** The member's name as it was at submission, which stays once the member leaves. */
+      name: z.string(),
+    }),
+  ])
+  // One entry, as a second `register` would replace the first's description.
+  .register(z.globalRegistry, {
+    id: "Submitter",
+    description:
+      "Who submitted a Batch or a job, by `kind`: `key`, an API key, or `member`, a member signed in with their session. New kinds may be added, so a client should expect a `kind` it does not know.",
+  });
+export type Submitter = z.infer<typeof submitterSchema>;
+
 /** What a job reports whatever its status. */
 const jobBaseSchema = z.object({
   id: jobIdSchema,
@@ -173,6 +204,8 @@ const jobBaseSchema = z.object({
   batchId: z.optional(batchIdSchema),
   /** The caller's own ID for the job, unique in its Batch. Absent once the job is deleted. */
   customId: z.optional(z.string()),
+  /** Who added the job to its Batch, as recorded then. Absent once the job is deleted. */
+  submitter: z.optional(submitterSchema),
   /** The job's labels, its Batch's included. Absent once the job is deleted, as its content is. */
   labels: z.optional(labelsSchema),
   /**
@@ -388,6 +421,8 @@ export const batchSchema = z
      * job has ended. A Batch has no status of its own for having no unfinished job: `jobCounts` tells.
      */
     status: batchStatusSchema,
+    /** Who created the Batch, as recorded then; each of its jobs records who added it. */
+    submitter: submitterSchema,
     /** Who paused the Batch, a caller or its failure breaker; null while it is not paused. */
     pausedBy: z.nullable(z.enum(["caller", "breaker"])),
     /** A cancel waiting for its jobs' Runners to stop them, present only while it waits. */
@@ -539,28 +574,6 @@ export const usageGroupBySchema = z.union(
   { error: "Must be `batch`, `submitter`, `runner`, `status` or `label:` and a label key" },
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
-
-/** The `kind` of a submitter that is an API key. */
-export const KEY_SUBMITTER = "key";
-
-/** Who submitted a job: today always an API key, by `kind`, as other kinds may be added. */
-export const submitterSchema = z
-  .discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal(KEY_SUBMITTER),
-      /** The key's ID. */
-      id: z.string(),
-      /** The key's name as its jobs recorded it, which stays once the key is revoked. */
-      name: z.nullable(z.string()),
-    }),
-  ])
-  // One entry, as a second `register` would replace the first's description.
-  .register(z.globalRegistry, {
-    id: "Submitter",
-    description:
-      "Who submitted a job, by `kind`: `key`, an API key. New kinds may be added, so a client should expect a `kind` it does not know.",
-  });
-export type Submitter = z.infer<typeof submitterSchema>;
 
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
@@ -1209,7 +1222,7 @@ export const apiContract = {
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `submitter` for who submitted the jobs, as an API key, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),

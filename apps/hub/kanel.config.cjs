@@ -18,14 +18,13 @@ const JSON_COLUMN_TYPES = {
  * with the table's `<Table>Id` type, or, given as `{ table, type }`, the type its key column names.
  */
 const COPIED_ID_COLUMNS = {
-  job: { runnerId: "Runner", submitterKeyId: "Apikey", submitterMemberId: "Member" },
-  batch: { submitterKeyId: "Apikey", submitterMemberId: "Member" },
+  job: { runnerId: "Runner", keyCreatorUserId: "User" },
+  batch: { keyCreatorUserId: "User" },
   usageRecord: {
     jobId: "Job",
     batchUid: { table: "Batch", type: "BatchUid" },
     runnerId: "Runner",
-    submitterKeyId: "Apikey",
-    submitterMemberId: "Member",
+    keyCreatorUserId: "User",
   },
   jobDeletion: { jobId: "Job", runnerId: "Runner", usageRecordId: "UsageRecord" },
 };

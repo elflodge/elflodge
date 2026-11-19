@@ -6,6 +6,8 @@ import {
   type BlockedBy,
   ControlRefused,
   FINAL_JOB_STATUSES,
+  KEY_SUBMITTER,
+  MEMBER_SUBMITTER,
   NotFound,
   type Job,
   type JobEvent,
@@ -16,6 +18,7 @@ import {
   type Labels,
   type StatusUnknownReason,
   jobEventSchema,
+  submitterSchema,
 } from "contract";
 import { Array, Duration, Effect, Order, Record, String, Struct } from "effect";
 import { compileSchema, isJsonError } from "json-schema-library";
@@ -33,7 +36,7 @@ import {
 import { jsonArrayFrom, jsonBuildObject, jsonObjectFrom } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
-import { keyMetadataSchema } from "./auth/auth.ts";
+import { type Caller, keyMetadataSchema } from "./auth/auth.ts";
 import { deleteUnusedBlobs } from "./blobs.ts";
 import { Db, DB_SCHEMA, greatest, plusDuration } from "./db/database.ts";
 import {
@@ -48,9 +51,10 @@ import {
   type JobRow,
   type JobStatus,
   type JobUpdate,
-  MemberId,
+  type NewJob,
   type RunnerId,
   type UsageRecordId,
+  UserId,
 } from "./db/types.ts";
 import { lockInputFileBlobs } from "./input-files.ts";
 import { connectedOf, GONE_AFTER_MS } from "./runners.ts";
@@ -65,6 +69,9 @@ export const QUEUED_OR_RUNNING: JobStatus[] = ["queued", "running"];
 /** About how many bytes of events, as JSON Lines, one page of a job's events holds. */
 const MAX_PAGE_BYTES = 1024 * 1024;
 
+/** The columns a submitter is read from, on a Batch, a job or a Usage record. */
+export const SUBMITTER_COLUMNS = ["submitterKind", "submitterId", "submitterName"] as const;
+
 /** What a job's Usage record copies from the job's row at its end, beside the job's ID. */
 export const USAGE_COPIED_COLUMNS = [
   "organizationId",
@@ -73,9 +80,8 @@ export const USAGE_COPIED_COLUMNS = [
   "status",
   "failureReason",
   "runnerId",
-  "submitterKeyId",
-  "submitterKeyName",
-  "submitterMemberId",
+  ...SUBMITTER_COLUMNS,
+  "keyCreatorUserId",
   "createdAt",
   "startedAt",
   "endedAt",
@@ -97,6 +103,7 @@ const JOB_COLUMNS = [
   "pendingControlRequestedAt",
   "customId",
   "labels",
+  ...SUBMITTER_COLUMNS,
 ] as const;
 const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
 
@@ -128,10 +135,14 @@ function toApiJob(
     blockedBy,
     statusUnknown,
     runner,
+    submitterKind,
+    submitterId,
+    submitterName,
     ...rest
   } = job;
   const summary = {
     usage: { totalTokens, cost: { totalUsd: costUsd } },
+    submitter: apiSubmitterOf({ submitterKind, submitterId, submitterName }),
     ...(runner === null ? {} : { runner: { ...runner, lastSeenAt: new Date(runner.lastSeenAt) } }),
     ...(statusUnknown === null
       ? {}
@@ -451,21 +462,58 @@ export function limitProblems(given: GivenLimits, settings: HubSettings["jobLimi
   return problems;
 }
 
-/** Who submitted a job: the API key and the member who created it, copied as they were. */
-export interface Submitter {
-  keyId: ApikeyId;
-  keyName: string | null;
-  memberId: MemberId;
+/**
+ * Who submitted a Batch or a job, copied as it was then: the API key it was sent with, with the user
+ * who created the key, or the member whose session sent it.
+ */
+export type Submitter =
+  | { kind: typeof KEY_SUBMITTER; id: ApikeyId; name: string | null; keyCreatorUserId: UserId }
+  | { kind: typeof MEMBER_SUBMITTER; id: UserId; name: string };
+
+/**
+ * Who submits with a call `caller` made, as Better Auth verified it: the key or the member. A call
+ * open to anyone submits nothing, so a submission made by anyone is a hub defect.
+ */
+export function submitterOf(caller: Caller): Effect.Effect<Submitter> {
+  if (caller.kind === "key") {
+    const { key } = caller;
+    const { createdBy } = keyMetadataSchema.parse(key.metadata);
+    return Effect.succeed({
+      kind: KEY_SUBMITTER,
+      id: ApikeyId(key.id),
+      name: key.name,
+      keyCreatorUserId: UserId(createdBy),
+    });
+  }
+  if (caller.kind === "member") {
+    return Effect.succeed({
+      kind: MEMBER_SUBMITTER,
+      id: caller.member.id,
+      name: caller.member.name,
+    });
+  }
+  return Effect.die(new Error("A submission was made by anyone, which no call allows"));
 }
 
-/** The submitter of a job sent with `key`, as Better Auth verified it. */
-export function submitterOf(key: { id: string; name: string | null; metadata: unknown }) {
-  const { createdBy } = keyMetadataSchema.parse(key.metadata);
+/** The columns that record `submitter` on a Batch, a job or a Usage record. */
+export function submitterColumns(
+  submitter: Submitter,
+): Pick<NewJob, (typeof SUBMITTER_COLUMNS)[number] | "keyCreatorUserId"> {
   return {
-    keyId: ApikeyId(key.id),
-    keyName: key.name,
-    memberId: MemberId(createdBy),
-  } satisfies Submitter;
+    submitterKind: submitter.kind,
+    submitterId: submitter.id,
+    submitterName: submitter.name,
+    keyCreatorUserId: submitter.kind === KEY_SUBMITTER ? submitter.keyCreatorUserId : null,
+  };
+}
+
+/** The submitter `row`'s columns record, as the API shows it. */
+export function apiSubmitterOf(row: Pick<JobRow, (typeof SUBMITTER_COLUMNS)[number]>) {
+  return z.parse(submitterSchema, {
+    kind: row.submitterKind,
+    id: row.submitterId,
+    name: row.submitterName,
+  });
 }
 
 /**
@@ -1385,6 +1433,7 @@ const LISTED_JOB_COLUMNS = [
   "pendingControlRequestedAt",
   "customId",
   "labels",
+  ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
 /**

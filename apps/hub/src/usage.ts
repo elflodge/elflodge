@@ -169,7 +169,11 @@ function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery
       eb.selectFrom("batch").select("batch.uid").where("batch.id", "=", batchId),
     );
   }
-  if (keyId !== undefined) records = records.where("usageRecord.submitterKeyId", "=", keyId);
+  if (keyId !== undefined) {
+    records = records
+      .where("usageRecord.submitterKind", "=", KEY_SUBMITTER)
+      .where("usageRecord.submitterId", "=", keyId);
+  }
   if (runnerId !== undefined) records = records.where("usageRecord.runnerId", "=", runnerId);
   return records;
 }
@@ -482,7 +486,8 @@ interface GroupRow {
 
 /**
  * What groups a record, as text, by `groupBy`. A submitter is its kind and its ID, as
- * `key:<ID>`, so that submitters of different kinds stay apart; the kind holds no `:`.
+ * `key:<ID>` or `member:<ID>`, so that submitters of different kinds stay apart; the kind holds
+ * no `:`.
  */
 function groupKeyOf(
   eb: ExpressionBuilder<Database, "usageRecord">,
@@ -493,7 +498,11 @@ function groupKeyOf(
       // Its row's ID, which orders Batches by when they were created; its `id` names it after.
       return eb.cast<string>("usageRecord.batchUid", "text");
     case "submitter":
-      return eb(eb.val(`${KEY_SUBMITTER}:`), "||", eb.ref("usageRecord.submitterKeyId"));
+      return eb(
+        eb(eb.cast<string>("usageRecord.submitterKind", "text"), "||", eb.val(":")),
+        "||",
+        eb.ref("usageRecord.submitterId"),
+      );
     case "runner":
       return eb.ref("usageRecord.runnerId");
     case "status":
@@ -530,7 +539,7 @@ function groupNameOf(
     case "submitter":
       // Read for each group shown, by the index on `recordedAt`.
       return records
-        .select("usageRecord.submitterKeyName")
+        .select("usageRecord.submitterName")
         .where("usageRecord.recordedAt", "=", lastRecordedAt)
         .where((named) => named(groupKeyOf(named, groupBy), "=", groupKey))
         .orderBy("usageRecord.id", "desc")

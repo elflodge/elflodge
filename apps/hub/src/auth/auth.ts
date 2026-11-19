@@ -84,13 +84,15 @@ export const getOrganization = Effect.gen(function* () {
 /**
  * The signed-in member making the request: a 401 error without a session, and a 403 error for an
  * account that is not a member of the Organization. Removing a member leaves their session, so the
- * session alone does not make its user a member.
+ * session alone does not make its user a member. The user comes with their ID branded.
  */
 function requireMember(headers: Headers) {
   return Effect.gen(function* () {
     const auth = yield* Auth;
     const session = yield* auth.call((instance) => instance.api.getSession({ headers }));
     if (!session) return yield* Effect.fail(new Unauthorized());
+    // The ID enters the hub here.
+    const userId = UserId(session.user.id);
     // The Organization and the membership in one read, so both come from the same moment.
     const organization = yield* Db.use((database) =>
       database.query((db) =>
@@ -103,7 +105,7 @@ function requireMember(headers: Headers) {
                   .selectFrom("member")
                   .select("member.id")
                   .whereRef("member.organizationId", "=", "organization.id")
-                  .where("member.userId", "=", UserId(session.user.id)),
+                  .where("member.userId", "=", userId),
               )
               .as("isMember"),
           )
@@ -118,7 +120,7 @@ function requireMember(headers: Headers) {
         new Forbidden({ message: "This account is not a member of the Organization" }),
       );
     }
-    return session.user;
+    return { ...session.user, id: userId };
   });
 }
 

@@ -5,15 +5,15 @@ import type { Labels } from "contract";
 import type { Brand } from "effect";
 import type { ColumnType, Selectable, Insertable, Updateable } from "kysely";
 
-import type { ApikeyId } from "./Apikey.js";
 import type { BatchUid } from "./Batch.js";
 import type { default as HostDeletionOutcome } from "./HostDeletionOutcome.js";
 import type { JobId } from "./Job.js";
 import type { default as JobFailureReason } from "./JobFailureReason.js";
 import type { default as JobStatus } from "./JobStatus.js";
-import type { MemberId } from "./Member.js";
 import type { OrganizationId } from "./Organization.js";
 import type { RunnerId } from "./Runner.js";
+import type { default as SubmitterKind } from "./SubmitterKind.js";
+import type { UserId } from "./User.js";
 
 /** Identifier type for elflodge.usageRecord */
 export type UsageRecordId = Brand.Branded<number, "elflodge.usageRecord">;
@@ -36,11 +36,11 @@ export default interface UsageRecordTable {
 
   runnerId: ColumnType<RunnerId | null, RunnerId | null, RunnerId | null>;
 
-  submitterKeyId: ColumnType<ApikeyId, ApikeyId, ApikeyId>;
+  submitterId: ColumnType<string, string, string>;
 
-  submitterKeyName: ColumnType<string | null, string | null, string | null>;
+  submitterName: ColumnType<string | null, string | null, string | null>;
 
-  submitterMemberId: ColumnType<MemberId, MemberId, MemberId>;
+  keyCreatorUserId: ColumnType<UserId | null, UserId | null, UserId | null>;
 
   createdAt: ColumnType<Date, Date | string, Date | string>;
 
@@ -71,6 +71,8 @@ export default interface UsageRecordTable {
   labels: ColumnType<Labels, Labels, Labels>;
 
   recordedAt: ColumnType<Date, Date | string | undefined, Date | string>;
+
+  submitterKind: ColumnType<SubmitterKind, SubmitterKind, SubmitterKind>;
 }
 
 export type UsageRecord = Selectable<UsageRecordTable>;

@@ -5,10 +5,10 @@ import type { OutputContract, Labels } from "contract";
 import type { Brand } from "effect";
 import type { ColumnType, Selectable, Insertable, Updateable } from "kysely";
 
-import type { ApikeyId } from "./Apikey.js";
 import type { default as BatchPausedBy } from "./BatchPausedBy.js";
-import type { MemberId } from "./Member.js";
 import type { OrganizationId } from "./Organization.js";
+import type { default as SubmitterKind } from "./SubmitterKind.js";
+import type { UserId } from "./User.js";
 
 /** Identifier type for elflodge.batch */
 export type BatchUid = Brand.Branded<string, "elflodge.batch">;
@@ -37,11 +37,11 @@ export default interface BatchTable {
 
   maxFailurePercent: ColumnType<number | null, number | null, number | null>;
 
-  submitterKeyId: ColumnType<ApikeyId, ApikeyId, ApikeyId>;
+  submitterId: ColumnType<string, string, string>;
 
-  submitterKeyName: ColumnType<string | null, string | null, string | null>;
+  submitterName: ColumnType<string | null, string | null, string | null>;
 
-  submitterMemberId: ColumnType<MemberId, MemberId, MemberId>;
+  keyCreatorUserId: ColumnType<UserId | null, UserId | null, UserId | null>;
 
   createdAt: ColumnType<Date, Date | string, Date | string>;
 
@@ -60,6 +60,8 @@ export default interface BatchTable {
   countedFailures: ColumnType<number, number | undefined, number>;
 
   canaryPlacesLeft: ColumnType<number, number | undefined, number>;
+
+  submitterKind: ColumnType<SubmitterKind, SubmitterKind, SubmitterKind>;
 }
 
 export type Batch = Selectable<BatchTable>;

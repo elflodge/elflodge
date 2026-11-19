@@ -256,16 +256,16 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     batches: {
       create: os.batches.create.effect(function* ({ input, context, errors }) {
-        const key = yield* callerKey(context.caller);
-        return yield* createBatch(input, submitterOf(key), yield* JobLimitSettings).pipe(
+        const submitter = yield* submitterOf(context.caller);
+        return yield* createBatch(input, submitter, yield* JobLimitSettings).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
         );
       }),
       addJobs: os.batches.addJobs.effect(function* ({ input, context, errors }) {
-        const key = yield* callerKey(context.caller);
-        const added = yield* addJobs(input.id, input.jobs, submitterOf(key)).pipe(
+        const submitter = yield* submitterOf(context.caller);
+        const added = yield* addJobs(input.id, input.jobs, submitter).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),

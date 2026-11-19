@@ -43,7 +43,7 @@ function post(key: string, path: string, body: unknown) {
 }
 
 test("a Batch is created and a job added to it, each with 200, and the job reads back as queued, with a key or a member's session", async () => {
-  const { key, client } = await withKey({ job: ["create", "read"] });
+  const { keyId, key, client } = await withKey({ job: ["create", "read"] });
 
   const created = await post(key, "/batches", { agent: AGENT });
   expect(created.status).toBe(200);
@@ -91,6 +91,7 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
     labels: {},
     // Not yet sent to a Runner, so it shows none and no report.
     lastReportedAt: null,
+    submitter: { kind: "key", id: keyId, name: "jobs" },
   };
   expect(first).toEqual({ created: true, job: { ...job, createdAt: expect.any(String) } });
 
@@ -99,15 +100,27 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
   expect(await system.owner().jobs.get({ id: job.id })).toEqual(read);
 });
 
-test("a job keeps the key that submitted it and the member who created the key, after revocation", async () => {
+test("a Batch and its job show the key that submitted them after revocation, and keep who created the key", async () => {
   const { keyId, client } = await withKey({ job: ["create"] }, "nightly batch");
-  const { id } = await submitJob(client, { ...AGENT, ...JOB });
+  const { id, batchId } = await submitJob(client, { ...AGENT, ...JOB });
   await system.owner().apiKeys.revoke({ id: keyId });
 
-  // No API shows a job's submitter yet, so the test reads it where the hub keeps it; it moves to the
-  // API once one does.
+  const submitter = { kind: "key", id: keyId, name: "nightly batch" };
+  const owner = system.owner();
+  expect((await owner.jobs.get({ id })).submitter).toEqual(submitter);
+  expect((await owner.batches.get({ id: batchId ?? "" })).submitter).toEqual(submitter);
+  expect((await owner.jobs.list({ batchId })).jobs.map((job) => job.submitter)).toEqual([
+    submitter,
+  ]);
+  expect(
+    (await owner.batches.list({})).batches.find((batch) => batch.id === batchId),
+  ).toMatchObject({
+    submitter,
+  });
+
+  // No API shows who created the key, so the test reads it where the hub keeps it.
   await using db = openDatabase(inject("databaseUrl"));
-  const owner = await db
+  const creator = await db
     .withSchema(DB_SCHEMA)
     .selectFrom("user")
     .select("id")
@@ -117,14 +130,10 @@ test("a job keeps the key that submitted it and the member who created the key, 
     await db
       .withSchema(DB_SCHEMA)
       .selectFrom("job")
-      .select(["submitterKeyId", "submitterKeyName", "submitterMemberId"])
+      .select("keyCreatorUserId")
       .where("id", "=", JobId(id))
       .executeTakeFirst(),
-  ).toEqual({
-    submitterKeyId: keyId,
-    submitterKeyName: "nightly batch",
-    submitterMemberId: owner.id,
-  });
+  ).toEqual({ keyCreatorUserId: creator.id });
 });
 
 test("a key adds and reads jobs only with the permission for each", async () => {
