@@ -153,6 +153,7 @@
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
+  --cut-name: 12rem; /* the widest a name or ID beside a records table's identifier shows before it is cut */
 }
 
 /* Dark: the mono drops a little weight, as light text on a dark ground reads heavier. */

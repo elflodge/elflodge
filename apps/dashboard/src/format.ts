@@ -65,6 +65,12 @@ export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeS
 
 const COUNT = new Intl.NumberFormat(LANGUAGE);
 
+// Four decimals: a job's cost is often a fraction of a cent, which two would show as 0.00.
+const USD = new Intl.NumberFormat(LANGUAGE, {
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4,
+});
+
 const PLURAL = new Intl.PluralRules(LANGUAGE);
 
 /** `one` or `other`, the word that goes with `count`, such as "1 agent" and "2 agents". */
@@ -82,4 +88,9 @@ const ROLE_LIST = new Intl.ListFormat(LANGUAGE, { type: "conjunction" });
 /** Better Auth stores a membership's roles as comma-separated names. */
 export function formatRoles(roles: string): string {
   return ROLE_LIST.format(roles.split(","));
+}
+
+/** An amount in US dollars, such as "0.0031", without its unit, which the column head says. */
+export function formatUsd(amount: number): string {
+  return USD.format(amount);
 }

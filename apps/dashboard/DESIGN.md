@@ -100,7 +100,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 ```
 
 - The bar holds the brand, the Organization's name, the destinations and, at its end, the member's name. Its links are not underlined: the bar is a known place.
-- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's exact path match does. A search string does not change the current destination.
+- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise. A search string does not change the current destination.
 - The member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
 - The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
@@ -124,24 +124,32 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
       Runners 4 of 5 connected
     </li>
     <li>
-      <span class="mark mark-running" aria-hidden="true" />
-      45 agents running
+      <Link to="/jobs" search={{ status: ["running"] }}>
+        <span class="mark mark-running" aria-hidden="true" />
+        45 agents running
+      </Link>
     </li>
     <li>
-      <span class="mark mark-queued" aria-hidden="true" />
-      303 queued
+      <Link to="/jobs" search={{ status: ["queued"] }}>
+        <span class="mark mark-queued" aria-hidden="true" />
+        303 queued
+      </Link>
     </li>
     <li>
-      <span class="mark mark-paused" aria-hidden="true" />3 paused
+      <Link to="/jobs" search={{ status: ["paused"] }}>
+        <span class="mark mark-paused" aria-hidden="true" />3 paused
+      </Link>
     </li>
     <li class="hub-unknown">
-      <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
+      <Link to="/jobs" search={{ statusUnknown: true }}>
+        <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
+      </Link>
     </li>
   </ul>
 </section>
 ```
 
-- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall. The Runners item leads to the Runners page.
+- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall. The Runners item leads to the Runners page. Each job count opens the Jobs list filtered to what it counts.
 - The running mark takes the lamp's colour only while the hub can confirm that at least one job is running. At zero it is plain, as queued and paused are. When every job counted as running has its status unknown, nothing is known to be live: the item is `li.hub-unknown`, with `mark-unknown` in place of the running mark, and says so: "3 agents running, status unknown". The count stays the hub's, which counts such a job under the last status its Runner confirmed. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
 - A read's items show only while its last answer is less than 15 seconds old, so an earlier answer is never shown as current. When they give way, one line in their place says why. While the browser reports that it is offline, no read is made, and one line replaces every item at once, whatever their age: "The hub cannot be read: this browser is offline." It carries no time, being true for as long as it shows. Otherwise, if the latest read to finish failed, the line says what could not be read and when, drawn like the offline line in the failed colour: "The job counts could not be read at 15:41 CET." The time is the latest failure's, and the line stays while the reads go on failing. If none has failed, as when the hub is slow to answer or the page has just come back into view, the line gives the time of the last answer, in `--c-unknown` with the unknown mark (`li.hub-unknown`): "The job counts have not been read since 15:41 CET." Until a read's first answer there is no time to give, and its items are not there. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
 - At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
@@ -329,6 +337,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 - **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An invitation shows its expiry date and zoned time with `DATE_TIME_ZONED`, for example "22 Nov, 15:42 UTC". The year is omitted because the invitation lasts 48 hours. An instant alone on a page that has the note carries none.
 - **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
+- **An amount in US dollars** is written with `formatUsd`, to four decimals, since a job often costs a fraction of a cent.
 
 ```tsx
 <p class="note">{timeZoneNote()}</p>
@@ -373,7 +382,50 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 
 A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. Its name column takes a fifth of the table, leaving room for the permissions. An absent name reads "Unnamed" in the secondary sans (`.unnamed`).
 
-At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
+A value beside the identifier that may be long, such as a job's Batch or a Runner's name, is a `.cut` with the whole value in its `title`, and is cut past `--cut-name`.
+
+At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them. A cell with nothing in it is left out, its name with it. A table with more columns than leave its identifier room, such as the jobs list, is `table.records.is-wide`, which folds at 75rem.
+
+### A job's status
+
+A job's status is a mark and a word, and beside it, small, each condition the job reports with it, with its own mark (`src/components/JobStatus.tsx`): a status the hub cannot confirm and why, a control its Runner has not yet acted on, what blocks it, and why it failed, as the hub names the reason. A condition never changes the word. While the status is unknown, the word is the last status the job's Runner confirmed: it is quiet, and says "(last confirmed)" to assistive technology.
+
+```tsx
+<span class="status is-unknown">
+  <span class="status-word s-running">
+    <span class="mark mark-running" aria-hidden="true" />
+    Running<span class="vh"> (last confirmed)</span>
+  </span>
+  <span class="beside is-unknown" title="Since Wednesday, 18 November 2026 at 15:41:22 CET">
+    <span class="mark mark-unknown" aria-hidden="true" />
+    Status unknown: Runner not connected
+  </span>
+</span>
+```
+
+`.s-` and the status colours the word's mark: the lamp for running, the green for succeeded, the failed colour for failed, words included, and the waiting colour for the rest. `.beside.is-unknown` is in `--c-unknown`, and a failure's reason is a `code` in the failed colour. The status and what stands beside it stay on one line, except on a phone, where what does not fit goes under it.
+
+### Runner reference
+
+A Runner named beside something else, such as a job's: its name as a `.cut`, and whether it is connected, as a mark and as words for assistive technology.
+
+```tsx
+<span class="runner-ref">
+  <span class="cut mono" title="lodge-01">
+    lodge-01
+  </span>
+  <span class="mark mark-connected" aria-hidden="true" />
+  <span class="vh">connected</span>
+</span>
+```
+
+### Filters
+
+The filters of a list are one form, `form.filters-form`, in `details.filters`, which is open while any filter applies; its summary says how many do. A choice of several values is a `fieldset.filter-status` of `label.check`s, each with its mark where the value has one; any other field is a `div.filter-field` holding its `label` and its control. `span.filter-act` holds the one button that applies them all, the page's primary action, and a link that clears them. The filters live in the address, so a link or a reload keeps them. At 640px and below the fields go one under another, full width.
+
+### The end of a list
+
+`p.list-end` holds the ways to newer and older pages of a list read a page at a time, as links standing alone. `p.list-note` stands in for the list while it is read.
 
 ### Command to copy, and a secret shown once
 
@@ -397,7 +449,7 @@ A direct visit stays blank until the first Runners read finishes because the rou
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-pending`, an hourglass for something awaited; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-cancelled`, a ring struck through; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; beside a status, `mark-blocked`, an arrow against a bar, and `mark-pending`, an hourglass, for a control waiting for its Runner; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 

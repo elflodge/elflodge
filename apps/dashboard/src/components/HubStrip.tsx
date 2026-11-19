@@ -73,31 +73,39 @@ export function HubStrip() {
                 <>
                   {/* A count of running jobs may say agents (CONTEXT.md). */}
                   <li class={{ "hub-unknown": allRunningUnknown() }}>
-                    <span
-                      class={[
-                        "mark",
-                        allRunningUnknown() ? "mark-unknown" : "mark-running",
-                        { "is-out": running() === 0 },
-                      ]}
-                      aria-hidden="true"
-                    />
-                    {formatCount(running())} {plural(running(), "agent", "agents")} running
-                    {allRunningUnknown() && ", status unknown"}
+                    <Link to="/jobs" search={{ status: ["running"] }}>
+                      <span
+                        class={[
+                          "mark",
+                          allRunningUnknown() ? "mark-unknown" : "mark-running",
+                          { "is-out": running() === 0 },
+                        ]}
+                        aria-hidden="true"
+                      />
+                      {formatCount(running())} {plural(running(), "agent", "agents")} running
+                      {allRunningUnknown() && ", status unknown"}
+                    </Link>
                   </li>
                   <li>
-                    <span class="mark mark-queued" aria-hidden="true" />
-                    {formatCount(read().jobCounts.queued)} queued
+                    <Link to="/jobs" search={{ status: ["queued"] }}>
+                      <span class="mark mark-queued" aria-hidden="true" />
+                      {formatCount(read().jobCounts.queued)} queued
+                    </Link>
                   </li>
                   <Show when={read().jobCounts.paused > 0}>
                     <li>
-                      <span class="mark mark-paused" aria-hidden="true" />
-                      {formatCount(read().jobCounts.paused)} paused
+                      <Link to="/jobs" search={{ status: ["paused"] }}>
+                        <span class="mark mark-paused" aria-hidden="true" />
+                        {formatCount(read().jobCounts.paused)} paused
+                      </Link>
                     </li>
                   </Show>
                   <Show when={unknownTotal() > 0}>
                     <li class="hub-unknown">
-                      <span class="mark mark-unknown" aria-hidden="true" />
-                      {formatCount(unknownTotal())} status unknown
+                      <Link to="/jobs" search={{ statusUnknown: true }}>
+                        <span class="mark mark-unknown" aria-hidden="true" />
+                        {formatCount(unknownTotal())} status unknown
+                      </Link>
                     </li>
                   </Show>
                 </>
