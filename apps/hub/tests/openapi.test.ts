@@ -1,3 +1,4 @@
+import { compileSchema } from "json-schema-library";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
 import { startSystem } from "./harness.ts";
@@ -9,7 +10,7 @@ const system = startSystem();
 beforeAll(() => system.start());
 afterAll(() => system.stop());
 
-test("the hub serves its OpenAPI document saying who may call and how errors read", async () => {
+test("the hub serves its OpenAPI document saying who may call, how errors read and what fields fit", async () => {
   const response = await system.hub.fetch("/spec.json");
   expect(response.status).toBe(200);
   const document = JSON.parse(await response.text());
@@ -23,6 +24,8 @@ test("the hub serves its OpenAPI document saying who may call and how errors rea
           properties: { type: {}, title: {}, status: {}, detail: {} },
           required: ["type", "title", "status"],
         },
+        // A body refuses fields the call does not define, which a generated client can check first.
+        JobSubmission: { additionalProperties: false },
       },
       securitySchemes: {
         // A call lists the permissions a key needs as role names, which only the description explains.
@@ -74,4 +77,50 @@ test("the hub serves its OpenAPI document saying who may call and how errors rea
   )) {
     expect(operation.responses).toHaveProperty("403");
   }
+
+  // An answer may gain fields (ADR 0010), so a client that validates it against the document accepts
+  // one it does not know, at the top and nested.
+  const added = { addedLater: true };
+  const runner = compileSchema({
+    $ref: "#/components/schemas/Runner",
+    components: document.components,
+  });
+  expect(
+    runner.validate({
+      id: "a-runner",
+      name: "a-runner",
+      registeredAt: "2026-01-01T00:00:00.000Z",
+      lastSeenAt: "2026-01-01T00:00:00.000Z",
+      connected: true,
+      capabilities: {
+        runnerVersion: "1.0.0",
+        model: { provider: "openai", modelId: "a-model", thinkingLevel: "off", ...added },
+        extensions: [],
+        ...added,
+      },
+      ...added,
+    }).errors,
+  ).toEqual([]);
+  // And no answer closes any object it holds, shared schemas included.
+  const reached = new Set<object>();
+  const reach = (node: unknown): void => {
+    if (typeof node !== "object" || node === null || reached.has(node)) return;
+    reached.add(node);
+    if ("$ref" in node && typeof node.$ref === "string") {
+      // The document's references all point into `components.schemas`, whose names hold no `/`.
+      reach(
+        node.$ref
+          .split("/")
+          .slice(1)
+          .reduce((parent, key) => parent[key], document),
+      );
+    }
+    Object.values(node).forEach(reach);
+  };
+  for (const operation of operations) reach(operation.responses);
+  expect(
+    [...reached].filter(
+      (node) => "additionalProperties" in node && node.additionalProperties === false,
+    ),
+  ).toEqual([]);
 });

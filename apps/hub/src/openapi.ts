@@ -9,6 +9,7 @@ import {
   PROBLEM_DETAILS_CONTENT_TYPE,
   problemDetailsSchema,
 } from "contract";
+import * as z from "zod/mini";
 
 import packageJson from "../package.json" with { type: "json" };
 import { Auth } from "./auth/auth.ts";
@@ -18,7 +19,20 @@ import { Auth } from "./auth/auth.ts";
 // says who may make each call; the hub describes its errors as Problem Details (ADR 0023) and adds
 // what depends on its deployment.
 
-const converter = new ZodToJsonSchemaConverter();
+// Answers are open to fields the hub adds later (ADR 0010), so a client generated from the document
+// must not refuse one it does not know. Zod closes a plain `z.object` with `additionalProperties:
+// false` when it converts an output, as it strips unknown keys there; removing that in `override` is
+// the way Zod's maintainer gives (colinhacks/zod#4564), as `toJSONSchema` has no option for it. The
+// check covers zod/mini objects, as the contract is written with them. Inputs keep what they had: a
+// plain object never gets the keyword as an input, and a `z.strictObject`, as every JSON object body
+// is, keeps its `false`.
+const converter = new ZodToJsonSchemaConverter({
+  override: ({ zodSchema, jsonSchema }) => {
+    if (zodSchema instanceof z.ZodMiniObject && zodSchema.def.catchall === undefined) {
+      delete jsonSchema.additionalProperties;
+    }
+  },
+});
 const generator = new OpenAPIGenerator({ converters: [converter] });
 
 /** The cookie a member's session travels in, as Better Auth names it for the hub's settings. */
