@@ -1,22 +1,47 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/solid-query";
+import {
+  experimental_streamedQuery,
+  skipToken,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/solid-query";
 import {
   FINAL_JOB_STATUSES,
   asError,
   type Job,
   type JobEventOrder,
   type JobEventsPage,
+  type JobStatus,
 } from "contract";
 import { createEffect, createMemo, createSignal } from "solid-js";
 
-import { REFRESH_INTERVAL_MS, orpc } from "./query.ts";
+import { readJobEvent } from "./job-event-record.ts";
+import { REFRESH_INTERVAL_MS, orpc, refused } from "./query.ts";
+
+// The contract allows at most 100 Events per read.
+const PAGE_SIZE = 100;
+
+type FollowedPage = JobEventsPage & { endedAt?: number };
+
+function withEnding(page: JobEventsPage, status: JobStatus, endedAt?: number): FollowedPage {
+  // A job read before this page may still say running when the Runner has just ended.
+  // The hub takes endedAt from its closing Event, or records an end itself without an Event.
+  if (status === page.status) return { ...page, endedAt };
+  const last = page.events.at(-1);
+  const end =
+    last?.type === "entry" && last.record.kind === `elflodge.job.${page.status}`
+      ? readJobEvent(last).at
+      : undefined;
+  return { ...page, endedAt: end?.getTime() };
+}
 
 function historyOptions(id: string, order: JobEventOrder) {
   return orpc.jobs.events.infiniteOptions({
     input: (after: number) => ({
       id,
       order,
-      after: order === "desc" && after === 0 ? undefined : after,
-      limit: 100,
+      after,
+      limit: PAGE_SIZE,
     }),
     initialPageParam: 0,
     getNextPageParam: (last) => (last.hasMore ? last.events.at(-1)?.id : undefined),
@@ -41,7 +66,9 @@ export function useJobEventStretch(
     ...historyOptions(job().id, order()),
     enabled: enabled(),
     refetchInterval: (query) =>
-      query.state.error && !query.state.data ? REFRESH_INTERVAL_MS : false,
+      query.state.error && !refused(query.state.error) && !query.state.data
+        ? REFRESH_INTERVAL_MS
+        : false,
   }));
   const pages = () => (history.dataUpdatedAt ? history.data.pages : []);
   const historyEvents = createMemo(() => {
@@ -53,59 +80,79 @@ export function useJobEventStretch(
     pages().length && !hasLater() ? (historyEvents().at(-1)?.id ?? 0) : undefined;
 
   const follow = useQuery(() => {
-    const after = tailCursor();
+    const cursor = tailCursor();
     const id = job().id;
-    const key = [...orpc.jobs.events.key({ input: { id } }), "follow", after];
-    // An ascending history page can itself reach the end. Its status already answers
-    // whether to wait for a resume or read again after the dashboard's interval.
-    const last = order() === "asc" && after !== undefined ? pages().at(-1) : undefined;
+    const input =
+      cursor === undefined
+        ? skipToken
+        : { id, order: "asc" as const, after: cursor, limit: PAGE_SIZE };
+    const last = order() === "asc" && cursor !== undefined ? pages().at(-1) : undefined;
+    const initial: FollowedPage = {
+      events: [],
+      hasMore: false,
+      status: last?.status ?? job().status,
+    };
     return {
-      queryKey: key,
-      enabled: enabled() && after !== undefined,
-      initialData: last ? { events: [], status: last.status, hasMore: false } : undefined,
+      queryKey: orpc.jobs.events.streamedKey({ input }),
+      enabled: enabled() && cursor !== undefined,
+      // An ascending history page that reached the end already supplied its status and cursor.
+      initialData: last
+        ? { ...withEnding(last, job().status, job().endedAt?.getTime()), events: [] }
+        : undefined,
       staleTime: "static",
       gcTime: 0,
-      queryFn: async ({ signal }): Promise<JobEventsPage> => {
-        const previous = client.getQueryData<JobEventsPage>(key);
-        const page = await orpc.jobs.events.call(
-          {
-            id,
-            after: previous?.events.at(-1)?.id ?? after,
-            order: "asc",
-            limit: 100,
-          },
-          { signal },
-        );
-        if (!previous?.events.length) return page;
-        return {
+      queryFn: experimental_streamedQuery<FollowedPage, FollowedPage>({
+        refetchMode: "append",
+        initialValue: initial,
+        reducer: (previous, page) => ({
           ...page,
           events: page.events.length ? previous.events.concat(page.events) : previous.events,
-        };
-      },
-      refetchInterval: (query) => {
-        const page = query.state.data;
-        if (query.state.error) return REFRESH_INTERVAL_MS;
-        if (page?.hasMore) return 1;
-        return page && !page.hasMore && FINAL_JOB_STATUSES.includes(page.status)
+        }),
+        async *streamFn(context) {
+          let after =
+            context.client.getQueryData<FollowedPage>(context.queryKey)?.events.at(-1)?.id ??
+            cursor ??
+            0;
+          for (;;) {
+            const status = job().status;
+            const endedAt = job().endedAt?.getTime();
+            const read = orpc.jobs.events.queryOptions({
+              input: { id, order: "asc", after, limit: PAGE_SIZE },
+            });
+            const page = await read.queryFn({ ...context, queryKey: read.queryKey });
+            yield withEnding(page, status, endedAt);
+            const newest = page.events.at(-1);
+            if (!page.hasMore || !newest) return;
+            after = newest.id;
+          }
+        },
+      }),
+      refetchInterval: ({ state }) => {
+        if (state.error) return refused(state.error) ? false : REFRESH_INTERVAL_MS;
+        return state.data && !state.data.hasMore && FINAL_JOB_STATUSES.includes(state.data.status)
           ? false
           : REFRESH_INTERVAL_MS;
       },
     };
   });
-  // A job can end and resume between two reads of its status. A *later* job read that
-  // shows it unfinished is enough to follow again, even if the earlier read also said running.
+  // A job can end and resume between two job reads, even ending again with the same status.
   createEffect(jobReadAt, (readAt) => {
     if (
       !enabled() ||
       tailCursor() === undefined ||
       follow.isFetching ||
+      follow.isError ||
       !follow.dataUpdatedAt ||
-      readAt <= follow.dataUpdatedAt ||
-      FINAL_JOB_STATUSES.includes(job().status)
+      readAt <= follow.dataUpdatedAt
     )
       return;
     const last = follow.data;
-    if (!last.hasMore && FINAL_JOB_STATUSES.includes(last.status)) void follow.refetch();
+    if (
+      !last.hasMore &&
+      FINAL_JOB_STATUSES.includes(last.status) &&
+      (last.status !== job().status || job().endedAt?.getTime() !== last.endedAt)
+    )
+      void follow.refetch();
   });
   const liveEvents = createMemo(() =>
     tailCursor() !== undefined && follow.dataUpdatedAt ? follow.data.events : [],
