@@ -76,11 +76,7 @@ test("dismissing a pending revocation still announces a refusal on the page", as
   const release = Promise.withResolvers<void>();
   await page.route(`**/api-keys/${id}`, async (route) => {
     await release.promise;
-    await route.fulfill({
-      status: 403,
-      contentType: "application/problem+json",
-      json: { type: "about:blank", title: "Forbidden", status: 403, detail: "Permission denied" },
-    });
+    await route.continue();
   });
   const revoke = { name: /^Revoke scheduled job / };
   await page.getByRole("button", revoke).click();
@@ -90,12 +86,13 @@ test("dismissing a pending revocation still announces a refusal on the page", as
     await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
     await page.keyboard.press("Escape");
     await expectBrowser(dialog).toHaveCount(0);
+    await system.owner().apiKeys.revoke({ id });
   } finally {
     release.resolve();
   }
-  await expectBrowser(
-    page.getByRole("status").filter({ hasText: "Permission denied" }),
-  ).toContainText("Revoke scheduled job");
+  await expectBrowser(page.getByRole("alert")).toHaveText(
+    /Revoke scheduled job .*: API Key not found/i,
+  );
 }, 30_000);
 
 test("in a browser, the Runners page lists a registered Runner by its name and short ID", async () => {

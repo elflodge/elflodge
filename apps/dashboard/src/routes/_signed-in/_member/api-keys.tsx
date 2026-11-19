@@ -5,7 +5,7 @@ import { GRANTABLE_KEY_PERMISSIONS } from "contract";
 import { For, Loading, Show, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
-import { ActionFailureStatus, ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
@@ -129,7 +129,7 @@ function KeyList(props: { focusAfterRevoke: () => void }) {
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
-      <ActionFailureStatus message={actionFailure()} />
+      <Show when={actionFailure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
         <FailedReadNotice

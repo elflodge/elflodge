@@ -5,7 +5,7 @@ import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
-import { ActionFailureStatus, ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
@@ -91,7 +91,7 @@ function Runners() {
           </Notice>
         )}
       </Show>
-      <ActionFailureStatus message={actionFailure()} />
+      <Show when={actionFailure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={runners.isError}>
         <FailedReadNotice

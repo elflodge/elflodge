@@ -100,13 +100,3 @@ export function ConfirmAction(props: {
     </>
   );
 }
-
-/** A refusal can arrive after Escape or Close. Keep its live region mounted with the list. */
-export function ActionFailureStatus(props: { message?: string }) {
-  return (
-    <div role="status" aria-atomic="true" class={props.message ? "notice notice-failed" : "vh"}>
-      <span class="mark mark-failed" aria-hidden="true" />
-      <p>{props.message}</p>
-    </div>
-  );
-}
