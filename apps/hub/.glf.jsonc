@@ -2,9 +2,10 @@
 {
   // The hub bundles the workspace package `contract`, so the dependencies it brings ship too.
   "inputs": ["./package.json", "../../packages/contract/package.json"],
-  // The dashboard ships Scalar as a separate, prebuilt script.
+  // The dashboard ships Scalar's published standalone script with the hub.
   "append": ["./dist/scalar-notice.txt"],
   "output": "./dist/THIRD_PARTY_NOTICES.txt",
+  "overwrite": true,
   // The workspace's own package, under the repository's licence.
   "exclude": ["contract"],
 }

@@ -1,6 +1,6 @@
 # Workers Static Assets match paths under the dashboard's Vite base. The Node hub sets the same
 # Cache-Control in apps/hub/src/node/dashboard.ts.
-# Asset URLs include a content hash or, for Scalar, its pinned version.
+# Asset URLs include a content hash or, for Scalar, the exact installed version.
 # For a missing asset, Sec-Fetch-Mode selects the shell from Static Assets or a 404 from the Worker,
 # so caches must distinguish request modes at the same URL (RFC 9110, 12.5.5).
 /dashboard/assets/*

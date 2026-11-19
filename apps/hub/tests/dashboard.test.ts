@@ -103,7 +103,7 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
 test.each([system.origin, publicOrigin])(
   "the API reference renders and sends requests on %s",
   async (origin) => {
-    const page = await browser.newPage();
+    const page = await browser.newPage({ serviceWorkers: "block" });
     onTestFinished(() => page.close());
     // Scalar bypasses proxies for localhost. The public-looking host also resolves to loopback.
     if (origin === publicOrigin)
@@ -117,11 +117,12 @@ test.each([system.origin, publicOrigin])(
       },
     );
     const script = page.waitForResponse((response) => response.url().endsWith("/standalone.js"));
-    const docs = await page.goto(`${origin}/docs`);
-    expect(docs?.headers()["referrer-policy"]).toBe("no-referrer");
+    await page.goto(`${origin}/docs`);
+    expect(await page.locator('meta[name="referrer"]').getAttribute("content")).toBe("no-referrer");
     expect((await script).headers()["cache-control"]).toContain("max-age=31536000");
     await page.getByRole("heading", { name: "Elflodge", exact: true }).waitFor();
     await page.evaluate("document.fonts.ready");
+    expect(await page.locator('a[href^="https://client.scalar.com"]').count()).toBe(0);
     expect(
       await page.getByRole("button", { name: /Ask AI|Explore Scalar|Generate SDK/i }).count(),
     ).toBe(0);
@@ -134,6 +135,7 @@ test.each([system.origin, publicOrigin])(
       page.getByRole("button", { name: /^Send get request to / }).click(),
     ]);
     expect(sent.url()).toBe(target);
+    expect(await sent.headerValue("referer")).toBeNull();
     expect(await (await sent.response())?.json()).toEqual({ needed: false });
     expect(externalRequests).toEqual([]);
   },

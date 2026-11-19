@@ -4,11 +4,12 @@ const path = require("node:path");
 module.exports = {
   inputs: ["../dashboard/package.json"],
   output: "./dist/scalar-notice.txt",
-  // The hub ships Scalar's published standalone script.
+  overwrite: true,
+  // The dashboard ships Scalar's published standalone script with the hub.
   exclude: ["/^(?!@scalar/api-reference@)/"],
   // Scalar publishes its MIT text in its icons package and omits it from the reference tarball.
   replace: {
-    "@scalar/api-reference": path.join(
+    "@scalar/api-reference@1.76.0": path.join(
       path.dirname(findPackageJSON("@scalar/icons", require.resolve("@scalar/api-reference"))),
       "LICENSE",
     ),

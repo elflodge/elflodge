@@ -8,7 +8,8 @@ catalogMode: prefer
 overrides:
   # Better Auth and the dashboard must share one BetterFetchError constructor.
   "@better-fetch/fetch@*": "catalog:"
-  # The hub ships the browser script with the dashboard. Resolving oRPC's peer also deploys Scalar with the Runner.
+  # The hub ships the browser script with the dashboard. Resolving oRPC's peer also deploys
+  # Scalar with the Runner.
   "@orpc/openapi>@scalar/api-reference": "-"
   vite@*: "catalog:"
   vitest@*: "catalog:"

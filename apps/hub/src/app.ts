@@ -57,7 +57,7 @@ import {
   listBatches,
 } from "./batches.ts";
 import { checkBlobs, uploadBlob } from "./blobs.ts";
-import { DASHBOARD_BASE, SCALAR_DIRECTORY } from "./dashboard.ts";
+import { DASHBOARD_ASSETS, DASHBOARD_BASE, SCALAR_DIRECTORY } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
 import { ApikeyId, EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
@@ -464,9 +464,12 @@ const api = new OpenAPIHandler(router, {
         mcp: { disabled: true },
         // The hosted client link sends the document URL to client.scalar.com.
         hideClientButton: true,
+        // Scalar offers hosted SDK generation in the developer tools on local hubs.
         showDeveloperTools: "never",
       } satisfies ReferenceProps["configuration"],
       docsPath: "/docs",
+      // Following a link in the reference must keep the hub's address private.
+      docsHead: '<meta name="referrer" content="no-referrer">',
     }),
   ],
 });
@@ -604,7 +607,7 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
     app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
   } else {
     // Static Assets applies _headers to the shell it serves for a navigation to this same URL.
-    app.get(`${DASHBOARD_BASE}assets/*`, async (c) => {
+    app.get(`${DASHBOARD_BASE}${DASHBOARD_ASSETS}/*`, async (c) => {
       const response = await c.notFound();
       response.headers.append("Vary", "Sec-Fetch-Mode");
       return response;
@@ -647,11 +650,6 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
 
   // Both spellings oRPC matches, so a trailing `/` keeps the upload's limit.
   app.on("PUT", ["/blobs/:digest", "/blobs/:digest/"], (c) => serve(c, uploads));
-  // Following a link in the reference must keep the hub's address private.
-  app.on("GET", ["/docs", "/docs/"], async (c, next) => {
-    await next();
-    c.header("Referrer-Policy", "no-referrer");
-  });
   app.all("*", (c) => serve(c, api));
 
   return app;

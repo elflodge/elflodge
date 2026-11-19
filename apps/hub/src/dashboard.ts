@@ -1,4 +1,4 @@
-// Scalar does not export its package.json. Bundle the installed manifest alongside this path.
+// Scalar's exports omit package.json. Reading it by path lets the bundler inline the version.
 import scalar from "../node_modules/@scalar/api-reference/package.json" with { type: "json" };
 
 /**
@@ -7,9 +7,10 @@ import scalar from "../node_modules/@scalar/api-reference/package.json" with { t
  * it for the Workers hub.
  */
 export const DASHBOARD_BASE = "/dashboard/";
+/** Vite's asset directory under the base path, also named in the dashboard's public/_headers. */
 export const DASHBOARD_ASSETS = "assets";
 
-// The dashboard copies the published bundle unchanged. Its exact package version identifies the
+// The dashboard copies the published bundle unchanged. The exact installed version identifies the
 // bytes at this URL for as long as browsers cache them.
 export const SCALAR_DIRECTORY = `${DASHBOARD_ASSETS}/scalar-${scalar.version}`;
 

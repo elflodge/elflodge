@@ -7,7 +7,7 @@ import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../dashboard.ts";
 
 /**
  * Serves the dashboard under its base path from the build at `root`. A hub run from source has
- * Vite's private build files there too, so only the dashboard assets, Scalar, notices and shell are exposed.
+ * Vite's private build files there too, so it exposes only the dashboard assets, notices and shell.
  */
 export function dashboardFiles(root: string) {
   return (
@@ -26,8 +26,8 @@ export function dashboardFiles(root: string) {
             c.header("Cache-Control", "public, max-age=31536000, immutable");
           },
         }),
-        // A missing asset, such as a script of an earlier build that an open page asks for, is a 404:
-        // the shell in its place would fail as a script anyway.
+        // A missing asset, such as a script of an earlier build that an open page asks for, is a
+        // 404: the shell in its place would fail as a script anyway.
         (c) => c.notFound(),
       )
       .get(

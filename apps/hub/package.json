@@ -10,7 +10,7 @@
     "db:draft-auth-migration": "node scripts/draft-auth-migration.ts",
     "reset-password": "node scripts/reset-password.ts",
     "test": "vp test",
-    "notices": "generate-license-file --config .glf-scalar.cjs --overwrite && generate-license-file --overwrite"
+    "notices": "generate-license-file --config .glf-scalar.cjs && generate-license-file"
   },
   "dependencies": {
     "@better-auth/api-key": "catalog:",
