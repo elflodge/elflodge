@@ -13,6 +13,7 @@ import {
   expressionBuilder,
   type Kysely,
   type QueryCreator,
+  type Selectable,
   sql,
 } from "kysely";
 import { jsonArrayFrom, jsonBuildObject } from "kysely/helpers/postgres";
@@ -20,7 +21,7 @@ import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { Db } from "./db/database.ts";
-import type { BatchUid, Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
+import type { Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
 import { batchIdOf } from "./jobs.ts";
 
@@ -292,13 +293,7 @@ async function selectUsage(
           .select((top) => [
             "g.jobEnds",
             // Only groups shown need a Batch, Runner or submitter name.
-            grouping.publicField({
-              batchUid: top.ref("g.batchUid"),
-              runnerId: top.ref("g.runnerId"),
-              submitterKind: top.ref("g.submitterKind"),
-              submitterId: top.ref("g.submitterId"),
-              recordedAt: top.ref("g.recordedAt"),
-            }),
+            grouping.publicField,
             usageOf(top.ref("g.totalTokens"), top.ref("g.costUsd")).as("usage"),
           ])
           .orderBy("g.rank"),
@@ -324,9 +319,16 @@ async function selectUsage(
   };
 }
 
-/** Keep the record projection, grouping keys and public field together for each grouping. */
+/** Columns the grouping can select from the ranked groups. */
+type GroupIdentity = Pick<
+  Selectable<Database["usageRecord"]>,
+  "batchUid" | "runnerId" | "submitterKind" | "submitterId" | "recordedAt"
+> & { status: string; labelValue: string | null };
+
+/** Each grouping declares its record fields, keys, any extra aggregate and the public field they supply. */
 function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>) {
   const record = expressionBuilder<Database, "usageRecord">();
+  const top = expressionBuilder<Database & { g: GroupIdentity }, "g">();
   switch (groupBy) {
     case "batch": {
       // The UUIDv7 breaks ties in Batch creation order (ADR 0036).
@@ -335,58 +337,54 @@ function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>
       return {
         keys,
         recordFields: keys,
-        publicField: ({ batchUid }: { batchUid: Expression<BatchUid> }) =>
-          batchIdOf(batchUid).as("batchId"),
+        publicField: batchIdOf(top.ref("g.batchUid")).as("batchId"),
       };
     }
     case "submitter": {
       const keys = ["submitterKind", "submitterId"] as const;
+      // An older transaction can write a higher ID. Choose the latest recordedAt first, then
+      // the highest record ID among ends recorded at that time.
+      const name = records
+        .select("usageRecord.submitterName")
+        .whereRef("usageRecord.recordedAt", "=", top.ref("g.recordedAt"))
+        .whereRef("usageRecord.submitterKind", "=", top.ref("g.submitterKind"))
+        .whereRef("usageRecord.submitterId", "=", top.ref("g.submitterId"))
+        .orderBy("usageRecord.id", "desc")
+        .limit(1)
+        .$asScalar();
       return {
         keys,
         recordFields: [...keys, "recordedAt"] as const,
-        aggregate: (recordedAt: Expression<Date>) => [record.fn.max(recordedAt).as("recordedAt")],
-        publicField: ({
-          submitterKind,
-          submitterId,
-          recordedAt,
-        }: {
-          submitterKind: Expression<SubmitterKind>;
-          submitterId: Expression<string>;
-          recordedAt: Expression<Date>;
-        }) => {
-          // An older transaction can write a higher ID. Choose the latest recordedAt first, then
-          // the highest record ID among ends recorded at that time.
-          const name = records
-            .select("usageRecord.submitterName")
-            .whereRef("usageRecord.recordedAt", "=", recordedAt)
-            .whereRef("usageRecord.submitterKind", "=", submitterKind)
-            .whereRef("usageRecord.submitterId", "=", submitterId)
-            .orderBy("usageRecord.id", "desc")
-            .limit(1)
-            .$asScalar();
-          return jsonBuildObject({ kind: submitterKind, id: submitterId, name }).as("submitter");
-        },
+        // There is no submitter index. Taking the maximum while grouping avoids searching the
+        // window again for each top submitter and lets the name lookup use the recordedAt index.
+        aggregate: (recordedAt: Expression<Date>) => [
+          expressionBuilder().fn.max(recordedAt).as("recordedAt"),
+        ],
+        publicField: jsonBuildObject({
+          kind: top.ref("g.submitterKind"),
+          id: top.ref("g.submitterId"),
+          name,
+        }).as("submitter"),
       };
     }
     case "runner": {
       const keys = ["runnerId"] as const;
+      const id = top.ref("g.runnerId");
+      const name = top
+        .selectFrom("runner")
+        .select("runner.name")
+        .whereRef("runner.id", "=", id)
+        .$asScalar();
       return {
         keys,
         recordFields: keys,
-        publicField: ({ runnerId }: { runnerId: Expression<RunnerId | null> }) => {
-          const name = record
-            .selectFrom("runner")
-            .select("runner.name")
-            .whereRef("runner.id", "=", runnerId)
-            .$asScalar();
-          return record
-            .case()
-            .when(runnerId, "is", null)
-            .then(record.lit(null))
-            .else(record.fn("json_strip_nulls", [jsonBuildObject({ id: runnerId, name })]))
-            .end()
-            .as("runner");
-        },
+        publicField: top
+          .case()
+          .when(id, "is", null)
+          .then(top.lit(null))
+          .else(top.fn("json_strip_nulls", [jsonBuildObject({ id, name })]))
+          .end()
+          .as("runner"),
       };
     }
     case "status": {
@@ -395,7 +393,7 @@ function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>
       return {
         keys,
         recordFields: [record.cast<string>("usageRecord.status", "text").as("status")],
-        publicField: () => "g.status" as const,
+        publicField: top.ref("g.status").as("status"),
       };
     }
     default:
@@ -407,7 +405,7 @@ function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>
             .key(groupBy.slice("label:".length))
             .as("labelValue"),
         ],
-        publicField: () => "g.labelValue" as const,
+        publicField: top.ref("g.labelValue").as("labelValue"),
       };
   }
 }
