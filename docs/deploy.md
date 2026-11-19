@@ -75,9 +75,17 @@ The hub and a Runner from their published images on one machine, as a deployment
 
 ### Upgrading the Compose hub
 
-Allow a window for the hub to restart and migrate its database. Rerun only the `curl` line in step 1 from the new release's guide to get its Compose file. If you pin the image tags with `ELFLODGE_VERSION` in your shell or Compose `.env`, update it to the target version or unset it to use the file's tags. Do the same with the previous release's file if you go back.
+Allow a window for the hub to restart and migrate its database. Rerun only the `curl` line in step 1 from the new release's guide to get its Compose file. If you pin the image tags with `ELFLODGE_VERSION` in your shell or Compose `.env`, update it to the target version or unset it to use the file's tags. Do the same with the previous release's file if you go back. Run `docker compose pull hub` now so a failed image download leaves the old hub serving.
 
-For a predictable window, stop new submissions, pause Batches to block their queued jobs from placement, and let jobs already on Runners finish reporting. Run `docker compose stop hub`, leaving Postgres running, then back up the database. This way the old hub cannot accept writes after the backup. Going back after migration requires this backup and the previous hub release.
+For a predictable window, stop new submissions, pause Batches to block their queued jobs from placement, and let jobs already on Runners finish reporting. If the release changes the Runner protocol incompatibly, drain the Runners this way before upgrading the hub.
+
+Stop the hub, leave Postgres running, and back up the database to a new file. With the hub stopped, it cannot accept writes after the backup.
+
+```sh
+docker compose stop hub && docker compose exec -T database pg_dump -U elflodge -Fc elflodge > elflodge-pre-upgrade.dump
+```
+
+Wait for the backup command to succeed before starting the new release. Going back after migration requires this backup and the previous hub release.
 
 Use [Docker Compose `up`](https://docs.docker.com/reference/cli/docker/compose/up/) to start just the new hub and wait for it to become healthy. It migrates before it listens.
 
@@ -85,15 +93,15 @@ Use [Docker Compose `up`](https://docs.docker.com/reference/cli/docker/compose/u
 docker compose up --wait --no-deps hub
 ```
 
-Runners keep working and reconnect by themselves to report what finished. Targeting just the hub leaves a busy local Runner running. After a restart the Runner recovers its jobs from their journals, but a tool call cut off by the stop is reported as `interrupted`.
+Runners that speak the new hub's protocol keep working and reconnect by themselves to report what finished. Targeting just the hub leaves a busy local Runner running. After a restart the Runner recovers its jobs from their journals, but a tool call cut off by the stop is reported as `interrupted`.
 
 If a command fails during the window, retry reads and calls that are safe to repeat once the hub is healthy. Retry a submission with the same IDs. For other writes, first check whether the hub committed the change before the connection closed. For example, repeating a request to create an API key can create a second key.
 
-Once the local Runner's jobs have finished, upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported.
+Once the local Runner's jobs have finished, upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported, just as [Kubernetes requires the kubelet to be no newer than its API server](https://kubernetes.io/releases/version-skew-policy/#kubelet).
 
 ## Upgrading on a rolling platform
 
-Stop the old hub instance before starting the new one so only the new hub serves on the migrated database. For a Kubernetes Deployment, set `spec.strategy.type` to [`Recreate`](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#recreate-deployment).
+Stop the old hub, take a restorable Postgres backup, then start the new release. On Kubernetes, scale the hub Deployment to zero and wait for its Pod to terminate before the backup. Set the new image while scaled to zero, then scale back to one. A [`Recreate` rollout](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#recreate-deployment) starts the new Pod as soon as the old one stops, so it leaves no pause for the backup.
 
 ## Upgrading a hub on Cloudflare Workers
 
@@ -101,7 +109,8 @@ Before migrating, carry your deployed Hyperdrive binding and other edits in `wra
 
 1. Run `vp exec wrangler whoami` and confirm you are signed in to the account that runs the hub.
 2. Take the ID of the `HYPERDRIVE` binding from the new configuration and run `vp exec wrangler hyperdrive get <id>`. Confirm it points to the hub's Postgres database with caching disabled, as in [the hub's Workers setup](../apps/hub/README.md).
-3. Run `vp run dashboard#build && vp exec wrangler deploy --dry-run` to build the dashboard assets and check that Wrangler can bundle the Worker with them.
+3. Compare the names from `vp exec wrangler secret list` with `secrets.required` in the new configuration. Set any missing secret with `vp exec wrangler secret put <name>` before setup. Wrangler checks that the Worker can inherit those secrets at upload, which a dry run skips.
+4. Run `vp run deploy --dry-run` to build the dashboard assets and check that Wrangler can bundle the Worker with them.
 
 Back up the hub's Postgres database. With `DATABASE_URL` pointing directly to that database, run setup and deploy as soon as it succeeds:
 
@@ -111,7 +120,7 @@ vp run setup && vp run deploy
 
 The old Worker serves on the new schema from the migration until the deployment has spread. Creating a Batch can return HTTP 500, and Runner reports can fail. Those errors clear as the new code takes over. Runners reconnect and resend outstanding reports. To go back, restore the database backup together with the old Worker version. Restoring the backup loses writes accepted after it was taken.
 
-Runner reports reach a Durable Object. By default an active object can keep running old code until it hibernates or its five-minute delay expires. Wrangler's `durable_objects.code_update_strategy` can shorten that part of the window. In `deferred` mode, `max_delay` sets the maximum wait for hibernation in seconds. In `immediate` mode the active object resets onto the new code without waiting to hibernate. [Cloudflare's Durable Object code updates](https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/)
+Runner reports reach a Durable Object. By default an active object can keep running old code until it hibernates or its five-minute delay expires. Wrangler's `durable_objects.code_update_strategy` setting and its per-deploy `--durable-objects-code-update-mode` flag control [when Durable Objects adopt new code](https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/). In `deferred` mode, `max_delay` sets the maximum wait for hibernation in seconds. In `immediate` mode the active object resets onto the new code without waiting to hibernate.
 
 ## Runners on other machines
 

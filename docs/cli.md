@@ -61,4 +61,4 @@ The stack imports no provider keys merely because they exist in your shell. It s
 
 `stack stop` keeps the containers, database, Runner data and credentials. `stack delete` removes the database and Runner volumes, including saved logins, and the stack's saved configuration, without a prompt. `stack status` shows the hub URL, container state and health, image versions, and authentication source where available. `stack logs` prints logs; `--follow` keeps following them.
 
-`stack env` prints the hub's address and jobs API key as shell exports. `ELFLODGE_VERSION` selects another image version. To upgrade, stop the stack, back up its volumes if the data matters, then start with the new CLI version. Supply forwarded variables again for Runner replacement; saved logins survive in its volume.
+`stack env` prints the hub's address and jobs API key as shell exports. `ELFLODGE_VERSION` selects another image version. For the backup and upgrade procedure, see [the local stack deployment guide](deploy.md#one-machine-the-local-stack).
