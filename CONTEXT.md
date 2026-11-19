@@ -15,6 +15,10 @@ _Avoid_: seat
 **API key**:
 A named, revocable credential owned by the organization that a service uses to call the hub, limited to the actions it is granted. Each key is an identity of its own, as a service account is elsewhere; the member who created it is recorded but does not act through it.
 
+**Submitter**:
+Who submitted a Batch or a job: the API key it was sent with, or the member whose session sent it. It is recorded as it was at submission, with its name, and stays when the key is revoked or the member leaves. A Batch's submitter created it; each of its jobs has the submitter that added it.
+_Avoid_: creator, owner (the member who created a key is the key's creator)
+
 **Job**:
 One self-contained piece of agent work: its Batch's agent working on the job's own input and Input files. It succeeds at most once, unattended, possibly over several runs; a caller may pause, resume or cancel it. Its agent works in conversations, pi's records within the job. A running job is a running agent, so a count of running jobs may say agents; jobs in other statuses stay jobs.
 
@@ -33,11 +37,11 @@ _Avoid_: checkpoint
 A running job carrying on from its journal after its Runner stopped and started again: it stays running, completed tool calls are not repeated, a tool call cut off mid-flight gets an interrupted result, and a model call in flight is made again. A job whose journal is lost is not recovered. Not a resume, which is a control a caller gives a stopped job.
 
 **Usage record**:
-The small, lasting record of a job's outcome and cost (labels, Batch, status, Runner, the key that submitted it, tokens, cost, times), kept after the job's content is deleted. A job resumed after it ended has one for each end, each with what it used since the previous one.
+The small, lasting record of a job's outcome and cost (labels, Batch, status, Runner, its submitter, tokens, cost, times), kept after the job's content is deleted. A job resumed after it ended has one for each end, each with what it used since the previous one.
 _Avoid_: billing record, receipt
 
 **Batch**:
-Jobs that run one agent, added to it over one or more requests, and released, paused and cancelled as one; every job belongs to one, and a job submitted alone is a Batch of one. Its ID, unique in the Organization, is the one its creator gave or one the hub made; creating it again under that ID with the same content returns it, so creating can be retried. Pausing a Batch blocks its jobs rather than pausing them, and cancelling it is final: it takes no new jobs and resumes none.
+Jobs that run one agent, added to it over one or more requests, and released, paused and cancelled as one; every job belongs to one, and a job submitted alone is a Batch of one. Its ID, unique in the Organization, is the one given when it was created or one the hub made; creating it again under that ID with the same content returns it, so creating can be retried. Pausing a Batch blocks its jobs rather than pausing them, and cancelling it is final: it takes no new jobs and resumes none.
 _Avoid_: group, campaign, members (a member is a person)
 
 **Agent**:
