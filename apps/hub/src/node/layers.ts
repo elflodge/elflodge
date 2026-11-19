@@ -21,6 +21,7 @@ export function nodeServices(settings: HubSettings, connectionString: string) {
   const databaseAndAuth = databaseAndAuthLayer(
     connectionString,
     authSettings(settings),
+    // Postgres can cancel a usage SELECT and keep the session, saving a reconnect.
     "cancel query",
   );
   const socketsLayer = Layer.effect(

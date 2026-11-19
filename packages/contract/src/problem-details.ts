@@ -36,10 +36,12 @@ export function errorCodeOf(status: number): string {
   );
 }
 
-/** oRPC's HTTP statuses, including numeric codes for statuses without an oRPC name. */
+/** The API's error codes and HTTP statuses, including numeric codes for errors oRPC has no name for. */
 export const errorStatusMap: Record<string, number> = {
   ...COMMON_ERROR_STATUS_MAP,
-  ...Object.fromEntries(statuses.codes.map((status) => [status, status])),
+  ...Object.fromEntries(
+    statuses.codes.filter((status) => status >= 400).map((status) => [status, status]),
+  ),
 };
 
 /**

@@ -46,10 +46,13 @@ export async function startServer(
       close: (peer) => sockets.close(peer),
     },
   });
-  const server = serve({ fetch, port, hostname });
+  // once() rejects bind failures for the entry point to report. Hono's listening callback installs
+  // the runtime error listener before once() releases its startup listener.
+  const server = serve({ fetch, port, hostname }, () => {
+    server.on("error", (error) => console.error("Hub server error:", ensureError(error).message));
+  });
   // Without a `createServer` option, Hono serves plain HTTP, which `upgrade` below relies on.
   if (!(server instanceof Server)) throw new Error("The hub's server is not an HTTP/1 server");
-  server.on("error", (error) => console.error("Hub server error:", ensureError(error).message));
   server.on("upgrade", (request, socket, head) => {
     void websockets.handleUpgrade(request, socket, head);
   });

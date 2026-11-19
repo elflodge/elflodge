@@ -67,7 +67,7 @@ export function readUsage(headers: Headers, query: UsageQuery) {
     const { groupBy } = query;
     if (groupBy === undefined) {
       const row = yield* Db.use((database) =>
-        database.queryWithSignal((db, options) =>
+        database.cancellableQuery((db, options) =>
           selectUsage(db, window, query).executeTakeFirstOrThrow(options),
         ),
       );
@@ -79,7 +79,7 @@ export function readUsage(headers: Headers, query: UsageQuery) {
       } satisfies UsageReport;
     }
     const row = yield* Db.use((database) =>
-      database.queryWithSignal((db, options) =>
+      database.cancellableQuery((db, options) =>
         selectGroupedUsage(db, window, groupBy, query).executeTakeFirstOrThrow(options),
       ),
     );

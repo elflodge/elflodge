@@ -39,8 +39,9 @@ function readSettings(): HubSettings {
 function workersLayer(env: Env) {
   const settings = readSettings();
   return Layer.mergeAll(
-    // Hyperdrive pools by transaction, so the driver's processID cannot identify the Postgres
-    // backend to cancel. Kysely's default 'ignore query' stops waiting when the request aborts.
+    // Hyperdrive pools by transaction, so the driver's processID cannot identify the backend to
+    // cancel. Kysely uses 'ignore query' on interruption. At compatibility date 2026-10-06,
+    // client disconnects do not abort request.signal without enable_request_signal.
     databaseAndAuthLayer(env.HYPERDRIVE.connectionString, authSettings(settings)),
     jobLimitSettingsLayer(settings),
     Layer.succeed(RunnerConnections, {

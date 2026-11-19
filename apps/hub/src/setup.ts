@@ -111,7 +111,8 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
           .as("locked"),
       )
       .execute();
-    // Setup uses Better Auth's adapters through `auth.$context`. After an upgrade, check that
+    // Better Auth documents its internal adapter for request contexts. Setup reaches that adapter
+    // through `auth.$context` outside a request, an undocumented use. After an upgrade, check that
     // `adapter.deleteMany` revokes earlier links by value, `internalAdapter.createVerificationValue`
     // stores the new link, `consumeVerificationValue` consumes it atomically, and
     // `verification.storeIdentifier` still matches its overrides by prefix. The setup tests exercise

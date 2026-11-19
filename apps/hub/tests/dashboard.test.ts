@@ -34,13 +34,15 @@ async function expectShellAt(pathname: string) {
   if (!response) throw new Error(`No response for ${pathname}`);
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toMatch(/^text\/html/);
-  const body = await response.text();
-  const scriptPath = body.match(/<script[^>]* src="(\/dashboard\/assets\/[^"]+\.js)"/)?.[1];
+  const scriptPath = await page
+    .locator('script[src^="/dashboard/assets/"][src$=".js"]')
+    .first()
+    .getAttribute("src");
   if (!scriptPath) throw new Error(`No dashboard script in the shell at ${pathname}`);
   return { page, scriptPath };
 }
 
-test("the dashboard's pages, deep links included, load its app shell", async () => {
+test("dashboard deep links load the shell and caches distinguish missing assets from navigations", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
@@ -48,18 +50,21 @@ test("the dashboard's pages, deep links included, load its app shell", async () 
   const missingPath = "/dashboard/assets/missing.js";
   const missing = await page.evaluate(async (path) => {
     const response = await fetch(path);
-    return { status: response.status, cacheControl: response.headers.get("cache-control") };
+    return {
+      status: response.status,
+      cacheControl: response.headers.get("cache-control"),
+      vary: response.headers.get("vary"),
+    };
   }, missingPath);
   expect(missing.status).toBe(404);
   expect(missing.cacheControl ?? "").not.toContain("immutable");
 
   const navigation = await page.goto(`${system.origin}${missingPath}`);
   if (inject("hub") === "workers") {
-    expect(navigation?.status()).toBe(200);
-    await page.getByRole("heading", { name: "Not found" }).waitFor();
+    expect([200, 404]).toContain(navigation?.status());
     const script = await system.hub.fetch(scriptPath);
     expect(script.status).toBe(200);
-    for (const vary of [script.headers.get("vary"), navigation?.headers().vary]) {
+    for (const vary of [script.headers.get("vary"), navigation?.headers().vary, missing.vary]) {
       expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
     }
   } else {

@@ -64,7 +64,7 @@ export class Db extends Context.Service<
       run: (db: Kysely<Database>) => Promise<A>,
     ) => Effect.Effect<A, Cause.UnknownError>;
     /** Passes the fiber's abort signal to reads that support cancellation. */
-    readonly queryWithSignal: <A>(
+    readonly cancellableQuery: <A>(
       run: (db: Kysely<Database>, options: AbortableQueryOptions) => Promise<A>,
     ) => Effect.Effect<A, Cause.UnknownError>;
   }
@@ -74,7 +74,7 @@ export class Db extends Context.Service<
     const inSchema = db.withSchema(DB_SCHEMA);
     return Effect.succeed({
       query: (run) => Effect.tryPromise(() => run(inSchema)),
-      queryWithSignal: (run) =>
+      cancellableQuery: (run) =>
         Effect.tryPromise((signal) => run(inSchema, { signal, inflightQueryAbortStrategy })),
     });
   },

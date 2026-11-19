@@ -258,7 +258,7 @@ export function listBatches(query: BatchListQuery) {
       const now = new Date();
       // Include the cursor itself, ahead of the page and regardless of its filters. An empty
       // filtered page then still shows whether the cursor existed in this statement's snapshot.
-      const offset = after === undefined ? 0 : 1;
+      const cursorRows = after === undefined ? 0 : 1;
       const rows = await db
         .with("page", (qb) => {
           let selection = qb
@@ -300,7 +300,7 @@ export function listBatches(query: BatchListQuery) {
             );
           }
           // Keep the cursor when supplied, the requested page, and one extra row to detect a next page.
-          return selection.orderBy("b.uid", "desc").limit(offset + limit + 1);
+          return selection.orderBy("b.uid", "desc").limit(cursorRows + limit + 1);
         })
         // Skip the cursor and count jobs only for Batches shown on this page.
         .with("shown", (qb) =>
@@ -308,7 +308,7 @@ export function listBatches(query: BatchListQuery) {
             .selectFrom("page")
             .select("page.uid")
             .orderBy("page.uid", "desc")
-            .offset(offset)
+            .offset(cursorRows)
             .limit(limit),
         )
         // Counted from the jobs' rows alone, which the index on a job's Batch and status answers.
@@ -381,8 +381,8 @@ export function listBatches(query: BatchListQuery) {
         .execute();
       if (after !== undefined && rows.length === 0) return undefined;
       return {
-        batches: rows.slice(offset, offset + limit).map(listedBatchOf),
-        hasMore: rows.length > offset + limit,
+        batches: rows.slice(cursorRows, cursorRows + limit).map(listedBatchOf),
+        hasMore: rows.length > cursorRows + limit,
       } satisfies BatchesPage;
     });
     if (!page) {

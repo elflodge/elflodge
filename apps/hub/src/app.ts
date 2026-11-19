@@ -589,7 +589,16 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
 
   // People reach the hub through the dashboard, an app shell served under its base path (ADR 0043).
   app.get("/", (c) => c.redirect(DASHBOARD_BASE));
-  if (platform.dashboard) app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
+  if (platform.dashboard) {
+    app.route(DASHBOARD_BASE.slice(0, -1), platform.dashboard);
+  } else {
+    // Static Assets applies _headers to the shell it serves for a navigation to this same URL.
+    app.get(`${DASHBOARD_BASE}assets/*`, async (c) => {
+      const response = await c.notFound();
+      response.headers.append("Vary", "Sec-Fetch-Mode");
+      return response;
+    });
+  }
 
   // Better Auth's own routes, such as signing in and out, at its default path.
   app.on(["GET", "POST"], "/api/auth/*", (c) =>
