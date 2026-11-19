@@ -1,5 +1,5 @@
 import type { Usage, UsageReport } from "contract";
-import { Duration, Struct } from "effect";
+import { Duration } from "effect";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { DB_SCHEMA, openDatabase, plusDuration } from "../src/db/database.ts";
@@ -17,47 +17,20 @@ afterAll(() => system.stop());
 
 const AGENT = { outputContract: { schema: { type: "integer" } } };
 
-/** `usages` added up. */
-function sumOf(usages: Usage[]) {
-  return {
-    totalTokens: usages.reduce((sum, usage) => sum + usage.totalTokens, 0),
-    totalUsd: usages.reduce((sum, usage) => sum + usage.cost.totalUsd, 0),
-  };
-}
-
-/** Expects `usages` to add up to `total`. */
-function expectSum(usages: Usage[], total: Usage) {
-  const sum = sumOf(usages);
-  expect(sum.totalTokens).toBe(total.totalTokens);
-  expect(sum.totalUsd).toBeCloseTo(total.cost.totalUsd, 10);
-}
-
-/**
- * Expects `report`'s days to add up to its total and, when grouped, its groups and `other` too,
- * each day to hold the same groups with its own share, and each group's days to add up to the group.
- */
+/** The days add up to the window total, as do the ranked groups together with `other`. */
 function expectAddsUp(report: UsageReport) {
-  expectSum(
-    report.days.map((day) => day.usage),
-    report.usage,
-  );
-  const { groups, other } = report;
-  if (groups === undefined || other === undefined) return;
-  expectSum([...groups.map((group) => group.usage), other.usage], report.usage);
-  const identity = (group: (typeof groups)[number]) => Struct.omit(group, ["usage"]);
-  for (const day of report.days) {
-    expect(day.groups?.map(identity)).toEqual(groups.map(identity));
-    expectSum(
-      [...(day.groups ?? []).map((group) => group.usage), day.other?.usage ?? zero],
-      day.usage,
+  function expectTotal(rows: Pick<UsageReport, "jobEnds" | "usage">[]) {
+    expect(rows.reduce((sum, row) => sum + row.jobEnds, 0)).toBe(report.jobEnds);
+    expectUsage(
+      {
+        totalTokens: rows.reduce((sum, row) => sum + row.usage.totalTokens, 0),
+        cost: { totalUsd: rows.reduce((sum, row) => sum + row.usage.cost.totalUsd, 0) },
+      },
+      report.usage,
     );
   }
-  groups.forEach((group, index) => {
-    expectSum(
-      report.days.flatMap((day) => day.groups?.[index]?.usage ?? []),
-      group.usage,
-    );
-  });
+  expectTotal(report.days);
+  if (report.groups !== undefined) expectTotal([...report.groups, report.other]);
 }
 
 const zero: Usage = { totalTokens: 0, cost: { totalUsd: 0 } };
@@ -122,6 +95,9 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   const owner = system.owner();
 
   const report = await owner.usage.get({});
+  expect(report).not.toHaveProperty("groups");
+  expect(report).not.toHaveProperty("other");
+  expect(report.jobEnds).toBe(4);
   expect(report.days).toHaveLength(30);
   expect([report.days[0]?.date, report.days.at(-1)?.date]).toEqual([report.from, report.to]);
   expectUsage(report.usage, {
@@ -137,6 +113,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
     "cancelled",
     "succeeded",
   ]);
+  expect(byStatus.other).toEqual({ groups: 0, jobEnds: 0, usage: zero });
   expectUsage(byStatus.usage, resumedUsage);
   expectUsage(
     (await owner.usage.get({ batchId: batch.id, status: ["cancelled"] })).usage,
@@ -153,8 +130,16 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   expectAddsUp(bySubmitter);
   expect(bySubmitter.groups).toEqual(
     expect.arrayContaining([
-      { submitter: { kind: "key", id: billing.id, name: "billing" }, usage: resumedUsage },
-      { submitter: { kind: "key", id: support.id, name: "support" }, usage: deletedUsage },
+      {
+        submitter: { kind: "key", id: billing.id, name: "billing" },
+        jobEnds: 3,
+        usage: resumedUsage,
+      },
+      {
+        submitter: { kind: "key", id: support.id, name: "support" },
+        jobEnds: 1,
+        usage: deletedUsage,
+      },
     ]),
   );
 
@@ -163,9 +148,9 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   expect(byLabel.groups).toHaveLength(3);
   expect(byLabel.groups).toEqual(
     expect.arrayContaining([
-      { labelValue: "acme", usage: expect.anything() },
-      { labelValue: null, usage: deletedUsage },
-      { labelValue: "globex", usage: zero },
+      { labelValue: "acme", jobEnds: 2, usage: resumedUsage },
+      { labelValue: null, jobEnds: 1, usage: deletedUsage },
+      { labelValue: "globex", jobEnds: 1, usage: zero },
     ]),
   );
   expectUsage((await owner.usage.get({ labels: { customer: "acme" } })).usage, resumedUsage);
@@ -173,10 +158,11 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   const byRunner = await owner.usage.get({ groupBy: "runner", runnerId });
   expectAddsUp(byRunner);
   expect(byRunner.groups).toEqual([
-    { runner: { id: runnerId, name: expect.any(String) }, usage: report.usage },
+    { runner: { id: runnerId, name: expect.any(String) }, jobEnds: 3, usage: report.usage },
   ]);
   expect((await owner.usage.get({ groupBy: "runner" })).groups?.at(-1)).toEqual({
     runner: null,
+    jobEnds: 1,
     usage: zero,
   });
 
@@ -192,23 +178,22 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   const day = recordedAt.toISOString().slice(0, 10);
   const moved = await owner.usage.get({ submitter: { kind: "key", id: support.id } });
   expect(moved.days.filter((each) => each.usage.totalTokens > 0)).toEqual([
-    { date: day, usage: deletedUsage },
+    { date: day, jobEnds: 1, usage: deletedUsage },
   ]);
   expect(
     (await owner.usage.get({ submitter: { kind: "key", id: support.id }, from: report.to })).usage,
   ).toEqual(zero);
 
-  // Every day shows the window's top Batch, even the day it used nothing, with the rest as `other`.
+  // The top Batch is ranked over the window. The deleted job still counts on its own day.
   expect(resumedUsage.cost.totalUsd).toBeGreaterThan(deletedUsage.cost.totalUsd);
   const topBatch = await owner.usage.get({ groupBy: "batch", limit: 1 });
   expectAddsUp(topBatch);
-  expect(topBatch.groups).toEqual([{ batchId: batch.id, usage: resumedUsage }]);
-  expect(topBatch.other).toEqual({ groups: 1, usage: deletedUsage });
+  expect(topBatch.groups).toEqual([{ batchId: batch.id, jobEnds: 3, usage: resumedUsage }]);
+  expect(topBatch.other).toEqual({ groups: 1, jobEnds: 1, usage: deletedUsage });
   expect(topBatch.days.find((each) => each.date === day)).toEqual({
     date: day,
+    jobEnds: 1,
     usage: deletedUsage,
-    groups: [{ batchId: batch.id, usage: zero }],
-    other: { usage: deletedUsage },
   });
 }, 30_000);
 
@@ -237,8 +222,8 @@ test("usage by submitter tells a member's jobs from a key's", async () => {
   expect(bySubmitter.groups).toHaveLength(2);
   expect(bySubmitter.groups).toEqual(
     expect.arrayContaining([
-      { submitter: { kind: "key", id: key.id, name: "intake" }, usage: zero },
-      { submitter: { kind: "member", id: userId, name: "Ira Intake" }, usage: zero },
+      { submitter: { kind: "key", id: key.id, name: "intake" }, jobEnds: 1, usage: zero },
+      { submitter: { kind: "member", id: userId, name: "Ira Intake" }, jobEnds: 1, usage: zero },
     ]),
   );
 
@@ -249,13 +234,15 @@ test("usage by submitter tells a member's jobs from a key's", async () => {
   );
   expect(byMember.status).toBe(200);
   expect(await byMember.json()).toMatchObject({
-    groups: [{ submitter: { kind: "member", id: userId, name: "Ira Intake" }, usage: zero }],
+    groups: [
+      { submitter: { kind: "member", id: userId, name: "Ira Intake" }, jobEnds: 1, usage: zero },
+    ],
   });
   const byKey = await system
     .owner()
     .usage.get({ groupBy: "submitter", labels, submitter: { kind: "key", id: key.id } });
   expect(byKey.groups).toEqual([
-    { submitter: { kind: "key", id: key.id, name: "intake" }, usage: zero },
+    { submitter: { kind: "key", id: key.id, name: "intake" }, jobEnds: 1, usage: zero },
   ]);
   const unknownKind = await system.hub.fetch(
     `/usage?submitter[kind]=team&submitter[id]=${key.id}`,
