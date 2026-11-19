@@ -112,13 +112,12 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
           .as("locked"),
       )
       .execute();
-    // Better Auth revokes by identifier. Older links have unknown tokens, so revoke by value.
-    await transaction
-      .withSchema(DB_SCHEMA)
-      .deleteFrom("verification")
-      .where("value", "=", SETUP_LINK_VALUE)
-      .execute();
     const context = await offlineAuth(transaction).$context;
+    // Earlier links have unknown tokens, but all share the setup verification value.
+    await context.adapter.deleteMany({
+      model: "verification",
+      where: [{ field: "value", value: SETUP_LINK_VALUE }],
+    });
     // Better Auth documents its internal adapter, the database calls it makes itself, for plugins
     // and hooks, which reach it through their request's context; reaching it through
     // `auth.$context`, outside a request, is not documented. After an upgrade, check that
@@ -153,7 +152,7 @@ export async function createOwnerAndOrganization(
 ): Promise<"created" | "alreadySetUp" | "linkRefused"> {
   try {
     return await db.transaction().execute(async (transaction) => {
-      // Check inside the setup transaction before it claims a token or creates an owner.
+      // Better Auth lists a member's Organizations. This setup transaction has no signed-in member.
       if (await findOrganization(transaction.withSchema(DB_SCHEMA))) return "alreadySetUp";
       const auth = offlineAuth(transaction, {
         // Public sign-up stays off; only this instance may sign up the owner.
@@ -166,7 +165,7 @@ export async function createOwnerAndOrganization(
         const consumed = await context.internalAdapter.consumeVerificationValue(
           SETUP_TOKEN_PREFIX + token,
         );
-        // A fresh read distinguishes a concurrent setup that used the token from an invalid link.
+        // A refused token gives no session for Better Auth's list. Read whether setup completed.
         if (!consumed) {
           const organization = await findOrganization(transaction.withSchema(DB_SCHEMA));
           return organization ? "alreadySetUp" : "linkRefused";
@@ -190,7 +189,7 @@ export async function createOwnerAndOrganization(
       return "created";
     });
   } catch (error) {
-    // After rollback, check whether a competing setup committed while this one was writing.
+    // After rollback, setup has no session for Better Auth's list and must see any competing commit.
     if (await findOrganization(db.withSchema(DB_SCHEMA))) return "alreadySetUp";
     throw error;
   }

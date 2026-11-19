@@ -43,7 +43,7 @@ function workersLayer(env: Env) {
   return Layer.mergeAll(
     // Aborting a usage request through local Hyperdrive left its query waiting in Postgres.
     // Hyperdrive pools by transaction, so Kysely cannot rely on a stable backend PID here.
-    databaseAndAuthLayer(env.HYPERDRIVE.connectionString, authSettings(settings), "ignore query"),
+    databaseAndAuthLayer(env.HYPERDRIVE.connectionString, authSettings(settings)),
     jobLimitSettingsLayer(settings),
     Layer.succeed(RunnerConnections, {
       drop: (runnerId) =>

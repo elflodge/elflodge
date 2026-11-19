@@ -61,6 +61,10 @@ export class Db extends Context.Service<
   {
     /** Runs one Kysely call on the hub's database, naming its schema in every statement. */
     readonly query: <A>(
+      run: (db: Kysely<Database>) => Promise<A>,
+    ) => Effect.Effect<A, Cause.UnknownError>;
+    /** Passes the fiber's abort signal to reads that support cancellation. */
+    readonly queryWithSignal: <A>(
       run: (db: Kysely<Database>, options: AbortableQueryOptions) => Promise<A>,
     ) => Effect.Effect<A, Cause.UnknownError>;
   }
@@ -69,7 +73,8 @@ export class Db extends Context.Service<
   make: (db: Kysely<Database>, inflightQueryAbortStrategy?: InflightQueryAbortStrategy) => {
     const inSchema = db.withSchema(DB_SCHEMA);
     return Effect.succeed({
-      query: (run) =>
+      query: (run) => Effect.tryPromise(() => run(inSchema)),
+      queryWithSignal: (run) =>
         Effect.tryPromise((signal) => run(inSchema, { signal, inflightQueryAbortStrategy })),
     });
   },

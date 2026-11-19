@@ -55,7 +55,7 @@ export function fromBetterAuth(error: unknown) {
 export function databaseAndAuthLayer(
   connectionString: string,
   settings: Omit<AuthSettings, "db">,
-  inflightQueryAbortStrategy: InflightQueryAbortStrategy,
+  inflightQueryAbortStrategy?: InflightQueryAbortStrategy,
 ) {
   return Layer.effectContext(
     Effect.gen(function* () {
@@ -100,7 +100,7 @@ function requireMember(headers: Headers) {
     const userId = UserId(session.user.id);
     // getSession plus this statement takes three reads per member call and distinguishes 401,
     // 403 and 503. The statement reads the Organization and membership from one snapshot.
-    // getActiveMemberRole returns only the role, so we still need getSession for the user, at
+    // getActiveMemberRole returns only the role, so the hub still needs getSession for the user, at
     // seven reads in total. getActiveMember returns 400 even for a valid member because sign-in
     // leaves the active Organization unset.
     const organization = yield* Db.use((database) =>
