@@ -13,7 +13,8 @@ export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
 );
 
 /** What went wrong with a call to the hub, in words for the member. */
-export function apiFailureMessage(error: Error): string {
+export function apiFailureMessage(caught: unknown): string {
+  const error: Error = ensureError(caught);
   if (error instanceof ORPCError) return error.message;
   if (error instanceof BetterFetchError) {
     const message: unknown = error.error?.message;
@@ -34,7 +35,7 @@ export async function readApi<T>(what: string, read: () => Promise<T>): Promise<
   try {
     return await read();
   } catch (caught) {
-    throw new Error(`${what} could not be read: ${apiFailureMessage(ensureError(caught))}`, {
+    throw new Error(`${what} could not be read: ${apiFailureMessage(caught)}`, {
       cause: caught,
     });
   }

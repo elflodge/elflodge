@@ -16,8 +16,7 @@ export function getRouter() {
       <QueryClientProvider client={queryClient}>{props.children}</QueryClientProvider>
     ),
     defaultPreload: "intent",
-    // A loader runs on every preload and navigation, and Query decides whether what it holds is
-    // still fresh (src/query.ts).
+    // Preloaded route data is immediately stale. Query decides when to refresh page data.
     defaultPreloadStaleTime: 0,
     defaultErrorComponent: DefaultCatchBoundary,
     defaultNotFoundComponent: () => <NotFound />,

@@ -8,27 +8,21 @@ import { orpc } from "../query.ts";
 import { Instant } from "./Time.tsx";
 
 /**
- * How often the strip reads the hub again while the page is visible. Each read is one small count
- * and one short list for the hub, so this costs it little; a person watching work start and end
- * sees the strip follow within a quarter of a minute, and a Runner's connection itself changes only
- * on a scale of minutes.
+ * Like Amazon Connect's real-time metrics, update counts every 15 seconds on an active page.
+ * https://docs.aws.amazon.com/connect/latest/adminguide/rtm-refresh.html
  */
 const REFRESH = 15_000;
 
 /**
  * Under the bar, what the hub says now about the Organization's Runners and unfinished jobs, read
- * again every few seconds while the page is visible. A read that fails says so in its place, and
+ * again every 15 seconds while the page is visible. A read that fails says so in its place, and
  * the bar stays.
  */
 export function HubStrip() {
-  const runners = useQuery(() => ({
-    ...orpc.runners.list.queryOptions(),
-    refetchInterval: REFRESH,
-  }));
-  const counts = useQuery(() => ({
-    ...orpc.jobs.counts.queryOptions({ input: {} }),
-    refetchInterval: REFRESH,
-  }));
+  const runners = useQuery(() => orpc.runners.list.queryOptions({ refetchInterval: REFRESH }));
+  const counts = useQuery(() =>
+    orpc.jobs.counts.queryOptions({ input: {}, refetchInterval: REFRESH }),
+  );
 
   return (
     <section class="hubstrip" aria-label="The hub now">
@@ -100,35 +94,30 @@ function Read<T>(props: {
   children: (data: () => T) => JSX.Element;
 }) {
   return (
-    // Errored keeps the bar if drawing the items fails all the same.
-    <Errored fallback={<Failed query={props.query} what={props.what} />}>
-      <Loading fallback={null}>
-        {/* While the latest read has failed, what an earlier one read is not shown as current.
-            Until the first answer, reading the data waits in Loading. */}
-        <Show
-          when={!props.query.isError && props.query.data}
-          fallback={<Failed query={props.query} what={props.what} />}
-        >
-          {(data) => props.children(data)}
-        </Show>
-      </Loading>
-    </Errored>
+    <Show
+      when={!props.query.isError}
+      fallback={
+        <Failed>
+          {props.what} could not be read at{" "}
+          <Instant value={new Date(props.query.errorUpdatedAt)} format={TIME_ZONED} />.
+        </Failed>
+      }
+    >
+      <Errored fallback={<Failed>{props.what} could not be shown.</Failed>}>
+        <Loading fallback={null}>
+          <Show when={props.query.data}>{(data) => props.children(data)}</Show>
+        </Loading>
+      </Errored>
+    </Show>
   );
 }
 
-/**
- * What the strip could not read, and when, with the reader's time zone, which nothing near it says.
- * The hub's words are left out: the strip has room for one
- * short line.
- */
-function Failed(props: { query: UseQueryResult; what: string }) {
+/** The strip has room for one short line about the failure. */
+function Failed(props: { children: JSX.Element }) {
   return (
     <li class="hub-failed">
       <span class="mark mark-failed" aria-hidden="true" />
-      <span>
-        {props.what} could not be read at{" "}
-        <Instant value={new Date(props.query.errorUpdatedAt || Date.now())} format={TIME_ZONED} />.
-      </span>
+      <span>{props.children}</span>
     </li>
   );
 }

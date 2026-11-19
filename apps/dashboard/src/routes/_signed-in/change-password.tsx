@@ -36,10 +36,11 @@ function ChangePassword() {
       setResult({ role: "alert", message: "The new password and its confirmation differ." });
       return;
     }
+    const submittedPassword = fieldText(form, "current-password");
     const revokeOtherSessions = form.has("revoke-other-sessions");
     try {
       await authClient.changePassword({
-        currentPassword: fieldText(form, "current-password"),
+        currentPassword: submittedPassword,
         newPassword,
         revokeOtherSessions,
       });
@@ -47,11 +48,12 @@ function ChangePassword() {
       const failure = ensureError(caught);
       // Better Auth's "Invalid password" could mean any of the three. Say which field to correct.
       if (failure instanceof BetterFetchError && failure.error?.code === INVALID_PASSWORD) {
+        if (currentPassword?.value !== submittedPassword) return;
         setResult(undefined);
         setCurrentRefused(true);
         // Apply its description before focusing the field so a screen reader announces it.
         flush();
-        currentPassword?.focus();
+        currentPassword.focus();
       } else {
         setResult({ role: "alert", message: apiFailureMessage(failure) });
       }

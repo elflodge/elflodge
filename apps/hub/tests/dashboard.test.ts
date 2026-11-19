@@ -1,4 +1,5 @@
 import { type Browser, type Page, chromium } from "playwright";
+import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { setUpOrganization } from "../src/setup.ts";
@@ -154,7 +155,7 @@ test("a member can retry a refused sign-in from the keyboard and submits only on
   await submit.focus();
   await page.keyboard.press("Enter");
   await page.getByRole("alert").waitFor();
-  expect(await submit.evaluate((button) => button.matches(":focus"))).toBe(true);
+  await expectBrowser(submit).toBeFocused();
 
   // Hold the destination's first read after the hub has accepted the password.
   const release = Promise.withResolvers<void>();
@@ -167,7 +168,7 @@ test("a member can retry a refused sign-in from the keyboard and submits only on
   await submit.click();
   try {
     await reading;
-    expect(await submit.isDisabled()).toBe(true);
+    await expectBrowser(submit).toBeDisabled();
   } finally {
     release.resolve();
   }
@@ -184,14 +185,17 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   await destinations.getByRole("link", { name: "Home" }).click();
   await page.waitForURL(`${system.origin}/dashboard/`);
   const home = destinations.getByRole("link", { name: "Home" });
-  expect(await home.getAttribute("aria-current")).toBe("page");
+  await page.goto(`${system.origin}/dashboard/?view=recent`);
+  await expectBrowser(home).toHaveAttribute("aria-current", "page");
 
-  // On a phone the destinations are in the menu the Member's name opens.
+  // On a phone the current destination is named even while the account menu is closed.
   await page.setViewportSize({ width: 390, height: 844 });
+  await expectBrowser(home).toBeHidden();
+  await expectBrowser(
+    page.getByRole("banner").getByText("Home", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: member.name }).click();
-  expect(await destinations.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
+  await expectBrowser(home).toHaveAttribute("aria-current", "page");
 }, 30_000);
 
 test("in a browser, an address the dashboard has no page for shows that it was not found", async () => {
@@ -228,11 +232,12 @@ test("in a browser, the strip under the bar counts the Organization's Runners an
 test("in a browser, a failed read of the counts says so in the strip, not with the last counts", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
+  await page.clock.install();
   await signInAt(page, "", await newMember("Failing Reader"));
   const strip = page.getByRole("region", { name: "The hub now" });
   await strip.getByText(/ queued$/).waitFor();
 
-  // The hub stops answering; the strip's next read, within its refresh, fails.
+  // The hub becomes unavailable after the first count is visible.
   await page.route("**/jobs/counts", (route) =>
     route.fulfill({
       status: 503,
@@ -240,11 +245,17 @@ test("in a browser, a failed read of the counts says so in the strip, not with t
       body: JSON.stringify({ type: "about:blank", title: "Service Unavailable", status: 503 }),
     }),
   );
-  await strip.getByText(/^The job counts could not be read at /).waitFor({ timeout: 45_000 });
-  expect(await strip.getByText(/ queued$/).count()).toBe(0);
+  // Advance to the next poll and through Query's three retry delays as each response arrives.
+  for (const delay of [15_000, 1000, 2000, 4000]) {
+    const response = page.waitForResponse("**/jobs/counts");
+    await page.clock.fastForward(delay);
+    await (await response).finished();
+  }
+  await expectBrowser(strip.getByText(/^The job counts could not be read at /)).toBeVisible();
+  await expectBrowser(strip.getByText(/ queued$/)).toHaveCount(0);
   // The bar stays.
   await page.getByRole("navigation", { name: "Destinations" }).waitFor();
-}, 60_000);
+}, 30_000);
 
 test("in a browser, a member change in another tab loads a fresh document", async () => {
   const client = await system.clientWithNewJobsKey();
@@ -294,8 +305,8 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   await home.hover();
   await page.getByRole("button", { name: next.name }).waitFor();
   expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
-  expect(page.url()).toBe(`${dashboard}/change-password`);
-  expect(await queued.innerText()).toBe(`${before + 1} queued`);
+  await expectBrowser(page).toHaveURL(`${dashboard}/change-password`);
+  await expectBrowser(queued).toHaveText(`${before + 1} queued`);
 }, 60_000);
 
 // After the tests that add members: the owner's password change ends the owner's other sessions,
@@ -326,17 +337,32 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password").fill(password);
   await page.getByRole("button", { name: "Change password" }).click();
-  const refusal = page.getByText("That is not your current password.");
-  await refusal.waitFor();
-  expect(await current.getAttribute("aria-invalid")).toBe("true");
-  const describedBy = await current.getAttribute("aria-describedby");
-  expect(await page.locator(`#${describedBy}`).innerText()).toBe(
-    "That is not your current password.",
-  );
-  // The focus is on the field to correct, which already says why.
-  expect(await current.evaluate((input) => input.matches(":focus"))).toBe(true);
+  await expectBrowser(current).toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(current).toHaveAccessibleDescription("That is not your current password.");
+  await expectBrowser(current).toBeFocused();
 
+  // A refusal for a value the member has already corrected leaves the correction and focus alone.
+  const release = Promise.withResolvers<void>();
+  await page.route(
+    "**/api/auth/change-password",
+    async (route) => {
+      await release.promise;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const change = page.getByRole("button", { name: "Change password" });
+  const submitted = page.waitForRequest("**/api/auth/change-password");
+  await change.click();
+  await submitted;
   await current.fill(OWNER.password);
+  const confirmation = page.getByLabel("Confirm new password");
+  await confirmation.focus();
+  release.resolve();
+  await expectBrowser(change).toBeEnabled();
+  await expectBrowser(current).not.toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(confirmation).toBeFocused();
+
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password").fill(password);
   // The change makes a new session for the same member, which the page reads; it stays, and so does
@@ -350,7 +376,7 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   await page.getByRole("status").waitFor();
   await sessionRead;
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(signedInDocument);
-  expect(await page.getByRole("status").innerText()).toMatch(/^Your password is changed/);
+  await expectBrowser(page.getByRole("status")).toHaveText(/^Your password is changed/);
 
   await account.click();
   await page.getByRole("button", { name: "Sign out" }).click();

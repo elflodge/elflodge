@@ -12,10 +12,13 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
     if (pending()) return;
     const { submitter, currentTarget } = event;
     const restoreFocus = submitter === document.activeElement;
-    await run(currentTarget);
-    // Disabling the focused button sends focus to the body. If the member or the form has
-    // since focused another control (such as a refused field), keep that position.
-    if (restoreFocus && document.activeElement === document.body) submitter?.focus();
+    try {
+      await run(currentTarget);
+    } finally {
+      // Disabling the focused button sends focus to the body. If the member or the form has
+      // since focused another control (such as a refused field), keep that position.
+      if (restoreFocus && document.activeElement === document.body) submitter?.focus();
+    }
   }
   return { pending, onSubmit };
 }

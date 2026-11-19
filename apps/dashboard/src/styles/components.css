@@ -119,6 +119,15 @@
   border-bottom-color: var(--brand-shape);
   font-weight: var(--weight-strong);
 }
+/* When the links fold into the menu, their current destination stays in the bar. */
+.here {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-strong);
+}
 /* A long name is cut at its end; the account menu shows it whole. */
 .org {
   min-width: 0;
@@ -233,6 +242,9 @@
 @media (width <= 52rem) {
   .nav-wide {
     display: none;
+  }
+  .here {
+    display: inline;
   }
   .pop-nav {
     display: block;
@@ -523,13 +535,22 @@
 }
 
 /* ---------- Hidden text: words for assistive technology alone, such as a table's caption where the page heading already says it ---------- */
-.vh:not(:focus) {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+@layer visually-hidden {
+  .vh:not(:focus),
+  .records thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* Only the folded table needs its heads hidden. */
+  @media (width > 640px) {
+    .records thead {
+      all: revert-layer;
+    }
+  }
 }
 
 /* ---------- Figures: right-aligned in the mono, a unit small in the sans after them or under a column head ---------- */
@@ -572,6 +593,7 @@ thead .unit {
    and unit (data-l), the column heads hidden but read. The table carries explicit roles, since the block layout
    drops a table's implicit ones. */
 .records td.is-id {
+  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
   width: 100%;
   max-width: 0;
 }
@@ -582,6 +604,9 @@ thead .unit {
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
 @media (max-width: 640px), (pointer: coarse) {
+  .records td.is-id {
+    padding-block: 0;
+  }
   .records td.is-id > a.cut {
     padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
@@ -590,15 +615,6 @@ thead .unit {
   white-space: nowrap;
 }
 @media (max-width: 640px) {
-  /* Hidden but read: each value is labelled by data-l, and the heads still name the columns. */
-  .records thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
   .records,
   .records tbody {
     display: block;

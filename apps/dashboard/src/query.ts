@@ -16,9 +16,9 @@ export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // A page read 10 seconds ago or less is shown without asking again: one the pointer
-        // preloaded a moment before the click, or one left and opened again straight away. Older,
-        // it is shown and read again behind it, so a member never looks at a page minutes old.
+        // A quick return to a page or a click after a preload reuses the read. TanStack Router's
+        // data-loading guide uses the same 10-second window for revisits with background refresh.
+        // https://tanstack.com/router/latest/docs/guide/data-loading#using-staletime-to-control-how-long-data-is-considered-fresh
         staleTime: 10_000,
         retry: (failureCount, error) => !refused(error) && failureCount < 3,
       },

@@ -24,9 +24,10 @@ export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
 });
 
 function zoneName(timeZoneName: "longGeneric" | "short"): string {
-  const format = new Intl.DateTimeFormat(LANGUAGE, { timeZoneName });
+  const { timeZone } = DATE_TIME.resolvedOptions();
+  const format = new Intl.DateTimeFormat(LANGUAGE, { timeZone, timeZoneName });
   const zone = format.formatToParts().find((part) => part.type === "timeZoneName");
-  return zone?.value ?? format.resolvedOptions().timeZone;
+  return zone?.value ?? timeZone;
 }
 
 /** Name the zone once above a list. Intl can give an offset even for UTC, whose short name is UTC. */
@@ -37,12 +38,6 @@ export function timeZoneNote(): string {
 
 /** An instant in full, to the second and with its time zone: "Wednesday, 18 November 2026 at 15:41:22 CET". */
 export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeStyle: "long" });
-
-/**
- * A calendar day the hub counts in UTC, such as a day of usage: "18 Nov 2026". Written in UTC, so
- * that it is the hub's day wherever the reader is.
- */
-export const UTC_DATE = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium", timeZone: "UTC" });
 
 const COUNT = new Intl.NumberFormat(LANGUAGE);
 

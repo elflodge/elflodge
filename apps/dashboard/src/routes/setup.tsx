@@ -43,9 +43,7 @@ function Setup() {
       await authClient.signIn.email(owner);
     } catch (failure) {
       // The owner exists, so the form is done with. The sign-in page can try again.
-      setError(
-        `The owner was created, but signing in failed: ${apiFailureMessage(ensureError(failure))}`,
-      );
+      setError(`The owner was created, but signing in failed: ${apiFailureMessage(failure)}`);
       setAlreadySetUp(true);
       return;
     }

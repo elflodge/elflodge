@@ -19,7 +19,7 @@ function leaveDocument() {
 }
 
 /** A null member ID means no one is signed in. A new document has no member to compare yet. */
-export function waitForReloadIfMemberChanged(memberId: string | null) {
+export function reloadAndWaitIfMemberChanged(memberId: string | null) {
   if (documentMember !== undefined && documentMember !== memberId) return leaveDocument();
   return leaving;
 }
@@ -33,9 +33,9 @@ export function watchDocumentMember(memberId: string) {
     if (session.isPending || session.isRefetching) return;
     // With throw enabled Better Auth keeps the last data on failure. A 401 ends the session.
     if (session.error) {
-      if (isSignedOutError(session.error)) void waitForReloadIfMemberChanged(null);
+      if (isSignedOutError(session.error)) void reloadAndWaitIfMemberChanged(null);
     } else {
-      void waitForReloadIfMemberChanged(session.data?.user.id ?? null);
+      void reloadAndWaitIfMemberChanged(session.data?.user.id ?? null);
     }
   });
 }

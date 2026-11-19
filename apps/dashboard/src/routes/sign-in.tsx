@@ -1,5 +1,4 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
-import ensureError from "ensure-error";
 import { Show, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -35,7 +34,7 @@ function SignIn() {
         password: fieldText(form, "password"),
       });
     } catch (failure) {
-      setError(apiFailureMessage(ensureError(failure)));
+      setError(apiFailureMessage(failure));
       return;
     }
     const target = search().redirect;

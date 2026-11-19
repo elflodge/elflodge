@@ -1,16 +1,16 @@
 import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
-import ensureError from "ensure-error";
-import { Show, action, createOptimistic, createSignal, onSettled } from "solid-js";
+import { Show, createSignal, onSettled } from "solid-js";
 
 import { apiFailureMessage, readApi } from "../api-client.ts";
 import { authClient, getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
-import { Destinations } from "../components/Destinations.tsx";
+import { CurrentDestination, Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
 import { HubStrip } from "../components/HubStrip.tsx";
 import { Notice } from "../components/Notice.tsx";
+import { createFormAction } from "../form.ts";
 import {
-  waitForReloadIfMemberChanged,
+  reloadAndWaitIfMemberChanged,
   signOutTo,
   watchDocumentMember,
 } from "../member-document.ts";
@@ -21,17 +21,17 @@ import {
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
     // Start both reads together, but act on the session first even if the Organization read fails.
-    const organizations = readApi("The Organization", () => authClient.organization.list()).catch(
-      ensureError,
-    );
+    const organizations = Promise.allSettled([
+      readApi("The Organization", () => authClient.organization.list()),
+    ]);
     const session = await readApi("The session", getSession);
-    await waitForReloadIfMemberChanged(session?.user.id ?? null);
+    await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
-    const list = await organizations;
-    if (list instanceof Error) throw list;
+    const [list] = await organizations;
+    if (list.status === "rejected") throw list.reason;
     // Removing a member leaves their session, which then lists no Organization.
-    return { member: session.user, organization: list[0] };
+    return { member: session.user, organization: list.value[0] };
   },
   component: SignedIn,
 });
@@ -41,7 +41,6 @@ function SignedIn() {
   const router = useRouter();
   onSettled(() => watchDocumentMember(context().member.id));
   const [error, setError] = createSignal<string>();
-  const [pending, setPending] = createOptimistic(false);
   let account: HTMLDivElement | undefined;
   let opener: HTMLButtonElement | undefined;
 
@@ -67,10 +66,9 @@ function SignedIn() {
     return () => document.removeEventListener("focusin", closeWhenFocusArrivesElsewhere);
   });
 
-  const signOut = action(function* () {
-    setPending(true);
+  const { pending, onSubmit: signOut } = createFormAction(async () => {
     try {
-      yield signOutTo(router.buildLocation({ to: "/sign-in" }).publicHref);
+      await signOutTo(router.buildLocation({ to: "/sign-in" }).publicHref);
     } catch (failure) {
       // The notice is in the page, which the open menu would cover. The focus goes to the menu's
       // button when it is still in the menu or is nowhere, as it is once the button pressed has
@@ -78,7 +76,7 @@ function SignedIn() {
       const focused = document.activeElement;
       closeMenu();
       if (!focused || focused === document.body || inMenuGroup(focused)) opener?.focus();
-      setError(apiFailureMessage(ensureError(failure)));
+      setError(apiFailureMessage(failure));
     }
   });
 
@@ -105,6 +103,7 @@ function SignedIn() {
         <nav class="nav-wide" aria-label="Destinations">
           <Destinations class="nav" />
         </nav>
+        <CurrentDestination />
         <div class="topbar-end">
           <button
             type="button"
@@ -160,14 +159,11 @@ function SignedIn() {
                 <a href="/docs">API reference</a>
               </li>
               <li>
-                <button
-                  type="button"
-                  class="quiet"
-                  disabled={pending()}
-                  onClick={() => void signOut()}
-                >
-                  Sign out
-                </button>
+                <form onSubmit={signOut}>
+                  <button type="submit" class="quiet" disabled={pending()}>
+                    Sign out
+                  </button>
+                </form>
               </li>
             </ul>
           </div>

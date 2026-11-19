@@ -74,6 +74,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
   <nav class="nav-wide" aria-label="Destinations">
     <Destinations class="nav" />
   </nav>
+  <CurrentDestination />
   <div class="topbar-end">
     <button type="button" class="quiet" popovertarget="account" ref={(element) => { opener = element; }}>
       <span class="member-name" title="Robin Hale">Robin Hale</span>
@@ -87,7 +88,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
       <ul class="pop-list">
         <li><Link to="/change-password" onClick={closeMenu}>Change password</Link></li>
         <li><a href="/docs">API reference</a></li>
-        <li><button type="button" class="quiet">Sign out</button></li>
+        <li><form onSubmit={signOut}><button type="submit" class="quiet">Sign out</button></form></li>
       </ul>
     </div>
   </div>
@@ -98,10 +99,10 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 ```
 
 - The bar holds the brand, the Organization's name, the destinations and, at its end, the member's name. Its links are not underlined: the bar is a known place.
-- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's `exact` does.
+- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's exact path match does. A search string does not change the current destination.
 - The member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
-- The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
+- The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays visible in the bar as `span.here` while the menu is closed. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
 - The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
   - a link in it, a destination included, changes the page through the router;
   - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
@@ -141,7 +142,7 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
 
 - Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall.
 - The running mark takes the lamp's colour only when something runs; at zero it is plain, as queued and paused are. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
-- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour: an earlier answer is not shown as current. The bar and the page stay.
+- Until a read's first answer, its items are not there. While its latest read has failed, its items give way to what could not be read and when, in the failed colour: an earlier answer is not shown as current. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
 - At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
 
 ### A page
@@ -207,7 +208,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling it lost the member's focus, a refusal returns focus to it unless another control has focus.
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling it moved focus to the body and focus is still there when the action settles, the form returns focus to the button.
 
 ```tsx
 <div class="field">
@@ -263,19 +264,17 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 `src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
 
 - **An instant** is an `Instant` (`src/components/Time.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`); `format={TIME}` shows the time alone where its day is said nearby. Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An instant alone on a page that has the note carries none.
-- **A day the hub counts in UTC**, such as a day of usage, given as `YYYY-MM-DD`, is a `UtcDay`, written as that UTC day wherever the reader is. Say once, near it, that the days are UTC days.
 - **A count**, of tokens or of jobs, is `formatCount`; **an amount in US dollars** is `formatUsd`, to four decimals, since a job often costs a fraction of a cent. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
 
 ```tsx
 <p class="note">{timeZoneNote()}</p>
 <Instant value={job.createdAt} />
-<UtcDay value={day.date} />
 <td class="num">{formatUsd(usage.cost.totalUsd)}</td>
 ```
 
 `.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
 
-No page uses `.note`, `timeZoneNote()`, `TIME`, `formatUsd`, `UtcDay`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
+No page uses `.note`, `timeZoneNote()`, `TIME`, `formatUsd`, `Instant`'s default format, `.num`, `.unit`, the records table below, `.cut` or `.vh` yet: they came before the two pages built side by side that share them.
 
 ### Records table
 
