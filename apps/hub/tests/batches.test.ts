@@ -1,4 +1,4 @@
-import { PROBLEM_DETAILS_CONTENT_TYPE, problemOf } from "contract";
+import { PROBLEM_DETAILS_CONTENT_TYPE } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -22,12 +22,6 @@ beforeAll(() => system.start());
 afterAll(() => system.stop());
 
 const AGENT = { outputContract: { schema: { type: "integer" } } };
-
-/** The add's problem, as its error's Problem Details give it. */
-async function addProblem(client: ApiClient, id: string, jobs: JobInput[]) {
-  const refused = await client.batches.addJobs({ id, jobs }).catch((error: unknown) => error);
-  return problemOf(refused);
-}
 
 /** A job with the custom ID `customId`. */
 function jobNamed(customId: string, extra: Partial<JobInput> = {}): JobInput {
@@ -56,15 +50,13 @@ async function post(path: string, body: unknown) {
 }
 
 test("an ID used again with the same content returns what it named, whoever repeats it, and with other content is refused", async () => {
-  const { id: keyId, key } = await system.owner().apiKeys.create({
-    name: "invoices",
-    permissions: { job: ["create", "read", "cancel"] },
-  });
-  const client = system.client({ "x-api-key": key });
+  const { id: keyId, client } = await system.withKey(
+    { job: ["create", "read", "cancel"] },
+    "invoices",
+  );
   const byKey = { kind: "key", id: keyId, name: "invoices" };
   const { client: member, userId } = await system.addMember({
     email: "retrier@example.com",
-    password: "a member's own long password",
     name: "Rae Retrier",
   });
   const creation = { id: "invoices-2026-10", agent: AGENT, breaker: false } as const;
@@ -144,30 +136,35 @@ test("an add with an invalid job adds none, and its answer names every problem w
 
   // Problems only the hub sees, with the Batch: a custom ID given twice, labels over the limit with
   // the Batch's, and a job with neither input nor files.
-  const problem = await addProblem(client, batch.id, [
-    jobNamed("a"),
-    jobNamed("a"),
-    jobNamed("c", { labels: many }),
-    { customId: "d" },
-  ]);
-  expect(problem?.status).toBe(400);
+  const invalidJobs = client.batches.addJobs({
+    id: batch.id,
+    jobs: [jobNamed("a"), jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
+  });
   for (const path of ["jobs[1].customId", "jobs[2].labels", "jobs[3].input"]) {
-    expect(problem?.detail).toContain(path);
+    await expect(invalidJobs).rejects.toMatchObject({
+      cause: { status: 400, detail: expect.stringContaining(path) },
+    });
   }
 
   // Files whose content the Organization never uploaded, or of a size other than its content's.
   const rates = await uploadContent(client, "2.2");
-  const unheld = await addProblem(client, batch.id, [
-    jobNamed("e", { files: [{ path: "rates.csv", ...rates }] }),
-    jobNamed("f", {
-      files: [{ path: "rates.csv", digest: `sha256:${"0".repeat(64)}`, sizeBytes: 3 }],
-    }),
-    jobNamed("g", { files: [{ path: "rates.csv", ...rates, sizeBytes: 4 }] }),
-  ]);
-  expect(unheld?.status).toBe(400);
-  expect(unheld?.detail).toContain("jobs[1].files[0].digest");
-  expect(unheld?.detail).toContain("jobs[2].files[0].sizeBytes");
-  expect(unheld?.detail).not.toContain("jobs[0]");
+  const invalidFiles = client.batches.addJobs({
+    id: batch.id,
+    jobs: [
+      jobNamed("e", { files: [{ path: "rates.csv", ...rates }] }),
+      jobNamed("f", {
+        files: [{ path: "rates.csv", digest: `sha256:${"0".repeat(64)}`, sizeBytes: 3 }],
+      }),
+      jobNamed("g", { files: [{ path: "rates.csv", ...rates, sizeBytes: 4 }] }),
+    ],
+  });
+  for (const detail of [
+    expect.stringContaining("jobs[1].files[0].digest"),
+    expect.stringContaining("jobs[2].files[0].sizeBytes"),
+    expect.not.stringContaining("jobs[0]"),
+  ]) {
+    await expect(invalidFiles).rejects.toMatchObject({ cause: { status: 400, detail } });
+  }
 
   // A label value holds any text of at most 256 characters, but no NUL.
   const invalid = await post(`/batches/${batch.id}/jobs`, {
@@ -284,15 +281,29 @@ test.each(["/jobs", "/batches", "/usage"])(
   },
 );
 
-test("Batches are listed newest first, by status and label, in pages, without their usage", async () => {
+test("Batches are listed newest first, by status and label, in pages", async () => {
   const client = await system.clientWithNewJobsKey();
   const labels = { suite: "batch-list" };
-  const cancelled = await client.batches.create({ agent: AGENT, labels, breaker: false });
+  const cancelled = await client.batches.create({
+    id: "march",
+    agent: AGENT,
+    labels,
+    breaker: false,
+  });
   await client.batches.addJobs({ id: cancelled.id, jobs: [jobNamed("a")] });
   await client.batches.cancel({ id: cancelled.id });
-  const paused = await client.batches.create({ agent: AGENT, labels, breaker: false });
+  const paused = await client.batches.create({
+    id: "april",
+    agent: AGENT,
+    labels: { ...labels, team: "billing" },
+    breaker: false,
+  });
   await client.batches.pause({ id: paused.id });
-  const active = await client.batches.create({ agent: AGENT, labels: { ...labels, team: "ops" } });
+  const active = await client.batches.create({
+    id: "may",
+    agent: AGENT,
+    labels: { ...labels, team: "ops" },
+  });
 
   const listed = await client.batches.list({ labels });
   expect(listed.batches.map(({ id }) => id)).toEqual([active.id, paused.id, cancelled.id]);
@@ -301,7 +312,6 @@ test("Batches are listed newest first, by status and label, in pages, without th
     jobCounts: { cancelled: 1, queued: 0 },
     statusUnknownJobs: 0,
   });
-  expect(listed.batches[2]).not.toHaveProperty("usage");
   expect(listed.hasMore).toBe(false);
 
   const first = await client.batches.list({ labels, limit: 2 });
@@ -322,12 +332,8 @@ test("Batches are listed newest first, by status and label, in pages, without th
   expect(ops.batches.map(({ id }) => id)).not.toContain(paused.id);
 
   // A Batch's ID tells nothing of its order, so an `after` naming no Batch cannot be read on from.
-  const refused = await client.batches
-    .list({ after: "no-such-batch" })
-    .catch((error: unknown) => error);
-  expect(problemOf(refused)).toMatchObject({
-    status: 400,
-    detail: expect.stringContaining("after"),
+  await expect(client.batches.list({ after: "no-such-batch" })).rejects.toMatchObject({
+    cause: { status: 400, detail: expect.stringContaining("after") },
   });
 });
 

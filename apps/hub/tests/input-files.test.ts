@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
-import { problemOf } from "contract";
 import { Effect } from "effect";
 import { sql } from "kysely";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
@@ -36,7 +35,7 @@ function fileAt(filePath: string, content: string | Uint8Array) {
 const LARGE = "Grüße, 世界! ".repeat(150_000);
 
 function digestOf(content: string | Uint8Array): string {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  return `sha256:${hash("sha256", content)}`;
 }
 
 /** Runs the hub's hourly sweep now, on the test run's database. */
@@ -235,15 +234,15 @@ test("a check answers which content the Organization holds, and where to upload 
 test("an upload whose bytes are not those its digest names stores nothing", async () => {
   const client = await system.clientWithNewJobsKey();
   const claimed = "What the caller meant to send.";
-  const refused = await client.blobs
-    .upload({
+  await expect(
+    client.blobs.upload({
       params: { digest: digestOf(claimed) },
       headers: { "content-length": 4 },
       body: new Blob(["else"]).stream(),
-    })
-    .catch((error: unknown) => error);
-  const problem = problemOf(refused);
-  expect(problem).toMatchObject({ status: 400, detail: expect.stringContaining(digestOf("else")) });
+    }),
+  ).rejects.toMatchObject({
+    cause: { status: 400, detail: expect.stringContaining(digestOf("else")) },
+  });
   expect(await storedOf([claimed, "else"])).toEqual([]);
   await expect(
     client.batches.addJobs({

@@ -1,5 +1,7 @@
+import { resolveJsonSchemaLocalPointer, type JsonSchema } from "@orpc/json-schema";
+import type { OpenAPIV3_2 } from "@orpc/openapi";
 import { compileSchema } from "json-schema-library";
-import { afterAll, beforeAll, expect, test } from "vite-plus/test";
+import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
 import { startSystem } from "./harness.ts";
 
@@ -85,9 +87,20 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
   });
 
   // A call a member may make answers 403 to a signed-in account that is not a member.
-  const operations = Object.values<Record<string, { security?: object[]; responses: object }>>(
-    document.paths,
-  ).flatMap((path) => Object.values(path));
+  const operations = Object.values<OpenAPIV3_2.PathItemObject>(document.paths).flatMap((path) =>
+    [
+      path.get,
+      path.put,
+      path.post,
+      path.delete,
+      path.options,
+      path.head,
+      path.patch,
+      path.trace,
+      path.query,
+      ...Object.values(path.additionalOperations ?? {}),
+    ].filter((operation) => operation !== undefined),
+  );
   for (const operation of operations.filter((each) =>
     each.security?.some((scheme) => "session" in scheme),
   )) {
@@ -118,25 +131,25 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
     }).errors,
   ).toEqual([]);
   // And no answer closes any object it holds, shared schemas included.
-  const reached = new Set<object>();
-  const reach = (node: unknown): void => {
-    if (typeof node !== "object" || node === null || reached.has(node)) return;
-    reached.add(node);
-    if ("$ref" in node && typeof node.$ref === "string") {
-      // The document's references all point into `components.schemas`, whose names hold no `/`.
-      reach(
-        node.$ref
-          .split("/")
-          .slice(1)
-          .reduce((parent, key) => parent[key], document),
-      );
+  const schemas = new Set<JsonSchema>();
+  for (const operation of operations) {
+    for (const [status, definition] of Object.entries(operation.responses ?? {})) {
+      if (status.startsWith("x-")) continue;
+      for (const media of Object.values<OpenAPIV3_2.MediaTypeObject>(definition.content ?? {})) {
+        if (media.schema !== undefined) schemas.add(media.schema);
+      }
     }
-    Object.values(node).forEach(reach);
-  };
-  for (const operation of operations) reach(operation.responses);
-  expect(
-    [...reached].filter(
-      (node) => "additionalProperties" in node && node.additionalProperties === false,
-    ),
-  ).toEqual([]);
+  }
+  // toSchemaNodes visits inline subschemas. Shared schemas live elsewhere in the OpenAPI document,
+  // so follow their references from each response and check each target once.
+  for (const schema of schemas) {
+    for (const node of compileSchema(schema).toSchemaNodes()) {
+      expect(node.schema.additionalProperties).not.toBe(false);
+      if (node.$ref) {
+        const target = resolveJsonSchemaLocalPointer(document, node.$ref);
+        assert.isDefined(target, node.$ref);
+        schemas.add(target);
+      }
+    }
+  }
 });

@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { afterAll, beforeAll, expect, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, test, vi } from "vite-plus/test";
 
 import { entryKinds, lifecycleOf } from "./entries.ts";
 import { type ApiClient, type OneJob, startSystem, submitJob, untilStatus } from "./harness.ts";
@@ -299,9 +299,10 @@ test("deleting a finished job removes its content at once and its files from its
   });
   expect(deleted).not.toHaveProperty("output");
   await expect(client.jobs.events({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect
-    .poll(() => client.jobs.get({ id }).catch((error: unknown) => error), { timeout: 10_000 })
-    .toMatchObject({ code: "NOT_FOUND" });
+  await vi.waitFor(
+    () => expect(client.jobs.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" }),
+    { timeout: 10_000 },
+  );
   await expect(access(jobDir)).rejects.toMatchObject({ code: "ENOENT" });
   await expect(client.jobs.delete({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
@@ -320,13 +321,14 @@ test("a job deleted while its Runner is away reads as deleted, and a repeated de
   await expect(client.jobs.resume({ id })).rejects.toMatchObject({ code: "CONFLICT" });
   await system.startRunner();
 
-  await expect
-    .poll(() => client.jobs.get({ id }).catch((error: unknown) => error), { timeout: 20_000 })
-    .toMatchObject({ code: "NOT_FOUND" });
+  await vi.waitFor(
+    () => expect(client.jobs.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" }),
+    { timeout: 20_000 },
+  );
 }, 40_000);
 
 // Last in the file: it removes the Runner the others share.
-test("removing a Runner ends the jobs it held, and leaves its finished jobs no work to carry on or files to remove", async () => {
+test("jobs can be listed by Runner and status, and removing the Runner ends the jobs it held and releases its finished jobs", async () => {
   const tedious = reply("Counting is tedious.");
   system.model.setResponses([tedious, tedious, tedious]);
   const client = await system.clientWithNewJobsKey();
@@ -344,12 +346,16 @@ test("removing a Runner ends the jobs it held, and leaves its finished jobs no w
   // Queued for the Runner, which holds its journal, and the removal of the other's files waits for it.
   await client.jobs.resume({ id: resumed });
   await client.jobs.delete({ id: deleting });
-  const runnerId = (await system.owner().runners.list())[0]?.id ?? "";
+  const { id: unassigned } = await submitJob(client, SUBMISSION);
+  const [runner] = await system.owner().runners.list();
+  if (!runner) throw new Error("The hub lists no Runner");
+  const runnerId = runner.id;
   // What it holds now, as its page reads them.
   const held = await client.jobs.list({ runnerId, status: ["queued", "running", "paused"] });
   const heldIds = held.jobs.map((job) => job.id);
   expect(heldIds).toEqual(expect.arrayContaining([running, cancelling, resumed]));
   expect(heldIds).not.toContain(finished);
+  expect(heldIds).not.toContain(unassigned);
 
   const removed = await system.owner().runners.delete({ id: runnerId });
 
@@ -366,7 +372,7 @@ test("removing a Runner ends the jobs it held, and leaves its finished jobs no w
   expect(await client.jobs.get({ id: cancelling })).toMatchObject({ status: "cancelled" });
   await expect(client.jobs.get({ id: deleting })).rejects.toMatchObject({ code: "NOT_FOUND" });
   // Its jobs are still listed by its ID.
-  const listed = (await client.jobs.list({ runnerId, limit: 100 })).jobs.map((job) => job.id);
+  const listed = (await client.jobs.list({ runnerId })).jobs.map((job) => job.id);
   expect(listed).toEqual(expect.arrayContaining([finished, running, cancelling, resumed]));
   expect(listed).not.toContain(deleting);
   expect(await client.jobs.list({ runnerId: crypto.randomUUID() })).toEqual({

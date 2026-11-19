@@ -30,8 +30,14 @@ export default async function setup(project: TestProject) {
     { env },
   );
   const container = await new PostgreSqlContainer("postgres:18-alpine").start();
-  await migrateDatabase(container.getConnectionUri());
-  project.provide("databaseUrl", container.getConnectionUri());
+  try {
+    const databaseUrl = container.getConnectionUri();
+    await migrateDatabase(databaseUrl);
+    project.provide("databaseUrl", databaseUrl);
+  } catch (error) {
+    await container.stop();
+    throw error;
+  }
   return async () => {
     await container.stop();
   };

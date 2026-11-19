@@ -7,17 +7,10 @@ import { createApp } from "../src/app.ts";
 // request while its settings are missing, and an error nothing expected.
 
 function appFailingWith(error: Error) {
-  return createApp({
-    run: async () => {
-      throw error;
-    },
-    acceptRunner: async () => {
-      throw error;
-    },
-    hubUrl: () => {
-      throw error;
-    },
-  });
+  const fail = () => {
+    throw error;
+  };
+  return createApp({ run: fail, acceptRunner: fail, hubUrl: fail });
 }
 
 test("a hub that cannot serve answers 503 as Problem Details", async () => {

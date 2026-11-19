@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -112,7 +112,7 @@ export type OneJob = AgentInput &
 /** Uploads `content`, text as UTF-8, and answers its digest and size, as a job names it. */
 export async function uploadContent(client: ApiClient, content: string | Uint8Array) {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
-  const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const digest = `sha256:${hash("sha256", bytes)}`;
   return await client.blobs.upload({
     params: { digest },
     headers: { "content-length": bytes.length },
@@ -294,11 +294,12 @@ export function startSystem(
    * Creates the account `member`, adds it to the Organization with the plain `member` role, and
    * returns a client signed in as it and the account's user ID.
    */
-  async function addMember(member: {
+  async function addMember(account: {
     email: string;
-    password: string;
+    password?: string;
     name: string;
   }): Promise<{ client: ApiClient; userId: string }> {
+    const member = { ...account, password: account.password ?? "a member's own long password" };
     const [organization] = await ownerAuth().organization.list();
     if (!organization) throw new Error("The hub has no Organization");
     // Public sign-up is off, so the account is created as setup creates the owner's.
@@ -390,6 +391,11 @@ export function startSystem(
     /** A client signed in as `OWNER`. */
     owner: () => owner,
     newJobsKey,
+    /** Creates a named API key and a client sending it. */
+    async withKey(permissions: Record<string, string[]>, name = "jobs") {
+      const { id, key } = await owner.apiKeys.create({ name, permissions });
+      return { id, key, client: client({ "x-api-key": key }) };
+    },
     /** Creates an API key allowed to submit, read and control jobs, and returns a client sending it. */
     async clientWithNewJobsKey() {
       return client({ "x-api-key": await newJobsKey() });
