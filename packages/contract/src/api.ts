@@ -677,6 +677,17 @@ const blobCheckSchema = z.discriminatedUnion("stored", [
   }),
 ]);
 
+const statusFilterDescription = z.describe("Any of the given statuses, or any status when absent.");
+const labelFilterSchema = z.optional(
+  z
+    .record(labelKeySchema, labelValueSchema)
+    .check(
+      z.describe(
+        'Label key/value pairs that must all match, such as `\'{"customer":"acme"}\'` for the `--labels` flag on a list command or `labels[customer]=acme` in an HTTP query.',
+      ),
+    ),
+);
+
 /**
  * The hub's public HTTP API, for people and their programs. Callers sign in as a member or send an
  * API key in `x-api-key`. A Runner's own calls are `runnerHttpContract`'s.
@@ -853,7 +864,7 @@ export const apiContract = {
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. Add its jobs with `POST /batches/{id}/jobs`. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Its `id`, given or made, names it in every call. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
+            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's `id` to add jobs with `batches add-jobs` in the CLI or `POST /batches/{id}/jobs` over HTTP. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -870,7 +881,7 @@ export const apiContract = {
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} per request, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing: any problem refuses the whole request, naming every problem with its path, such as \`jobs[17].input\`: 400 when any job is invalid, then 409 when the Batch is cancelled, then 422 for each \`customId\` the Batch already has for a job with other content. A job whose \`customId\` the Batch already has with the same content is returned as it is, with \`created: false\`, so an add can be retried safely, and a whole Batch added again to add only the jobs it lacks; a new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. The hub checks every job and answers with 400 if any is invalid. Otherwise it answers with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. While the Batch accepts jobs, repeating a \`customId\` with the same content returns the existing job with \`created: false\`, so retrying an add creates only the jobs the Batch lacks. A new job needs a new \`customId\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -882,7 +893,7 @@ export const apiContract = {
               z.minLength(1),
               z.maxLength(MAX_JOBS_PER_ADD),
               z.describe(
-                `The jobs to add, 1 to ${MAX_JOBS_PER_ADD} per request; a larger Batch is added over several.`,
+                "The jobs to add in this call. For a larger Batch, add more jobs with the same Batch ID in later calls.",
               ),
             ),
         }),
@@ -903,20 +914,8 @@ export const apiContract = {
       )
       .input(
         z.strictObject({
-          status: z.optional(
-            z
-              .array(batchStatusSchema)
-              .check(z.describe("Statuses, one per `status` parameter; any status when none.")),
-          ),
-          labels: z.optional(
-            z
-              .record(labelKeySchema, labelValueSchema)
-              .check(
-                z.describe(
-                  "Labels the Batch must all have, as `labels[customer]=acme`; repeat for more.",
-                ),
-              ),
-          ),
+          status: z.optional(z.array(batchStatusSchema).check(statusFilterDescription)),
+          labels: labelFilterSchema,
           after: z.optional(
             batchIdSchema.check(
               z.describe("The last Batch's ID on the previous page, to read on after it."),
@@ -1118,20 +1117,8 @@ export const apiContract = {
       )
       .input(
         z.strictObject({
-          status: z.optional(
-            z
-              .array(jobStatusSchema)
-              .check(z.describe("Statuses, one per `status` parameter; any status when none.")),
-          ),
-          labels: z.optional(
-            z
-              .record(labelKeySchema, labelValueSchema)
-              .check(
-                z.describe(
-                  "Labels the job must all have, as `labels[customer]=acme`; repeat for more.",
-                ),
-              ),
-          ),
+          status: z.optional(z.array(jobStatusSchema).check(statusFilterDescription)),
+          labels: labelFilterSchema,
           batchId: z.optional(
             batchIdSchema.check(z.describe("The ID of the Batch the job belongs to.")),
           ),
@@ -1183,7 +1170,7 @@ export const apiContract = {
           method: "GET",
           path: "/jobs/counts",
           description:
-            "Counts the Organization's unfinished jobs now, all read at one moment: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs. It takes no query parameters, and refuses any with 400.",
+            "Counts the Organization's unfinished jobs at one moment, without filters: how many are queued, running and paused, and how many of those show `statusUnknown`, as a Batch counts its own jobs.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
@@ -1258,24 +1245,8 @@ export const apiContract = {
           runnerId: z.optional(
             textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
           ),
-          status: z.optional(
-            z
-              .array(finalJobStatusSchema)
-              .check(
-                z.describe(
-                  "Statuses the jobs ended in, one per `status` parameter; any status when none.",
-                ),
-              ),
-          ),
-          labels: z.optional(
-            z
-              .record(labelKeySchema, labelValueSchema)
-              .check(
-                z.describe(
-                  "Labels the jobs must all have had as they ended, as `labels[customer]=acme`; repeat for more.",
-                ),
-              ),
-          ),
+          status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
+          labels: labelFilterSchema,
         }),
       )
       .output(usageReportSchema),
