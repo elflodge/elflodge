@@ -1,4 +1,4 @@
-import ensureError from "ensure-error";
+import { asError } from "contract";
 import { createSignal } from "solid-js";
 
 /**
@@ -15,7 +15,7 @@ export function CopyButton(props: { text: string; label: string }) {
       await navigator.clipboard.writeText(props.text);
       setResult("copied");
     } catch (error) {
-      console.error(ensureError(error));
+      console.error(asError(error));
       setResult("refused");
     }
   }
