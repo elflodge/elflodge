@@ -354,12 +354,12 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     usage: {
       get: os.usage.get.effect(function* ({ input, context, errors }) {
-        const { status, keyId, runnerId, ...rest } = input;
-        // The IDs enter the hub here.
+        const { status, runnerId, ...rest } = input;
+        // The IDs enter the hub here; a submitter's ID stays text, as its column holds a key's or
+        // a user's.
         const query = {
           ...rest,
           statuses: status ?? [],
-          keyId: keyId === undefined ? undefined : ApikeyId(keyId),
           runnerId: runnerId === undefined ? undefined : RunnerId(runnerId),
         };
         return yield* readUsage(context.headers, query).pipe(

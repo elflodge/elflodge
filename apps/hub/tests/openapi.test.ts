@@ -65,6 +65,22 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
       "/runners": { get: { security: [{ session: [] }] } },
+      // An object in the query string, as `submitter[kind]=member&submitter[id]=…`.
+      "/usage": {
+        get: {
+          parameters: expect.arrayContaining([
+            expect.objectContaining({
+              name: "submitter",
+              style: "deepObject",
+              schema: expect.objectContaining({
+                properties: expect.objectContaining({
+                  kind: { type: "string", enum: ["key", "member"] },
+                }),
+              }),
+            }),
+          ]),
+        },
+      },
     },
   });
 

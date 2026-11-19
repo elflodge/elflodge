@@ -2,7 +2,6 @@ import {
   batchIdSchema,
   finalJobStatusSchema,
   type Labels,
-  KEY_SUBMITTER,
   MAX_USAGE_DAYS,
   submitterSchema,
   type Usage,
@@ -25,7 +24,7 @@ import * as z from "zod/mini";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { Db, greatest } from "./db/database.ts";
-import type { ApikeyId, BatchUid, Database, JobStatus, RunnerId } from "./db/types.ts";
+import type { BatchUid, Database, JobStatus, RunnerId, SubmitterKind } from "./db/types.ts";
 import { InvalidInput } from "./invalid-input.ts";
 
 // The Organization's usage, added up from its Usage records: each records what one job used up to
@@ -40,7 +39,8 @@ export interface UsageQuery {
   /** With `groupBy`, how many groups to name; the rest are summed together. */
   limit: number;
   batchId?: string;
-  keyId?: ApikeyId;
+  /** Who submitted the jobs, by kind and ID. */
+  submitter?: { kind: SubmitterKind; id: string };
   runnerId?: RunnerId;
   statuses: readonly JobStatus[];
   labels?: Labels;
@@ -155,7 +155,7 @@ function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery
     .where("usageRecord.recordedAt", "<", (eb) =>
       utcMidnightOf(eb, eb(eb.cast(eb.val(window.to), "date"), "+", eb.lit(1))),
     );
-  const { statuses, labels, batchId, keyId, runnerId } = query;
+  const { statuses, labels, batchId, submitter, runnerId } = query;
   if (statuses.length > 0) {
     records = records.where("usageRecord.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
   }
@@ -169,10 +169,10 @@ function recordsOf(qb: QueryCreator<Database>, window: Window, query: UsageQuery
       eb.selectFrom("batch").select("batch.uid").where("batch.id", "=", batchId),
     );
   }
-  if (keyId !== undefined) {
+  if (submitter !== undefined) {
     records = records
-      .where("usageRecord.submitterKind", "=", KEY_SUBMITTER)
-      .where("usageRecord.submitterId", "=", keyId);
+      .where("usageRecord.submitterKind", "=", submitter.kind)
+      .where("usageRecord.submitterId", "=", submitter.id);
   }
   if (runnerId !== undefined) records = records.where("usageRecord.runnerId", "=", runnerId);
   return records;
