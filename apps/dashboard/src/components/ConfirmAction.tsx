@@ -29,13 +29,13 @@ export function ConfirmAction(props: {
   async function confirm() {
     setPending(true);
     setFailure(undefined);
-    const message = await props.act();
-    setPending(false);
-    if (message) {
-      setFailure(message);
-      return;
+    try {
+      const message = await props.act();
+      if (message) setFailure(message);
+      else dialog?.close();
+    } finally {
+      setPending(false);
     }
-    dialog?.close();
   }
 
   return (

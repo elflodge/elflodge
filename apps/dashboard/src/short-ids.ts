@@ -1,4 +1,4 @@
-/** The fewest characters of an ID that a person reads as its short ID. */
+/** Eight characters are the first group of a UUID. */
 const SHORTEST = 8;
 
 /**

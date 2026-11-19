@@ -1,15 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createFileRoute } from "@tanstack/solid-router";
+import { createFileRoute, useRouter, type ErrorComponentProps } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
-import { KEY_PERMISSIONS } from "contract";
+import { GRANTABLE_KEY_PERMISSIONS } from "contract";
 import { For, Loading, Show, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
+import { DefaultCatchBoundary } from "../../../components/DefaultCatchBoundary.tsx";
+import { FallbackPage } from "../../../components/FallbackPage.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { fieldText } from "../../../form.ts";
+import { createFormAction, fieldText, focusIfLost } from "../../../form.ts";
 import { TIME_SECONDS, timeZoneNote } from "../../../format.ts";
 import { canManageKeys } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
@@ -21,6 +23,7 @@ export const Route = createFileRoute("/_signed-in/_member/api-keys")({
       context.queryClient.query(orpc.apiKeys.list.queryOptions({ staleTime: "static" })),
     );
   },
+  errorComponent: KeyReadErrorPage,
   component: ApiKeys,
 });
 
@@ -30,11 +33,15 @@ export const Route = createFileRoute("/_signed-in/_member/api-keys")({
  * registers, holds `runner: actAs`.
  */
 const GRANTABLE = [
-  { resource: "job", legend: "Jobs", actions: KEY_PERMISSIONS.job },
-  { resource: "runner", legend: "Runners", actions: ["register", "read"] },
+  { resource: "job", legend: "Jobs", actions: GRANTABLE_KEY_PERMISSIONS.job },
+  { resource: "runner", legend: "Runners", actions: GRANTABLE_KEY_PERMISSIONS.runner },
 ] as const;
 
-/** How long a new key may live, as the hub allows: from a day to a year, or for good. */
+/**
+ * Submitters and Runners can run unattended until their service key is revoked. The API, CLI
+ * and form default to no expiry, as Cloudflare's account API tokens do without an end date.
+ * https://developers.cloudflare.com/fundamentals/api/how-to/restrict-tokens/#time-to-live-ttl-constraints
+ */
 const EXPIRIES = [
   { label: "Never", seconds: undefined },
   { label: "In 1 day", seconds: 86_400 },
@@ -50,12 +57,20 @@ function ApiKeys() {
     const { membership } = context();
     return membership.status === "member" && canManageKeys(membership.role);
   };
+  let heading: HTMLHeadingElement | undefined;
   const [creating, setCreating] = createSignal(false);
 
   return (
     <Loading fallback={null}>
       <div class="head">
-        <h1>API keys</h1>
+        <h1
+          tabindex="-1"
+          ref={(element) => {
+            heading = element;
+          }}
+        >
+          API keys
+        </h1>
         <Show when={managesKeys()}>
           <div class="controls">
             <button type="button" class="primary" onClick={() => setCreating(true)}>
@@ -73,27 +88,71 @@ function ApiKeys() {
           </p>
         }
       >
-        <KeyList />
-        <Show when={creating()}>
-          <CreateKey onClose={() => setCreating(false)} />
-        </Show>
+        <KeyList focusAfterRevoke={() => focusIfLost(heading)} />
       </Show>
       <p class="prose">
         The <a href="/spec.json">OpenAPI document</a> describes the hub's API as JSON, for an API
         client or a code generator to read.
       </p>
+      <Show when={managesKeys() && creating()}>
+        <CreateKey onClose={() => setCreating(false)} />
+      </Show>
     </Loading>
   );
 }
 
-function KeyList() {
+function KeyReadNotice(props: { error: unknown; failedAt: number; readAt: number }) {
+  return (
+    <Notice role="alert">
+      The API keys could not be read at{" "}
+      <Instant value={new Date(props.failedAt)} format={TIME_SECONDS} />:{" "}
+      {hubFailureMessage(props.error)}
+      <Show when={props.readAt}>
+        {(readAt) => (
+          <>
+            {" "}
+            What is shown is from the read at{" "}
+            <Instant value={new Date(readAt())} format={TIME_SECONDS} />.
+          </>
+        )}
+      </Show>
+    </Notice>
+  );
+}
+
+function KeyReadErrorPage(props: ErrorComponentProps<unknown>) {
+  const router = useRouter();
+  const state = useQueryClient().getQueryState(orpc.apiKeys.list.queryKey());
+  if (!state?.error || !(props.error instanceof Error) || props.error.cause !== state.error) {
+    return <DefaultCatchBoundary {...props} />;
+  }
+  return (
+    <FallbackPage heading="API keys">
+      <p class="note">{timeZoneNote()}</p>
+      <KeyReadNotice
+        error={state.error}
+        failedAt={state.errorUpdatedAt}
+        readAt={state.dataUpdatedAt}
+      />
+      <p>
+        <button type="button" class="primary" onClick={() => void router.invalidate()}>
+          Try again
+        </button>
+      </p>
+    </FallbackPage>
+  );
+}
+
+function KeyList(props: { focusAfterRevoke: () => void }) {
   const queryClient = useQueryClient();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
 
   async function revoke(key: ApiKey) {
     try {
       await api.apiKeys.revoke({ id: key.id });
-      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
+      void queryClient
+        .invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
+        .then(props.focusAfterRevoke);
       return undefined;
     } catch (error) {
       return hubFailureMessage(error);
@@ -107,12 +166,11 @@ function KeyList() {
       </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
-        <Notice role="alert">
-          The API keys could not be read at{" "}
-          <Instant value={new Date(keys.errorUpdatedAt)} format={TIME_SECONDS} />:{" "}
-          {hubFailureMessage(keys.error)} What is shown is from the read at{" "}
-          <Instant value={new Date(keys.dataUpdatedAt)} format={TIME_SECONDS} />.
-        </Notice>
+        <KeyReadNotice
+          error={keys.error}
+          failedAt={keys.errorUpdatedAt}
+          readAt={keys.dataUpdatedAt}
+        />
       </Show>
       <Show when={keys.data}>
         {(list) => (
@@ -123,7 +181,7 @@ function KeyList() {
                 <h2>No API keys</h2>
                 <p>
                   A program, a script or a Runner calls the hub with a key. Create one with Create
-                  key; it is listed here until it is revoked.
+                  key.
                 </p>
               </div>
             }
@@ -146,20 +204,17 @@ function CreateKey(props: { onClose: () => void }) {
   let dialog: HTMLDialogElement | undefined;
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
   const [failure, setFailure] = createSignal<string>();
-  const [pending, setPending] = createSignal(false);
+  const { pending, onSubmit } = createFormAction(create);
 
-  async function create(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  async function create(element: HTMLFormElement) {
+    const form = new FormData(element);
     const permissions = Object.fromEntries(
-      GRANTABLE.map(({ resource, actions }) => [
-        resource,
-        actions.filter((action) => form.has(`${resource}:${action}`)),
-      ]).filter(([, actions]) => actions.length > 0),
+      GRANTABLE.map(
+        ({ resource }) => [resource, form.getAll(resource).map(String)] as const,
+      ).filter(([, actions]) => actions.length > 0),
     );
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expires"))]?.seconds;
-    setPending(true);
     setFailure(undefined);
     try {
       const { key } = await api.apiKeys.create({
@@ -168,12 +223,11 @@ function CreateKey(props: { onClose: () => void }) {
         ...(expiresIn === undefined ? {} : { expiresIn }),
       });
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
+      // A key returned after this dialog closed belongs to its previous opening.
       if (!dialog?.open || !dialog.isConnected) return;
       setCreated({ name, key });
     } catch (error) {
-      if (dialog?.open && dialog.isConnected) setFailure(hubFailureMessage(error));
-    } finally {
-      setPending(false);
+      setFailure(hubFailureMessage(error));
     }
   }
 
@@ -190,7 +244,7 @@ function CreateKey(props: { onClose: () => void }) {
       <Show
         when={created()}
         fallback={
-          <form onSubmit={create}>
+          <form onSubmit={onSubmit}>
             <h2 class="dialog-h" id="create-key-heading">
               Create an API key
             </h2>
@@ -208,7 +262,7 @@ function CreateKey(props: { onClose: () => void }) {
                       <For each={group.actions}>
                         {(action) => (
                           <label class="check">
-                            <input type="checkbox" name={`${group.resource}:${action}`} />
+                            <input type="checkbox" name={group.resource} value={action} />
                             <span class="mono">{action}</span>
                           </label>
                         )}
@@ -300,12 +354,12 @@ function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<stri
       <tbody role="rowgroup">
         <For each={props.keys} keyed={(key) => key.id}>
           {(key) => {
-            const name = () => key().name ?? "Unnamed";
+            const name = () => key().name || "Unnamed";
             const label = () => (key().start ? `${name()} ${key().start}` : name());
             return (
               <tr role="row">
                 <td role="cell" class="is-id">
-                  <span class={key().name === null ? "cut unnamed" : "cut mono"} title={name()}>
+                  <span class={!key().name ? "cut unnamed" : "cut mono"} title={name()}>
                     {name()}
                   </span>
                 </td>
@@ -327,8 +381,7 @@ function KeyTable(props: { keys: ApiKey[]; revoke: (key: ApiKey) => Promise<stri
                     triggerLabel={`Revoke ${label()}`}
                     heading={
                       <>
-                        Revoke{" "}
-                        <span class={key().name === null ? "unnamed" : "mono"}>{name()}</span>{" "}
+                        Revoke <span class={!key().name ? "unnamed" : "mono"}>{name()}</span>{" "}
                         <span class="sid">{key().start ?? ""}</span>?
                       </>
                     }

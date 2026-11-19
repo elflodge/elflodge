@@ -303,6 +303,7 @@ details > summary {
   cursor: pointer;
 }
 summary {
+  padding-block: calc((var(--control) - 1lh) / 2);
   color: var(--c-link);
   font-weight: var(--weight-medium);
 }
@@ -344,9 +345,11 @@ dialog::backdrop {
 @media (max-width: 640px), (pointer: coarse) {
   button,
   input:not([type="checkbox"], [type="radio"], [type="file"]),
-  select,
-  summary {
+  select {
     min-height: var(--control-touch);
+  }
+  summary {
+    padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
   button {
     padding: 0 var(--space-4);

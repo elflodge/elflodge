@@ -182,7 +182,9 @@ A list with nothing in it says what belongs there and the way to it: `div.empty`
   <h2>No jobs yet</h2>
   <p>A Runner runs the jobs submitted to this hub.</p>
   <p class="empty-act">
-    <Link to="/runners">View Runners</Link>
+    <Link class="stands-alone" to="/runners">
+      View Runners
+    </Link>
   </p>
 </div>
 ```
@@ -323,7 +325,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 `src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
 
 - **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An instant alone on a page that has the note carries none.
-- **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads “41 sec ago, at 03:49:02” (`TIME_SECONDS`), and on another day “3 days ago, 16 Nov 2026, 03:42:10” (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
+- **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
 
 ```tsx
@@ -333,11 +335,11 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `.num` sets a figure in the mono and aligns it right. In a column head it stays in the sans, and a `span.unit` in the head goes on its own line under the name.
 
-No page uses `.num` or `.unit` yet: they came before the pages built side by side that share them.
+A Runner's model has its thinking level beside it in `span.unit`, such as "thinking low".
 
 ### Records table
 
-Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell keeps its value whole above 640px and carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
+Records that each have a page of their own, such as a list of Batches, are a `table.records`: one ruled line a record, its identifier first. The identifier's cell is `td.is-id` holding an `a.cut` to its page; the identifier column takes what the others leave and cuts its value at its end, the whole value in the link's `title`. Every other cell carries `data-l`, the name of its column and, where the head has one, its unit, such as `data-l="Cost, USD"`. Above 640px the cell keeps its value whole, except for lists of permissions, which can wrap. The identifier's link is a target of its own: 24px tall, and 44px at 640px and below or with a coarse pointer. The caption names the list; where the page heading already does, it is `.vh`, hidden but read.
 
 ```tsx
 <table class="records" role="table">
@@ -367,13 +369,13 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 </table>
 ```
 
-A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. An absent name reads “Unnamed” in the secondary sans (`.unnamed`).
+A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. Its name column takes a fifth of the table, leaving room for the permissions. An absent name reads "Unnamed" in the secondary sans (`.unnamed`).
 
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
 ### Command to copy, and a secret shown once
 
-What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered machine appears. It then names the machine and its short ID beside the succeeded mark with `role="status"`. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
+What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered machine appears. The line keeps its `role="status"` from the start. When a Runner registers, the line names it and its short ID beside the succeeded mark. Its contents are empty during a failed read. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
 
 ```tsx
 <div class="copyable">
@@ -388,6 +390,8 @@ What a person copies to run elsewhere, such as the command that starts a Runner,
 ### Runner record
 
 The Runners page lists each Runner as `li.runner` in `ul.runners`: `div.runner-id` (`h2.runner-name` with the name in the mono and its `span.sid`, `p.conn` or `p.conn.is-off` with the connection's mark and words, and its last contact and when it registered), then what it reported its jobs can do, as a `dl`, then `div.runner-ctl` with its controls. Below 900px the three stand one under another.
+
+A slow first read shows three placeholder records in `ul.runners[aria-busy="true"]`, with a hidden status reading "Loading Runners". The records are hidden from assistive technology. Each `span.sk` is a line on `--c-skeleton`; `.is-title` and `.is-short` stand in for the name and connection, and `.is-part` for a shorter fact.
 
 ### Marks
 

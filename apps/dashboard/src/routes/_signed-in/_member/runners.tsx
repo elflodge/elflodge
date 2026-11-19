@@ -21,14 +21,47 @@ import { orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/runners")({
-  loader: async ({ context }) => {
-    if (context.membership.status !== "member") return;
+  loader: async ({ context, preload }) => {
+    // On a direct visit the shell and page share the first read. Let them render while it runs.
+    if (!preload || context.membership.status !== "member") return;
     await readFromHub("The Runners", () =>
       context.queryClient.query(orpc.runners.list.queryOptions({ staleTime: "static" })),
     );
   },
-  component: Runners,
+  component: () => (
+    <Loading fallback={<LoadingRunners />}>
+      <Runners />
+    </Loading>
+  ),
 });
+
+function LoadingRunners() {
+  return (
+    <>
+      <div class="head">
+        <h1>Runners</h1>
+      </div>
+      <ul class="runners" aria-busy="true">
+        {Array.from({ length: 3 }, () => (
+          <li class="runner" aria-hidden="true">
+            <div>
+              <span class="sk is-title" />
+              <span class="sk is-short" />
+            </div>
+            <div>
+              <span class="sk" />
+              <span class="sk is-part" />
+              <span class="sk is-part" />
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p class="vh" role="status">
+        Loading Runners
+      </p>
+    </>
+  );
+}
 
 function Runners() {
   const context = Route.useRouteContext();
@@ -74,10 +107,6 @@ function Runners() {
           </button>
         </div>
       </div>
-      <p class="note">
-        {timeZoneNote()} Connected means the hub has heard from the Runner in about the last two
-        minutes.
-      </p>
       <Show when={removed()} keyed>
         {(message) => (
           <Notice
@@ -90,41 +119,45 @@ function Runners() {
           </Notice>
         )}
       </Show>
-      <Loading fallback={null}>
-        {/* A read after the first that failed: what is shown is from an earlier one. */}
-        <Show when={runners.isError}>
-          <Notice role="alert">
-            The Runners could not be read at{" "}
-            <Instant value={new Date(runners.errorUpdatedAt)} format={TIME_SECONDS} />:{" "}
-            {hubFailureMessage(runners.error)} What is shown is from the read at{" "}
-            <Instant value={new Date(runners.dataUpdatedAt)} format={TIME_SECONDS} />.
-          </Notice>
-        </Show>
-        <Show when={runners.data}>
-          {(list) => (
-            <Show
-              when={list().length > 0}
-              fallback={
-                <div class="empty">
-                  <h2>No Runners yet</h2>
-                  <p>
-                    A Runner is a machine that runs jobs. Add one with the command Add Runner gives,
-                    and it is listed here once it registers.
-                  </p>
-                </div>
-              }
-            >
-              <RunnerList
-                runners={list()}
-                managesKeys={managesKeys()}
-                remove={remove}
-                readAt={runners.dataUpdatedAt}
-                shortId={shortId}
-              />
-            </Show>
-          )}
-        </Show>
-      </Loading>
+      <Show when={runners.isError || runners.data.length}>
+        <p class="note">
+          {timeZoneNote()} Connected means the hub has heard from the Runner in about the last two
+          minutes.
+        </p>
+      </Show>
+      {/* A read after the first that failed: what is shown is from an earlier one. */}
+      <Show when={runners.isError}>
+        <Notice role="alert">
+          The Runners could not be read at{" "}
+          <Instant value={new Date(runners.errorUpdatedAt)} format={TIME_SECONDS} />:{" "}
+          {hubFailureMessage(runners.error)} What is shown is from the read at{" "}
+          <Instant value={new Date(runners.dataUpdatedAt)} format={TIME_SECONDS} />.
+        </Notice>
+      </Show>
+      <Show when={runners.data}>
+        {(list) => (
+          <Show
+            when={list().length > 0}
+            fallback={
+              <div class="empty">
+                <h2>No Runners yet</h2>
+                <p>
+                  A Runner runs jobs. Add one with the command Add Runner gives, and it is listed
+                  here once it registers.
+                </p>
+              </div>
+            }
+          >
+            <RunnerList
+              runners={list()}
+              managesKeys={managesKeys()}
+              remove={remove}
+              readAt={runners.dataUpdatedAt}
+              shortId={shortId}
+            />
+          </Show>
+        )}
+      </Show>
       <Show when={runnersAtOpen()}>
         {(atOpen) => (
           <AddRunner
@@ -184,7 +217,7 @@ function RunnerList(props: {
                       </p>
                       <p class="note is-unknown">
                         <span class="mark mark-unknown" aria-hidden="true" />
-                        <span>Its unfinished jobs show status unknown.</span>
+                        <span>Its queued and running jobs show status unknown.</span>
                       </p>
                     </>
                   }
