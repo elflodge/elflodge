@@ -39,18 +39,29 @@ async function expectShellAt(pathname: string) {
   expect(
     await page.locator('script[src^="/dashboard/assets/"][src$=".js"]').count(),
   ).toBeGreaterThan(0);
+  return page;
 }
 
 test("the dashboard's pages, deep links included, load its app shell", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
-  await expectShellAt("/dashboard/.vite/manifest.json");
-  const page = await browser.newPage();
-  onTestFinished(() => page.close());
-  const missing = await page.goto(`${system.origin}/dashboard/assets/missing.js`);
-  expect(missing?.status()).toBe(404);
-  expect(missing?.headers()["cache-control"] ?? "").not.toContain("immutable");
+  const page = await expectShellAt("/dashboard/.vite/manifest.json");
+  const missingPath = "/dashboard/assets/missing.js";
+  const missing = await page.evaluate(async (path) => {
+    const response = await fetch(path);
+    return { status: response.status, cacheControl: response.headers.get("cache-control") };
+  }, missingPath);
+  expect(missing.status).toBe(404);
+  expect(missing.cacheControl ?? "").not.toContain("immutable");
+
+  const navigation = await page.goto(`${system.origin}${missingPath}`);
+  if (inject("hub") === "workers") {
+    expect(navigation?.status()).toBe(200);
+    await page.getByRole("heading", { name: "Not found" }).waitFor();
+  } else {
+    expect(navigation?.status()).toBe(404);
+  }
   const notices = await system.hub.fetch("/dashboard/THIRD_PARTY_NOTICES.md");
   expect(notices.headers.get("content-type")).toMatch(/^text\/markdown/);
 

@@ -468,7 +468,7 @@ const api = new OpenAPIHandler(router, {
 export const AUTH_CHALLENGE = 'ApiKey realm="elflodge"';
 
 /** What the app needs from the platform it runs on. */
-export interface HubPlatform<Bindings extends object> {
+export interface HubPlatform<Bindings> {
   /** Runs `effect` with the platform's services, for a request made with `env`. */
   run<A, E>(env: Bindings, effect: Effect.Effect<A, E, HubServices>): Promise<A>;
   /**
@@ -478,10 +478,8 @@ export interface HubPlatform<Bindings extends object> {
   acceptRunner(env: Bindings, request: Request, runnerId: RunnerId): Promise<Response>;
   /** The hub's public URL, its `HUB_URL` setting. */
   hubUrl(env: Bindings): string;
-  /**
-   * Serves dashboard requests under the base path. On Workers only misses reach the app.
-   */
-  dashboard?: Hono<{ Bindings: Bindings }>;
+  /** Serves the dashboard on Node. Workers Static Assets serve it before the Worker runs. */
+  dashboard?: Hono;
 }
 
 /**

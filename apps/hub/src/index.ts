@@ -1,12 +1,10 @@
 import { Effect, Layer } from "effect";
 import ensureError from "ensure-error";
-import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import { createApp } from "./app.ts";
 import { databaseAndAuthLayer } from "./auth/auth.ts";
 import { sweepUnusedBlobs } from "./blobs.ts";
-import { DASHBOARD_BASE } from "./dashboard.ts";
 import { RunnerConnections } from "./platform.ts";
 import {
   authSettings,
@@ -59,13 +57,6 @@ const app = createApp<Env>({
   acceptRunner: (env, request, runnerId) =>
     env.RUNNER_CONNECTION.getByName(runnerId).fetch(request),
   hubUrl: () => readSettings().hubUrl,
-  dashboard: new Hono<{ Bindings: Env }>()
-    .get("/assets/*", (c) => c.notFound())
-    .get("*", (c) =>
-      c.req.header("Sec-Fetch-Mode") === "navigate"
-        ? c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_BASE, c.req.url), c.req.raw))
-        : c.notFound(),
-    ),
 });
 
 export default {

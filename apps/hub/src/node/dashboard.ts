@@ -6,14 +6,12 @@ import { Hono } from "hono";
 import { DASHBOARD_BASE } from "../dashboard.ts";
 
 /**
- * The dashboard's files under its base path, from `root`, its build, as Workers Static Assets serve
- * them on the Workers hub (`wrangler.jsonc`): the hashed assets and the notices as they are, and the
- * app shell for every other path, which the app routes in the browser. Only those files, so a hub run
- * from source, whose `root` is the dashboard's whole build, serves what the built hub serves.
+ * Serves the dashboard under its base path from the build at `root`. A hub run from source has
+ * Vite's private build files there too, so only the hashed assets, notices and shell are exposed.
  */
 export function dashboardFiles(root: string) {
   return (
-    new Hono<{ Bindings: object }>()
+    new Hono()
       // The base path without its `/`, redirected as Workers Static Assets redirect it, query kept.
       .get("/", (c) => c.redirect(DASHBOARD_BASE + new URL(c.req.url).search, 307))
       .use(
