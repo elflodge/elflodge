@@ -411,10 +411,10 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
 const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] });
 const bracketNotation = new BracketNotationSerializer();
 
-// One bare value must decode as a one-element list, which is why the array style stays.
-// For any declared query style, oRPC overwrites the bracket-decoded field and hides its name from
-// strict validation (middleapi/orpc#2500). Remove this when oRPC preserves the name for validation
-// or returns a 400 that names it.
+// oRPC's array query style reads only bare keys and ignores bracketed ones by design
+// (middleapi/orpc#2500). Restore their names so strict input validation can name each refusal.
+// A one-or-list schema changes the contract's input type, the client's encoding and the CLI flag.
+// Remove this if oRPC gains an option to keep or refuse bracketed names for a styled parameter.
 const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiContext> = (options) => {
   const styles = getOpenAPIMeta(options.procedure)?.queryStyles;
   // oRPC's compact codec reads the query as the input object on GET and HEAD.
