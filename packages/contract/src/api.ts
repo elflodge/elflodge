@@ -1237,7 +1237,7 @@ export const apiContract = {
               })
               .check(
                 z.describe(
-                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`. A later kind of submitter joins as one more `kind` value.",
+                  "Who submitted the jobs, as the `submitter` group names them: its `kind`, `key` for an API key or `member` for a member, and its `id`.",
                 ),
               ),
           ),
