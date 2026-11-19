@@ -447,14 +447,14 @@ const api = new OpenAPIHandler(router, {
     // The OpenAPI document at `/spec.json`, oRPC's default, and a browsable reference of it at
     // `/docs`, as `/` leads to the dashboard (ADR 0043). The document names the session cookie of
     // the hub's deployment, so it is generated from the request's services. The reference page runs
-    // on the origin where members sign in, so its script is pinned to a version rather than whatever
-    // the CDN serves as latest.
+    // on the origin where members sign in and must also work offline.
     new OpenAPIReferenceHandlerPlugin({
       spec: ({ context }) =>
         Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
           generateOpenAPIDocument,
         ),
-      providerScriptUrl: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.75.1",
+      providerScriptUrl: `${DASHBOARD_BASE}scalar/standalone.js`,
+      providerConfig: { withDefaultFonts: false, telemetry: false },
       docsPath: "/docs",
     }),
   ],

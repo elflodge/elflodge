@@ -32,6 +32,7 @@ export default defineConfig({
         from: [
           "../dashboard/dist/client/index.html",
           "../dashboard/dist/client/assets",
+          "../dashboard/dist/client/scalar",
           "../dashboard/dist/client/THIRD_PARTY_NOTICES.md",
         ],
         to: "dist/dashboard",

@@ -1,5 +1,6 @@
 import solid from "@solidjs/vite-plugin";
 import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
@@ -34,6 +35,16 @@ export default defineConfig({
     host: "127.0.0.1",
   },
   plugins: [
+    // /docs loads Scalar's published browser bundle on its own, outside the dashboard's module graph.
+    viteStaticCopy({
+      targets: [
+        {
+          src: "node_modules/@scalar/api-reference/dist/browser/standalone.js",
+          dest: "scalar",
+          rename: { stripBase: true },
+        },
+      ],
+    }),
     tanstackStart({
       // The hub serves a static shell (ADR 0043). Cloudflare's single-page-application handling
       // serves `index.html` for an unmatched navigation, so Start must write the shell at that path.

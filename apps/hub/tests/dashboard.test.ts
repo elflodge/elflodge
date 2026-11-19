@@ -95,15 +95,25 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   expect(unslashed.headers.get("location")).toBe("/dashboard/");
 });
 
-test("the hub's root leads to the dashboard, and its API reference is at /docs", async () => {
+test("the hub's root leads to the dashboard, and /docs renders using only the hub", async () => {
   const root = await system.hub.fetch("/", { redirect: "manual" });
   expect(root.status).toBe(302);
   expect(root.headers.get("location")).toBe("/dashboard/");
 
-  const reference = await system.hub.fetch("/docs");
-  expect(reference.status).toBe(200);
-  expect(reference.headers.get("content-type")).toMatch(/^text\/html/);
-  expect(await reference.text()).toContain("@scalar/api-reference");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const externalRequests: string[] = [];
+  await page.route(
+    (url) => /^https?:$/.test(url.protocol) && url.origin !== system.origin,
+    (route) => {
+      externalRequests.push(route.request().url());
+      return route.abort();
+    },
+  );
+  await page.goto(`${system.origin}/docs`);
+  await page.getByRole("heading", { name: "Elflodge", exact: true }).waitFor();
+  await page.evaluate("document.fonts.ready");
+  expect(externalRequests).toEqual([]);
 });
 
 test("a member's request another site sends is refused, and the same from the hub served", async () => {
