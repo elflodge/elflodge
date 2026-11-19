@@ -520,7 +520,8 @@ function signIn(state: State) {
   return Effect.tryPromise({
     try: async (signal) => {
       const url = hubUrl(state.port);
-      // Effect's Cookies reads the session from this one fetch. Better Auth documents its client for browsers.
+      // Effect's Cookies reads the session from this one fetch. Better Auth documents its client
+      // for browsers.
       const response = await fetch(`${url}/api/auth/sign-in/email`, {
         signal,
         method: "POST",

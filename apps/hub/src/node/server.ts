@@ -18,7 +18,8 @@ import type { RunnerSockets } from "./runner-sockets.ts";
  * body of the hub's refusal (`RUNNER_NOT_FOUND`), which Hono's own Node helper leaves out.
  * The crossws serve() helper uses srvx to start the server and wire upgrades. Under srvx,
  * serveStatic's onFound headers miss the response and a listener error after startup exits the hub.
- * Hono's Node listener preserves the dashboard headers and keeps serving after logging a listener error.
+ * Hono's Node listener preserves the dashboard headers and keeps serving after logging a
+ * listener error.
  */
 export async function startServer(
   fetch: (request: Request) => Response | Promise<Response>,

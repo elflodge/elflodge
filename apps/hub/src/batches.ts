@@ -111,12 +111,12 @@ function hasUnfinishedJobs(countFor: (status: JobStatus) => Expression<number>) 
 function batchStatus(
   cancelledAt: Expression<BatchRow["cancelledAt"]>,
   pausedBy: Expression<BatchRow["pausedBy"]>,
-  unfinished: Expression<SqlBool>,
+  anyUnfinishedJob: Expression<SqlBool>,
 ) {
   const eb = expressionBuilder();
   return eb
     .case()
-    .when(eb.and([eb(cancelledAt, "is not", null), eb.not(unfinished)]))
+    .when(eb.and([eb(cancelledAt, "is not", null), eb.not(anyUnfinishedJob)]))
     .then(eb.val<BatchStatus>("cancelled"))
     .when(pausedBy, "is not", null)
     .then(eb.val<BatchStatus>("paused"))
@@ -248,7 +248,8 @@ export function listBatches(query: BatchListQuery) {
             .where((eb) => {
               const filters = [];
               if (statuses.length > 0) {
-                // For a paused-only page, rule out unpaused Batches before looking at their jobs.
+                // For a paused-only page, rule out unpaused Batches before looking at their jobs;
+                // batchStatus gives "paused" only to a Batch with `pausedBy` set.
                 if (statuses.every((status) => status === "paused")) {
                   filters.push(eb("b.pausedBy", "is not", null));
                 }
