@@ -48,6 +48,8 @@ Verified against documentation or source on 2026-10-28:
 
 ## Considered options
 
+- Reading Runner capabilities with `docker compose exec psql` would couple the CLI to the hub's private database schema. The CLI reads hub data through its HTTP API.
+- Keeping the Runner listing member-only would require signing in at every start. Once the owner changes the initial password, the stack could no longer read the listing.
 - A foreground server that removes its containers when the terminal closes: this tied job availability to a terminal's lifetime. The earlier objection that detached containers keep running after the user is done is reversed: daily users are done with their terminal before their jobs. Explicit lifecycle commands cover cleanup.
 - Bundling the hub and the Runner into the CLI and running them as processes on the host, with only Postgres in a container: the hub needs Node 26 while the CLI supports Node 22 (ADR 0024), and a Runner on the host needs bubblewrap, socat and ripgrep installed on Linux, which the image carries.
 - The Docker API through a library, such as dockerode or Testcontainers: Compose already declares the services, their order, health checks and volumes, and either library would add a Docker client to a bundle every user of the CLI downloads.

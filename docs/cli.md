@@ -51,8 +51,6 @@ The `stack` commands manage this machine regardless of the hub selected for `job
 
 ### Credentials
 
-`stack initial-password` prints the saved initial password for `owner@example.com` on the local dashboard at `http://localhost:8787/dashboard/` (or the port set with `--port`). After changing it in the dashboard, sign in with your chosen password.
-
 An interactive start offers login if the selected provider has no credentials. `stack login --provider NAME` also works before the first start, and adds or replaces credentials without changing the selected model. Pi supplies the supported methods: provider API keys, account sign-in, or a choice between them. Typed keys are hidden. Login saves to the Runner's volume, using a temporary container that is removed afterwards. For scripted setup, `stack login --provider NAME --with-api-key` reads a provider API key from stdin and saves it; providers needing additional inputs require interactive login. `stack logout --provider NAME` removes only that provider's saved credential.
 
 For externally managed credentials, repeat `--env NAME` to forward variables under Pi's existing names, only to the Runner:
@@ -64,6 +62,8 @@ OPENROUTER_API_KEY="$MY_KEY" elflodge stack start --env OPENROUTER_API_KEY
 The stack imports no provider keys merely because they exist in your shell. It saves forwarded names, never their values. Docker retains the values in the existing container, so an unchanged start or a restart after `stack stop` needs no original variables. Recreating the Runner requires them again. Omitting `--env` retains the names; an explicit list replaces them and refreshes their values; `--clear-env` removes them. Saved provider login takes precedence over ordinary environment credentials, as in Pi. A failed sign-in refresh requires repair rather than silently switching to an environment key.
 
 ### Operating the stack
+
+`stack initial-password` prints the saved initial password for `owner@example.com` on the local dashboard at `http://localhost:8787/dashboard/` (or the port set with `--port`). After changing it in the dashboard, sign in with your chosen password.
 
 `stack stop` keeps the containers, database, Runner data and credentials. `stack delete` removes the database and Runner volumes, including saved logins, and the stack's saved configuration, without a prompt. `stack status` shows the hub URL, container state and health, image versions, and authentication source where available. `stack logs` prints logs; `--follow` keeps following them.
 
