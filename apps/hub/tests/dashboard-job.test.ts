@@ -1,9 +1,16 @@
+import { JOB_SUCCEEDED, type JobEvent } from "contract";
 import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, onTestFinished, test } from "vite-plus/test";
+import { afterAll, assert, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
-import { startSystem, submitJob, untilStatus } from "./harness.ts";
+import {
+  protocolClient,
+  startedJobReport,
+  startSystem,
+  submitJob,
+  untilStatus,
+} from "./harness.ts";
 import { callTool, untilAborted } from "./scripted-model.ts";
 
 const system = startSystem({ hubVars: { JOB_MODEL_BUDGET_USD_MAX: "5" } });
@@ -148,4 +155,160 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText("17", {
     timeout: 15_000,
   });
+}, 45_000);
+
+function message(id: number): JobEvent {
+  return {
+    id,
+    type: "entry",
+    record: {
+      id,
+      kind: "pi.user",
+      conversationId: 1,
+      model: [{ role: "user", content: `Invoice ${id}.`, timestamp: Date.now() }],
+    },
+  };
+}
+
+/** The member reads real hub pages. The Runner speaks the protocol so the test can
+ * choose the journal length and deliver more Events while the member is reading. */
+async function jobWithHistory(entries: number) {
+  const { id } = await submitJob(system.owner(), submission);
+  const { socket } = await system.connectRunner();
+  onTestFinished(() => socket.close(1000));
+  const runner = protocolClient(socket);
+  const { runs } = await runner.request("sync", { held: [], free: 1 }, 10_000);
+  const run = runs.find((placed) => placed.jobId === id);
+  assert(run);
+  const { runId } = run;
+  const held = [{ jobId: id, runId }];
+  let position = 0;
+  async function report(events: JobEvent[]) {
+    const answer = await runner.request(
+      "report",
+      {
+        held,
+        free: 0,
+        deleted: [],
+        jobs: [{ jobId: id, runId, intent: "run", position, events }],
+      },
+      10_000,
+    );
+    expect(answer.refused).toEqual([]);
+    position = events.at(-1)?.id ?? position;
+  }
+  const [start] = startedJobReport(run).events;
+  assert(start?.type === "entry");
+  await report([
+    { id: 1, type: "conversation", record: { id: 1 } },
+    { ...start, id: 2, record: { ...start.record, id: 2, conversationId: 1 } },
+    {
+      id: 10,
+      type: "entry",
+      record: {
+        id: 10,
+        conversationId: 1,
+        kind: "pi.tool-result",
+        model: [
+          {
+            role: "toolResult",
+            toolCallId: "list",
+            toolName: "bash",
+            content: [
+              {
+                type: "text",
+                text: Array.from({ length: 66 }, (_, i) => `Invoice ${i + 1}`).join("\n"),
+              },
+            ],
+            isError: false,
+            timestamp: Date.now(),
+          },
+        ],
+      },
+    },
+    ...Array.from({ length: entries - 1 }, (_, i) => message((i + 2) * 10)),
+  ]);
+  return { id, report };
+}
+
+test("a member opens the latest hundred Events in journal order, with their original numbers", async () => {
+  const { id } = await jobWithHistory(102);
+  const page = await openAsMember("Newest Events", `jobs/${id}`);
+  const numbers = page.locator("ol.timeline .ev-id");
+  await expectBrowser(numbers).toHaveText(
+    Array.from({ length: 100 }, (_, i) => String((i + 3) * 10)),
+  );
+}, 30_000);
+
+test("walking back keeps the first Event in place and focuses the Event just before it", async () => {
+  const { id } = await jobWithHistory(102);
+  const page = await openAsMember("Earlier Events", `jobs/${id}`);
+  const earlier = page.getByRole("button", { name: "Show 100 earlier Events" });
+  await earlier.evaluate((button) => {
+    button.scrollIntoView({ block: "center" });
+    button.focus({ preventScroll: true });
+  });
+  const first = page.locator("#event-30");
+  const top = await first.evaluate((el) => el.getBoundingClientRect().top);
+  await page.keyboard.press("Enter");
+  await expectBrowser(page.locator("#event-20")).toBeFocused();
+  await expectBrowser(page.getByRole("button", { name: "Show all 66 lines" })).toBeVisible();
+  expect(await first.evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(top, 0);
+  await expectBrowser(earlier).toHaveCount(0);
+}, 30_000);
+
+test("a member can read from the start and request the next page in order", async () => {
+  const { id } = await jobWithHistory(102);
+  const page = await openAsMember("First Events", `jobs/${id}`);
+  const jumps = page.getByRole("navigation", { name: "Go to" });
+  await jumps.getByText("Start", { exact: true }).click();
+  const numbers = page.locator("ol.timeline .ev-id");
+  await expectBrowser(numbers.first()).toHaveText("1");
+  await expectBrowser(numbers.last()).toHaveText("980");
+  await page.getByRole("button", { name: "Show 100 later Events" }).click();
+  await expectBrowser(numbers.last()).toHaveText("1020");
+  await expectBrowser(numbers).toHaveCount(104);
+}, 30_000);
+
+test("a member reading earlier Events can jump to new ones, and following ends after the final Event", async () => {
+  const { id, report } = await jobWithHistory(25);
+  const page = await openAsMember("Live Events", `jobs/${id}`);
+  await page.locator("#latest").evaluate((el) => el.scrollIntoView({ block: "end" }));
+  await report([message(255)]);
+  await expectBrowser(page.locator("#event-255")).toBeInViewport({ timeout: 12_000 });
+  await expectBrowser(page.getByRole("button", { name: "Go to them" })).toHaveCount(0);
+  const first = page.locator("#event-20");
+  await first.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  const top = await first.evaluate((el) => el.getBoundingClientRect().top);
+  const eventsPath = `/jobs/${id}/events`;
+  let reads = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === eventsPath) reads++;
+  });
+  await report([message(260), message(264)]);
+  const notice = page.getByRole("status").filter({ hasText: "2 new Events below" });
+  await expectBrowser(notice).toBeVisible({ timeout: 12_000 });
+  expect(await first.evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(top, 0);
+  await notice.getByText("Go to them", { exact: true }).click();
+  await expectBrowser(page.locator("#event-260")).toBeFocused();
+  await report([
+    {
+      id: 267,
+      type: "entry",
+      record: {
+        id: 267,
+        conversationId: 1,
+        kind: JOB_SUCCEEDED,
+        data: { timestamp: Date.now(), output: 17 },
+      },
+    },
+  ]);
+  await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("267", {
+    timeout: 12_000,
+  });
+  const finalReads = reads;
+  // Two job refreshes cover an entire polling interval, regardless of their phase.
+  for (let i = 0; i < 2; i++)
+    await page.waitForResponse((response) => new URL(response.url()).pathname === `/jobs/${id}`);
+  expect(reads).toBe(finalReads);
 }, 45_000);

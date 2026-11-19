@@ -61,7 +61,7 @@ export function JobStatus(props: { job: ListedJob | Job; lastRecorded?: boolean 
   );
 }
 
-const FAILURE_WORDS: Record<Failure["reason"], string> = {
+export const FAILURE_WORDS: Record<Failure["reason"], string> = {
   modelFailed: "Generating the next step failed.",
   noOutput: "its agent ended without an accepted Output",
   runTimedOut: "a run went past its run timeout",

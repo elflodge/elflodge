@@ -1,9 +1,23 @@
 import { useQuery } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
-import { FAILURE_MESSAGE_MAX_LENGTH, FINAL_JOB_STATUSES, type Job } from "contract";
+import {
+  FAILURE_MESSAGE_MAX_LENGTH,
+  FINAL_JOB_STATUSES,
+  JOB_RESUMED,
+  JOB_STARTED,
+  type Job,
+} from "contract";
 import { For, Show, createMemo, createSignal, flush, onSettled } from "solid-js";
 
-import { DATE_TIME_SECONDS, USD_BUDGET, duration, formatCount, formatUsd } from "../format.ts";
+import {
+  DATE_TIME_SECONDS,
+  TIME_SECONDS,
+  USD_BUDGET,
+  duration,
+  formatCount,
+  formatUsd,
+} from "../format.ts";
+import type { TimedEvent } from "../job-runs.ts";
 import { orpc } from "../query.ts";
 import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
@@ -143,10 +157,17 @@ export function JobFacts(props: { job: Job; readAt: number }) {
   );
 }
 
-export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
+export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?: TimedEvent }) {
   const cost = () => props.job.usage.cost.totalUsd;
   const suffix = () =>
     !FINAL_JOB_STATUSES.includes(props.job.status) || props.resumeOffered ? " so far" : "";
+  const measured = createMemo(() => {
+    const start = props.countFrom;
+    const report = props.job.lastReportedAt;
+    if (!start || props.job.status !== "running" || props.job.statusUnknown || !report)
+      return undefined;
+    return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
+  });
   return (
     <section aria-labelledby="job-limits">
       <h2 id="job-limits">
@@ -195,6 +216,39 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
                 Run timeout <span class="unit">each run</span>
               </h3>
               <p class="limit-value">{duration(limit())}</p>
+              <Show when={measured()}>
+                {(count) => (
+                  <>
+                    <div class="scale">
+                      <meter
+                        aria-label="Run timeout counted so far"
+                        min={0}
+                        max={limit()}
+                        value={Math.min(count().seconds, limit())}
+                        aria-valuetext={`${duration(count().seconds)} of ${duration(limit())} at the report`}
+                      />
+                    </div>
+                    <dl>
+                      <dt>Counted so far</dt>
+                      <dd>{duration(count().seconds)} at the report</dd>
+                      <dt>Times out at about</dt>
+                      <dd>
+                        <Instant
+                          value={new Date(count().start.at.getTime() + limit() * 1000)}
+                          format={TIME_SECONDS}
+                        />
+                      </dd>
+                    </dl>
+                    <Show when={count().start.kind !== JOB_STARTED}>
+                      <p class="note">
+                        Counted from <Instant value={count().start.at} format={TIME_SECONDS} />,{" "}
+                        {count().start.kind === JOB_RESUMED ? "its resume" : "its Runner’s restart"}
+                        .
+                      </p>
+                    </Show>
+                  </>
+                )}
+              </Show>
               <Show
                 when={
                   props.job.startedAt &&
@@ -221,12 +275,41 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
 }
 
 export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
+  const title = () => (props.failure ? "Failure message" : "Output");
+  return (
+    <section class="output-or-failure" aria-labelledby="output-or-failure">
+      <div class="output-or-failure-head">
+        <h2 id="output-or-failure">{title()}</h2>
+        <Show when={!props.failure}>
+          <CopyButton label="Copy Output" text={props.text} />
+        </Show>
+      </div>
+      <Show when={props.failure && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
+        <p class="note">This message reached the maximum stored length.</p>
+      </Show>
+      <TextPreview
+        id="output-or-failure-text"
+        text={props.text}
+        label={title()}
+        wraps={props.failure}
+        expandLabel={props.failure ? "Show the whole message" : undefined}
+      />
+    </section>
+  );
+}
+
+export function TextPreview(props: {
+  id: string;
+  text: string;
+  label: string;
+  wraps?: boolean;
+  expandLabel?: string;
+}) {
   const lines = createMemo(() => props.text.split("\n").length);
   const [long, setLong] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
-  const title = () => (props.failure ? "Failure message" : "Output");
   let code: HTMLElement | undefined;
-  // A single line of a failure can wrap beyond the preview when the page narrows.
+  // A single line of text can wrap beyond the preview when the page narrows.
   onSettled(() => {
     const element = code;
     if (!element) return undefined;
@@ -239,21 +322,12 @@ export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
     return () => observer.disconnect();
   });
   return (
-    <section class="output-or-failure" aria-labelledby="output-or-failure">
-      <div class="output-or-failure-head">
-        <h2 id="output-or-failure">{title()}</h2>
-        <Show when={!props.failure}>
-          <CopyButton label="Copy Output" text={props.text} />
-        </Show>
-      </div>
-      <Show when={props.failure && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
-        <p class="note">This message reached the maximum stored length.</p>
-      </Show>
+    <div class="preview">
       <pre
-        id="output-or-failure-text"
-        class={["code", "text-preview", { wraps: !!props.failure }]}
+        id={props.id}
+        class={["code", "text-preview", { wraps: !!props.wraps }]}
         tabindex="0"
-        aria-label={title()}
+        aria-label={props.label}
       >
         <code
           ref={(element) => {
@@ -266,7 +340,7 @@ export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
       <Show when={long()}>
         <button
           type="button"
-          aria-controls="output-or-failure-text"
+          aria-controls={props.id}
           aria-expanded={expanded() ? "true" : "false"}
           onClick={(event) => {
             const shortening = expanded();
@@ -279,11 +353,9 @@ export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
         >
           {expanded()
             ? "Show the first lines only"
-            : props.failure
-              ? "Show the whole message"
-              : `Show all ${formatCount(lines())} lines`}
+            : (props.expandLabel ?? `Show all ${formatCount(lines())} lines`)}
         </button>
       </Show>
-    </section>
+    </div>
   );
 }

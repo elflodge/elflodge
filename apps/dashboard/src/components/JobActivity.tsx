@@ -22,10 +22,12 @@ function Retry(props: { retry: { at: string; error: string } }) {
   );
 }
 
-export function JobActivity(props: { job: Job }) {
+export function JobActivity(props: { job: Job; atEnd?: boolean }) {
   return (
-    <section class="activity" aria-labelledby="job-activity">
-      <h2 id="job-activity">Latest activity recorded by the hub</h2>
+    <section class="activity" aria-labelledby={props.atEnd ? "latest-activity" : "job-activity"}>
+      <h2 id={props.atEnd ? "latest-activity" : "job-activity"}>
+        {props.atEnd && <span class="mark mark-running" aria-hidden="true" />} Latest activity recorded by the hub
+      </h2>
       <Show when={props.job.lastReportedAt} fallback={<p>No report recorded yet for this run.</p>}>
         {(report) => (
           <>

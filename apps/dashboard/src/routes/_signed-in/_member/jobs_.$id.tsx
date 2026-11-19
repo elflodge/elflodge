@@ -1,7 +1,7 @@
 import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { jobRefSchema, problemOf } from "contract";
-import { Match, Show, Switch, createMemo, createSignal, latest, onSettled } from "solid-js";
+import { Match, Show, Switch, createMemo, createSignal, latest, mapArray, onSettled } from "solid-js";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -10,8 +10,13 @@ import { Instant } from "../../../components/Instant.tsx";
 import { JobActivity } from "../../../components/JobActivity.tsx";
 import { JobControls } from "../../../components/JobControls.tsx";
 import { JobFacts, JobLimits, JobOutputOrFailure } from "../../../components/JobRecord.tsx";
+import { RunSentence } from "../../../components/JobRun.tsx";
+import { JobTimeline } from "../../../components/JobTimeline.tsx";
 import { focusIfLost } from "../../../form.ts";
 import { TIME_ZONED, timeZoneNote } from "../../../format.ts";
+import { readJobEvent } from "../../../job-event-record.ts";
+import { useJobEventStretch } from "../../../job-event-stretch.ts";
+import { groupJobEvents } from "../../../job-runs.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
@@ -100,6 +105,18 @@ function JobPage() {
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
   const job = () => latest(() => read.data);
+  const running = () =>
+    current() && job().status === "running" && !job().statusUnknown && !job().deletedAt;
+  const stretch = useJobEventStretch(
+    job,
+    () =>
+      session().membership.status === "member" &&
+      !job().deletedAt &&
+      problemOf(read.error)?.status !== 404,
+    () => read.dataUpdatedAt,
+  );
+  const events = mapArray(stretch.events, readJobEvent, { keyed: true });
+  const groups = createMemo(() => groupJobEvents(events()));
   const stopped = () => {
     const record = job();
     return (
@@ -151,6 +168,9 @@ function JobPage() {
           <span class="whole-id">{job().customId?.trim() ? job().customId : job().id}</span>
         </h1>
       </div>
+      <Show when={!job().deletedAt && (running() || job().status === "paused") && stretch.isAtLatest() && groups().currentRun}>
+        {(run) => <RunSentence run={run()} job={job()} />}
+      </Show>
       <p class="note">{timeZoneNote()}</p>
       <Switch>
         <Match when={!online()}>
@@ -186,15 +206,15 @@ function JobPage() {
               onDeleted={() => setDeletedHere(true)}
             />
           </div>
-          <Show
-            when={
-              current() && job().status === "running" && !job().statusUnknown && !job().deletedAt
-            }
-          >
+          <Show when={running()}>
             <JobActivity job={job()} />
           </Show>
           <Show when={!job().deletedAt || job().startedAt}>
-            <JobLimits job={job()} resumeOffered={resumeOffered()} />
+            <JobLimits
+              job={job()}
+              resumeOffered={resumeOffered()}
+              countFrom={running() && stretch.isAtLatest() ? groups().countFrom : undefined}
+            />
           </Show>
           <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>
           <Show when={failure()?.message}>
@@ -202,6 +222,14 @@ function JobPage() {
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />
+        <Show when={!job().deletedAt}>
+          <JobTimeline
+            job={job()}
+            running={running()}
+            stretch={stretch}
+            groups={groups()}
+          />
+        </Show>
       </div>
     </Show>
   );

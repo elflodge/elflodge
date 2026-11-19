@@ -1776,9 +1776,273 @@ p mark.placeholder {
   display: block;
   font: inherit;
 }
-.output-or-failure:has(button[aria-expanded="false"]) .text-preview {
+.preview:not(:has(> button[aria-expanded="true"])) > .text-preview {
   max-block-size: calc(var(--job-preview-lines) * 1lh + 2 * var(--space-2));
 }
-.output-or-failure > button {
+.preview > button {
   margin-top: var(--space-1);
+}
+
+/* ---------- The Events heading and the two independent reading choices ---------- */
+.head-sentence {
+  margin-block: var(--space-2) var(--space-1);
+}
+.tl {
+  min-width: 0;
+  border-top: var(--rule-heavy) solid var(--c-rule-strong);
+}
+@media (width > 62.5rem) {
+  .record-with-aside > .tl {
+    grid-column: 1;
+  }
+  .record-with-aside:has(.tl) > .facts-aside {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+.tl-head,
+.tl-choices,
+.jump-row,
+.stretch-end,
+.run-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.tl-head {
+  padding-block: var(--space-3);
+}
+.tl-head h2 {
+  margin: 0;
+}
+.read,
+.run-gap,
+.ev-time {
+  color: var(--c-ink-2);
+}
+.tl-choices {
+  margin-inline-start: auto;
+}
+.seg {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+  border: var(--rule) solid var(--c-field-edge);
+  border-radius: var(--radius);
+}
+.seg label {
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--space-2);
+  min-height: var(--control);
+  cursor: pointer;
+}
+.seg label + label {
+  border-inline-start: var(--rule) solid var(--c-field-edge);
+}
+.seg label:has(:checked) {
+  background: var(--brand-shape);
+  color: var(--c-ground);
+  font-weight: var(--weight-strong);
+}
+.seg label:has(:focus-visible) {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+  z-index: 1;
+}
+.seg label:hover {
+  text-decoration: underline;
+}
+.jump-row,
+.stretch-end {
+  border-top: var(--rule) solid var(--c-rule);
+  padding-block: var(--space-2);
+}
+.jump-row > span:first-child,
+.read {
+  font-size: var(--text-xs);
+}
+.jump-row button {
+  background: transparent;
+  border: 0;
+  color: var(--c-link);
+  text-decoration: underline;
+  text-underline-offset: 0.22em;
+  padding-inline: var(--space-1);
+}
+.jump-row a {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  min-block-size: var(--target);
+}
+.jump-row span > a {
+  justify-content: center;
+  min-inline-size: var(--target);
+}
+.stretch-end {
+  justify-content: space-between;
+}
+
+/* ---------- One ordered stretch, with dated runs and each Event’s original number ---------- */
+.timeline {
+  list-style: none;
+  padding: 0;
+}
+.run-h,
+.timeline .day-line {
+  background: var(--c-ground-2);
+  border-block-start: var(--rule-heavy) solid var(--c-rule-strong);
+  padding: var(--space-2);
+}
+.run-h h3 {
+  font-size: var(--text-md);
+}
+.run-h .mono {
+  overflow-wrap: anywhere;
+}
+.run-gap {
+  padding: var(--space-3) var(--space-2);
+  border-top: var(--rule) dashed var(--c-ink-3);
+}
+.timeline .day-line {
+  font-weight: var(--weight-strong);
+}
+.ev {
+  display: grid;
+  grid-template-columns: minmax(3ch, max-content) 8ch minmax(0, 1fr) minmax(0, 10rem);
+  grid-template-areas: "number time body rail";
+  align-items: start;
+  column-gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+  border-block-start: var(--rule) solid var(--c-rule);
+  overflow-wrap: anywhere;
+}
+.ev-id {
+  grid-area: number;
+  font-family: var(--font-mono);
+  justify-self: start;
+}
+.ev-time {
+  grid-area: time;
+  font-size: var(--text-xs);
+  padding-block-start: var(--space-1);
+}
+.ev-line,
+.ev-body {
+  grid-area: body;
+  min-width: 0;
+}
+.ev-body > :first-child {
+  font-weight: var(--weight-strong);
+}
+.ev-body .say {
+  white-space: pre-wrap;
+  max-inline-size: var(--measure);
+}
+.ev-body > :not(:first-child),
+.result .preview,
+.call pre {
+  margin-block-start: var(--space-1);
+}
+.ev-body .call {
+  margin-block-start: var(--space-2);
+}
+.ev-body .rec {
+  color: var(--c-ink-2);
+}
+.ev.is-error .ev-body > strong,
+.ev.is-error .ev-line {
+  color: var(--c-failed);
+}
+.conv-sub .ev-body,
+.conv-sub .ev-line {
+  border-inline-start: var(--rule) solid var(--c-ink-3);
+  padding-inline-start: var(--space-3);
+}
+.ev-rail {
+  grid-area: rail;
+  display: grid;
+  text-align: end;
+  font-size: var(--text-xs);
+  color: var(--c-ink-2);
+}
+.ev-line {
+  display: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tl:has(.view-line:checked) .ev-line {
+  display: block;
+  grid-column-end: -1;
+}
+.tl:has(.view-line:checked) :is(.ev-rail, .ev-body),
+.tl:has(.view-records:checked) :is(.ev:not(.is-runner, .is-error, .is-live), .jump-content) {
+  display: none;
+}
+.ev.is-live {
+  display: block;
+  padding: var(--space-3);
+  border-color: var(--c-lamp-ink);
+  background: var(--c-lamp-wash);
+}
+.is-live .mark-running {
+  color: var(--c-running);
+}
+
+/* ---------- The polite notice stays within reach while the reader is above arriving Events ---------- */
+.new-events:not(:empty) {
+  position: fixed;
+  inset-inline: var(--gutter);
+  bottom: var(--space-3);
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--gutter));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule) solid var(--c-field-edge);
+  background: var(--c-ground);
+  box-shadow: var(--shadow-pop);
+  z-index: 2;
+}
+@media (width <= 640px), (pointer: coarse) {
+  .seg label,
+  .jump-row a {
+    min-height: var(--control-touch);
+  }
+  .jump-row span > a {
+    min-width: var(--control-touch);
+  }
+}
+@media (width <= 640px) {
+  .tl-choices {
+    margin-inline-start: 0;
+  }
+  .ev {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "number time" ". body" ". rail";
+    gap: var(--space-1) var(--space-2);
+  }
+  .ev-time {
+    align-self: center;
+    padding: 0;
+  }
+  .ev-rail {
+    text-align: start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+  }
+}
+@media (forced-colors: active) {
+  .seg label:has(:checked) {
+    outline: 2px solid SelectedItem;
+    outline-offset: -3px;
+  }
 }
