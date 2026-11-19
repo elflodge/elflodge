@@ -254,13 +254,13 @@ function CreateKey(props: { onClose: () => void }) {
                   onInput={({ currentTarget }) =>
                     currentTarget.setCustomValidity(
                       currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
-                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer.`
+                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer; an emoji counts as two.`
                         : "",
                     )
                   }
                 />
                 <p class="note" id="key-name-hint">
-                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters.
+                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters; an emoji counts as two.
                 </p>
               </div>
               <fieldset

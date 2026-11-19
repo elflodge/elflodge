@@ -241,7 +241,7 @@ test("a member can correct a refused key name and keep the permissions they chos
   await create.click();
   await expectBrowser(name).toHaveJSProperty(
     "validationMessage",
-    "Use a name of 32 characters or fewer.",
+    "Use a name of 32 characters or fewer; an emoji counts as two.",
   );
   await expectBrowser(name).toBeFocused();
   await expectBrowser(name).toHaveValue(submitted);
