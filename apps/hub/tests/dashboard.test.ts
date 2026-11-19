@@ -28,7 +28,8 @@ afterAll(async () => {
  * hub serves the shell for a path with no file of its own only for a navigation.
  */
 async function expectShellAt(pathname: string) {
-  const page = await browser.newPage();
+  // Inspect the HTML the hub served before the dashboard can change it or navigate away.
+  const page = await browser.newPage({ javaScriptEnabled: false });
   onTestFinished(() => page.close());
   const response = await page.goto(`${system.origin}${pathname}`);
   if (!response) throw new Error(`No response for ${pathname}`);
