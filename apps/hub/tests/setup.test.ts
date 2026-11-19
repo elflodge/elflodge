@@ -49,11 +49,14 @@ test("a hub without an owner prints a link, with which the dashboard creates the
   expect(await anyone.setup.get()).toEqual({ needed: false });
   const cookie = await system.signIn(NEW_OWNER);
   const session = await system.hub.fetch("/api/auth/get-session", { headers: { cookie } });
-  expect(await session.json()).toMatchObject({ user: { name: SETUP.name } });
-  const organizations = await system.hub.fetch("/api/auth/organization/list", {
-    headers: { cookie },
+  expect(await session.json()).toMatchObject({
+    user: { name: SETUP.name },
+    membership: {
+      status: "member",
+      organization: { id: expect.any(String), name: SETUP.organizationName },
+      role: "owner",
+    },
   });
-  expect(await organizations.json()).toMatchObject([{ name: SETUP.organizationName }]);
   await expect(anyone.setup.complete({ token, ...SETUP })).rejects.toMatchObject({
     code: "CONFLICT",
   });

@@ -2,7 +2,7 @@ import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/so
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../api-client.ts";
-import { authClient, getSession } from "../auth-client.ts";
+import { getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { CurrentDestination, Destinations } from "../components/Destinations.tsx";
 import { InShell } from "../components/FallbackPage.tsx";
@@ -15,30 +15,27 @@ import {
   watchDocumentMember,
 } from "../member-document.ts";
 
-// Every page but signing in and setting up is for a signed-in member. The session is read from the
+// Every page but signing in and setting up is for a signed-in user. The session is read from the
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
-// another device, sends the member to sign in again.
+// another device, sends the user to sign in again.
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
-    const organizations = readFromHub("The Organization", () => authClient.organization.list());
-    // Handle an early rejection until we can use this read. A change of member must reload the
-    // document as soon as the session answers, even if the Organization read is still pending.
-    void organizations.catch(() => {});
     const session = await readFromHub("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
-    // One Organization per deployment (ADR 0007), so it is the one every member's list holds.
-    const list = await organizations;
-    // Removing a member leaves their session, which then lists no Organization.
-    return { member: session.user, organization: list[0] };
+    return { user: session.user, membership: session.membership };
   },
   component: SignedIn,
 });
 
 function SignedIn() {
   const context = Route.useRouteContext();
+  const memberOrganization = () => {
+    const { membership } = context();
+    return membership.status === "member" ? membership.organization : undefined;
+  };
   const router = useRouter();
-  onSettled(() => watchDocumentMember(context().member.id));
+  onSettled(() => watchDocumentMember(context().user.id));
   const [error, setError] = createSignal<string>();
   let account: HTMLDivElement | undefined;
   let opener: HTMLButtonElement | undefined;
@@ -96,7 +93,7 @@ function SignedIn() {
           </span>
         </Link>
         {/* Removing a member leaves their session, which then has no Organization to name. */}
-        <Show when={context().organization}>
+        <Show when={memberOrganization()}>
           {(organization) => (
             <span class="org" title={organization().name}>
               {organization().name}
@@ -116,8 +113,8 @@ function SignedIn() {
               opener = element;
             }}
           >
-            <span class="member-name" title={context().member.name}>
-              {context().member.name}
+            <span class="member-name" title={context().user.name}>
+              {context().user.name}
             </span>
             <span class="mark mark-opens" aria-hidden="true" />
           </button>
@@ -134,12 +131,12 @@ function SignedIn() {
               <Destinations class="nav-stack" />
             </nav>
             <p class="pop-who">
-              <strong>{context().member.name}</strong>
+              <strong>{context().user.name}</strong>
               <br />
               {/* In the mono, as what a person may copy. The sans also draws a full stop close into
                   a round letter beside it, which closes up an address such as "pine.example". */}
-              <span class="mono">{context().member.email}</span>
-              <Show when={context().organization}>
+              <span class="mono">{context().user.email}</span>
+              <Show when={memberOrganization()}>
                 {(organization) => (
                   <>
                     <br />
@@ -168,7 +165,7 @@ function SignedIn() {
         </div>
       </header>
       {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}
-      <Show when={context().organization}>
+      <Show when={memberOrganization()}>
         <HubStrip />
       </Show>
       <main id="main" class="page">

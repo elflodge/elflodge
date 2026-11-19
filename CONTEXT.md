@@ -9,7 +9,7 @@ The company a deployment serves; it owns every job, member, key and Runner in th
 _Avoid_: tenant
 
 **Member**:
-A person in the organization, signed in with a password, with a role there. Better Auth calls the person a user and their place in the organization a member; with one organization per deployment the two coincide, and the API speaks of members.
+A person in the organization, signed in with a password, with a role there. Better Auth calls the account a user. A signed-in user is a member only while their membership's status is `member`. Removing them from the organization leaves their account and session intact.
 _Avoid_: seat
 
 **API key**:

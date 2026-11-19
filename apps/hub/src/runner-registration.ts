@@ -1,10 +1,10 @@
 import { NotFound } from "contract";
 import { Effect, Predicate } from "effect";
 
-import { Auth, getOrganization, requireRolePermission } from "./auth/auth.ts";
+import { Auth, requireRolePermission } from "./auth/auth.ts";
 import { RUNNER_KEY_CONFIG, RUNNER_KEY_PERMISSIONS } from "./auth/options.ts";
 import { Db } from "./db/database.ts";
-import { ApikeyId, RunnerId } from "./db/types.ts";
+import { ApikeyId, type OrganizationId, RunnerId } from "./db/types.ts";
 import { deleteRunnerWithItsWork } from "./jobs.ts";
 
 // A Runner starts with a key shared by many Runners and registers once, receiving a key of its own
@@ -13,17 +13,16 @@ import { deleteRunnerWithItsWork } from "./jobs.ts";
 // another. The link is the key's ID in the Runner's row, which the database deletes with the key.
 
 /** Registers a Runner named `name`, returning its ID and its own key. */
-export function registerRunner(name: string) {
+export function registerRunner(organizationId: OrganizationId, name: string) {
   return Effect.gen(function* () {
     const database = yield* Db;
     const auth = yield* Auth;
-    const organization = yield* getOrganization;
     // Better Auth creates an organization's key on behalf of a member allowed to; the owner always is.
     const owner = yield* database.query((db) =>
       db
         .selectFrom("member")
         .select("userId")
-        .where("organizationId", "=", organization.id)
+        .where("organizationId", "=", organizationId)
         .where("role", "=", "owner")
         .executeTakeFirstOrThrow(),
     );
@@ -33,7 +32,7 @@ export function registerRunner(name: string) {
       betterAuth.api.createApiKey({
         body: {
           configId: RUNNER_KEY_CONFIG,
-          organizationId: organization.id,
+          organizationId,
           userId: owner.userId,
           name: "Runner",
           permissions: { runner: [...RUNNER_KEY_PERMISSIONS.statements.runner] },
@@ -60,17 +59,17 @@ export function findRunnerByKey(keyId: ApikeyId) {
 }
 
 /**
- * Removes the Runner `runnerId` for the member signed in with `headers`, who may if they may delete
- * the Organization's keys, as Better Auth decides for the Runner's own key. The Runner's row goes
+ * Removes the Runner when the member's role grants permission to delete Organization keys. Only
+ * Better Auth's deleteApiKey call needs the session headers. The Runner's row goes
  * first, in one transaction with the work it held, so nothing leaves the Runner gone with its
  * jobs unended. Its key goes after, through Better Auth: the hub refuses a key whose Runner's row is
  * gone, so a key a failure leaves behind grants nothing, and retention's sweep removes it.
  * Returns the jobs the removal concerns. The caller drops the Runner's connection. Every way the hub
  * deletes a Runner's key comes here: Better Auth's own key routes are disabled for this reason.
  */
-export function removeRunner(headers: Headers, runnerId: RunnerId) {
+export function removeRunner(headers: Headers, role: string, runnerId: RunnerId) {
   return Effect.gen(function* () {
-    yield* requireRolePermission(headers, { apiKey: ["delete"] });
+    yield* requireRolePermission(role, { apiKey: ["delete"] });
     const auth = yield* Auth;
     const removed = yield* deleteRunnerWithItsWork(runnerId).pipe(
       Effect.filterOrFail(Predicate.isNotUndefined, () => new NotFound()),

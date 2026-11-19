@@ -6,6 +6,8 @@ A new hub gets its Organization and owner in one of two ways, both ignored once 
 
 Better Auth runs inside the Workers hub with a fresh instance per request and its runtime schema check off. better-auth/better-auth#10315 describes auth calls hanging in a Workers isolate after a cancelled request leaves a promise shared across requests unsettled; 1.7.8 fixes the module-level part and 1.7.21 the runtime schema check (better-auth/better-auth#11651), and instances built per request avoid the rest. Rate-limit counts are kept in the database, so they hold across hub replicas and Workers isolates, and the header carrying the client's address is a deployment setting, because a proxy that rewrites `X-Forwarded-For` puts every client into one bucket.
 
+Removing a member leaves their account and session valid. Better Auth joins the session to its user in one read. Its custom session then reads the deployment's Organization and the user's membership together, so a missing Organization and a removed member have distinct answers. A member's session includes the Organization's ID and name and the member's role. The hub's guard consumes that result. The dashboard reads the same session on navigation, including for an account that can still change its password after removal. The hub authorizes the request against the Organization plugin's static roles. A dashboard page can use `authClient.organization.checkRolePermission` with the role from a member's session and the same role definitions.
+
 ## Considered options
 
 - Writing our own token handling: small at first, but members, SSO, scoped keys and device login together are a large, security-sensitive subsystem.
@@ -16,7 +18,15 @@ Better Auth runs inside the Workers hub with a fresh instance per request and it
 - A table of the hub's own for the token: Better Auth's `verification` table already keeps one-time values with an expiry, consumes them atomically and can store them by their digest.
 - Only environment variables, as before the dashboard: they remain for automated deploys, but a person setting up a hub by hand should not have to put a password in a file.
 - Environment variables that set the owner on every start (n8n's opt-in mode): rare, and it makes the environment a second source of truth for a member managed in the hub.
+- A typed `GET /me` would need to call Better Auth with `returnHeaders: true` and forward `Cache-Control: no-store` and `Pragma: no-cache` on every response, along with each `Set-Cookie` header on renewal. A 403 from the member guard also omits the account, so a removed member's pages would need a second request. Better Auth's session endpoint already preserves the renewal headers and the account.
+- A permission flag per feature in the session would change its response with every new feature. The role and the shared role definitions already answer those checks.
 
 ## Consequences
 
+A new dashboard document makes two session requests. The navigation loader awaits `getSession()`. The cross-tab watcher subscribes to `useSession` (ADR 0046), which fetches on mount. Better Auth's `hydrateSession()` supplies data for the first render and still allows the mount fetch. The store's `refetch()` returns no session for a loader to use.
+
 Better Auth's tables share the hub's schema and naming (ADR 0020); its CLI drafts them into hand-written migrations. `better-auth` and `@better-auth/api-key` are pinned to one version together, and every upgrade re-runs the draft. Better Auth signs members in only from the hub's own origin once a request carries browser fetch metadata, as Node's `fetch` does, so the dashboard is served from the hub's origin. Better Auth answers a key lacking a permission as it answers an unknown key, with 401, so the answer reveals nothing about the key. Every route of Better Auth and its plugins is served under `/api/auth/*`, so the hub turns off those for what it wraps with rules of its own (API keys) and Organization deletion, and adding a plugin includes reviewing the routes it brings. Better Auth records no creator for organization-owned keys, and its audit logs come only with its paid hosted service; the hub records who did what in its own data, starting when a feature needs it, such as jobs recording who submitted them.
+
+## When to reconsider
+
+If deployments can define roles dynamically, the hub and dashboard will need the deployment's current permissions to check a member's role.

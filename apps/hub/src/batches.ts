@@ -19,7 +19,6 @@ import { type ExpressionBuilder, type Kysely, type NotNull, sql, type Transactio
 import { v7 as uuidv7 } from "uuid";
 import * as z from "zod/mini";
 
-import { getOrganization } from "./auth/auth.ts";
 import { Db, DB_SCHEMA, jsonRows } from "./db/database.ts";
 import {
   type BatchRow,
@@ -28,6 +27,7 @@ import {
   JobId,
   type JobStatus,
   type NewJob,
+  type OrganizationId,
   type RunnerId,
   type SubmitterKind,
   type UsageRecordId,
@@ -429,6 +429,7 @@ function agentProblems(agent: Agent, settings: HubSettings["jobLimits"]) {
  */
 export function createBatch(
   creation: BatchCreation,
+  organizationId: OrganizationId,
   submitter: Submitter,
   settings: HubSettings["jobLimits"],
 ) {
@@ -436,7 +437,6 @@ export function createBatch(
     const problems = agentProblems(creation.agent, settings);
     if (problems.length > 0) return yield* Effect.fail(new InvalidInput({ problems }));
     const database = yield* Db;
-    const organization = yield* getOrganization;
     const breaker = breakerOf(creation.breaker);
     const { agent } = creation;
     // A UUIDv4 when the creation gives none, as a retry key is: random, so it says nothing of
@@ -458,7 +458,7 @@ export function createBatch(
           .insertInto("batch")
           .values({
             uid: BatchUid(uuidv7()),
-            organizationId: organization.id,
+            organizationId,
             id,
             contentHash,
             instructions: agent.instructions,
@@ -483,7 +483,7 @@ export function createBatch(
           .selectFrom("batch")
           .select(["uid", "contentHash"])
           .where("id", "=", id)
-          .where("organizationId", "=", organization.id)
+          .where("organizationId", "=", organizationId)
           .executeTakeFirstOrThrow();
         return { uid: existing.uid, same: existing.contentHash === contentHash };
       }),
