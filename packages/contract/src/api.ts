@@ -502,7 +502,10 @@ export const batchRefSchema = z.strictObject({
  * A job as a list reports it: without its content, so without its output, its failure's message
  * and its activity. Read the job for those.
  */
-const listedJobBaseSchema = z.omit(jobBaseSchema, { activity: true });
+const listedJobBaseSchema = z.extend(z.omit(jobBaseSchema, { activity: true }), {
+  // The list reads live jobs. Only a deleted job's detail loses its custom ID.
+  customId: customIdSchema,
+});
 export const listedJobSchema = z
   .discriminatedUnion("status", [
     z.extend(listedJobBaseSchema, {
