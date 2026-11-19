@@ -227,6 +227,9 @@ catalogs:
     '@orpc/shared':
       specifier: 2.0.0-beta.50
       version: 2.0.0-beta.50
+    '@orpc/tanstack-query':
+      specifier: 2.0.0-beta.50
+      version: 2.0.0-beta.50
     '@orpc/zod':
       specifier: 2.0.0-beta.50
       version: 2.0.0-beta.50
@@ -242,6 +245,9 @@ catalogs:
     '@standard-server/core':
       specifier: ~0.16.0
       version: 0.16.0
+    '@tanstack/solid-query':
+      specifier: 6.0.0-rc.6
+      version: 6.0.0-rc.6
     '@tanstack/solid-router':
       specifier: 2.0.0-rc.10
       version: 2.0.0-rc.10
@@ -470,9 +476,15 @@ importers:
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.50
+      '@orpc/tanstack-query':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.50(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))
       '@solidjs/web':
         specifier: 'catalog:'
         version: 2.0.0(solid-js@2.0.0)
+      '@tanstack/solid-query':
+        specifier: 'catalog:'
+        version: 6.0.0-rc.6(@solidjs/web@2.0.0(solid-js@2.0.0))(solid-js@2.0.0)
       '@tanstack/solid-router':
         specifier: 'catalog:'
         version: 2.0.0-rc.10(@solidjs/web@2.0.0(solid-js@2.0.0))(solid-js@2.0.0)
@@ -2085,6 +2097,11 @@ packages:
   '@orpc/shared@2.0.0-beta.50':
     resolution: {integrity: sha512-zgn4/pijNdQDiQ6FsFhTYV9MwpPmMoRyFl9mMOtkjRnkceHdMQ/hLKMkX5t5etVD6e37k7cHdAaETM6UI6WMNw==}
 
+  '@orpc/tanstack-query@2.0.0-beta.50':
+    resolution: {integrity: sha512-tF53Nz1y8veXRbUwGDf9H14XuYyQoaIA4OfrZUH6wlUqC/2fKljnlvP45+AsLcIuZndXWUDh6ecqKj8fRjGfxQ==}
+    peerDependencies:
+      '@tanstack/query-core': '>=5.105.0'
+
   '@orpc/zod@2.0.0-beta.50':
     resolution: {integrity: sha512-6ozMojWcTU1gsuSvkZB/KI3VFbCxArkWryHGo7+qfxu2U4AV3DzFa2BZXrlq0TVNc5qeyf4fBOaEqv4CEcvObA==}
     peerDependencies:
@@ -2921,6 +2938,9 @@ packages:
     resolution: {integrity: sha512-DR9t6lfLVdrjgCwpglrR9DR7Ok8/HlXjcOE+goWXF3zyuLUO/ug7vMbSFxTqrQTtbRghJfyhmIZ0S6LhPIy44w==}
     engines: {node: '>=20.19'}
 
+  '@tanstack/query-core@5.107.1':
+    resolution: {integrity: sha512-PSyAik11oQBEVOiVy5hjZWHmoUqOXqK1WYy4v55mcxozEfKaQgpUMsgnXhWjuESzSht8JfzqMS1m6M/9CpNgvg==}
+
   '@tanstack/router-core@1.171.22':
     resolution: {integrity: sha512-sitsuRkz4qpTjIAV97S5zFCoeGv0OFd6+VWg3ZcIlQbi5R4NIXfz6ogg51n5w6rvTwSODz/lKWb5dl5tvh2bQw==}
     engines: {node: '>=20.19'}
@@ -2953,6 +2973,12 @@ packages:
   '@tanstack/router-utils@1.162.2':
     resolution: {integrity: sha512-hTWqJtqIFFdvuCl8WXNyrodp2L9zo2G37xKRrcVmVRWpAB2h+U1LuRAfS4tsFTiWOIoE/B+WDVFB8JpoEdw6jQ==}
     engines: {node: '>=20.19'}
+
+  '@tanstack/solid-query@6.0.0-rc.6':
+    resolution: {integrity: sha512-fz0LCD4douutprI6ASNR6BftNw1+yrrISSC4teDUpS7ZmsPi3BJ9sDJSNrikljPrikH0fvAUcxUWEKGM5925bA==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0
+      solid-js: ^2.0.0
 
   '@tanstack/solid-router@2.0.0-rc.10':
     resolution: {integrity: sha512-ffAeEsOpO4jL78iVGcgzphWkZ84XMithWAN/s9YePHarzEaqTLaP4QpVda8OP98GVtuG51WGD5/5Bn13ti2PTA==}
@@ -7547,6 +7573,20 @@ snapshots:
       '@standard-server/shared': 0.16.0
       type-fest: 5.10.0
 
+  '@orpc/tanstack-query@2.0.0-beta.50(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))':
+    dependencies:
+      '@orpc/client': 2.0.0-beta.50
+      '@orpc/contract': 2.0.0-beta.50
+      '@orpc/openapi': 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/shared': 2.0.0-beta.50
+      '@tanstack/query-core': 5.107.1
+    transitivePeerDependencies:
+      - '@scalar/api-reference'
+      - '@types/swagger-ui'
+      - crossws
+      - fastify
+      - swagger-ui
+
   '@orpc/zod@2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)':
     dependencies:
       '@orpc/json-schema': 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))
@@ -8166,6 +8206,8 @@ snapshots:
 
   '@tanstack/history@1.162.1': {}
 
+  '@tanstack/query-core@5.107.1': {}
+
   '@tanstack/router-core@1.171.22':
     dependencies:
       '@tanstack/history': 1.162.1
@@ -8221,6 +8263,12 @@ snapshots:
       tinyglobby: 0.2.17
     transitivePeerDependencies:
       - supports-color
+
+  '@tanstack/solid-query@6.0.0-rc.6(@solidjs/web@2.0.0(solid-js@2.0.0))(solid-js@2.0.0)':
+    dependencies:
+      '@solidjs/web': 2.0.0(solid-js@2.0.0)
+      '@tanstack/query-core': 5.107.1
+      solid-js: 2.0.0
 
   '@tanstack/solid-router@2.0.0-rc.10(@solidjs/web@2.0.0(solid-js@2.0.0))(solid-js@2.0.0)':
     dependencies:

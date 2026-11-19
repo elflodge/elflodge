@@ -1,8 +1,9 @@
 import type { JSX } from "@solidjs/web";
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/solid-router";
+import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/solid-router";
 
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary.tsx";
 import { logoDark, logoLight } from "../logo.ts";
+import type { SessionQueries } from "../query.ts";
 
 import appCss from "../styles/app.css?url";
 // The two faces are linked from here, not imported by app.css: the build's notices list the packages
@@ -10,7 +11,7 @@ import appCss from "../styles/app.css?url";
 import sansCss from "@fontsource-variable/instrument-sans/wght.css?url";
 import monoCss from "@fontsource-variable/jetbrains-mono/wght.css?url";
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{ queries: SessionQueries }>()({
   head: () => ({
     meta: [
       { charset: "utf-8" },
