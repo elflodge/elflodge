@@ -15,13 +15,13 @@ import { ac, roles } from "./access.ts";
 
 /**
  * The permissions a member may grant an API key, as a role whose `authorize` checks a request. A
- * Runner's own key, with `RUNNER_KEY_PERMISSIONS`, is created only by the hub when the Runner
+ * Runner's own key, with `RUNNER_KEY_ROLE`, is created only by the hub when the Runner
  * registers.
  */
 export const GRANTABLE_KEY_ROLE = ac.newRole(GRANTABLE_KEY_PERMISSIONS);
 
 /** The permissions of a Runner's own key, which the hub creates when the Runner registers. */
-export const RUNNER_KEY_PERMISSIONS = ac.newRole({ runner: ["actAs"] });
+export const RUNNER_KEY_ROLE = ac.newRole({ runner: ["actAs"] });
 
 /**
  * What starts the identifier of a setup link's token in Better Auth's `verification` table, which
