@@ -60,8 +60,8 @@ export function findRunnerByKey(keyId: ApikeyId) {
 }
 
 /**
- * Removes the Runner `runnerId` for the member signed in with `headers`, who may if they may delete
- * the Organization's keys, as Better Auth decides for the Runner's own key. The Runner's row goes
+ * Removes the Runner when the member's role grants permission to delete Organization keys. Only
+ * Better Auth's deleteApiKey call needs the session headers. The Runner's row goes
  * first, in one transaction with the work it held, so nothing leaves the Runner gone with its
  * jobs unended. Its key goes after, through Better Auth: the hub refuses a key whose Runner's row is
  * gone, so a key a failure leaves behind grants nothing, and retention's sweep removes it.

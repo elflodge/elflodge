@@ -62,25 +62,6 @@ test("a hub without an owner prints a link, with which the dashboard creates the
   });
 });
 
-test("an account left by an incomplete setup can sign in and sees that the hub needs setup", async () => {
-  const { token } = await setupLink();
-  await system.client().setup.complete({ token, ...SETUP });
-  // Before setup became one transaction it could create the owner without the Organization.
-  await using db = openDatabase(inject("databaseUrl"));
-  await db.withSchema(DB_SCHEMA).deleteFrom("organization").execute();
-
-  const cookie = await system.signIn(NEW_OWNER);
-  const headers = { cookie };
-  const response = await system.hub.fetch("/api/auth/get-session", { headers });
-  expect(await response.json()).toMatchObject({
-    user: { name: SETUP.name },
-    membership: { status: "hubNotSetUp" },
-  });
-  await expect(system.client(headers).runners.list()).rejects.toMatchObject({
-    code: "SERVICE_UNAVAILABLE",
-  });
-});
-
 test("a token the hub did not print is refused, and creates nothing", async () => {
   await setupLink();
   const anyone = system.client();

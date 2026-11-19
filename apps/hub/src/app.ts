@@ -271,7 +271,9 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     batches: {
       create: os.batches.create.effect(function* ({ input, context, errors }) {
-        return yield* createBatch(input, context.caller, yield* JobLimitSettings).pipe(
+        const organizationId = yield* callerOrganizationId(context.caller);
+        const submitter = yield* submitterOf(context.caller);
+        return yield* createBatch(input, organizationId, submitter, yield* JobLimitSettings).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),

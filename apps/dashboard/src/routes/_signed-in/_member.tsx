@@ -13,7 +13,7 @@ function Member() {
   const context = Route.useRouteContext();
   return (
     <Show
-      when={context().organization}
+      when={context().membership.status === "member"}
       fallback={
         <>
           <div class="head">

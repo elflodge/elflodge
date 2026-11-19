@@ -9,7 +9,7 @@ import type { BetterAuth } from "../../hub/src/auth/auth.ts";
 /**
  * Better Auth's client for the hub that serves the dashboard, at Better Auth's default path on the
  * page's own origin, the only one from which the hub signs members in (ADR 0015). Its framework-
- * neutral client, as its Solid adapter is built for Solid 1. Its organization plugin checks the
+ * neutral client, as its Solid adapter is built for Solid 1. Its organization plugin can check the
  * session role against the same permissions as the hub.
  */
 export const authClient = createAuthClient({
@@ -20,14 +20,6 @@ export const authClient = createAuthClient({
   ],
   fetchOptions: { throw: true },
 });
-
-/** Whether the member's current role grants the permissions a dashboard control needs. */
-export function hasRolePermission(
-  role: string | undefined,
-  permissions: Parameters<typeof authClient.organization.checkRolePermission>[0]["permissions"],
-) {
-  return role !== undefined && authClient.organization.checkRolePermission({ role, permissions });
-}
 
 /** A 401, as when the session was deleted during renewal, also means no one is signed in. */
 export function isSignedOutError(error: unknown): boolean {

@@ -303,7 +303,7 @@ export function startSystem(
 
   /**
    * Creates the account for `email`, adds it to the Organization with the plain `member` role, and
-   * returns a client signed in as it and the account's user ID.
+   * returns its signed-in client, session cookie and user ID.
    */
   async function addMember({
     email,
@@ -313,7 +313,7 @@ export function startSystem(
     email: string;
     password?: string;
     name: string;
-  }): Promise<{ client: ApiClient; userId: string }> {
+  }): Promise<{ client: ApiClient; cookie: string; userId: string }> {
     const [organization] = await ownerAuth().organization.list();
     if (!organization) throw new Error("The hub has no Organization");
     // Public sign-up is off, so the account is created as setup creates the owner's.
@@ -331,8 +331,10 @@ export function startSystem(
     await auth.api.addMember({
       body: { userId: user.id, organizationId: organization.id, role: "member" },
     });
+    const cookie = await signIn({ email, password });
     return {
-      client: client({ cookie: await signIn({ email, password }), origin: HUB_ORIGIN }),
+      client: client({ cookie, origin: HUB_ORIGIN }),
+      cookie,
       userId: user.id,
     };
   }

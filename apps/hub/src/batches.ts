@@ -19,7 +19,6 @@ import { type ExpressionBuilder, type Kysely, type NotNull, sql, type Transactio
 import { v7 as uuidv7 } from "uuid";
 import * as z from "zod/mini";
 
-import { type Caller, callerOrganizationId } from "./auth/auth.ts";
 import { Db, DB_SCHEMA, jsonRows } from "./db/database.ts";
 import {
   type BatchRow,
@@ -28,6 +27,7 @@ import {
   JobId,
   type JobStatus,
   type NewJob,
+  type OrganizationId,
   type RunnerId,
   type SubmitterKind,
   type UsageRecordId,
@@ -45,7 +45,6 @@ import {
   isStatusUnknown,
   type Submitter,
   SUBMITTER_COLUMNS,
-  submitterOf,
   submitterColumns,
   UNFINISHED,
   USAGE_COPIED_COLUMNS,
@@ -430,15 +429,14 @@ function agentProblems(agent: Agent, settings: HubSettings["jobLimits"]) {
  */
 export function createBatch(
   creation: BatchCreation,
-  caller: Caller,
+  organizationId: OrganizationId,
+  submitter: Submitter,
   settings: HubSettings["jobLimits"],
 ) {
   return Effect.gen(function* () {
-    const submitter = yield* submitterOf(caller);
     const problems = agentProblems(creation.agent, settings);
     if (problems.length > 0) return yield* Effect.fail(new InvalidInput({ problems }));
     const database = yield* Db;
-    const organizationId = yield* callerOrganizationId(caller);
     const breaker = breakerOf(creation.breaker);
     const { agent } = creation;
     // A UUIDv4 when the creation gives none, as a retry key is: random, so it says nothing of

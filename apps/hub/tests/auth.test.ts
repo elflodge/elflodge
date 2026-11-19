@@ -1,7 +1,6 @@
 import { RUNNER_NOT_FOUND } from "contract";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
-import { authClient, hasRolePermission } from "../../dashboard/src/auth-client.ts";
 import { resetPassword, setUpOrganization } from "../src/setup.ts";
 import { OWNER, startSystem } from "./harness.ts";
 
@@ -63,31 +62,27 @@ test("API errors are RFC 9457 Problem Details", async () => {
 });
 
 test("a member removed from the Organization is refused, though their session lasts", async () => {
-  const member = { email: "removed@example.com", password: "a long enough password" };
-  const { client: asMember } = await system.addMember({ ...member, name: "Removed" });
+  const email = "removed@example.com";
+  const { client: asMember, cookie } = await system.addMember({ email, name: "Removed" });
   await asMember.runners.list();
-  const cookie = await system.signIn(member);
-  const getSession = () =>
-    authClient.getSession({
-      fetchOptions: { baseURL: system.url().origin + "/api/auth", headers: { cookie } },
-    });
-  const before = await getSession();
-  expect(before?.membership.status).toBe("member");
-  expect(before?.membership.role).toBe("member");
-  expect(hasRolePermission(before?.membership.role, { usage: ["read"] })).toBe(false);
+  const getSession = async () => {
+    const response = await system.hub.fetch("/api/auth/get-session", { headers: { cookie } });
+    return response.json();
+  };
+  expect(await getSession()).toMatchObject({ membership: { status: "member" } });
   // The owner manages the Organization through Better Auth's organization routes on the hub.
   const ownerAuth = system.ownerAuth();
   const [organization] = await ownerAuth.organization.list();
   if (!organization) throw new Error("The hub has no Organization");
 
   await ownerAuth.organization.removeMember({
-    memberIdOrEmail: member.email,
+    memberIdOrEmail: email,
     organizationId: organization.id,
   });
 
   const after = await getSession();
-  expect(after?.user.email).toBe(member.email);
-  expect(after?.membership).toEqual({ status: "notMember" });
+  expect(after).toHaveProperty("user.email", email);
+  expect(after).toHaveProperty("membership", { status: "notMember" });
 
   // Signing in again would not help, so the refusal is not a 401.
   await expect(asMember.runners.list()).rejects.toMatchObject({

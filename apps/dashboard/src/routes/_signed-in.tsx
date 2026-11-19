@@ -23,13 +23,7 @@ export const Route = createFileRoute("/_signed-in")({
     const session = await readFromHub("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
-    const { membership } = session;
-    if (membership.status === "hubNotSetUp") throw redirect({ to: "/setup" });
-    return {
-      member: session.user,
-      organization: membership.organization,
-      role: membership.role,
-    };
+    return { member: session.user, membership: session.membership };
   },
   component: SignedIn,
 });
@@ -95,7 +89,7 @@ function SignedIn() {
           </span>
         </Link>
         {/* Removing a member leaves their session, which then has no Organization to name. */}
-        <Show when={context().organization}>
+        <Show when={context().membership.organization}>
           {(organization) => (
             <span class="org" title={organization().name}>
               {organization().name}
@@ -138,7 +132,7 @@ function SignedIn() {
               {/* In the mono, as what a person may copy. The sans also draws a full stop close into
                   a round letter beside it, which closes up an address such as "pine.example". */}
               <span class="mono">{context().member.email}</span>
-              <Show when={context().organization}>
+              <Show when={context().membership.organization}>
                 {(organization) => (
                   <>
                     <br />
@@ -167,7 +161,7 @@ function SignedIn() {
         </div>
       </header>
       {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}
-      <Show when={context().organization}>
+      <Show when={context().membership.organization}>
         <HubStrip />
       </Show>
       <main id="main" class="page">

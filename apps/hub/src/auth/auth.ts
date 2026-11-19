@@ -1,6 +1,8 @@
 import { ORPCError, type ORPCErrorCode } from "@orpc/server";
 import { betterAuth } from "better-auth";
 import { isAPIError } from "better-auth/api";
+// The server's permission evaluator needs a Better Auth endpoint context. This export checks the
+// same static roles using only the role and permissions available to the hub's guard.
 import { clientSideHasPermission } from "better-auth/client/plugins";
 import { type Access, errorCodeOf, Forbidden, HubNotSetUp, Unauthorized } from "contract";
 import { Cause, Context, Effect, Layer } from "effect";
@@ -9,7 +11,7 @@ import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 import * as z from "zod/mini";
 
 import { Db, openScopedDatabase } from "../db/database.ts";
-import { type Database, OrganizationId, UserId } from "../db/types.ts";
+import { type Database, OrganizationId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
 import { authOptions, type AuthSettings } from "./options.ts";
 
@@ -90,14 +92,16 @@ export const getOrganization = Effect.gen(function* () {
 });
 
 /**
- * The signed-in member making the request: a 401 error without a session, and a 403 error for an
- * account that is not a member of the Organization. Removing a member leaves their session, so the
- * session alone does not make its user a member. The user comes with their ID branded.
+ * The signed-in user with their Organization and role. A missing session gets a 401, a hub
+ * without an Organization gets a 503, and a signed-in account without membership gets a 403.
  */
 function requireMember(headers: Headers) {
   return Effect.gen(function* () {
     const auth = yield* Auth;
-    const session = yield* auth.call((instance) => instance.api.getSession({ headers }));
+    // Select the custom GET endpoint's return type, which preserves the database ID brands.
+    const session = yield* auth.call((instance) =>
+      instance.api.getSession({ headers, method: "GET" }),
+    );
     if (!session) return yield* Effect.fail(new Unauthorized());
     // getSession joins session and user, then reads membership once for both the guard and caller.
     const { membership } = session;
@@ -109,8 +113,7 @@ function requireMember(headers: Headers) {
     }
     return {
       ...session.user,
-      id: UserId(session.user.id),
-      organization: { ...membership.organization, id: OrganizationId(membership.organization.id) },
+      organization: membership.organization,
       role: membership.role,
     };
   });
@@ -138,22 +141,20 @@ export function requireKey(headers: Headers, permissions: Record<string, string[
       yield* Db.use((database) => database.query((db) => sql`select 1`.execute(db)));
       return yield* Effect.fail(new Unauthorized());
     }
-    return result.key;
+    // Both key configurations give Better Auth an Organization as the key's owner.
+    return { ...result.key, referenceId: OrganizationId(result.key.referenceId) };
   });
 }
 
 /** Check the role from this request's session against the Organization's static permissions. */
 export function requireRolePermission(role: string, permissions: RolePermissions) {
-  // Better Auth exposes the static evaluator used by the organization client under this name.
   return clientSideHasPermission({ role, permissions, options: { ac, roles } })
     ? Effect.void
     : Effect.fail(new Forbidden());
 }
 
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
-type RolePermissions = NonNullable<
-  NonNullable<Parameters<BetterAuth["api"]["hasPermission"]>[0]>["body"]["permissions"]
->;
+type RolePermissions = Parameters<typeof clientSideHasPermission>[0]["permissions"];
 
 /**
  * What the hub records in the metadata of a key a member creates: the member, whom Better Auth does
@@ -191,11 +192,11 @@ export function authenticate(headers: Headers, access: Access) {
   return Effect.fail(new Unauthorized());
 }
 
-/** A member's session already identifies the Organization. Key calls reach it separately. */
+/** The Organization identified by the verified key or the signed-in member. */
 export function callerOrganizationId(caller: Caller) {
-  return caller.kind === "member"
-    ? Effect.succeed(caller.member.organization.id)
-    : getOrganization.pipe(Effect.map((organization) => organization.id));
+  if (caller.kind === "key") return Effect.succeed(caller.key.referenceId);
+  if (caller.kind === "member") return Effect.succeed(caller.member.organization.id);
+  return Effect.die(new Error("A call requiring an Organization was made by anyone"));
 }
 
 /** The key that made a call the contract declares as by key; a member there is a hub defect. */

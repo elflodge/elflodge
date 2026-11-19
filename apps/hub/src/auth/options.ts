@@ -59,7 +59,7 @@ export interface AuthSettings {
   rateLimit: boolean;
 }
 
-/** Read the Organization and this user's role from one snapshot, even after membership removal. */
+/** A member gets the Organization and role. Other accounts get only the `notMember` or `hubNotSetUp` status. */
 async function findMembership(db: Kysely<Database>, userId: UserId) {
   const row = await db
     .withSchema(DB_SCHEMA)
@@ -73,11 +73,9 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
   // Setup in 0.10.0 and earlier could leave an owner account behind before creating the Organization.
   if (!row) return { status: "hubNotSetUp" } as const;
   if (row.role === null) return { status: "notMember" } as const;
-  // Better Auth infers the JSON response from this value. Database ID brands are local to the hub.
-  const id: string = row.id;
   return {
     status: "member",
-    organization: { id, name: row.name },
+    organization: { id: row.id, name: row.name },
     role: row.role,
   } as const;
 }
@@ -144,8 +142,9 @@ export function authOptions(settings: AuthSettings) {
     },
     plugins: [
       customSession(async ({ user, session }) => {
-        const membership = await findMembership(settings.db, UserId(user.id));
-        return { user, session, membership };
+        const id = UserId(user.id);
+        const membership = await findMembership(settings.db, id);
+        return { user: { ...user, id }, session, membership };
       }),
       // One Organization per deployment (ADR 0007): only the hub's setup creates it, and nothing
       // deletes it, since a hub without it answers no member or key.
