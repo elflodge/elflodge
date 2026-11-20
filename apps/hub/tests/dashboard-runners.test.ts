@@ -249,9 +249,29 @@ test("a member can correct a refused key name and keep the permissions they chos
   await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
 
   await name.fill(corrected);
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          title: "Bad Request",
+          status: 400,
+          errors: [{ pointer: "/permissions/job/0", detail: "Choose another action" }],
+        },
+      }),
+    { times: 1 },
+  );
+  await create.click();
+  const permissions = dialog.getByRole("group", { name: "Permissions", exact: true });
+  await expectBrowser(permissions).toHaveAccessibleDescription(/Choose another action/);
+  await expectBrowser(permissions).toBeFocused();
+  await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
   await create.click();
   await expectBrowser(dialog.getByRole("heading")).toHaveText(`The new key, ${corrected}`);
-  expect(createRequests).toBe(2);
+  expect(createRequests).toBe(3);
 }, 30_000);
 
 test("in a browser, a plain member gets no owner's actions on Runners and API keys", async () => {

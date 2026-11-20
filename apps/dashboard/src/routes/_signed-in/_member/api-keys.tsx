@@ -1,3 +1,4 @@
+import { parseFormData } from "@orpc/openapi/helpers";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
@@ -203,11 +204,7 @@ function CreateKey(props: { onClose: () => void }) {
 
   async function create(element: HTMLFormElement) {
     const form = new FormData(element);
-    const permissions = Object.fromEntries(
-      GRANTABLE.map(
-        ([resource]) => [resource, form.getAll(`permissions[${resource}][]`).map(String)] as const,
-      ).filter(([, actions]) => actions.length > 0),
-    );
+    const { permissions = {} } = parseFormData(form);
     setFailure(undefined);
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expiresIn"))]?.seconds;
@@ -223,7 +220,11 @@ function CreateKey(props: { onClose: () => void }) {
       setFailure(
         formRefusal(error, {
           name: ["name"],
-          permissions: ["permissions"],
+          // The fieldset owns both the permission set and each indexed action in a resource.
+          permissions: [
+            "permissions",
+            ...GRANTABLE.map(([resource]) => `permissions[${resource}][]`),
+          ],
           expiresIn: ["expiresIn"],
         }),
       );
