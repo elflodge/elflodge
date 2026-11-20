@@ -35,7 +35,9 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
                 anyOf: expect.arrayContaining([
                   {
                     type: "object",
-                    properties: expect.objectContaining({ pointer: expect.anything() }),
+                    properties: expect.objectContaining({
+                      pointer: expect.objectContaining({ type: "string", format: "json-pointer" }),
+                    }),
                     required: ["detail", "pointer"],
                     additionalProperties: {},
                   },

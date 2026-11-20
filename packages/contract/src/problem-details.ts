@@ -29,14 +29,13 @@ const issueDetail = z.looseObject({
 });
 const requestProblem = z.union([
   z.extend(issueDetail, {
-    pointer: z
-      .string()
-      .check(
-        z.regex(/^(?:\/(?:[^~/]|~[01])*)*$/u),
-        z.describe(
+    pointer: z.string().check(
+      z.meta({
+        format: "json-pointer",
+        description:
           "Plain RFC 6901 pointer into the JSON body, including a missing member. The empty string names the whole body.",
-        ),
-      ),
+      }),
+    ),
   }),
   z.extend(issueDetail, {
     parameter: z.string().check(z.describe("OpenAPI path or query parameter name.")),
