@@ -1,5 +1,5 @@
 import { JOB_FAILED, JOB_SUCCEEDED, type JobEvent } from "contract";
-import type { Browser } from "playwright";
+import type { Browser, Route } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, assert, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
@@ -397,45 +397,48 @@ test("Latest recovers a refused forward read without dropping the Events already
   await expectBrowser(page.locator(".ev-id").last()).toHaveText("235");
 }, 30_000);
 
-test("Latest interrupts catch-up and follows from the newest Event it shows", async () => {
+test("Latest during catch-up keeps the job from going back to Running after success", async () => {
   const { id, report } = await jobWithHistory(1);
   const page = await openAsMember("Latest during catch-up", `jobs/${id}`);
   await page.locator("#event-10").waitFor();
-  const latest = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  const catchingUp = (url: URL) =>
-    url.pathname === `/jobs/${id}/events` && url.searchParams.get("after") === "110";
-  await page.route(catchingUp, async (route) => {
-    await latest.promise;
-    await route.continue();
-  });
+  const catchUp = Promise.withResolvers<Route>();
+  const latest = Promise.withResolvers<Route>();
+  await page.route(
+    (url) => url.pathname === `/jobs/${id}/events` && url.searchParams.get("after") === "110",
+    catchUp.resolve,
+    { times: 1 },
+  );
   await page.route(
     (url) => url.pathname === `/jobs/${id}/events` && url.searchParams.get("order") === "desc",
-    async (route) => {
-      latest.resolve();
-      await release.promise;
-      await route.continue();
-    },
+    latest.resolve,
   );
-  try {
-    await report(Array.from({ length: 101 }, (_, i) => message(11 + i)));
-    await expectBrowser(page.locator("#event-110")).toBeAttached({ timeout: 12_000 });
-    const interrupted = page.waitForEvent("requestfailed", {
-      predicate: (request) => catchingUp(new URL(request.url())),
-    });
-    await page.getByRole("button", { name: "Latest", exact: true }).click();
-    await interrupted;
-    release.resolve();
-    await expectBrowser(page.locator("#event-111")).toBeAttached();
-    await report([success(112, 17)]);
-    await expectBrowser(page.locator("#event-112")).toBeAttached({ timeout: 12_000 });
-    await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText(
-      "17",
-    );
-  } finally {
-    latest.resolve();
-    release.resolve();
-  }
+  await report(Array.from({ length: 101 }, (_, i) => message(11 + i)));
+  const follower = await catchUp.promise;
+  await expectBrowser(page.locator("#event-110")).toBeAttached();
+  await page.getByRole("button", { name: "Latest", exact: true }).click();
+  const jump = await latest.promise;
+  // Playwright's request client reaches the same hub through its loopback listener.
+  const url = new URL(jump.request().url());
+  url.host = system.url().host;
+  const running = await jump.fetch({ url: url.href });
+  const snapshot = await running.json();
+  expect(snapshot.job.status).toBe("running");
+  expect(snapshot.events[0].id).toBe(111);
+
+  await report([success(112, 17)]);
+  await follower.continue();
+  const status = page.locator(".status-lg");
+  // If the follower delivered success while Latest was held, the member has seen that end.
+  if (await follower.request().response()) await expectBrowser(status).toHaveText("Succeeded");
+  const beforeLatest = await status.innerText();
+  await jump.fulfill({ response: running });
+  await expectBrowser(page.locator(".ev-id").first()).toHaveText("12");
+  expect([beforeLatest, await status.innerText()]).not.toEqual(["Succeeded", "Running"]);
+
+  await expectBrowser(page.locator("#event-112")).toBeAttached({ timeout: 12_000 });
+  await expectBrowser(status).toHaveText("Succeeded");
+  const output = page.getByRole("region", { name: "Output", exact: true });
+  await expectBrowser(output.locator("code")).toHaveText("17");
 }, 30_000);
 
 test("pausing during a Latest jump keeps the history readable without a failed-read notice", async () => {
