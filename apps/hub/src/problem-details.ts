@@ -1,5 +1,11 @@
 import { getOpenAPIMeta, getDynamicPathParams } from "@orpc/openapi";
-import { DEFAULT_ERROR_STATUS, ORPCError, ValidationError, type AnyORPCError } from "@orpc/server";
+import {
+  DEFAULT_ERROR_STATUS,
+  onError,
+  ORPCError,
+  ValidationError,
+  type AnyORPCError,
+} from "@orpc/server";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn } from "@orpc/shared";
 import { errorStatusMap, type ProblemDetails, type RequestProblem } from "contract";
@@ -12,18 +18,15 @@ import { InvalidInput } from "./invalid-input.ts";
 // The API's errors as RFC 9457 Problem Details (ADR 0023): oRPC's errors through the handler's
 // encoder here, and errors outside oRPC through the same library's handler in the app.
 
-// The handler's encoder receives the same error after the interceptor, without its procedure.
-const requestProblems = new WeakMap<AnyORPCError, RequestProblem[]>();
-
-export const locateRequestProblems: StandardHandlerInterceptor<object> = async (options) => {
-  try {
-    return await options.next();
-  } catch (error) {
+export const locateRequestProblems: StandardHandlerInterceptor<object> = onError(
+  (error, options) => {
     if (
       !(error instanceof ORPCError) ||
       (error.code !== "BAD_REQUEST" && error.code !== "UNPROCESSABLE_CONTENT")
     )
-      throw error;
+      return;
+    // Module refusals with their own public detail carry the paths as InvalidInput. A
+    // ValidationError would replace that detail with Zod's formatted issue list.
     const issues =
       error.cause instanceof ValidationError
         ? error.cause.issues
@@ -31,7 +34,7 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = async (
           ? error.cause.problems
           : undefined;
     const route = getOpenAPIMeta(options.procedure);
-    if (!issues || !route?.path) throw error;
+    if (!issues || !route?.path) return;
     const params = getDynamicPathParams(route.path);
     const bodyless = route.method === "GET" || route.method === "HEAD";
     const entries = issues.map(({ message: detail, path }): RequestProblem => {
@@ -59,13 +62,16 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = async (
       };
     });
     if (entries.some((entry) => "pointer" in entry || "parameter" in entry || "header" in entry))
-      requestProblems.set(error, entries);
-    throw error;
-  }
-};
+      error.data = { errors: entries };
+  },
+);
 
 export function toProblemDetails(error: AnyORPCError): ProblemDetails {
-  const errors = requestProblems.get(error);
+  const errors: RequestProblem[] | undefined =
+    (error.code === "BAD_REQUEST" || error.code === "UNPROCESSABLE_CONTENT") &&
+    (error.cause instanceof ValidationError || error.cause instanceof InvalidInput)
+      ? error.data?.errors
+      : undefined;
   const { problemDetails: document } = problemDetails({
     status: statusOf(error.code),
     detail: detailOf(error),
