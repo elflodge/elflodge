@@ -24,7 +24,15 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       // Clients can look up shared schemas by name.
       schemas: {
         Job: {},
-        CreatedBatch: { properties: { jobs: { type: "array", default: [] } } },
+        CreatedBatch: {
+          required: expect.arrayContaining([
+            "submitter",
+            "blockedJobCounts",
+            "statusUnknownJobs",
+            "jobs",
+          ]),
+          properties: { jobs: { type: "array" } },
+        },
         ProblemDetails: {
           properties: {
             type: {},

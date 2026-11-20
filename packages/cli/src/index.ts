@@ -23,7 +23,6 @@ import {
   type Batch,
   batchCreationSchema,
   batchIdSchema,
-  type CreatedBatch,
   createProblemDetailsLink,
   FINAL_JOB_STATUSES,
   getAccess,
@@ -891,7 +890,7 @@ class WaitTimedOut extends Error {
 }
 
 /** Cancellation is final even while the Batch waits for a Runner to stop a placed job. */
-function batchWasCancelled(batch: Pick<Batch, "status" | "pendingControl">) {
+function batchWasCancelled(batch: Batch) {
   return batch.status === "cancelled" || batch.pendingControl?.type === "cancel";
 }
 
@@ -917,7 +916,7 @@ function progressOf(batch: Batch) {
   return `${counts}${canary}${pause}${unknown}`;
 }
 
-/** Whether waiting for `batch` is over: no job is unfinished, or its failure breaker paused it. */
+/** A pending cancel keeps the wait open. Otherwise it ends when all jobs end or the breaker pauses the Batch. */
 function settled(batch: Batch) {
   const { queued, running, paused } = batch.jobCounts;
   if (batch.pendingControl?.type === "cancel") return false;
@@ -1021,7 +1020,7 @@ const saveJobLines = Effect.fnUntraced(function* (
  */
 function waitAndSave(
   client: ApiClient,
-  submitted: Omit<CreatedBatch, "jobs">,
+  submitted: Batch,
   jobs: readonly (readonly [string, Job])[],
   options: {
     again: string;
@@ -1040,7 +1039,7 @@ function waitAndSave(
       yield* Effect.sync(() =>
         process.stderr.write(
           submitted.pendingControl?.type === "cancel"
-            ? "Waiting for the Batch’s jobs to finish cancelling.\n"
+            ? "Waiting for the Batch's jobs to finish cancelling.\n"
             : idGiven
               ? `Batch created: "${batchId}". Waiting for completion.\n`
               : "Waiting for completion.\n",

@@ -537,17 +537,9 @@ export type BatchesPage = z.infer<typeof batchesPageSchema>;
 /** A retry after a lost response returns `created: false`, so once-per-job work cannot depend on it. */
 export const addedJobSchema = z.object({ created: z.boolean(), job: jobSchema });
 
-// The 0.10.0 hub did not report a submitter or either progress count. A client reading its
-// create answer keeps those fields absent. The current hub emits them in every Batch.
-const creationResultFields = z.partial(batchSchema, {
-  submitter: true,
-  blockedJobCounts: true,
-  statusUnknownJobs: true,
-});
-
-/** The Batch and its first jobs. Earlier hubs returned the Batch alone. */
+/** The Batch and the jobs requested at creation, in request order. */
 export const createdBatchSchema = z
-  .extend(creationResultFields, { jobs: z._default(z.array(addedJobSchema), []) })
+  .extend(batchSchema, { jobs: z.array(addedJobSchema) })
   .register(z.globalRegistry, { id: "CreatedBatch" });
 export type CreatedBatch = z.infer<typeof createdBatchSchema>;
 
@@ -1073,7 +1065,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch and its optional first jobs, all or nothing. The answer is the Batch with each requested job in order and whether it was created. The hub checks the request shape first. A malformed job is refused before the agent's Output schema is checked, so a malformed job and an array Output schema take two attempts to diagnose. Once the shape is valid, the hub reports job input problems together with Output schemas that are invalid, describe a list or refer outside themselves. A new Batch must meet the current limits. Retrying the same ID, agent, labels and breaker returns the existing Batch even after a maximum is lowered (0.10.0 refused that repeat with 400). Different Batch content under the same ID is refused with 422. Each custom ID follows the add's rule: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
+            "Creates a Batch and its optional first jobs, all or nothing. The answer is the Batch with each requested job in order and whether it was created. The hub checks the request shape first. A malformed job is refused before the agent's Output schema is checked, so a malformed job and an array Output schema take two attempts to diagnose. Once the shape is valid, the hub reports job input problems together with Output schemas that are invalid, describe a list or refer outside themselves. A new Batch must meet the current limits. Retrying the same ID, agent, labels and breaker returns the existing Batch even after a maximum is lowered. Different Batch content under the same ID is refused with 422. Each custom ID follows the add's rule: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )

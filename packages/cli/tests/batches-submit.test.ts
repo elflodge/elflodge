@@ -6,7 +6,6 @@ import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
 import { MAX_BODY_BYTES } from "contract";
-import { Struct } from "effect";
 import { expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -359,51 +358,6 @@ test("batches submit refuses an agent and first job that exceed the create limit
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("agent and first job exceed the request size limit");
   expect(hub.batchIds).toEqual([]);
-});
-
-test("batches create reads the Batch a 0.10.0 hub returned without jobs or later progress and submitter fields", async () => {
-  const released = Struct.omit(batchOf("count"), [
-    "submitter",
-    "blockedJobCounts",
-    "statusUnknownJobs",
-  ]);
-  const result = await runCli(
-    [
-      "batches",
-      "create",
-      "--id",
-      "count",
-      "--agent",
-      JSON.stringify({ outputContract: { schema: {} } }),
-    ],
-    { hub: (_request, response) => answer(response, released) },
-  );
-  expect(result.exitCode, result.stderr).toBe(0);
-  expect(JSON.parse(result.stdout)).toEqual({ ...released, jobs: [] });
-});
-
-test("jobs submit reports a missing requested job and the generated ID for recovery", async () => {
-  const result = await runCli(
-    [
-      "jobs",
-      "submit",
-      "--json",
-      JSON.stringify({ agent: { outputContract: { schema: {} } }, input: "Count." }),
-    ],
-    {
-      hub: async (request, response) => {
-        const { id } = z.parse(
-          z.object({ id: z.string() }),
-          JSON.parse((await buffer(request)).toString()),
-        );
-        answer(response, batchOf(id));
-      },
-    },
-  );
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("The hub did not return the requested job");
-  expect(result.stderr).toContain("The job's custom ID is");
 });
 
 // Root reads any folder, so the refusal shows only for another user.
