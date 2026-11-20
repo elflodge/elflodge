@@ -23,7 +23,10 @@ export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Elemen
   return true;
 }
 
-/** Keep the form pending until its submission, including any navigation, settles. */
+/**
+ * Keep the form pending until its submission, including any navigation, settles. Then focus a
+ * refused field, or return focus to the control that disabling lost it, unless the member moved on.
+ */
 export function createFormAction(submit: (form: HTMLFormElement) => Promise<void>) {
   const [pending, setPending] = createOptimistic(false);
   const run = action(function* (form: HTMLFormElement) {

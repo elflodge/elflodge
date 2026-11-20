@@ -1,3 +1,4 @@
+import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { For, Show, createSignal, createUniqueId, onSettled, untrack } from "solid-js";
 
@@ -11,7 +12,8 @@ import { FieldError } from "./FieldError.tsx";
 import { Instant } from "./Instant.tsx";
 import { Notice } from "./Notice.tsx";
 
-type FieldRefusal = { message: string; showAtField: (message: string) => void };
+/** A refusal of one field: its words, and how to show them at the field while the dialog is open. */
+type FieldRefusal = { message: string; showAtField: () => void };
 
 /** Form dialogs can be closed while the hub is answering. */
 function FormDialog(props: {
@@ -22,7 +24,10 @@ function FormDialog(props: {
   answer?: JSX.Element;
   close: () => void;
   submit: (form: FormData, close: () => boolean) => Promise<string | FieldRefusal | void>;
-  report: (message: string, submitted: FormData) => void;
+  /** Reports on the page a refusal that arrives after the dialog closed. */
+  report: (message: JSX.Element) => void;
+  /** What the page says then; by default the confirming button's words and the refusal. */
+  pageMessage?: (message: string, submitted: FormData) => JSX.Element;
 }) {
   const headingId = createUniqueId();
   let dialog!: HTMLDialogElement;
@@ -42,9 +47,10 @@ function FormDialog(props: {
     }
     if (!refusal) return;
     const message = typeof refusal === "string" ? refusal : refusal.message;
-    if (!dialog.isConnected || !dialog.open) props.report(message, submitted);
+    if (!dialog.isConnected || !dialog.open)
+      props.report(props.pageMessage?.(message, submitted) ?? `${props.confirm}: ${message}`);
     else if (typeof refusal === "string") setFailure(message);
-    else refusal.showAtField(message);
+    else refusal.showAtField();
   });
   return (
     <dialog
@@ -180,6 +186,7 @@ export function InviteMember(
       });
       props.refresh();
     } catch (error) {
+      if (!(error instanceof BetterFetchError)) throw error;
       if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
         await props.refreshSession();
 
@@ -190,11 +197,12 @@ export function InviteMember(
         error.status === 403 &&
         grant !== "owner";
       if (!alreadyMember && !ownerInvitation) throw error;
+      const message = alreadyMember
+        ? "This address is already a member."
+        : "This address has an invitation only an owner can replace.";
       return {
-        message: alreadyMember
-          ? "This address is already a member."
-          : "This address has an invitation only an owner can replace.",
-        showAtField(message: string) {
+        message,
+        showAtField() {
           if (emailField.value === email) setEmailError(message);
         },
       };
@@ -215,14 +223,11 @@ export function InviteMember(
       }
       confirm="Create invitation"
       submit={invite}
-      report={(message, submitted) =>
-        props.report(
-          <>
-            Create invitation for <span class="mono">{fieldText(submitted, "email")}</span>:{" "}
-            {message}
-          </>,
-        )
-      }
+      pageMessage={(message, submitted) => (
+        <>
+          Create invitation for <span class="mono">{fieldText(submitted, "email")}</span>: {message}
+        </>
+      )}
       answered={!!created()}
       answer={
         <Show when={created()}>
@@ -290,7 +295,6 @@ export function RenameOrganization(
       {...props}
       heading="Rename the Organization"
       confirm="Rename"
-      report={(message) => props.report(`Rename: ${message}`)}
       submit={async (form, close) => {
         await props.rename(fieldText(form, "name"));
         close();
@@ -327,7 +331,6 @@ export function ChangeRole(
       {...props}
       heading={props.own ? "Change your role" : `Change the role of ${props.name}`}
       confirm="Change role"
-      report={(message) => props.report(`Change role: ${message}`)}
       submit={async (_form, close) => {
         const selected = choice();
         if (!selected) return undefined;

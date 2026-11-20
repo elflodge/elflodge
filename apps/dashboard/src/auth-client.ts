@@ -23,15 +23,19 @@ export const authClient = createAuthClient({
   fetchOptions: { throw: true },
 });
 
-// The client's $ERROR_CODES is a fetch proxy at runtime. Only its type lists the codes.
+/**
+ * Whether the hub refused with one of Better Auth's `codes`, checked against the client's type. At
+ * run time the client's `$ERROR_CODES` is a fetch proxy, and the plugins' own exports leave out the
+ * base codes, such as INVALID_PASSWORD.
+ */
 export function hasAuthCode(
   error: unknown,
   ...codes: (keyof typeof authClient.$ERROR_CODES)[]
-): error is BetterFetchError {
+): boolean {
   return error instanceof BetterFetchError && codes.some((code) => code === error.error?.code);
 }
 
-// A refused session or permission can mean the member's access changed since the last read.
+/** A refused session or permission can mean the member's access changed since the last read. */
 export function isAuthAccessError(error: unknown): boolean {
   return error instanceof BetterFetchError && [401, 403].includes(error.status);
 }
