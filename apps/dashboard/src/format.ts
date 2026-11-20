@@ -31,11 +31,20 @@ export function elapsedSince(contact: Date, readAt: number): string {
   return RELATIVE.format(-Math.floor(seconds / 86400), "day");
 }
 
-/** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
-export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
+const zonedTime = {
   hour: "2-digit",
   minute: "2-digit",
   timeZoneName: "short",
+} satisfies Intl.DateTimeFormatOptions;
+
+/** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
+export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, zonedTime);
+
+/** An invitation can expire on another day, so its lone instant includes the date as well. */
+export const DATE_TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
+  ...zonedTime,
+  day: "numeric",
+  month: "short",
 });
 
 function zoneName(timeZoneName: "longGeneric" | "short"): string {
@@ -66,4 +75,11 @@ export function plural(count: number, one: string, other: string): string {
 /** A count, such as of tokens or of jobs: "12,279". */
 export function formatCount(count: number): string {
   return COUNT.format(count);
+}
+
+const ROLE_LIST = new Intl.ListFormat(LANGUAGE, { type: "conjunction" });
+
+/** Better Auth stores a membership's roles as comma-separated names. */
+export function formatRoles(roles: string): string {
+  return ROLE_LIST.format(roles.split(","));
 }

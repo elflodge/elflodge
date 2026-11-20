@@ -191,7 +191,7 @@ A list with nothing in it says what belongs there and the way to it: `div.empty`
 
 ### A page without the shell
 
-Signing in and setting up have no bar, since no one is signed in yet. Such a page is `main#main.page.is-alone`: one narrow column under the mark.
+Sign-in, setup and invitation links can be opened before signing in. They have no bar. Such a page is `main#main.page.is-alone`: one narrow column under the mark. An invitation can name the Organization in its heading and its button. Long names and email addresses wrap within the column.
 
 ```tsx
 <main id="main" class="page is-alone">
@@ -259,6 +259,8 @@ which draws `p.field-error`: the error mark and the words, small, in the failed 
 
 Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
 
+A read-only field shows a given value on a transparent ground with a quiet border. It remains available for selection and password managers.
+
 Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the hub's refusal comes back as the form's notice. Do not use `maxlength` because it cuts what is typed or pasted. A limit the contract states may be checked at submit with native validation, and a limit it does not state is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
@@ -324,7 +326,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 
 `src/format.ts` writes them with the platform's `Intl` in British English, for every reader: a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41", which no reader takes for another day or hour, and a figure as "12,279". Being fixed, the widths a page is laid out for hold.
 
-- **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An instant alone on a page that has the note carries none.
+- **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An invitation shows its expiry date and zoned time with `DATE_TIME_ZONED`, for example "22 Nov, 15:42 UTC". The year is omitted because the invitation lasts 48 hours. An instant alone on a page that has the note carries none.
 - **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
 

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignedInRouteImport } from './routes/_signed-in'
+import { Route as InvitationRouteImport } from './routes/invitation'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignedInSplatRouteImport } from './routes/_signed-in/$'
@@ -21,6 +22,11 @@ import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_
 
 const SignedInRoute = SignedInRouteImport.update({
   id: '/_signed-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InvitationRoute = InvitationRouteImport.update({
+  id: '/invitation',
+  path: '/invitation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SetupRoute = SetupRouteImport.update({
@@ -65,6 +71,7 @@ const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof SignedInMemberIndexRoute
+  '/invitation': typeof InvitationRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/$': typeof SignedInSplatRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof SignedInMemberIndexRoute
+  '/invitation': typeof InvitationRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/$': typeof SignedInSplatRoute
@@ -84,6 +92,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_signed-in': typeof SignedInRouteWithChildren
+  '/invitation': typeof InvitationRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/_signed-in/$': typeof SignedInSplatRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/invitation'
     | '/setup'
     | '/sign-in'
     | '/$'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/invitation'
     | '/setup'
     | '/sign-in'
     | '/$'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_signed-in'
+    | '/invitation'
     | '/setup'
     | '/sign-in'
     | '/_signed-in/$'
@@ -127,6 +139,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   SignedInRoute: typeof SignedInRouteWithChildren
+  InvitationRoute: typeof InvitationRoute
   SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
 }
@@ -138,6 +151,13 @@ declare module '@tanstack/solid-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof SignedInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invitation': {
+      id: '/invitation'
+      path: '/invitation'
+      fullPath: '/invitation'
+      preLoaderRoute: typeof InvitationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/setup': {
@@ -233,6 +253,7 @@ const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   SignedInRoute: SignedInRouteWithChildren,
+  InvitationRoute: InvitationRoute,
   SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
 }

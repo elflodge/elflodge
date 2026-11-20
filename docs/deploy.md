@@ -213,7 +213,7 @@ The hub lists the Runner under its host's name, which `--hostname` gives the con
 
 ## Membership and account recovery
 
-An owner or admin can invite someone with Better Auth's `organization/invite-member` call. Give the invitation ID privately to the intended recipient. It works once, within 48 hours of the last send, while the inviter can still grant the role. A resend renews a pending, unexpired invitation and creates a new invitation ID after expiry, so share the ID the resend returns. Only an owner can invite another owner. The recipient can preview the invitation and then accept it with a name and password for a new account, or their signed-in session for an existing account.
+An owner or admin can invite someone with Better Auth's `organization/invite-member` call. Send the intended recipient a private link to `/dashboard/invitation#<invitationId>` at the hub address they use. It works once, within 48 hours of the last send, while the inviter can still grant the role. A resend renews a pending, unexpired invitation and creates a new invitation ID after expiry, so share a link with the ID the resend returns. Only an owner can invite another owner. The recipient can preview the invitation and then accept it with a name and password for a new account, or their signed-in session for an existing account.
 
 The hub assumes PostgreSQL's default transaction isolation level, `READ COMMITTED`. The check that an Organization keeps an owner relies on this setting.
 

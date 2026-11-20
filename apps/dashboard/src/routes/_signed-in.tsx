@@ -15,7 +15,7 @@ import {
   watchDocumentMember,
 } from "../member-document.ts";
 
-// Every page but signing in and setting up is for a signed-in user. The session is read from the
+// The shell is for a signed-in user. The session is read from the
 // hub on each navigation, so a session that ended elsewhere, such as by a password change on
 // another device, sends the user to sign in again.
 export const Route = createFileRoute("/_signed-in")({
