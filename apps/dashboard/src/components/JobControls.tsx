@@ -64,7 +64,7 @@ export function JobControls(props: {
         control === "resume"
           ? await api.jobs.resume({ id, modelBudgetUsd })
           : await api.jobs[control]({ id });
-      // The job read, newest-first page and follower can each replace the record.
+      // The job read and any Events read that can reach the newest end can replace the record.
       await Promise.all([
         client.cancelQueries({ queryKey, exact: true }),
         client.cancelQueries({
@@ -72,7 +72,7 @@ export function JobControls(props: {
           predicate: (query) => !query.state.fetchMeta?.fetchMore,
         }),
         client.cancelQueries({
-          queryKey: orpc.jobs.events.key({ type: "streamed", input: { id } }),
+          queryKey: orpc.jobs.events.key({ input: { id, order: "asc" } }),
         }),
       ]);
       client.setQueryData(queryKey, job);

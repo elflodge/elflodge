@@ -1,4 +1,5 @@
 import {
+  CancelledError,
   QueryObserver,
   type QueryObserverResult,
   experimental_streamedQuery,
@@ -39,6 +40,7 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
   onCleanup(() => ownerLifetime.abort());
   const [direction, setDirection] = createSignal<PagingDirection>("earlier");
   const [isReadingPage, setReadingPage] = createSignal(false);
+  const [replacingHistory, setReplacingHistory] = createSignal(false);
   const [jumpFailure, setJumpFailure] = createSignal<{ side: PagingDirection; error: Error }>();
   async function writeJob(job: Job, signal: AbortSignal) {
     const queryKey = orpc.jobs.get.queryKey({ input: { id: job.id } });
@@ -53,8 +55,15 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
       input,
       initialPageParam: 0,
       async queryFn({ pageParam, signal }) {
+        // A history read that can carry the job takes over from the follower. A jump keeps
+        // it stopped until the replacement history supplies the cursor for the next poll.
+        if (order === "asc" || pageParam === 0) {
+          await client.cancelQueries({
+            queryKey: orpc.jobs.events.key({ type: "streamed", input: { id: jobId } }),
+          });
+        }
         const page = await orpc.jobs.events.call(input(pageParam), { signal });
-        if (order === "desc" && pageParam === 0 && page.job) await writeJob(page.job, signal);
+        if (page.job) await writeJob(page.job, signal);
         return page;
       },
       getNextPageParam: (last) => (last.hasMore ? last.events.at(-1)?.id : undefined),
@@ -89,8 +98,8 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
   const historyMissing = () =>
     problemOf(history.error)?.status === 404 || problemOf(jumpFailure()?.error)?.status === 404;
   const canFollow = createMemo(() => enabled() && tailCursor() !== undefined && !historyMissing());
-  const newestFirstHasJob = createMemo(() =>
-    direction() === "earlier" ? !!pages()[0]?.job : undefined,
+  const tailHasJob = createMemo(
+    () => !!(direction() === "earlier" ? pages()[0] : pages().at(-1))?.job,
   );
   // @tanstack/solid-query 6.0.0-rc.6 useBaseQuery.ts returns the fetch promise during a
   // refetch, holding the previous data until the whole stream settles. Observe each reduced
@@ -98,16 +107,13 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
   const follow = createMemo(() => {
     const cursor = tailCursor();
     const input = { id: id(), order: "asc" as const, after: cursor, limit: PAGE_SIZE };
-    const mayFollow = canFollow();
+    const mayFollow = canFollow() && !replacingHistory();
     const initial: FollowedPage = { events: [], hasMore: false, hasJob: false };
-    // The newest-first read already followed through this cursor. Poll from there at the
-    // next interval. A walk from Start still needs its first follower answer.
-    const hasJob = newestFirstHasJob();
+    const hasJob = tailHasJob();
     const observer = new QueryObserver<FollowedPage>(client, {
       queryKey: orpc.jobs.events.key({ type: "streamed", input }),
       enabled: ({ state }) => mayFollow && !(state.error && refused(state.error)),
-      initialData:
-        cursor !== undefined && hasJob !== undefined ? { ...initial, hasJob } : undefined,
+      initialData: cursor !== undefined ? { ...initial, hasJob } : undefined,
       gcTime: 0,
       queryFn: experimental_streamedQuery<JobEventsPage, FollowedPage>({
         refetchMode: "append",
@@ -180,6 +186,7 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
       }
       const previousHistoryError = history.error;
       const previousFollowError = follow().error;
+      setReplacingHistory(true);
       const answer = await client.infiniteQuery({
         ...historyOptions(id(), next),
         staleTime: 0,
@@ -214,9 +221,11 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
       setJumpFailure(undefined);
       return enabled() && !rereadFailed();
     } catch (error) {
-      if (!ownerLifetime.signal.aborted) setJumpFailure({ side, error: asError(error) });
+      if (error instanceof CancelledError) setJumpFailure(undefined);
+      else if (!ownerLifetime.signal.aborted) setJumpFailure({ side, error: asError(error) });
       return false;
     } finally {
+      setReplacingHistory(false);
       setReadingPage(false);
     }
   }
@@ -225,9 +234,16 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
     setReadingPage(true);
     // Disable the button and clear its refusal before a retry suspends the history read.
     flush();
+    const pageCount = pages().length;
     try {
       const result = await history.fetchNextPage();
-      if (!result.isSuccess || ownerLifetime.signal.aborted) return undefined;
+      // Cancelling a fetch with cached pages resolves with those pages (query-core query.ts).
+      if (
+        !result.isSuccess ||
+        result.data.pages.length === pageCount ||
+        ownerLifetime.signal.aborted
+      )
+        return undefined;
       // Query's response can arrive before Solid has committed the replacement for the button.
       await resolve(() => history.data);
       return result.data.pages.at(-1);
