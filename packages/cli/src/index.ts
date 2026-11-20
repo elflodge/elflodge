@@ -416,8 +416,7 @@ function submitCommand() {
             hint,
           );
           yield* printStep(batch.jobs[0]?.job);
-          if (batch.status === "cancelled")
-            yield* Effect.fail(new Error("The Batch was cancelled"));
+          if (batchWasCancelled(batch)) yield* Effect.fail(new Error("The Batch was cancelled"));
         }).pipe(Effect.mapError(commandError)),
       );
     });
@@ -839,6 +838,11 @@ class WaitTimedOut extends Error {
   readonly [Runtime.errorExitCode] = 124;
 }
 
+/** Cancellation is final even while the Batch waits for a Runner to stop a placed job. */
+function batchWasCancelled(batch: Batch) {
+  return batch.status === "cancelled" || batch.pendingControl?.type === "cancel";
+}
+
 /** How a Batch's jobs stand, on one line. */
 function progressOf(batch: Batch) {
   const { queued, running, paused, succeeded, failed, cancelled } = batch.jobCounts;
@@ -979,7 +983,7 @@ function waitAndSave(
     const { again, idGiven, timeout, outputDir } = options;
     // Where a person watches, in openai-cli's words; the Batch's ID only when the person gave it, as
     // an ID the command made is shown only if it stops early.
-    if (onTerminal && submitted.status !== "cancelled") {
+    if (onTerminal && !batchWasCancelled(submitted)) {
       yield* Effect.sync(() =>
         process.stderr.write(
           idGiven
@@ -1008,25 +1012,24 @@ function waitAndSave(
         );
       });
     const waitThenSave = Effect.gen(function* () {
-      const batch =
-        submitted.status === "cancelled"
-          ? submitted
-          : yield* hubCall((signal) => client.batches.get({ id: batchId }, { signal })).pipe(
-              Effect.retry(retryTransient),
-              Effect.tap(noticeUnknown),
-              Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
-              Effect.repeat({ schedule: pollSchedule, until: settled }),
-              Effect.ensuring(endProgress),
-              // A read that fails ends the wait, which says how to wait again, the ID with it; not on an
-              // interrupt, whose own message says so.
-              Effect.tapError(() =>
-                Effect.sync(() =>
-                  process.stderr.write(
-                    `Stopped waiting; the Batch carries on. To wait again, ${again}.\n`,
-                  ),
+      const batch = batchWasCancelled(submitted)
+        ? submitted
+        : yield* hubCall((signal) => client.batches.get({ id: batchId }, { signal })).pipe(
+            Effect.retry(retryTransient),
+            Effect.tap(noticeUnknown),
+            Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
+            Effect.repeat({ schedule: pollSchedule, until: settled }),
+            Effect.ensuring(endProgress),
+            // A read that fails ends the wait, which says how to wait again, the ID with it; not on an
+            // interrupt, whose own message says so.
+            Effect.tapError(() =>
+              Effect.sync(() =>
+                process.stderr.write(
+                  `Stopped waiting; the Batch carries on. To wait again, ${again}.\n`,
                 ),
               ),
-            );
+            ),
+          );
       // Saving's failure is kept, so the Batch is printed, its ID with it, whatever saving did,
       // as openai-cli prints it.
       const saved =
@@ -1077,7 +1080,7 @@ function waitAndSave(
     const failure =
       batch.pausedBy === "breaker"
         ? `The Batch's failure breaker paused it, as its jobs failed. Once their failures are fixed, resume it with ${CommandLine.display(["elflodge", "batches", "resume", "--id", batch.id])}, and ${again}${outputDir === undefined ? "" : " and a new --output-dir"}.`
-        : batch.status === "cancelled"
+        : batchWasCancelled(batch)
           ? "The Batch was cancelled"
           : unsucceeded > 0
             ? `${unsucceeded} of ${succeeded + unsucceeded} jobs did not succeed`
@@ -1293,8 +1296,7 @@ function submitBatchCommand() {
           const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
           const submitted = Effect.gen(function* () {
             yield* printStep(batch);
-            if (batch.status === "cancelled")
-              yield* Effect.fail(new Error("The Batch was cancelled"));
+            if (batchWasCancelled(batch)) yield* Effect.fail(new Error("The Batch was cancelled"));
             if (personWatches()) {
               yield* Effect.sync(() =>
                 process.stderr.write(
