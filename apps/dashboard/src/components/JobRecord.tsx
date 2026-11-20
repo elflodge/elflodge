@@ -28,7 +28,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
           {(name) => (
             <>
               <dt>Custom ID</dt>
-              <dd class="mono">{name()}</dd>
+              <dd class="mono whole-id">{name()}</dd>
             </>
           )}
         </Show>
@@ -74,7 +74,15 @@ export function JobFacts(props: { job: Job; readAt: number }) {
         <Show when={!props.job.deletedAt}>
           <dt>Runner</dt>
           <dd>
-            <Show when={props.job.runner} fallback={props.job.startedAt ? "Removed" : "None yet"}>
+            <Show
+              when={props.job.runner}
+              fallback={
+                props.job.startedAt ||
+                (props.job.status === "failed" && props.job.failure.reason === "runnerRemoved")
+                  ? "Removed"
+                  : "None yet"
+              }
+            >
               {(runner) => (
                 <>
                   <RunnerOfJob linked runner={runner()} shortId={runnerId() ?? runner().id} />
@@ -239,9 +247,7 @@ export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
         </Show>
       </div>
       <Show when={props.failure && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
-        <p class="note">
-          {formatCount(FAILURE_MESSAGE_MAX_LENGTH)} characters, the most the hub keeps.
-        </p>
+        <p class="note">This message reached the maximum stored length.</p>
       </Show>
       <pre
         id="output-or-failure-text"

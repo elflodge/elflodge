@@ -1,25 +1,17 @@
 import type { JSX } from "@solidjs/web";
 import type { UseQueryResult } from "@tanstack/solid-query";
-import { focusManager, onlineManager, useQuery } from "@tanstack/solid-query";
+import { useQuery } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
-import { Errored, Loading, Match, Show, Switch, createMemo, from } from "solid-js";
+import { Errored, Loading, Match, Show, Switch, createMemo } from "solid-js";
 
 import { TIME_ZONED, formatCount, plural } from "../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../query.ts";
+import { browserOnline, readIsFresh } from "../read-freshness.ts";
 import { Instant } from "./Instant.tsx";
-
-// The smallest round cutoff beyond the poll and retries (5 + 1 + 2 + 4 seconds) lets a fast outage
-// go straight from figures to failure. An unmeasured starting value; revisit with either policy.
-const MAX_ANSWER_AGE = 15_000;
 
 /** What the hub says now about the Organization's Runners and unfinished jobs. */
 export function HubStrip() {
-  const online = createMemo(() =>
-    from<boolean>((next) => {
-      next(onlineManager.isOnline());
-      return onlineManager.subscribe(next);
-    }),
-  );
+  const online = browserOnline();
   const runners = useQuery(() =>
     orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
   );
@@ -140,22 +132,7 @@ function Read<T>(props: {
   what: string;
   children: (data: () => T) => JSX.Element;
 }) {
-  const fresh = createMemo(() => {
-    const answeredAt = props.query.dataUpdatedAt;
-    const expiresAt = answeredAt + MAX_ANSWER_AGE;
-    if (!answeredAt || Date.now() >= expiresAt) return false;
-    // Wake once at expiry and recheck on visibility changes because hidden tabs throttle timers.
-    return from<boolean>((next) => {
-      const check = () => next(Date.now() < expiresAt);
-      check();
-      const timer = setTimeout(() => next(false), Math.max(0, expiresAt - Date.now()));
-      const unsubscribe = focusManager.subscribe(check);
-      return () => {
-        clearTimeout(timer);
-        unsubscribe();
-      };
-    });
-  });
+  const fresh = readIsFresh(() => props.query.dataUpdatedAt);
 
   return (
     <Switch>

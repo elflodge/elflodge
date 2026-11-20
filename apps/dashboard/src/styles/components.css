@@ -1574,6 +1574,9 @@ p mark.placeholder {
   font-weight: var(--weight-mono-strong);
   overflow-wrap: anywhere;
 }
+.whole-id {
+  white-space: break-spaces;
+}
 .subject .kind {
   display: block;
   margin-bottom: var(--space-1);
@@ -1688,6 +1691,13 @@ p mark.placeholder {
 .activity h3,
 .activity li {
   margin-top: var(--space-2);
+}
+.activity h3,
+.activity .sid {
+  color: var(--c-ink-2);
+}
+.activity .sid {
+  white-space: normal;
 }
 .activity ul {
   margin: 0;

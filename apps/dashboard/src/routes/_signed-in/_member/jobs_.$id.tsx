@@ -1,17 +1,19 @@
 import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { jobRefSchema, problemOf } from "contract";
-import { Show, createMemo, createSignal, onSettled } from "solid-js";
+import { Match, Show, Switch, createMemo, createSignal, latest, onSettled } from "solid-js";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { FallbackPage } from "../../../components/FallbackPage.tsx";
+import { Instant } from "../../../components/Instant.tsx";
 import { JobActivity } from "../../../components/JobActivity.tsx";
 import { JobControls } from "../../../components/JobControls.tsx";
 import { JobFacts, JobLimits, JobOutputOrFailure } from "../../../components/JobRecord.tsx";
 import { focusIfLost } from "../../../form.ts";
-import { timeZoneNote } from "../../../format.ts";
+import { TIME_ZONED, timeZoneNote } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
+import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
 // UUIDs in addresses accept either case. The hub returns them in lowercase, including on a control.
 function jobQuery(id: string) {
@@ -92,7 +94,13 @@ function JobPage() {
     refetchInterval: (query) =>
       problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
   }));
-  const job = () => read.data;
+  const online = browserOnline();
+  const fresh = readIsFresh(() => read.dataUpdatedAt);
+  const failed = () => read.errorUpdatedAt > read.dataUpdatedAt;
+  const waitingForRead = () => !fresh() || read.fetchStatus === "paused";
+  const current = () => online() && !waitingForRead() && !failed();
+  // A stalled poll must leave the last answer readable while its live indication expires.
+  const job = () => latest(() => read.data);
   const stopped = () => {
     const record = job();
     return (
@@ -113,7 +121,7 @@ function JobPage() {
     if (!stopped()) return undefined;
     if (endedBeforeStart()) return "It ended before it started, so it cannot be resumed.";
     // Until the Batch read succeeds, offer Resume and let the hub explain any Batch refusal.
-    const lastBatch = batch.dataUpdatedAt ? batch.data : undefined;
+    const lastBatch = batch.dataUpdatedAt ? latest(() => batch.data) : undefined;
     if (lastBatch?.status === "cancelled")
       return "Its Batch was cancelled, so it cannot be resumed.";
     if (lastBatch?.pendingControl?.type === "cancel")
@@ -141,30 +149,49 @@ function JobPage() {
       <div class="head">
         <h1 class="subject">
           <span class="kind">Job</span>
-          {job().customId ?? job().id}
+          <span class="whole-id">{job().customId?.trim() ? job().customId : job().id}</span>
         </h1>
       </div>
       <p class="note">{timeZoneNote()}</p>
-      <Show when={read.isError}>
-        <FailedReadNotice
-          what="The job"
-          detail={hubFailureMessage(read.error)}
-          failedAt={read.errorUpdatedAt}
-          readAt={read.dataUpdatedAt}
-        />
-      </Show>
+      <Switch>
+        <Match when={!online()}>
+          <p class="note is-unknown">
+            This browser is offline. The job was last read at{" "}
+            <Instant value={new Date(read.dataUpdatedAt)} format={TIME_ZONED} />.
+          </p>
+        </Match>
+        <Match when={failed()}>
+          <FailedReadNotice
+            what="The job"
+            detail={hubFailureMessage(read.error)}
+            failedAt={read.errorUpdatedAt}
+            readAt={read.dataUpdatedAt}
+          />
+        </Match>
+        <Match when={waitingForRead()}>
+          <p class="note is-unknown">
+            The job has not been read since{" "}
+            <Instant value={new Date(read.dataUpdatedAt)} format={TIME_ZONED} />.
+          </p>
+        </Match>
+      </Switch>
       <div class="record-with-aside">
         <div class="record-sections">
           <div>
             <JobControls
               job={job()}
+              lastRecorded={!current()}
               cannotResume={cannotResume()}
               resumeOffered={resumeOffered()}
               deletedHere={deletedHere()}
               onDeleted={() => setDeletedHere(true)}
             />
           </div>
-          <Show when={job().status === "running" && !job().statusUnknown && !job().deletedAt}>
+          <Show
+            when={
+              current() && job().status === "running" && !job().statusUnknown && !job().deletedAt
+            }
+          >
             <JobActivity job={job()} readAt={read.dataUpdatedAt} />
           </Show>
           <Show when={!job().deletedAt || job().startedAt}>

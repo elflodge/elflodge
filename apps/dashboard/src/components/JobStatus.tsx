@@ -43,14 +43,18 @@ const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> 
  * status the hub cannot confirm, a control its Runner has not yet acted on, what blocks it, and why
  * it failed. While the status is unknown, the word is the last status the hub recorded.
  */
-export function JobStatus(props: { job: ListedJob | Job }) {
+export function JobStatus(props: { job: ListedJob | Job; lastRecorded?: boolean }) {
   return (
     <span
-      class={["status-word", `s-${props.job.status}`, { "is-unknown": !!props.job.statusUnknown }]}
+      class={[
+        "status-word",
+        `s-${props.job.status}`,
+        { "is-unknown": !!props.job.statusUnknown || !!props.lastRecorded },
+      ]}
     >
       <span class={["mark", `mark-${props.job.status}`]} aria-hidden="true" />
       {STATUS_WORDS[props.job.status]}
-      <Show when={props.job.statusUnknown}>
+      <Show when={props.job.statusUnknown || props.lastRecorded}>
         <span class="vh"> (last recorded)</span>
       </Show>
     </span>
@@ -58,7 +62,7 @@ export function JobStatus(props: { job: ListedJob | Job }) {
 }
 
 const FAILURE_WORDS: Record<Failure["reason"], string> = {
-  modelFailed: "the model’s provider failed the call",
+  modelFailed: "Generating the next step failed.",
   noOutput: "its agent ended without an accepted Output",
   runTimedOut: "a run went past its run timeout",
   modelBudgetExceeded: "its model calls’ cost reached its model budget",

@@ -1,15 +1,13 @@
 import type { Job } from "contract";
 import { For, Show } from "solid-js";
 
-import { TIME_SECONDS, duration } from "../format.ts";
+import { TIME_SECONDS, elapsedSince } from "../format.ts";
 import { Instant } from "./Instant.tsx";
 
-function AtReport(props: { changedAt: string; report: Date }) {
-  const start = () => new Date(props.changedAt);
+function ObservedChange(props: { changedAt: string }) {
   return (
     <span class="sub">
-      since <Instant value={start()} format={TIME_SECONDS} />,{" "}
-      {duration((props.report.getTime() - start().getTime()) / 1000)} at the report
+      Runner saw this change at <Instant value={new Date(props.changedAt)} format={TIME_SECONDS} />.
     </span>
   );
 }
@@ -32,15 +30,19 @@ export function JobActivity(props: { job: Job; readAt: number }) {
         {(report) => (
           <>
             <p class="note">
-              As of report <Instant value={report()} format={TIME_SECONDS} />,{" "}
-              {duration((props.readAt - report().getTime()) / 1000)} before this read.
+              Last report <Instant value={report()} format={TIME_SECONDS} />,{" "}
+              {elapsedSince(report(), props.readAt)}.
+              <Show when={props.job.activity}>
+                {" "}
+                Activity was last observed at or before that report.
+              </Show>
             </p>
-            <Show when={props.job.activity} fallback={<p>No activity in the report.</p>}>
+            <Show when={props.job.activity} fallback={<p>No activity has been reported.</p>}>
               {(activity) => (
                 <For
                   keyed={(part) => part.conversationId}
                   each={activity()}
-                  fallback={<p>Between steps at the report.</p>}
+                  fallback={<p>Between steps when last observed.</p>}
                 >
                   {(conversation) => (
                     <div>
@@ -53,7 +55,7 @@ export function JobActivity(props: { job: Job; readAt: number }) {
                               <Show when={call().retry}>
                                 {(retry) => <Retry retry={retry()} />}
                               </Show>
-                              <AtReport changedAt={call().changedAt} report={report()} />
+                              <ObservedChange changedAt={call().changedAt} />
                             </li>
                           )}
                         </Show>
@@ -63,7 +65,7 @@ export function JobActivity(props: { job: Job; readAt: number }) {
                               Tool <code>{tool().name}</code>{" "}
                               {tool().status === "pending" ? "waiting" : "running"}{" "}
                               <span class="sid">{tool().callId}</span>
-                              <AtReport changedAt={tool().changedAt} report={report()} />
+                              <ObservedChange changedAt={tool().changedAt} />
                             </li>
                           )}
                         </For>
@@ -73,7 +75,7 @@ export function JobActivity(props: { job: Job; readAt: number }) {
                               Compaction ({step.reason}), attempt {step.attempt}
                               {step.blocking && ", the model call waits for it"}
                               <Show when={step.retry}>{(retry) => <Retry retry={retry()} />}</Show>
-                              <AtReport changedAt={step.changedAt} report={report()} />
+                              <ObservedChange changedAt={step.changedAt} />
                             </li>
                           )}
                         </For>

@@ -32,6 +32,7 @@ function cancelConsequence(job: Job) {
 export function JobControls(props: {
   job: Job;
   resumeOffered: boolean;
+  lastRecorded: boolean;
   cannotResume?: string;
   deletedHere: boolean;
   onDeleted: () => void;
@@ -131,7 +132,7 @@ export function JobControls(props: {
         }}
       >
         <div class="status-lg">
-          <JobStatus job={props.job} />
+          <JobStatus job={props.job} lastRecorded={props.lastRecorded} />
         </div>
         <BesideStatus job={props.job} detailed />
         <Show when={props.job.statusUnknown}>
