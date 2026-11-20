@@ -272,7 +272,7 @@ test("batches submit --each makes a job of each file and folder, named by its pa
 // The jobs added before the refusal are queued under the made ID, which a rerun needs to carry on
 // rather than make a second Batch.
 test.each([true, false])(
-  "a refused add prints a whole-manifest job number and recovery ID only on a terminal (isTTY %s)",
+  "a refused add prints the recovery ID and adds job numbers on a terminal (isTTY %s)",
   async (isTTY) => {
     const tty = process.stderr.isTTY;
     process.stderr.isTTY = isTTY;
@@ -289,11 +289,12 @@ test.each([true, false])(
 
     expect(exitCode).toBe(1);
     expect(hub.adds.map((jobs) => jobs.length)).toEqual([100]);
+    expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
     if (isTTY) {
       expect(stderr).toContain("job 101: /customId: Already used\njob 101: Job refused");
-      expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
     } else {
-      expect(JSON.parse(stderr)).toMatchObject({
+      expect(stderr).not.toContain("job 101:");
+      expect(JSON.parse(stderr.split("\n").slice(1).join("\n"))).toMatchObject({
         status: 422,
         errors: [{ pointer: "/jobs/0/customId" }, { pointer: "/jobs/0" }],
       });

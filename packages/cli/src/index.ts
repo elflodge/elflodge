@@ -1291,8 +1291,7 @@ function submitBatchCommand() {
             ),
             runId,
             hint,
-            // A piped refusal is one Problem Details document, including when the ID was generated.
-            { exists: personWatches() },
+            { exists: true },
           );
           const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
           const submitted = Effect.gen(function* () {
