@@ -22,21 +22,21 @@ export function listServiceKeys(organizationId: OrganizationId, role: string) {
       const keys = await db
         .selectFrom("apikey")
         .select(["id", "name", "start", "permissions", "createdAt", "expiresAt"])
-        .select((eb) =>
+        .select((outer) =>
           jsonObjectFrom(
-            eb
+            outer
               .selectFrom("user")
-              .where("user.id", "=", (row) =>
-                row.fn<UserId>("jsonb_extract_path_text", [
-                  row.cast("apikey.metadata", "jsonb"),
-                  row.val("createdBy"),
+              .where("user.id", "=", (eb) =>
+                eb.fn<UserId>("jsonb_extract_path_text", [
+                  eb.cast("apikey.metadata", "jsonb"),
+                  eb.val("createdBy"),
                 ]),
               )
               .select(["user.id", "user.name"])
-              .select((row) =>
-                row
+              .select((eb) =>
+                eb
                   .exists(
-                    row
+                    eb
                       .selectFrom("member")
                       .select("member.id")
                       .whereRef("member.userId", "=", "user.id")

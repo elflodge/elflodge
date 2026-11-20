@@ -13,7 +13,7 @@ A person in the organization, signed in with a password, with a role there. Bett
 _Avoid_: seat
 
 **Invitation**:
-A one-use link to join the Organization at a particular email address with a particular role. Resending keeps the same link. It works for 48 hours from when it was last sent and only while the inviter can grant that role.
+A one-use link to join the Organization at a particular email address with a particular role. Resending a pending, unexpired invitation renews it for 48 hours. After expiry, resending creates a new link. Share the link the resend returns. It works only while the inviter can grant the role.
 
 **API key**:
 A named, revocable credential owned by the organization that a service uses to call the hub, limited to the actions it is granted. Each key is an identity of its own, as a service account is elsewhere; the member who created it is recorded but does not act through it.

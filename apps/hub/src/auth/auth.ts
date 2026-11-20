@@ -110,7 +110,7 @@ function requireMember(headers: Headers) {
     const auth = yield* Auth;
     // Select the custom GET endpoint's return type, which preserves the database ID brands.
     const session = yield* auth.call((instance) =>
-      instance.api.getSession({ headers, method: "GET", query: { disableRefresh: true } }),
+      instance.api.getSession({ headers, method: "GET" }),
     );
     if (!session) return yield* Effect.fail(new Unauthorized());
     // getSession joins session and user, then reads membership once for both the guard and caller.

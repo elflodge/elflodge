@@ -213,9 +213,9 @@ The hub lists the Runner under its host's name, which `--hostname` gives the con
 
 ## Membership and account recovery
 
-An owner or admin can invite someone with Better Auth's `organization/invite-member` call. Give the invitation ID privately to the intended recipient. Resending keeps the same ID. It works once within 48 hours of the last send, while the inviter can still grant the role. Only an owner can invite another owner. The recipient can preview the invitation and then accept it with a name and password for a new account, or their signed-in session for an existing account.
+An owner or admin can invite someone with Better Auth's `organization/invite-member` call. Give the invitation ID privately to the intended recipient. A resend renews a pending, unexpired invitation for 48 hours and creates a new link after expiry. Share the link the resend returns. It works once within 48 hours of the last send, while the inviter can still grant the role. Only an owner can invite another owner. The recipient can preview the invitation and then accept it with a name and password for a new account, or their signed-in session for an existing account.
 
-The hub assumes PostgreSQL’s default transaction isolation level, `READ COMMITTED`. The check that an Organization keeps an owner relies on this setting.
+The hub assumes PostgreSQL's default transaction isolation level, `READ COMMITTED`. The check that an Organization keeps an owner relies on this setting.
 
 If a leaked invitation was redeemed first, verify who should control the address. An operator with database access can reset that account's password and revoke its sessions. Use the same command when a returning member has forgotten their password. From `apps/hub`, set `DATABASE_URL` to the hub's database, `ADMIN_EMAIL` to the affected address and `ADMIN_PASSWORD` to the new password, then run `vp run reset-password`. Give the password privately to its owner. A former member also needs a fresh invitation to rejoin. Review any keys or Runners created during unintended access. They have their own credentials.
 

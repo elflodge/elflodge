@@ -1,10 +1,10 @@
 import { NotFound } from "contract";
 import { Effect, Predicate } from "effect";
 
-import { hasOwnerRole } from "./auth/access.ts";
 import { Auth, requireRolePermission } from "./auth/auth.ts";
 import { RUNNER_KEY_CONFIG, RUNNER_KEY_ROLE } from "./auth/options.ts";
 import { Db } from "./db/database.ts";
+import { hasOwnerRole } from "./db/roles.ts";
 import { ApikeyId, type OrganizationId, RunnerId } from "./db/types.ts";
 import { deleteRunnerWithItsWork } from "./jobs.ts";
 

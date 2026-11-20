@@ -4,9 +4,10 @@ import { Effect, Predicate } from "effect";
 import { expressionBuilder, type Expression, type Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
-import { hasOwnerRole, roles, storedRoles } from "./auth/access.ts";
+import { roles } from "./auth/access.ts";
 import { Auth, requireRolePermission } from "./auth/auth.ts";
 import { Db } from "./db/database.ts";
+import { hasOwnerRole, storedRoles } from "./db/roles.ts";
 import { type Database, type InvitationId, type OrganizationId, UserId } from "./db/types.ts";
 
 const invitationRoles = Object.entries(roles)
@@ -14,12 +15,12 @@ const invitationRoles = Object.entries(roles)
   .map(([name]) => name);
 
 /** Better Auth grants only configured roles, and only an owner can grant a role containing owner. */
-function mayGrantRole(inviter: Expression<string>, grant: Expression<string | null>) {
+function mayGrantRole(inviterRole: Expression<string>, grant: Expression<string | null>) {
   const eb = expressionBuilder();
   return eb.and([
-    eb(storedRoles(inviter), "&&", eb.val(invitationRoles)),
+    eb(storedRoles(inviterRole), "&&", eb.val(invitationRoles)),
     eb(storedRoles(grant), "<@", eb.val(Object.keys(roles))),
-    eb.or([hasOwnerRole(inviter), eb.not(hasOwnerRole(grant))]),
+    eb.or([hasOwnerRole(inviterRole), eb.not(hasOwnerRole(grant))]),
   ]);
 }
 
@@ -100,7 +101,8 @@ export function acceptInvitation(
         .where("id", "in", eligible)
         // At READ COMMITTED the subquery can see a pending row while DELETE waits for a
         // cancellation. Postgres rechecks the outer conditions against the updated target row.
-        // clock_timestamp() also checks expiry at the claim, even after waiting for a lock.
+        // If a competing claim rolls back, the row is unchanged and expiry is not rechecked.
+        // On Postgres 18 a waiting claim has deleted such a row about a second after expiry.
         .where("status", "=", "pending")
         .where("expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"))
         .returning((eb) => ["email", "organizationId", storedRoles(eb.ref("role")).as("roles")])
@@ -126,6 +128,7 @@ export function acceptInvitation(
         const session = await auth.api.getSession({
           headers,
           method: "GET",
+          // Accept reads identity without forwarding session renewal cookies.
           query: { disableRefresh: true },
         });
         if (!session)
