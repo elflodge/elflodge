@@ -2,7 +2,7 @@
 
 Tabs share the hub's session cookie. A member can sign out or sign in as someone else in one tab while another still shows the previous member's name, reads and controls. A new session for the same member, such as after changing a password, can keep that page and its confirmation.
 
-The first signed-in shell records its member's user ID. If a later session read names someone else or finds no one signed in, the browser reloads the current page. An explicit sign-out takes the browser to the plain sign-in page instead. Only the first such observation starts a document navigation. The replacement document gets its own router, Query client and forms.
+The shell and the invitation page record the user ID when they first show a signed-in account. If a later session read names someone else or finds no one signed in, the browser reloads the current page. Signing out from the shell opens a fresh sign-in page. Signing out to use an invitation reloads its address, preserving the fragment so the signed-out person can use the same link. Only the first such observation starts a document navigation. The replacement document gets its own router, Query client and forms.
 
 ## Considered options
 

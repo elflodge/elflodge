@@ -1,16 +1,23 @@
-import { useQuery } from "@tanstack/solid-query";
-import { Link, createFileRoute, useLocation, useNavigate } from "@tanstack/solid-router";
+import type { JSX } from "@solidjs/web";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tanstack/solid-router";
 import { problemOf } from "contract";
-import { Match, Show, Switch, createSignal, onSettled } from "solid-js";
+import { Match, Show, Switch, createEffect, createSignal, flush, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
 import { authClient, getSession } from "../auth-client.ts";
+import { FailedReadNotice } from "../components/FailedReadNotice.tsx";
 import { FallbackPage } from "../components/FallbackPage.tsx";
+import { FieldError } from "../components/FieldError.tsx";
 import { Instant } from "../components/Instant.tsx";
 import { Notice } from "../components/Notice.tsx";
 import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText, focusIfLost } from "../form.ts";
-import { DATE_TIME_ZONED } from "../format.ts";
-import { reloadAndWaitIfMemberChanged, signOutTo } from "../member-document.ts";
+import { DATE_TIME_ZONED, formatRoles } from "../format.ts";
+import {
+  reloadAndWaitIfMemberChanged,
+  signOutTo,
+  watchDocumentMember,
+} from "../member-document.ts";
 import { orpc } from "../query.ts";
 
 export const Route = createFileRoute("/invitation")({
@@ -20,8 +27,6 @@ export const Route = createFileRoute("/invitation")({
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
     return { session };
   },
-  pendingMs: 0,
-  pendingMinMs: 0,
   pendingComponent: ReadingInvitation,
   component: Invitation,
 });
@@ -55,7 +60,19 @@ function Invitation() {
 
 function ReadInvitation(props: { invitationId: string }) {
   const context = Route.useRouteContext();
-  const preview = useQuery(() => orpc.invitations.preview.queryOptions({ input: props }));
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const previewOptions = () =>
+    orpc.invitations.preview.queryOptions({ input: { invitationId: props.invitationId } });
+  const preview = useQuery(previewOptions);
+  const forgetPreview = () =>
+    queryClient.removeQueries({ queryKey: previewOptions().queryKey, exact: true });
+  createEffect(
+    () => context().session?.user.id,
+    (id) => {
+      if (id) watchDocumentMember(id);
+    },
+  );
   const [joined, setJoined] = createSignal<{ organization: string; message: string }>();
   const [dead, setDead] = createSignal(false);
 
@@ -64,7 +81,7 @@ function ReadInvitation(props: { invitationId: string }) {
       {/* Once joined, a fresh preview answers 404. Keep the sign-in failure and the way in. */}
       <Match when={joined()}>
         {(result) => (
-          <FallbackPage heading={`Join ${result().organization}`}>
+          <FallbackPage heading={`Joined ${result().organization}`}>
             <Notice role="alert">{result().message}</Notice>
             <p>
               <Link class="stands-alone" to="/sign-in" ref={focusSignIn}>
@@ -96,7 +113,7 @@ function ReadInvitation(props: { invitationId: string }) {
           </p>
         </FallbackPage>
       </Match>
-      <Match when={preview.isError}>
+      <Match when={preview.isLoadingError}>
         <FallbackPage heading="Invitation">
           <Notice role="alert">
             The invitation could not be read: {hubFailureMessage(preview.error)}
@@ -108,13 +125,28 @@ function ReadInvitation(props: { invitationId: string }) {
           </p>
         </FallbackPage>
       </Match>
-      <Match when={preview.isSuccess}>
+      <Match when={preview.dataUpdatedAt}>
         <AcceptInvitation
           invitationId={props.invitationId}
           invitation={preview.data}
-          unavailable={() => setDead(true)}
+          consumed={forgetPreview}
+          unavailable={async () => {
+            forgetPreview();
+            // The invitation may have been used in another tab that also changed the session.
+            await router.invalidate();
+            setDead(true);
+          }}
           joined={setJoined}
-        />
+        >
+          <Show when={preview.isRefetchError}>
+            <FailedReadNotice
+              what="The invitation"
+              detail={hubFailureMessage(preview.error)}
+              failedAt={preview.errorUpdatedAt}
+              readAt={preview.dataUpdatedAt}
+            />
+          </Show>
+        </AcceptInvitation>
       </Match>
     </Switch>
   );
@@ -127,7 +159,9 @@ function focusSignIn(link: HTMLAnchorElement) {
 function AcceptInvitation(props: {
   invitationId: string;
   invitation: Awaited<ReturnType<typeof api.invitations.preview>>;
-  unavailable: () => void;
+  consumed: () => void;
+  unavailable: () => Promise<void>;
+  children: JSX.Element;
   joined: (result: { organization: string; message: string }) => void;
 }) {
   const context = Route.useRouteContext();
@@ -136,9 +170,14 @@ function AcceptInvitation(props: {
     Boolean(session() && session()?.user.email !== props.invitation.email);
   const navigate = useNavigate();
   const [error, setError] = createSignal<string>();
+  const [offerSignIn, setOfferSignIn] = createSignal(false);
+  const [passwordError, setPasswordError] = createSignal<string>();
+  let password: HTMLInputElement | undefined;
   const [needsSignIn, setNeedsSignIn] = createSignal(false);
   const { pending, onSubmit } = createFormAction(async (element) => {
     setError(undefined);
+    setPasswordError(undefined);
+    setOfferSignIn(false);
     if (differentAccount()) {
       try {
         await signOutTo();
@@ -159,18 +198,32 @@ function AcceptInvitation(props: {
     } catch (failure) {
       const status = problemOf(failure)?.status;
       if (status === 404) {
-        props.unavailable();
+        await props.unavailable();
         return;
       }
-      if (status === 401 || status === 422) {
-        const prompt = `An account with ${props.invitation.email} already exists. Sign in with it to join.`;
-        setError(status === 401 ? prompt : `${hubFailureMessage(failure)}. ${prompt}`);
+      if (status === 401) {
         setNeedsSignIn(true);
+        return;
+      }
+      const message = hubFailureMessage(failure);
+      // Invitation refusals carry the hub's detail, without Better Auth's field error code.
+      if (
+        account &&
+        status === 400 &&
+        (message === "Password too long" || message === "Password too short")
+      ) {
+        if (password?.value === account.password) {
+          setPasswordError(message);
+          flush();
+          password.focus();
+        }
       } else {
-        setError(hubFailureMessage(failure));
+        setError(message);
+        setOfferSignIn(status === 422);
       }
       return;
     }
+    props.consumed();
     if (account) {
       try {
         await authClient.signIn.email({ email: joined.email, password: account.password });
@@ -186,21 +239,18 @@ function AcceptInvitation(props: {
   });
 
   const join = () => `Join ${props.invitation.organizationName}`;
-  const role = () => props.invitation.role.replaceAll(",", ", ");
   const signInSearch = { redirect: "/invitation" };
   return (
     <FallbackPage heading={differentAccount() ? "Invitation" : join()}>
+      {props.children}
       <Switch>
         <Match when={needsSignIn()}>
-          <Notice role="alert">{error()}</Notice>
+          <Notice role="alert">
+            An account with <span class="mono">{props.invitation.email}</span> already exists. Sign
+            in with it to join.
+          </Notice>
           <p>
-            <Link
-              class="stands-alone"
-              to="/sign-in"
-              search={signInSearch}
-              hash={props.invitationId}
-              ref={focusSignIn}
-            >
+            <Link class="stands-alone" to="/sign-in" search={signInSearch} hash ref={focusSignIn}>
               Sign in
             </Link>
           </p>
@@ -208,8 +258,8 @@ function AcceptInvitation(props: {
         </Match>
         <Match when={differentAccount()}>
           <p class="prose">
-            This invitation is for {props.invitation.email}. You are signed in as{" "}
-            {session()?.user.email}.
+            This invitation is for <span class="mono">{props.invitation.email}</span>. You are
+            signed in as <span class="mono">{session()?.user.email}</span>.
           </p>
           <Show when={session()?.membership.status === "member"}>
             <p class="prose">To invite them, send them this link.</p>
@@ -222,18 +272,23 @@ function AcceptInvitation(props: {
           <form class="fields" onSubmit={onSubmit}>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
             <button type="submit" disabled={pending()}>
-              {pending() ? "Working…" : "Sign out to use it"}
+              Sign out to use it
             </button>
           </form>
         </Match>
         <Match when={true}>
           <p class="prose">
             <Show when={session()}>
-              {(signedIn) => <>You are signed in as {signedIn().user.email}. </>}
+              {(signedIn) => (
+                <>
+                  You are signed in as <span class="mono">{signedIn().user.email}</span>.{" "}
+                </>
+              )}
             </Show>
-            This invitation lets {session() ? "you" : props.invitation.email} join{" "}
-            {props.invitation.organizationName} as {role().startsWith("member") ? "a" : "an"}{" "}
-            {role()}. It works once, until{" "}
+            This invitation lets{" "}
+            {session() ? "you" : <span class="mono">{props.invitation.email}</span>} join{" "}
+            {props.invitation.organizationName} with {formatRoles(props.invitation.role)} access. It
+            works once, until{" "}
             <Instant value={props.invitation.expiresAt} format={DATE_TIME_ZONED} />.
           </p>
           <form class="fields" onSubmit={onSubmit}>
@@ -245,6 +300,7 @@ function AcceptInvitation(props: {
                   name="email"
                   type="email"
                   autocomplete="username"
+                  class="mono"
                   readonly
                   value={props.invitation.email}
                 />
@@ -262,18 +318,27 @@ function AcceptInvitation(props: {
                   autocomplete="new-password"
                   required
                   {...NEW_PASSWORD}
+                  aria-invalid={passwordError() ? "true" : undefined}
+                  aria-describedby={passwordError() ? "join-password-error" : undefined}
+                  onInput={() => setPasswordError(undefined)}
+                  ref={(input) => {
+                    password = input;
+                  }}
                 />
+                <Show when={passwordError()}>
+                  {(message) => <FieldError id="join-password-error">{message()}</FieldError>}
+                </Show>
               </div>
             </Show>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
             <button type="submit" class="primary" disabled={pending()}>
-              {pending() ? "Working…" : session() ? join() : "Create account and join"}
+              {session() ? join() : "Create account and join"}
             </button>
           </form>
-          <Show when={!session()}>
+          <Show when={!session() || offerSignIn()}>
             <p class="prose">
               Already have an account here with this address?{" "}
-              <Link to="/sign-in" search={signInSearch} hash={props.invitationId}>
+              <Link to="/sign-in" search={signInSearch} hash>
                 Sign in to join
               </Link>
               .
@@ -281,6 +346,11 @@ function AcceptInvitation(props: {
           </Show>
         </Match>
       </Switch>
+      <Show when={pending()}>
+        <p role="status" class="note">
+          Working…
+        </p>
+      </Show>
     </FallbackPage>
   );
 }

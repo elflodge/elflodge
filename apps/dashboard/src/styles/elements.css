@@ -256,6 +256,10 @@ textarea {
   line-height: var(--leading);
   width: 100%;
 }
+input[readonly] {
+  background: transparent;
+  border-color: var(--c-rule);
+}
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {

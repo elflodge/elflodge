@@ -76,3 +76,10 @@ export function plural(count: number, one: string, other: string): string {
 export function formatCount(count: number): string {
   return COUNT.format(count);
 }
+
+const ROLE_LIST = new Intl.ListFormat(LANGUAGE, { type: "conjunction" });
+
+/** Better Auth stores a membership's roles as comma-separated names. */
+export function formatRoles(roles: string): string {
+  return ROLE_LIST.format(roles.split(","));
+}

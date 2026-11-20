@@ -1,6 +1,6 @@
 import { authClient, isSignedOutError } from "./auth-client.ts";
 
-/** The member whose shell this document has shown. Undefined until the first shell is shown. */
+/** The first signed-in account shown by the shell or an invitation in this document. */
 let documentMember: string | undefined;
 /** The destination of a pending sign-out, also used if a session read observes sign-out first. */
 let signOutHref: string | undefined;
@@ -25,12 +25,11 @@ export function reloadAndWaitIfMemberChanged(memberId: string | null) {
   return leaving;
 }
 
-/** Watch for a change of member after the signed-in shell first appears. */
+/** Watch for a change of member after the document first shows a signed-in account. */
 export function watchDocumentMember(memberId: string) {
   if (documentMember !== undefined) return;
   documentMember = memberId;
-  // Only the signed-in shell establishes whose page has been shown. Keep the subscription for
-  // the document's life, including a subsequent visit to a page outside the shell.
+  // Keep watching for the document's life, even after leaving the page that showed the account.
   authClient.useSession.subscribe((session) => {
     if (session.isPending || session.isRefetching) return;
     // With throw enabled Better Auth keeps the last data on failure. A 401 ends the session.

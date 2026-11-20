@@ -569,6 +569,7 @@
 .fields > button {
   justify-self: start;
 }
+.page.is-alone > .notice,
 .fields > .notice {
   margin: 0;
 }
