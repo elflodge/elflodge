@@ -48,6 +48,12 @@ test("a member can walk back from the newest event and follow new reports from t
   // This event alone fills the newest page. Its report has no eligible lines on the next read.
   await report(14, [{ id: 20, type: "conversation", record: { text: "x".repeat(1024 * 1024) } }]);
 
+  // Reading from Start returns its Events even when the job is omitted before the last chunk.
+  expect(await member.jobs.events({ id, limit: 1 })).toEqual({
+    events: start.events,
+    hasMore: true,
+  });
+
   const newest = await member.jobs.events({ id, order: "desc", limit: 2 });
   expect(newest.events.map((event) => event.id)).toEqual([20]);
   expect(newest).toMatchObject({ hasMore: true, job: { status: "running" } });

@@ -588,7 +588,7 @@ export const jobEventsPageSchema = z
       .optional(jobSchema)
       .check(
         z.describe(
-          "The job when this page was read, in the same snapshot as its Events. Present on ascending pages with no more events and descending pages starting at the newest end (after 0). Other pages omit the job because its Output or running activity can approach the Runner message limit (100 MiB on Node, 32 MiB on Workers). The whole job has no single byte budget, since names also come from separate writes. The Events have a separate 1 MiB budget with room for one oversized Event. A sample page of 100 Events measured 35 KB.",
+          "The job when this page was read, in the same snapshot as its Events. Present on ascending pages with `hasMore: false` and descending pages read from the newest end (`after: 0`). Other pages omit the job because its Output can make it far larger than a page of Events.",
         ),
       ),
   })
