@@ -3,15 +3,7 @@ import { Link } from "@tanstack/solid-router";
 import type { UsageGroup, UsageReport } from "contract";
 import { For, Repeat, Show, createMemo } from "solid-js";
 
-import {
-  formatCount,
-  formatUsd,
-  plural,
-  UTC_DAY,
-  UTC_DAY_YEAR,
-  UTC_WEEKDAY,
-  usageDayFormat,
-} from "../format.ts";
+import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY } from "../format.ts";
 import { shortIds } from "../short-ids.ts";
 import { groupings, type usageGrouping } from "../usage-grouping.ts";
 import { JobSubmitter, RunnerReference, submitterName } from "./JobReferences.tsx";
@@ -166,8 +158,8 @@ function Ledger(props: {
 export function UsageLedgers(props: {
   grouping: ReturnType<typeof usageGrouping>;
   report?: UsageReport;
+  showYears?: boolean;
 }) {
-  const showYear = createMemo(() => props.report && usageDayFormat(props.report) === UTC_DAY_YEAR);
   const years = createMemo(() =>
     Array.from(Map.groupBy(props.report?.days ?? [], (day) => day.date.slice(0, 4))),
   );
@@ -245,9 +237,9 @@ export function UsageLedgers(props: {
         <For each={years()}>
           {([year, days]) => (
             <tbody>
-              <Show when={showYear()}>
-                <tr class="day-line ledger-year">
-                  <th scope="rowgroup" colspan={4}>
+              <Show when={props.showYears}>
+                <tr class="day-line">
+                  <th scope="rowgroup" colspan={5}>
                     {year}
                   </th>
                 </tr>
@@ -261,10 +253,7 @@ export function UsageLedgers(props: {
                       <th scope="row">
                         <time datetime={day.date}>
                           <span class="day-name">{UTC_WEEKDAY.format(date())}</span>{" "}
-                          <Show when={showYear()} fallback={UTC_DAY.format(date())}>
-                            <span class="day-with-year">{UTC_DAY_YEAR.format(date())}</span>
-                            <span class="day-in-year">{UTC_DAY.format(date())}</span>
-                          </Show>
+                          <span>{UTC_DAY.format(date())}</span>
                         </time>
                         <Show when={soFar()}>
                           {" "}

@@ -1,5 +1,3 @@
-import type { UsageReport } from "contract";
-
 /**
  * How the dashboard writes times and figures, with the platform's `Intl`. The pages are in English;
  * British English writes a date day first, "18 Nov 2026", and a time on the 24-hour clock, "15:41",
@@ -33,12 +31,6 @@ export const UTC_DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, {
   timeZone: "UTC",
   dateStyle: "medium",
 });
-/** The range and its daily rows show years when the window extends outside the read's UTC year. */
-export function usageDayFormat(report: UsageReport) {
-  const year = report.today.slice(0, 4);
-  return report.from.startsWith(year) && report.to.startsWith(year) ? UTC_DAY : UTC_DAY_YEAR;
-}
-
 /** The short weekday of a Usage day in UTC. */
 export const UTC_WEEKDAY = new Intl.DateTimeFormat(LANGUAGE, { timeZone: "UTC", weekday: "short" });
 /** The name and year of a calendar month in Range. */

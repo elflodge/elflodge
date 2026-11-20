@@ -85,7 +85,7 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
   const group = page.getByRole("table", { name: "By Batch" });
   await expectBrowser(group.getByRole("rowheader")).toHaveText(["statements", "receipts", "Total"]);
   const daily = page.getByRole("table", { name: "By day" });
-  await expectBrowser(daily.getByRole("rowheader")).toHaveCount(31);
+  await expectBrowser(daily.locator("tbody time")).toHaveCount(30);
   const figures = ["2", "12,345", "0.1250"];
   for (const ledger of [group, daily]) {
     await expectBrowser(ledger.locator("tfoot td.num")).toHaveText(figures);
@@ -115,8 +115,8 @@ test("changing the grouping keeps the window and totals", async () => {
   ]);
   await expectBrowser(statuses.locator("tfoot td.num")).toHaveText(total);
   await expectBrowser(
-    page.getByRole("table", { name: "By day" }).getByRole("rowheader"),
-  ).toHaveCount(8);
+    page.getByRole("table", { name: "By day" }).locator("tbody time"),
+  ).toHaveCount(7);
 }, 30_000);
 
 test("a Label report reopens from its address with the chosen range and key", async () => {
@@ -182,13 +182,14 @@ test("west of UTC a job end keeps its UTC weekday, day and year in a cross-year 
     weekday: "short",
     day: "numeric",
     month: "short",
-    year: "numeric",
   })
     .format(new Date(day.date))
     .replace(",", "");
   const daily = page.getByRole("table", { name: "By day" });
   const cell = page.locator(`time[datetime="${day.date}"]`);
-  await expectBrowser(cell).toHaveText(expected, { useInnerText: true });
+  const yearGroup = daily.getByRole("rowgroup").filter({ has: cell });
+  await expectBrowser(yearGroup.locator('th[scope="rowgroup"]')).toHaveText(day.date.slice(0, 4));
+  await expectBrowser(cell).toHaveText(expected);
   await expectBrowser(
     daily.getByRole("row").filter({ has: cell }).getByRole("cell").first(),
   ).toHaveText(String(day.jobEnds));

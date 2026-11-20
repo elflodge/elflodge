@@ -2256,11 +2256,10 @@ p mark.placeholder {
   min-width: var(--ledger-bar);
 }
 .ledger.by-cost time {
-  white-space: nowrap;
-}
-.ledger.by-cost time:has(.day-with-year) {
   white-space: normal;
-  overflow-wrap: normal;
+}
+.ledger.by-cost time span {
+  white-space: nowrap;
 }
 .ledger .runner-ref {
   flex-wrap: wrap;
@@ -2284,10 +2283,6 @@ p mark.placeholder {
 .bar-cell meter::-moz-meter-bar {
   min-width: 1px;
 }
-.ledger-year,
-.day-in-year {
-  display: none;
-}
 .day-name {
   color: var(--c-ink-2);
 }
@@ -2306,18 +2301,7 @@ p mark.placeholder {
   }
 }
 
-/* A shared year heading leaves room for the figures in the smallest ledger. */
 @container (max-width: 20rem) {
-  .ledger-year {
-    display: table-row;
-  }
-  .day-with-year {
-    display: none;
-  }
-  .day-in-year {
-    display: inline;
-    white-space: nowrap;
-  }
   .ledger.by-cost :is(th, td):nth-child(-n + 3) {
     padding-inline-end: var(--space-1);
   }
