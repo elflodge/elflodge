@@ -75,14 +75,9 @@ export function Field(
     <div class={props.class ?? "field"}>
       <label for={control.id}>
         {props.label}
-        <Show when={props.unit}>
-          {(unit) => (
-            <>
-              {" "}
-              <span class="unit">{unit()}</span>
-            </>
-          )}
-        </Show>
+        {/* The space sits inside the unit's text: Chromium drops a separate space text node from
+            the label's accessible name, which would read "budgetUSD". */}
+        <Show when={props.unit}>{(unit) => <span class="unit">{` ${unit()}`}</span>}</Show>
       </label>
       {hint()}
       {props.children(control)}
