@@ -10,6 +10,7 @@ import {
   type AnyProcedureContract,
   type ContractRouterClient,
   type RouterContract,
+  ValidationError,
 } from "@orpc/contract";
 import { getOpenAPIMeta } from "@orpc/openapi";
 import { walkProcedureContractsSync } from "@orpc/server";
@@ -141,7 +142,7 @@ const apiClient = Effect.map(hubLink(), (link): ApiClient => createORPCClient(li
  * server error, read from the Problem Details the contract's link keeps on every error the hub's
  * side answers, a proxy's page included. Any 5xx counts, the hub not being set up included: it
  * shares its 503 with a proxy's (ADR 0023), and a retry only delays its message. An error oRPC
- * raises itself has no Problem Details and is an answer.
+ * raises itself has no Problem Details to indicate a transient server failure.
  */
 function isTransient(error: unknown): boolean {
   if (!(error instanceof ORPCError)) return isNetworkError(error);
@@ -248,7 +249,11 @@ function hintMadeIdOnStop<A, E, R>(
     !Cause.hasInterrupts(cause) &&
     Option.exists(
       Cause.findErrorOption(cause),
-      (error) => error instanceof ORPCError && !isTransient(error),
+      // ResponseValidationLinkPlugin can reject the answer after the hub committed the submission.
+      (error) =>
+        error instanceof ORPCError &&
+        !(error.cause instanceof ValidationError) &&
+        !isTransient(error),
     );
   return made
     ? work.pipe(
