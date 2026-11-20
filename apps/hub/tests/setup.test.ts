@@ -148,6 +148,8 @@ test("in a browser, the setup link creates the Organization and its owner, who i
   await expectBrowser(password).toBeFocused();
   await expectBrowser(page.getByRole("alert")).toHaveCount(0);
   await password.fill(SETUP.password);
+  await expectBrowser(password).toHaveAccessibleDescription("");
+  await expectBrowser(password).not.toHaveAttribute("aria-invalid", "true");
   await page.getByRole("button", { name: "Create owner" }).click();
   await page.waitForURL(`${dashboard}/`);
   await page.getByRole("banner").getByText(SETUP.organizationName, { exact: true }).waitFor();

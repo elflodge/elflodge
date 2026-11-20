@@ -109,7 +109,17 @@ function Setup() {
           <p class="prose">
             Create the hub's owner, who manages its members, API keys and Runners.
           </p>
-          <form class="fields" onSubmit={onSubmit}>
+          <form
+            class="fields"
+            onSubmit={onSubmit}
+            onInput={({ target }) => {
+              if (target instanceof HTMLInputElement && fields()?.has(target.name)) {
+                const remaining = new Map(fields());
+                remaining.delete(target.name);
+                setFields(remaining);
+              }
+            }}
+          >
             <div class="field">
               <label for="setup-organization">Organization name</label>
               <input
@@ -118,7 +128,6 @@ function Setup() {
                 autocomplete="organization"
                 required
                 {...GIVEN_NAME}
-
                 aria-invalid={field("organizationName") ? "true" : undefined}
                 aria-describedby={
                   field("organizationName") ? "setup-organization-error" : undefined
@@ -167,7 +176,6 @@ function Setup() {
                 autocomplete="new-password"
                 required
                 {...NEW_PASSWORD}
-
                 aria-invalid={field("password") ? "true" : undefined}
                 aria-describedby={field("password") ? "setup-password-error" : undefined}
               />
