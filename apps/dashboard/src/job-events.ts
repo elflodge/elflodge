@@ -3,6 +3,7 @@ import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
+  type QueryFunctionContext,
 } from "@tanstack/solid-query";
 import { FINAL_JOB_STATUSES, asError, type Job, type JobEventsPage } from "contract";
 import {
@@ -41,8 +42,24 @@ function closingTime(page: JobEventsPage) {
   return closing?.lifecycle?.finalStatus === page.status ? closing.at?.getTime() : undefined;
 }
 
+function refetchJobForTail(
+  { client, signal }: QueryFunctionContext,
+  id: string,
+  status: Job["status"],
+  previousTailStatus?: Job["status"],
+) {
+  const queryKey = orpc.jobs.get.queryKey({ input: { id } });
+  const record = client.getQueryState(queryKey);
+  if (signal.aborted || !record?.data) return;
+  // A pending confirmation covers repeats of the same tail status. A change can
+  // postdate its snapshot, so let Query cancel that fetch and start another.
+  const confirming = record.isInvalidated && record.fetchStatus !== "idle";
+  if (status !== (confirming ? previousTailStatus : record.data.status))
+    void client.invalidateQueries({ queryKey, exact: true });
+}
+
 function historyOptions(id: string, direction: PagingDirection) {
-  return orpc.jobs.events.infiniteOptions({
+  const options = orpc.jobs.events.infiniteOptions({
     input: (after: number) => ({
       id,
       order: direction === "earlier" ? "desc" : "asc",
@@ -56,6 +73,16 @@ function historyOptions(id: string, direction: PagingDirection) {
     staleTime: "static",
     gcTime: 0,
   });
+  if (direction === "earlier") return options;
+  return {
+    ...options,
+    async queryFn(context: Parameters<typeof options.queryFn>[0]) {
+      const page = await options.queryFn(context);
+      // This page can seed a finished follower, which will make no request of its own.
+      if (!page.hasMore) refetchJobForTail(context, id, page.status);
+      return page;
+    },
+  };
 }
 
 /**
@@ -145,16 +172,8 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
               { ...input, after },
               { signal: context.signal },
             );
-            // Only a tail answer prompts a fresh job read. History pages may have been
-            // held while the job changed, and usage and controls belong to the whole job.
-            const jobKey = orpc.jobs.get.queryKey({ input: { id: input.id } });
-            const record = context.client.getQueryState(jobKey);
-            if (record?.data && record.data.status !== page.status && !context.signal.aborted) {
-              void context.client.invalidateQueries(
-                { queryKey: jobKey, exact: true },
-                { cancelRefetch: !record.isInvalidated },
-              );
-            }
+            const previous = context.client.getQueryData<FollowedPage>(context.queryKey);
+            refetchJobForTail(context, input.id, page.status, previous?.status);
             const newest = page.events.at(-1);
             const end = closingTime(page);
             yield {
