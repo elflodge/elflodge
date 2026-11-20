@@ -79,7 +79,7 @@ function FormDialog(props: {
               <button type="button" onClick={() => dialog.close()}>
                 {pending() ? "Close" : "Cancel"}
               </button>
-              <button type="submit" class="primary" disabled={pending()}>
+              <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
                 {props.confirm}
               </button>
             </div>

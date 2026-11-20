@@ -216,16 +216,17 @@ button {
   white-space: nowrap;
 }
 @media (hover: hover) {
-  button:hover:not(:disabled) {
+  button:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--c-ground-2);
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  button:active:not(:disabled) {
+  button:active:not(:disabled, [aria-disabled="true"]) {
     transform: translateY(1px);
   }
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   background: var(--c-ground-2);
   color: var(--c-ink-2);
   border-color: var(--c-rule);

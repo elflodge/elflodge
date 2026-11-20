@@ -87,7 +87,7 @@ function SignIn() {
           />
         </div>
         <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
-        <button type="submit" class="primary" disabled={pending()}>
+        <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
           Sign in
         </button>
       </form>

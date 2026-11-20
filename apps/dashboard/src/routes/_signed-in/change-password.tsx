@@ -111,7 +111,7 @@ function ChangePassword() {
         <Show when={result()}>
           {(shown) => <Notice role={shown().role}>{shown().message}</Notice>}
         </Show>
-        <button type="submit" class="primary" disabled={pending()}>
+        <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
           Change password
         </button>
       </form>

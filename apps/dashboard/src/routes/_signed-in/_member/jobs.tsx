@@ -286,7 +286,7 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
             </select>
           </div>
           <span class="filter-act">
-            <button type="submit" class="primary" disabled={pending()}>
+            <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
               Apply
             </button>
             <Show when={applied() > 0}>
