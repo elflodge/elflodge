@@ -55,6 +55,10 @@ test("in a browser, an empty hub with a Runner connected says to submit a Batch"
   const page = await newPage();
   await signInAt(system, page, "jobs", await newMember(system, "Second Reader"));
   await page.getByRole("heading", { name: "No jobs yet" }).waitFor();
+  await page
+    .getByRole("region", { name: "The hub now" })
+    .getByRole("link", { name: "Runners 1 of 1 connected" })
+    .waitFor();
   await page.getByText("elflodge batches submit").waitFor();
   await expectBrowser(page.getByRole("link", { name: "Add Runner" })).toHaveCount(0);
 }, 30_000);
