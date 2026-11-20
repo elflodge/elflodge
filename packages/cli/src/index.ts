@@ -859,11 +859,9 @@ function progressOf(batch: Batch) {
     // Each running job is one agent loop in a Runner, which is what the count shows.
     .map(([status, count]) => `${count} ${status === "running" ? "agents running" : status}`)
     .join(", ");
-  // Short enough that the line fits in 80 columns while a Batch of hundreds waits for its Canary.
-  const canary =
-    batch.blockedJobCounts.batchCanary > 0 && batch.breaker !== false
-      ? `; Canary of ${batch.breaker.canary} first`
-      : "";
+  // Keep the line within 80 columns for a Batch with thousands of jobs waiting for its Canary.
+  const waiting = batch.blockedJobCounts.batchCanary;
+  const canary = waiting > 0 ? `; ${waiting} waiting for its Canary` : "";
   const pause = batch.pausedBy === "caller" ? "; paused" : "";
   const unknown = batch.statusUnknownJobs > 0 ? `; ${batch.statusUnknownJobs} status unknown` : "";
   return `${counts}${canary}${pause}${unknown}`;
