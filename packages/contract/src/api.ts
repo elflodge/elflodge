@@ -603,6 +603,15 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 /** The most days one read of usage covers. */
 export const MAX_USAGE_DAYS = 400;
 
+/** A rolling number of UTC days or one calendar month, resolved by the hub. */
+export const usagePeriodSchema = z.union(
+  [
+    z.string().check(z.regex(/^(?:[1-9]\d?|[1-3]\d{2}|400)d$/)),
+    z.string().check(z.regex(/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/)),
+  ],
+  { error: "Must be 1d through 400d or a calendar month as YYYY-MM, from year 0001" },
+);
+
 /** A calendar day, as `YYYY-MM-DD`. */
 const dateSchema = z.iso.date();
 
@@ -651,8 +660,11 @@ export const usageGroupsSchema = z.array(usageGroupSchema);
 const usageWindowSchema = z.extend(usageCountSchema, {
   /** The window's first day, a UTC day. */
   from: dateSchema,
-  /** The window's last day, included. */
-  to: dateSchema,
+  to: dateSchema.check(z.describe("The effective last UTC day, included, at most today.")),
+  today: dateSchema.check(
+    z.describe("The hub’s UTC day when it read the figures, still being recorded."),
+  ),
+  readAt: z.date().check(z.describe("The instant the hub read the figures, by its process clock.")),
   /** Every UTC day of the window, oldest first, including days without job ends. */
   days: z.array(z.extend(usageCountSchema, { date: dateSchema })),
 });
@@ -1358,17 +1370,24 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       )
       .input(
         z.strictObject({
+          period: z.optional(
+            usagePeriodSchema.check(
+              z.describe(
+                "1d through 400d for that many UTC days ending today, or YYYY-MM (years 0001–9999) for that month through today. With from or to, or for a month that has not begun, the hub refuses period with 400. With no period or dates, the window is the last 30 days.",
+              ),
+            ),
+          ),
           from: z.optional(
             dateSchema.check(
               z.describe(
-                "The window's first day, as `YYYY-MM-DD`, a UTC day; by default 29 days before `to`, for 30 days.",
+                "The window's first day, as `YYYY-MM-DD`, a UTC day. A start after today is refused with 400 naming `from`. Defaults to 29 days before the effective `to`.",
               ),
             ),
           ),
           to: z.optional(
             dateSchema.check(
               z.describe(
-                "The window's last day, included, as `YYYY-MM-DD`, a UTC day; today by default.",
+                "The window's last day, included, as `YYYY-MM-DD`, a UTC day. Defaults to today and is capped at today.",
               ),
             ),
           ),

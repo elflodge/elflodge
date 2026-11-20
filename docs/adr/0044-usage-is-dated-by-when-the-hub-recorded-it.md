@@ -6,9 +6,16 @@
 
 Days are UTC days, as the API's instants are in UTC, so a day is the same for every caller. Should Usage records grow large enough to be partitioned by month, the partitions would be keyed by the same time: one keyed by `recordedAt` takes rows after its month has passed only from transactions that began before its end, while one keyed by `endedAt` could take a late report's at any time.
 
+The hub resolves a rolling period or a calendar month against its process clock. It samples that clock once for the effective bounds, the UTC day still being recorded (`today`) and the instant of the read (`readAt`). A report stops at today. A start or month still in the future is refused. Every caller can label the same window and its partial day.
+
 Each UTC day carries only its totals. A grouped read computes the daily totals and whole-window group rankings in one SQL statement, so both use one snapshot. Groups beyond the limit are summed as `other`.
 
 ## Considered options
+
+- Resolving dates on the caller’s clock can request a future day or mark the wrong day as still filling if that clock is skewed or uses a zone west of UTC.
+- Separate `days` and `month` parameters need another mutual exclusion rule. The answer already uses `days` for its rows.
+- A filling flag on each day repeats one fact up to 400 times.
+- Returning only `readAt` makes each caller compute the hub’s UTC date from the instant.
 
 - Dating by `endedAt`: a late report changes a past day and month, the Runner's clock decides the day, and a partition by it never closes.
 - Dating by the job's `createdAt`: a long job counts on the day it was submitted, and each later end of a resumed job adds to a day long past.
