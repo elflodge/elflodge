@@ -19,7 +19,7 @@ import type { UserId as UserIdType } from "./generated/elflodge/User.ts";
 export type { default as Database } from "./generated/Database.ts";
 export type { ApikeyUpdate } from "./generated/elflodge/Apikey.ts";
 export type { Job as JobRow, JobUpdate, NewJob } from "./generated/elflodge/Job.ts";
-export type { Batch as BatchRow } from "./generated/elflodge/Batch.ts";
+export type { Batch as BatchRow, NewBatch } from "./generated/elflodge/Batch.ts";
 export type { default as BatchPausedBy } from "./generated/elflodge/BatchPausedBy.ts";
 export type { JobProgress as JobProgressRow } from "./generated/elflodge/JobProgress.ts";
 export type { default as JobStatus } from "./generated/elflodge/JobStatus.ts";

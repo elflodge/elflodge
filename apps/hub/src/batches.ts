@@ -1,6 +1,5 @@
 import {
   type AddedJobs,
-  type Agent,
   type Batch,
   type BatchCreation,
   type BatchesPage,
@@ -37,6 +36,7 @@ import {
   type Database,
   JobId,
   type JobStatus,
+  type NewBatch,
   type NewJob,
   type OrganizationId,
   type RunnerId,
@@ -421,23 +421,6 @@ export function getBatch(id: string) {
 }
 
 /**
- * What is wrong with `agent` that the contract's schemas cannot check, with paths from the
- * creation: its Output contract's schema, and limits above the hub's maximums.
- */
-function agentProblems(agent: Agent, settings: JobLimits) {
-  return [
-    ...outputContractProblems(agent.outputContract.schema).map((message) => ({
-      message,
-      path: ["agent", "outputContract", "schema"],
-    })),
-    ...limitProblems(agent, settings).map(({ message, path }) => ({
-      message,
-      path: ["agent", ...path],
-    })),
-  ];
-}
-
-/**
  * Creates or matches the Batch by its ID and creation content, then submits the requested jobs
  * under their custom IDs. The Batch and jobs in the answer come from the same transaction.
  */
@@ -448,14 +431,23 @@ export function createBatch(
   settings: JobLimits,
 ) {
   return Effect.gen(function* () {
-    const jobs = creation.jobs ?? [];
-    const problems = [
-      ...agentProblems(creation.agent, settings),
-      ...jobProblems(jobs, creation.labels),
-    ];
-    if (problems.length > 0) return yield* Effect.fail(new InvalidInput({ problems }));
+    const { agent, jobs = [] } = creation;
+    const schemaIssues = outputContractProblems(agent.outputContract.schema).map((message) => ({
+      message,
+      path: ["agent", "outputContract", "schema"],
+    }));
+    const limitIssues = limitProblems(agent, settings).map(({ message, path }) => ({
+      message,
+      path: ["agent", ...path],
+    }));
+    const jobIssues = jobProblems(jobs, creation.labels);
+    // An invalid schema can contain text that canonical JSON or Postgres cannot represent.
+    if (schemaIssues.length || (jobIssues.length && !limitIssues.length)) {
+      return yield* Effect.fail(
+        new InvalidInput({ problems: [...schemaIssues, ...limitIssues, ...jobIssues] }),
+      );
+    }
     const breaker = breakerOf(creation.breaker);
-    const { agent } = creation;
     // A UUIDv4 when the creation gives none, as a retry key is: random, so it says nothing of
     // when the Batch was made, which its `uid`, a UUIDv7, orders by (ADR 0036).
     const id = creation.id ?? crypto.randomUUID();
@@ -490,7 +482,7 @@ export function createBatch(
           pausedAt: null,
           breakerTrippedAt: null,
           cancelledAt: null,
-        })
+        } satisfies NewBatch)
         .onConflict((conflict) => conflict.constraint("batch_id_organizationId_key").doNothing())
         .returning(["uid", "contentHash"])
         .executeTakeFirst();
@@ -502,6 +494,11 @@ export function createBatch(
           .where("id", "=", id)
           .where("organizationId", "=", organizationId)
           .executeTakeFirstOrThrow());
+      // A lowered maximum applies to a new Batch. Jobs submitted to a matching Batch inherit
+      // the limits it already holds, just as they do on addJobs.
+      const problems =
+        inserted || row.contentHash !== contentHash ? [...limitIssues, ...jobIssues] : jobIssues;
+      if (problems.length) throw new InvalidInput({ problems });
       if (row.contentHash !== contentHash) {
         const message = "The ID was already used for a Batch with other content";
         throw new IdReused({
