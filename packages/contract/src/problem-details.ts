@@ -33,7 +33,7 @@ const requestProblem = z.union([
       z.meta({
         format: "json-pointer",
         description:
-          "Plain RFC 6901 pointer into the JSON body, including a missing member. The empty string names the whole body.",
+          "Plain RFC 6901 pointer into the request body as the hub parses it (JSON or bracket-notation form data), including a missing member. The empty string names the whole body.",
       }),
     ),
   }),
