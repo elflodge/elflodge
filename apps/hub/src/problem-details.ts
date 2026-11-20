@@ -11,10 +11,10 @@ import { getOwn } from "@orpc/shared";
 import {
   errorStatusMap,
   requestProblemsFromIssues,
-  type ProblemDetails,
+  problemDetailsSchema,
   type RequestProblem,
 } from "contract";
-import { problemDetails } from "hono-problem-details";
+import { problemDetails, type ProblemDetails } from "hono-problem-details";
 import { prettifyError } from "zod/mini";
 
 import { InvalidInput } from "./invalid-input.ts";
@@ -45,17 +45,16 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = onError
   },
 );
 
-export function toProblemDetails(error: AnyORPCError): ProblemDetails {
-  const errors: RequestProblem[] | undefined =
-    (error.code === "BAD_REQUEST" || error.code === "UNPROCESSABLE_CONTENT") &&
-    (error.cause instanceof ValidationError || error.cause instanceof InvalidInput)
-      ? error.data?.errors
-      : undefined;
+export function toProblemDetails(
+  error: AnyORPCError,
+): ProblemDetails & { errors?: RequestProblem[] } {
+  // No contract error declares data. Only the request validation interceptor supplies errors.
+  const errors = problemDetailsSchema.shape.errors.safeParse(error.data?.errors);
   const { problemDetails: document } = problemDetails({
     status: statusOf(error.code),
     detail: detailOf(error),
   });
-  return errors ? { ...document, errors } : { ...document };
+  return errors.success && errors.data ? { ...document, errors: errors.data } : document;
 }
 
 /** The status oRPC's handler answers `code` with, including its default for codes it does not know. */
