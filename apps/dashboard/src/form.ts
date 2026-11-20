@@ -1,6 +1,6 @@
 import { action, createEffect, createOptimistic } from "solid-js";
 
-/** Restore keyboard focus only if the member has no focused control. */
+/** Restore keyboard focus when it is lost or the focused element is hidden. */
 export function focusIfLost(target: HTMLElement | null | undefined) {
   const active = document.activeElement;
   if (active === document.body || !active?.checkVisibility({ visibilityProperty: true }))

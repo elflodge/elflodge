@@ -21,7 +21,13 @@ import {
 } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
-import { type JobsSearch, availableRunners, filterCount, jobsSearchSchema } from "./jobs.tsx";
+import {
+  type JobsSearch,
+  ClearFiltersLink,
+  availableRunners,
+  filterCount,
+  jobsSearchSchema,
+} from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/jobs/")({
   // Both reads take only the declared filters and cursor, including after a sign-in redirect.
@@ -39,9 +45,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs/")({
       <ReadErrorPage {...props} heading="Jobs">
         <Show when={filterCount(search()) > 0}>
           <p>
-            <Link activeOptions={{ exact: true }} to="/jobs" search={{}} class="stands-alone">
-              Clear the filters
-            </Link>
+            <ClearFiltersLink>Clear the filters</ClearFiltersLink>
           </p>
         </Show>
       </ReadErrorPage>
@@ -394,9 +398,7 @@ function NoJobs(props: { search: JobsSearch; runners: Runner[] | undefined }) {
         <Match when={filterCount(props.search) > 0}>
           <h2>No job matches these filters</h2>
           <p class="empty-act">
-            <Link activeOptions={{ exact: true }} to="/jobs" search={{}} class="stands-alone">
-              Clear the filters
-            </Link>
+            <ClearFiltersLink>Clear the filters</ClearFiltersLink>
           </p>
         </Match>
         <Match when={noneConnected()}>
