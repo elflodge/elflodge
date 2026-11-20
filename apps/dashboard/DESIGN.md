@@ -388,7 +388,7 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 ### Jobs list
 
-`div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Its columns are Status, Beside the status, Job, Batch, Submitter, Labels, Runner, Time, Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
+`div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Headers and cells share these classes in column order: `c-status`, `c-beside`, `c-job`, `c-batch`, `c-submitter`, `c-labels`, `c-runner`, `c-time`, `c-tokens` and `c-cost`. The last two headings give Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
 
 Each tier allows 15.375rem for the Job name and adds the fixed widths of its visible columns. The frame's width sets the tier. Below 97.25rem Submitter gives way, below 86.75rem Tokens, and below 82rem Labels. Below 74.125rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
 
@@ -396,34 +396,73 @@ The job's name is its custom ID, set in the strong mono as a plain `span.cut.job
 
 The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
 
-`ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key and sign use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
+`ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key (`span.lk`) and sign (`span.leq`) use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 
-Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The heading’s `time` carries the local calendar date. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows in secondary ink with two to four decimals. A larger cost or budget wraps within its column. On two lines the cost carries “USD, est.” and the budget gives way.
+Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The heading’s `time` carries the local calendar date. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows in secondary ink with two to four decimals. A larger cost or budget wraps within its column. On two lines the cost carries “USD, est.” in `span.unit-inline` and the budget gives way.
+
+```html
+<tr class="day-line" role="row">
+  <th colspan="10" scope="rowgroup" role="rowheader">
+    Created <time datetime="2026-11-18">18 Nov</time>
+  </th>
+</tr>
+```
 
 ### A job's status
 
-A strong status word and its mark occupy the first cell. Running takes the lamp text colour and its mark the running colour. When the status is unknown, both use the secondary ink and the word includes "(last recorded)" for assistive technology.
+The first cell holds the strong `span.status-word`. Its `s-*` class names the recorded status. Running takes the lamp text colour and its mark the running colour. When the status is unknown, both use the secondary ink and the word includes "(last recorded)" for assistive technology.
 
 The next cell holds each condition on its own line. "Status unknown" has the unknown mark and colour. Its title gives the reason and the full instant since which the status has been unknown, and its hidden text gives the reason. A pending control reads "Pause asked", "Cancel asked" or "Delete asked". A blocked job names its Batch pause or failure breaker, or says "Waiting for Canary". A failure reason appears as code in the failed colour.
+
+```html
+<td class="c-status" role="cell">
+  <span class="status-word s-running"
+    ><span class="mark mark-running" aria-hidden="true"></span>Running</span
+  >
+</td>
+```
 
 ### Runner reference
 
 `span.runner-ref` holds the Runner name as a cut identifier, its short ID, and the connection mark with "connected" or "not connected" for assistive technology. The abbreviation takes account of both the Runners list and the Runners on the page. The cell is empty before the job is placed or after its Runner is removed.
 
+```html
+<span class="runner-ref">
+  <span class="cut mono" title="cedar">cedar</span>
+  <span class="sid" title="a81b275d-965c-43b4-8328-b8b49ea83b64">a81b275d</span>
+  <span class="mark mark-connected" aria-hidden="true"></span><span class="vh">connected</span>
+</span>
+```
+
 ### Filters
 
-The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. The second holds Batch, Runner, Apply and, when a filter applies, Clear. Apply and Clear follow Runner. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Focus leaves Apply while the button is disabled and returns when the read finishes. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
+The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. Each `div.filter-field` pairs a label and its control. The second row holds Batch and Runner, then `span.filter-act` groups Apply and, when a filter applies, Clear. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Clear returns focus to Apply. Apply loses focus while disabled and regains it after a successful read. If the hub refuses the read, the error page takes focus on its heading. The disclosure starts at 760px to leave room for the six status checks on one line in the wide form. With the dashboard fonts they use 637px of the 725px available at 761px. At the shared 640px touch breakpoint the gutters leave only 609px. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
 
 1. The panel starts closed on arrival, including at a filtered address.
 2. Pressing Filters toggles the panel.
 3. Pressing Apply or Clear immediately closes the panel and focuses Filters.
 4. List links, paging, Back, and the success or failure of a read leave the panel as the reader set it.
 
-The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
+```html
+<button type="button" class="filter-toggle" aria-expanded="false" aria-controls="jobs-filters">
+  Filters (2 applied)
+</button>
+<form id="jobs-filters" class="filters-form" aria-label="Filter the jobs">
+  <!-- Filter rows -->
+</form>
+```
+
+The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight `tr.sk-row` skeleton rows. Eight give a visible sample while keeping the loading table within a phone screen (296px of rows at 390px wide). On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
 
 ### The end of a list
 
 Before a populated list, `a.vh.skip-list` leads to `p.list-end#jobs-end`. The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest jobs and Older jobs follow where available.
+
+```html
+<a class="vh skip-list" href="#jobs-end">Skip to the end of the list</a>
+<!-- Jobs table -->
+<p class="list-end" id="jobs-end" tabindex="-1"><span>2 read; no more match.</span></p>
+```
 
 ### Command to copy, and a secret shown once
 
