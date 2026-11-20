@@ -67,8 +67,10 @@ export interface AuthSettings {
 }
 
 /**
- * A member gets the Organization and role. Other accounts get only the `notMember` or
- * `hubNotSetUp` status.
+ * Read the Organization and membership together. Better Auth's `getActiveMemberRole` needs an
+ * Organization and returns only the role, so using it here would add reads. The single query also
+ * distinguishes a hub awaiting setup from a signed-in account without membership. Only members
+ * get the Organization and role.
  */
 async function findMembership(db: Kysely<Database>, userId: UserId) {
   const row = await db
@@ -187,6 +189,9 @@ export function authOptions(settings: AuthSettings) {
       log: (level, message, ...args) => console[level](`[Better Auth] ${message}`, ...args),
     },
     plugins: [
+      // A separate `/viewer` endpoint could return the same data, but it would have to forward
+      // session renewal cookies. The dashboard already calls Better Auth's `get-session`, which
+      // handles renewal and gives the hub's member guard the same session result.
       customSession(async ({ user, session }) => {
         const id = UserId(user.id);
         const membership = await findMembership(settings.db, id);
