@@ -2,17 +2,19 @@ import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal, onSettled } from "solid-js";
 
-import {
-  api,
-  failureDetailSuffix,
-  hubFailureDetail,
-  hubFailureMessage,
-  readFromHub,
-} from "../api-client.ts";
+import { api, failureDetailSuffix, hubFailureDetail, readFromHub } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
+import { FieldError } from "../components/FieldError.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText, focusIfLost } from "../form.ts";
+import {
+  GIVEN_NAME,
+  NEW_PASSWORD,
+  createFormAction,
+  fieldText,
+  focusIfLost,
+  formRefusal,
+} from "../form.ts";
 
 // Setting up a new hub: creating its owner with the setup link the hub printed (ADR 0015). The
 // link's token comes after `#`, so it never reaches the hub's request logs.
@@ -29,18 +31,30 @@ function Setup() {
   // Read from the router, so a link opened over this page, which changes only its hash, counts.
   const token = useLocation({ select: (location) => location.hash });
   const [error, setError] = createSignal<string>();
+  const [fields, setFields] = createSignal<Map<string, string>>();
+  const field = (name: string) => fields()?.get(name);
   const [alreadySetUp, setAlreadySetUp] = createSignal(false);
   const { pending, onSubmit } = createFormAction(async (element) => {
     setError(undefined);
+    setFields(undefined);
     const form = new FormData(element);
-    const organizationName = fieldText(form, "organization");
+    const organizationName = fieldText(form, "organizationName");
     const owner = { email: fieldText(form, "email"), password: fieldText(form, "password") };
     const name = fieldText(form, "name");
     try {
       await api.setup.complete({ token: token(), organizationName, name, ...owner });
     } catch (failure) {
       if (failure instanceof ORPCError && failure.code === "CONFLICT") setAlreadySetUp(true);
-      else setError(hubFailureMessage(failure));
+      else {
+        const refusal = formRefusal(failure, {
+          organizationName: ["organizationName"],
+          name: ["name"],
+          email: ["email"],
+          password: ["password"],
+        });
+        setError(refusal.alert);
+        setFields(refusal.fields);
+      }
       return;
     }
     try {
@@ -100,19 +114,49 @@ function Setup() {
               <label for="setup-organization">Organization name</label>
               <input
                 id="setup-organization"
-                name="organization"
+                name="organizationName"
                 autocomplete="organization"
                 required
                 {...GIVEN_NAME}
+
+                aria-invalid={field("organizationName") ? "true" : undefined}
+                aria-describedby={
+                  field("organizationName") ? "setup-organization-error" : undefined
+                }
               />
+              <Show when={field("organizationName")}>
+                {(message) => <FieldError id="setup-organization-error">{message()}</FieldError>}
+              </Show>
             </div>
             <div class="field">
               <label for="setup-name">Your name</label>
-              <input id="setup-name" name="name" autocomplete="name" required {...GIVEN_NAME} />
+              <input
+                id="setup-name"
+                name="name"
+                autocomplete="name"
+                required
+                {...GIVEN_NAME}
+                aria-invalid={field("name") ? "true" : undefined}
+                aria-describedby={field("name") ? "setup-name-error" : undefined}
+              />
+              <Show when={field("name")}>
+                {(message) => <FieldError id="setup-name-error">{message()}</FieldError>}
+              </Show>
             </div>
             <div class="field">
               <label for="setup-email">Email</label>
-              <input id="setup-email" name="email" type="email" autocomplete="username" required />
+              <input
+                id="setup-email"
+                name="email"
+                type="email"
+                autocomplete="username"
+                required
+                aria-invalid={field("email") ? "true" : undefined}
+                aria-describedby={field("email") ? "setup-email-error" : undefined}
+              />
+              <Show when={field("email")}>
+                {(message) => <FieldError id="setup-email-error">{message()}</FieldError>}
+              </Show>
             </div>
             <div class="field">
               <label for="setup-password">Password</label>
@@ -123,7 +167,13 @@ function Setup() {
                 autocomplete="new-password"
                 required
                 {...NEW_PASSWORD}
+
+                aria-invalid={field("password") ? "true" : undefined}
+                aria-describedby={field("password") ? "setup-password-error" : undefined}
               />
+              <Show when={field("password")}>
+                {(message) => <FieldError id="setup-password-error">{message()}</FieldError>}
+              </Show>
             </div>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
             <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>

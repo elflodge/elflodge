@@ -1,3 +1,4 @@
+import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
@@ -140,7 +141,13 @@ test("in a browser, the setup link creates the Organization and its owner, who i
   await page.getByLabel("Organization name").fill(SETUP.organizationName);
   await page.getByLabel("Your name").fill(SETUP.name);
   await page.getByLabel("Email").fill(SETUP.email);
-  await page.getByLabel("Password").fill(SETUP.password);
+  const password = page.getByLabel("Password");
+  await password.fill("x".repeat(129));
+  await page.getByRole("button", { name: "Create owner" }).click();
+  await expectBrowser(password).toHaveAccessibleDescription("At most 128 characters");
+  await expectBrowser(password).toBeFocused();
+  await expectBrowser(page.getByRole("alert")).toHaveCount(0);
+  await password.fill(SETUP.password);
   await page.getByRole("button", { name: "Create owner" }).click();
   await page.waitForURL(`${dashboard}/`);
   await page.getByRole("banner").getByText(SETUP.organizationName, { exact: true }).waitFor();
