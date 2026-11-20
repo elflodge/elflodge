@@ -11,6 +11,7 @@ export {
   labelsSchema,
   type ListedInputFile,
   type OutputContract,
+  jobIdSchema,
   jobRefSchema,
 } from "./job.ts";
 export * from "./json-rpc.ts";

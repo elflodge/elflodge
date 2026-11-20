@@ -21,11 +21,11 @@ import {
 } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
-import { type JobsSearch, availableRunners, filterCount } from "./jobs.tsx";
+import { type JobsSearch, availableRunners, filterCount, jobsSearchSchema } from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/jobs/")({
-  // A different set of filters or cursor needs its own list read.
-  loaderDeps: ({ search }) => search,
+  // Both reads take only the declared filters and cursor, including after a sign-in redirect.
+  loaderDeps: ({ search }) => jobsSearchSchema.parse(search),
   loader: async ({ context, deps }) => {
     if (!context.member) return;
     await readFromHub("The jobs", () =>
@@ -34,7 +34,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs/")({
   },
   pendingComponent: LoadingList,
   errorComponent: (props) => {
-    const search = Route.useSearch();
+    const search = Route.useLoaderDeps();
     return (
       <ReadErrorPage {...props} heading="Jobs">
         <Show when={filterCount(search()) > 0}>
@@ -51,7 +51,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs/")({
 });
 
 function Jobs() {
-  const search = Route.useSearch();
+  const search = Route.useLoaderDeps();
   const jobs = useQuery(() =>
     orpc.jobs.list.queryOptions({ input: search(), refetchInterval: REFRESH_INTERVAL_MS }),
   );
@@ -221,13 +221,13 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       <td role="cell" class="c-submitter">
         <span class="cell-line">
           <span
-            title={props.job.submitter.name ?? "Unnamed"}
+            title={props.job.submitter.name || "Unnamed"}
             class={{
-              mono: props.job.submitter.kind === "key" && props.job.submitter.name !== null,
-              unnamed: props.job.submitter.kind === "key" && props.job.submitter.name === null,
+              mono: props.job.submitter.kind === "key" && !!props.job.submitter.name,
+              unnamed: props.job.submitter.kind === "key" && !props.job.submitter.name,
             }}
           >
-            {props.job.submitter.name ?? "Unnamed"}
+            {props.job.submitter.name || "Unnamed"}
           </span>{" "}
           <span class="unit">{props.job.submitter.kind}</span>
         </span>

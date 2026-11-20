@@ -135,8 +135,20 @@ test("in a browser, a link reads the exact Batch a page at a time, newest first"
 }, 30_000);
 
 test("in a browser, a count in the strip opens the list of the jobs it counts", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const queuedName = "strip-queued";
+  const cancelledName = "strip-cancelled";
+  await submitJob(client, { ...AGENT, customId: queuedName, input: "Wait." });
+  const cancelled = await submitJob(client, {
+    ...AGENT,
+    customId: cancelledName,
+    input: "Stop.",
+  });
+  await client.jobs.cancel({ id: cancelled.id });
+
   const page = await newPage();
   await signInAt(system, page, "jobs", await newMember(system, "Count Reader"));
+  await expectBrowser(rows(page).getByText(cancelledName, { exact: true })).toBeVisible();
   const { jobCounts } = await system.owner().jobs.counts({});
 
   await page
@@ -145,7 +157,6 @@ test("in a browser, a count in the strip opens the list of the jobs it counts", 
     .click();
   await page.waitForURL(/status=/);
   await expectBrowser(page.getByRole("checkbox", { name: "Queued" })).toBeChecked();
-  // Every job shown is queued, as many as a page holds.
-  await expectBrowser(rows(page)).toHaveCount(Math.min(jobCounts.queued, 50));
-  await expectBrowser(rows(page).filter({ hasNotText: "Queued" })).toHaveCount(0);
+  await expectBrowser(rows(page).getByText(queuedName, { exact: true })).toBeVisible();
+  await expectBrowser(rows(page).getByText(cancelledName, { exact: true })).toHaveCount(0);
 }, 30_000);

@@ -6,12 +6,12 @@ import {
   useChildMatches,
   useNavigate,
 } from "@tanstack/solid-router";
-import { BATCH_ID_PATTERN, jobStatusSchema, type Runner } from "contract";
+import { BATCH_ID_PATTERN, jobIdSchema, jobStatusSchema, type Runner } from "contract";
 import { For, Show, createMemo, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
-import { createFormAction } from "../../../form.ts";
+import { createFormAction, focusIfLost } from "../../../form.ts";
 import { formatCount } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
@@ -24,7 +24,7 @@ const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undef
  * value the list cannot take is dropped, and the filters' form then shows what is applied; one the
  * hub refuses, such as a Batch ID it does not allow, is the hub's to name when the list is read.
  */
-const jobsSearchSchema = z.object({
+export const jobsSearchSchema = z.object({
   status: z.catch(
     z.optional(
       z.union([
@@ -48,7 +48,7 @@ const jobsSearchSchema = z.object({
   ),
   batchId: optionalText,
   runnerId: optionalText,
-  after: optionalText,
+  after: z.catch(z.optional(jobIdSchema), undefined),
 });
 export type JobsSearch = z.infer<typeof jobsSearchSchema>;
 
@@ -98,11 +98,12 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
 
   const [open, setOpen] = createSignal(false);
   let toggle: HTMLButtonElement | undefined;
+  let apply: HTMLButtonElement | undefined;
 
   function closeFilters() {
     // Close in a separate flush so navigation cannot hold the panel open until its read settles.
     onFlush(() => setOpen(false));
-    toggle?.focus();
+    (toggle?.checkVisibility() ? toggle : apply)?.focus();
   }
 
   const { pending, onSubmit } = createFormAction((element) => {
@@ -125,8 +126,9 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
     return chosen && !runnerIds().has(chosen) ? chosen : undefined;
   };
 
-  return (
-    <div class="filters">
+  // Keep disclosure updates independent of the form bindings so drafts survive a toggle.
+  function FilterToggle() {
+    return (
       <button
         type="button"
         class="filter-toggle"
@@ -140,7 +142,22 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
         Filters
         <Show when={applied() > 0}> ({formatCount(applied())} applied)</Show>
       </button>
-      <form id="jobs-filters" class="filters-form" aria-label="Filter the jobs" onSubmit={onSubmit}>
+    );
+  }
+
+  return (
+    <div class="filters">
+      <FilterToggle />
+      <form
+        id="jobs-filters"
+        class="filters-form"
+        aria-label="Filter the jobs"
+        onSubmit={async (event) => {
+          await onSubmit(event);
+          // Clear can replace a pending read while Apply is still disabled.
+          focusIfLost(apply);
+        }}
+      >
         <div class="filters-row">
           <fieldset class="check-group is-inline">
             <legend>Status</legend>
@@ -208,7 +225,14 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
             </select>
           </div>
           <span class="filter-act">
-            <button type="submit" class="primary" disabled={pending()}>
+            <button
+              type="submit"
+              class="primary"
+              disabled={pending()}
+              ref={(element) => {
+                apply = element;
+              }}
+            >
               Apply
             </button>
             <Show when={applied() > 0}>
