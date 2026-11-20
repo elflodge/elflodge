@@ -1,6 +1,6 @@
 import type { Browser, Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, onTestFinished, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
 import { protocolClient, startSystem, submitJob } from "./harness.ts";
@@ -70,6 +70,40 @@ test("in a browser, the list shows a submitted job with its status", async () =>
   const page = await newPage();
   await signInAt(system, page, "jobs", await newMember(system, "Third Reader"));
   await rows(page).filter({ hasText: "invoice-7" }).getByText("Queued").waitFor();
+}, 30_000);
+
+test("after skipping to the end, Apply keeps focus and reads Jobs again in place", async () => {
+  await submitJob(await system.clientWithNewJobsKey(), {
+    ...AGENT,
+    customId: "skip",
+    input: "Wait.",
+  });
+  const page = await newPage();
+  await signInAt(system, page, "jobs", await newMember(system, "Filter Form Reader"));
+  await page.getByRole("link", { name: "Skip to the end of the list" }).focus();
+  await page.keyboard.press("Enter");
+  await expectBrowser(page).toHaveURL(/#jobs-end$/);
+  const entries = await page.evaluate<number>("history.length");
+
+  const apply = page.getByRole("button", { name: "Apply", exact: true });
+  const release = Promise.withResolvers<void>();
+  await page.route("**/jobs", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  await apply.focus();
+  try {
+    await Promise.all([page.waitForRequest("**/jobs"), page.keyboard.press("Enter")]);
+    // A background poll also reads Jobs. Only Apply keeps the form pending through this read.
+    await expectBrowser(apply).toBeDisabled();
+    await expectBrowser(apply).toBeFocused();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(apply).toBeEnabled();
+  await expectBrowser(apply).toBeFocused();
+  await expectBrowser(page).toHaveURL(/#jobs-end$/);
+  expect(await page.evaluate<number>("history.length")).toBe(entries);
 }, 30_000);
 
 test("in a browser, filters held in the address narrow the list, and a reload keeps them", async () => {

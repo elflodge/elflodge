@@ -29,7 +29,7 @@
   border-color: var(--brand-shape);
 }
 @media (hover: hover) {
-  .primary:hover:not(:disabled) {
+  .primary:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--c-primary-hover);
   }
 }
@@ -42,14 +42,14 @@
   color: var(--c-failed);
   border-color: currentColor;
 }
-.danger.is-fill:not(:disabled) {
+.danger.is-fill:not(:disabled, [aria-disabled="true"]) {
   background: var(--c-failed);
   color: var(--c-paper);
   border-color: var(--c-failed);
 }
 /* Hover moves the fill toward the ink, darker in light and lighter in dark. */
 @media (hover: hover) {
-  .danger.is-fill:hover:not(:disabled) {
+  .danger.is-fill:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--c-danger-hover);
   }
 }
@@ -232,18 +232,19 @@
   justify-content: flex-start;
   font-weight: var(--weight-regular);
 }
-/* A button in the menu is drawn as its links are, underline included: nothing else says it can be pressed. */
-.pop-list button {
+/* The underline identifies an available menu action. Pending buttons use the shared disabled colours. */
+.pop-list button:not(:disabled, [aria-disabled="true"]) {
   border: 0;
   color: var(--c-link);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.22em;
   text-decoration-color: var(--c-underline);
-}
-.pop-list button:hover,
-.pop-list button:focus-visible {
-  text-decoration-color: currentColor;
+
+  &:hover,
+  &:focus-visible {
+    text-decoration-color: currentColor;
+  }
 }
 /* The bar folds in two stages. Below 60rem the Organization's name leaves it, as the menu names the
    Organization. At 52rem and below the destinations fold into the menu: above that, six destinations

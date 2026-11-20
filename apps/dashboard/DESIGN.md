@@ -55,7 +55,7 @@ With no class at all:
 - **Links** are underlined at rest in a quieter tint of their colour, and at full strength under the pointer or the keyboard. Focus everywhere is a 2px ring.
 - **Tables** are ruled: a hairline under each row, a one-line row 30px tall, small quiet column heads, a double rule above a `tfoot`.
 - **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
-- **Buttons** are paper with an edge; a disabled one is greyed. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
+- **Buttons** are paper with an edge. Disabled buttons are greyed. A pending submit button uses `aria-disabled` and keeps its keyboard focus ring. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
 - **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
 - **`dialog`** and **`[popover]`** are paper with an edge and a shadow.
 
@@ -91,7 +91,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
       <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
         <li><Link to="/change-password">Change password</Link></li>
-        <li><form onSubmit={signOut}><button type="submit" class="quiet" disabled={pending()}>Sign out</button></form></li>
+        <li><form onSubmit={signOut}><button type="submit" class="quiet" aria-disabled={pending() ? "true" : undefined}>Sign out</button></form></li>
       </ul>
     </div>
   </div>
@@ -250,7 +250,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and takes focus unless the member moved focus to something else visible while the hub answered. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling the focused button or field moved focus to the body, the form returns focus to that control when the action settles, unless a field was refused or focus has moved elsewhere.
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and takes focus unless the member moved focus to something else visible while the hub answered. A refusal that is about no one field is the form's notice. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
 
 ```tsx
 <div class="field">
@@ -508,7 +508,7 @@ The next cell holds each condition in its own `span.beside`. "Status unknown" ha
 
 ### Filters
 
-The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. Each `div.filter-field` pairs a label and its control. The second row holds Batch and Runner, then `span.filter-act` groups Apply and, when a filter applies, Clear. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Clear returns focus to Apply. Apply loses focus while disabled and regains it after a successful read. If the hub refuses the read, the error page takes focus on its heading. The disclosure starts at 760px to leave room for the six status checks on one line in the wide form. With the dashboard fonts they use 637px of the 725px available at 761px. At the shared 640px touch breakpoint the gutters leave only 609px. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
+The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, even in an unapplied draft, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. Each `div.filter-field` pairs a label and its control. The second row holds Batch and Runner, then `span.filter-act` groups Apply and, when a filter applies, Clear. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Clear returns focus to Apply. Apply keeps focus throughout its read. Applying unchanged filters on the first page reads the list again in place, preserving the address and its history entry. If the hub refuses that refresh, the list stays visible with an inline alert. Focus stays on Apply above 760px and on Filters at 760px and below. If the hub refuses the first read during navigation, the error page takes focus on its heading. The disclosure starts at 760px to leave room for the six status checks on one line in the wide form. With the dashboard fonts they use 637px of the 725px available at 761px. At the shared 640px touch breakpoint the gutters leave only 609px. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
 
 1. The panel starts closed on arrival, including at a filtered address.
 2. Pressing Filters toggles the panel.

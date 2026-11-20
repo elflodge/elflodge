@@ -48,7 +48,7 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
         "form" in focused &&
         focused.form === currentTarget
       ) {
-        // Enter can submit from a field that is disabled along with the submit button.
+        // Enter can submit from a field in a fieldset disabled while the action runs.
         focusIfLost(focused);
       }
     }

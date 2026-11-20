@@ -4,7 +4,9 @@ import {
   Link,
   Outlet,
   createFileRoute,
+  deepEqual,
   linkOptions,
+  trimPathRight,
   useChildMatches,
   useLocation,
   useRouter,
@@ -31,7 +33,11 @@ export const jobsSearchSchema = z.object({
   status: z.catch(
     z.optional(
       z.union([
-        z.array(jobStatusSchema).check(z.minLength(1)),
+        // Links can list the same checked statuses in different orders. They share one Jobs read.
+        z.pipe(
+          z.array(jobStatusSchema).check(z.minLength(1)),
+          z.transform((statuses) => STATUSES.filter((status) => statuses.includes(status))),
+        ),
         z.pipe(
           jobStatusSchema,
           z.transform((status) => [status]),
@@ -53,14 +59,7 @@ export const jobsSearchSchema = z.object({
   runnerId: optionalText,
   after: z.catch(z.optional(jobIdSchema), undefined),
 });
-// The checkboxes and the hub both treat statuses as a set. Back can restore a different URL order.
-const jobsFiltersSchema = z.pipe(
-  z.omit(jobsSearchSchema, { after: true }),
-  z.transform(({ status, ...filters }) => ({
-    status: status && STATUSES.filter((value) => status.includes(value)),
-    ...filters,
-  })),
-);
+const jobsFiltersSchema = z.omit(jobsSearchSchema, { after: true });
 export type JobsSearch = z.infer<typeof jobsSearchSchema>;
 
 /** How many of the filters `search` applies; the page it reads from is not one. */
@@ -103,7 +102,7 @@ function Jobs() {
   );
 }
 
-/** Clear returns focus to the form’s visible control, including from the read error page. */
+/** Apply and Clear return focus to the visible filter control, including after error recovery. */
 function filterFocusTarget() {
   const toggle = document.querySelector<HTMLButtonElement>('button[aria-controls="jobs-filters"]');
   return toggle?.checkVisibility()
@@ -118,7 +117,7 @@ export function ClearFiltersLink(props: { children: string; closePanel?: () => v
       return;
     props.closePanel?.();
     const target = filterFocusTarget();
-    if (target?.checkVisibility()) (target.disabled ? target.form : target)?.focus();
+    if (target?.checkVisibility()) target.focus();
     else focusWhenVisible = true;
   }
   // A refused read hides the form. Its recovery link disappears when the form is visible again.
@@ -158,14 +157,15 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
     const search = jobsFiltersSchema.parse(parseFormData(form));
     const destination = linkOptions({ to: "/jobs", search });
     const current = router.latestLocation;
+    const next = router.buildLocation(destination);
+    // The current location holds URL values: one status is text and a page cursor is still present.
     if (
-      current.pathname === destination.to &&
-      !current.hash &&
-      current.searchStr === router.buildLocation(destination).searchStr
+      trimPathRight(current.pathname) === trimPathRight(next.pathname) &&
+      deepEqual(jobsSearchSchema.parse(current.search), next.search)
     ) {
       // The router loads an unchanged location inside the Solid action, which can hold the commit
       // navigation is waiting for. Apply here only needs to refresh the displayed list.
-      return queryClient.refetchQueries({
+      return queryClient.invalidateQueries({
         queryKey: orpc.jobs.list.queryKey({ input: search }),
         exact: true,
       });
@@ -173,27 +173,32 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
     return router.navigate(destination);
   });
 
-  // Key options by ID so that resolving a Runner name updates the reader's existing option.
-  const runnerNames = createMemo(() => {
+  const [draftRunner, setDraftRunner] = createSignal<string>();
+  // Keep a chosen Runner identifiable when the roster changes, even before Apply.
+  const runnerOptions = createMemo(() => {
     const ids = shortIds(props.runners.map(({ id }) => id));
-    const names = new Map(
-      props.runners.map((runner) => [
-        runner.id,
-        props.runners.some((other) => other.id !== runner.id && other.name === runner.name)
-          ? `${runner.name} (${ids.get(runner.id)})`
-          : runner.name,
-      ]),
-    );
-    const chosen = props.filters.runnerId;
-    if (chosen && !names.has(chosen)) names.set(chosen, `Runner ID: ${chosen}`);
-    return names;
+    const options = props.runners.map(({ id, name }) => ({
+      id,
+      label: props.runners.some((other) => other.id !== id && other.name === name)
+        ? `${name} (${ids.get(id)})`
+        : name,
+    }));
+    for (const id of [props.filters.runnerId, draftRunner()]) {
+      if (id && !options.some((option) => option.id === id))
+        options.push({ id, label: `Runner ID: ${id}` });
+    }
+    return options;
   });
 
   // Defaults follow the address. Reset edits only when the applied filters change.
   let form: HTMLFormElement | undefined;
   createEffect(
     () => props.filters,
-    () => form?.reset(),
+    () => {
+      form?.reset();
+      // Back can remove the focused Clear link along with the last filter.
+      if (!applied()) focusIfLost(filterFocusTarget());
+    },
     { defer: true },
   );
 
@@ -214,17 +219,10 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
           form = element;
         }}
         id="jobs-filters"
-        tabindex="-1"
         class="filters-form"
         aria-label="Filter the jobs"
-        onSubmit={async (event) => {
-          const submittedForm = event.currentTarget;
-          await onSubmit(event);
-          // Clear can put focus on the form while Apply is disabled. Preserve a move to another field.
-          const target = filterFocusTarget();
-          if (document.activeElement === submittedForm) target?.focus();
-          else focusIfLost(target);
-        }}
+        onReset={() => setDraftRunner(undefined)}
+        onSubmit={onSubmit}
       >
         <div class="filters-row">
           <fieldset class="check-group is-inline">
@@ -272,21 +270,28 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
           </div>
           <div class="filter-field">
             <label for="jobs-runner">Runner</label>
-            <select id="jobs-runner" name="runnerId">
+            <select
+              id="jobs-runner"
+              name="runnerId"
+              onChange={(event) => setDraftRunner(event.currentTarget.value)}
+            >
               <option value="" defaultSelected={props.filters.runnerId === undefined}>
                 Any
               </option>
-              <For each={[...runnerNames().keys()]}>
-                {(id) => (
-                  <option value={id} defaultSelected={props.filters.runnerId === id}>
-                    {runnerNames().get(id)}
+              <For each={runnerOptions()} keyed={(option) => option.id}>
+                {(option) => (
+                  <option
+                    value={option().id}
+                    defaultSelected={props.filters.runnerId === option().id}
+                  >
+                    {option().label}
                   </option>
                 )}
               </For>
             </select>
           </div>
           <span class="filter-act">
-            <button type="submit" class="primary" disabled={pending()}>
+            <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
               Apply
             </button>
             <Show when={applied() > 0}>

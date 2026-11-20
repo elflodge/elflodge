@@ -151,7 +151,7 @@ export function AddRunner(props: {
                   {(message) => <Notice role="alert">{message()}</Notice>}
                 </Show>
                 <form onSubmit={onSubmit}>
-                  <button type="submit" disabled={pending()}>
+                  <button type="submit" aria-disabled={pending() ? "true" : undefined}>
                     Create a registration key
                   </button>
                 </form>

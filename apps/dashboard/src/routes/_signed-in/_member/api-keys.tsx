@@ -301,7 +301,7 @@ function CreateKey(props: { onClose: () => void }) {
               <button type="button" onClick={() => dialog?.close()}>
                 Cancel
               </button>
-              <button type="submit" class="primary" disabled={pending()}>
+              <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
                 Create key
               </button>
             </div>
