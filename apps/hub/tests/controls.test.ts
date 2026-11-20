@@ -47,6 +47,7 @@ test("cancelling a job no Runner was sent ends it at once, and deleting it then 
   expect(await client.jobs.events({ id })).toEqual({
     events: [],
     hasMore: false,
+    status: "cancelled",
     job,
   });
 

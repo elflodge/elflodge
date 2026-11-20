@@ -122,8 +122,7 @@ function JobPage() {
   // A stalled poll must leave the last answer readable while its live indication expires.
   const job = createMemo(() => latest(() => deep(read.data)));
   const lastRecorded = () => !current() || !!job().statusUnknown;
-  const running = () =>
-    jobEvents.isAtLatest() && job().status === "running" && !lastRecorded() && !job().deletedAt;
+  const running = () => job().status === "running" && !lastRecorded() && !job().deletedAt;
   const events = mapArray(jobEvents.events, readJobEvent, { keyed: true });
   const groups = createMemo(() => groupJobEvents(events(), jobEvents.firstHeadEventId()));
   const stopped = () => {
@@ -230,7 +229,7 @@ function JobPage() {
             <JobLimits
               job={job()}
               resumeOffered={resumeOffered()}
-              countFrom={running() ? groups().countFrom : undefined}
+              countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
           </Show>
           <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>

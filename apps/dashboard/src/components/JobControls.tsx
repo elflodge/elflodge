@@ -64,9 +64,13 @@ export function JobControls(props: {
         control === "resume"
           ? await api.jobs.resume({ id, modelBudgetUsd })
           : await api.jobs[control]({ id });
-      // An older poll still on the wire must not replace the control's answer.
+      // The job read, newest-first page and follower can each replace the record.
       await Promise.all([
         client.cancelQueries({ queryKey, exact: true }),
+        client.cancelQueries({
+          queryKey: orpc.jobs.events.key({ type: "infinite", input: { id, order: "desc" } }),
+          predicate: (query) => !query.state.fetchMeta?.fetchMore,
+        }),
         client.cancelQueries({
           queryKey: orpc.jobs.events.key({ type: "streamed", input: { id } }),
         }),

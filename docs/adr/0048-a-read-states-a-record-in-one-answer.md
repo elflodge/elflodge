@@ -14,7 +14,6 @@ A member following a job’s Events sees the job as it stood when the hub read t
 - Return a boolean for jobs waiting for the Canary. It answers one sentence. Showing how many jobs are waiting needs a count anyway, and each other reason would need a field of its own.
 - Give the Batch a single `blockedBy`. Its pause would repeat `pausedBy`, and the value would mean two different things. A pause blocks every unsent queued job, while a Canary blocks only those outside it. An older client would reject the whole Batch on seeing an unfamiliar enum value. With counts it drops an unfamiliar key and reads the rest.
 - Order two answers by a revision or position. Knowing which answer came later still cannot tell the caller how many jobs were blocked at either moment. ADR 0026 rejected a per-job revision counter in the Runner protocol because nothing moves backwards within a run. The run and its forward-only intents already carry the order. Neither decision adds a counter.
-
 - Keep reading the job and its Events separately. Either answer can arrive first. A caller that sees different statuses must read the job again, and matching statuses say nothing about whether its activity or usage has changed.
 - Return the position of the last Event the job read reflects. Only a Runner’s report adds Events. The hub can resume a job, pause or cancel an unsent job, cancel a paused job or its Batch, or end a removed Runner’s jobs without adding an Event. A Runner can report a failure its journal could not record, or new usage without an Event. Time alone can change `statusUnknown` and `runner.connected`. Equal positions leave those changes unordered.
 - Carry just status, usage and controls on the Events page. A member would still read the rest of the job, including its Output and activity, from another moment.
@@ -23,8 +22,10 @@ A member following a job’s Events sees the job as it stood when the hub read t
 
 Counting blocks reads the Batch’s queued jobs, as counting statuses in ADR 0033 reads its jobs. A single Batch read counts blocks alongside status and usage. A list counts the unsent queued jobs of the Batches it shows. Both avoid another hub call for each Batch a member sees.
 
-The job can be much larger than a page of Events. An ascending page carries it once caught up, and a descending page carries it when read from the newest end. Other history pages carry only their Events and whether more are stored.
+The job can be much larger than a page of Events. An ascending page carries it once caught up, and a descending page carries it when read from the newest end. Every page keeps the status read in its statement. Released CLI clients require it to read the Events.
 
 ## When to reconsider
 
 Reconsider computing the counts at read time if scanning queued jobs on a list page becomes too costly at the sizes deployments use. Any stored counts would need to stay correct through placement, job controls, and changes to the Batch’s pause and Canary.
+
+Reconsider which Events pages carry the job if a byte cap on Output makes it cheap to include on every page.

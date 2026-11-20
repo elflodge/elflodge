@@ -1564,6 +1564,7 @@ export function readJobEvents(
         .where("id", "=", jobId)
         .select([
           "id",
+          "status",
           chunks
             .select("lastId")
             .orderBy("lastId", descending ? "asc" : "desc")
@@ -1594,7 +1595,7 @@ export function readJobEvents(
             }),
           )
           .selectAll("shown")
-          .select("journal.endChunkId")
+          .select(["journal.endChunkId", "journal.status as pageStatus"])
           .select((eb) => [
             jsonArrayFrom(eb.selectFrom("pageChunks").selectAll()).as("chunks"),
             // The cursor's report may hold earlier events. Read it outside the older rows' byte
@@ -1614,11 +1615,12 @@ export function readJobEvents(
     });
     if (!row) return yield* Effect.fail(new NotFound());
 
-    const { chunks: stored, boundary, endChunkId, ...job } = row;
+    const { chunks: stored, boundary, endChunkId, pageStatus, ...job } = row;
     const events: JobEvent[] = [];
     const page = (hasMore: boolean): JobEventsPage => ({
       events,
       hasMore,
+      status: pageStatus,
       ...(hasJob(job) && (descending || !hasMore) && { job: toApiJob(job) }),
     });
 

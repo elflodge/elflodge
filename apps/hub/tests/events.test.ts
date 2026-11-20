@@ -35,6 +35,7 @@ async function readAll(client: ApiClient, job: Job, limit: number) {
   const events: JobEvent[] = [];
   for (;;) {
     const page = await client.jobs.events({ id: job.id, after: events.at(-1)?.id ?? 0, limit });
+    expect(page.status).toBe(job.status);
     events.push(...page.events);
     if (!page.hasMore) {
       expect(page.job).toEqual(job);

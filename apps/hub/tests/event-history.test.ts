@@ -52,6 +52,7 @@ test("a member can walk back from the newest event and follow new reports from t
   expect(await member.jobs.events({ id, limit: 1 })).toEqual({
     events: start.events,
     hasMore: true,
+    status: "running",
   });
 
   const newest = await member.jobs.events({ id, order: "desc", limit: 2 });

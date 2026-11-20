@@ -571,7 +571,7 @@ const jobEventOrderSchema = z
   .check(z.describe("Event ID order, oldest first (asc, the default) or newest first (desc)."));
 export type JobEventOrder = z.infer<typeof jobEventOrderSchema>;
 
-/** Follow a job in ascending order until a page with a final `job.status` has no more events. */
+/** Follow a job in ascending order until a page with a final `status` has no more events. */
 export const jobEventsPageSchema = z
   .object({
     events: z
@@ -584,6 +584,11 @@ export const jobEventsPageSchema = z
           "Whether more events are already stored past this page in that order. In descending order, false means the start of the stored history has been reached.",
         ),
       ),
+    status: jobStatusSchema.check(
+      z.describe(
+        "The job's status when this page was read. It equals `job.status` on a page that carries the job.",
+      ),
+    ),
     job: z
       .optional(jobSchema)
       .check(
@@ -1215,7 +1220,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/jobs/{id}/events",
           description:
-            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. `hasMore` says whether more events are stored in that order. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `job.status` and `hasMore` is false. The Events have a 1 MiB budget. The first eligible event is always included, even if it alone exceeds the budget. Events lost with a host may be missing.",
+            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. `hasMore` says whether more events are stored in that order. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `status` and `hasMore` is false. The Events have a 1 MiB budget. The first eligible event is always included, even if it alone exceeds the budget. Events lost with a host may be missing.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )
