@@ -419,6 +419,20 @@ test("in a browser, a member change in another tab loads a fresh document", asyn
   await expectBrowser(page).toHaveURL(`${dashboard}/change-password`);
 }, 60_000);
 
+test("submitting with Enter in password confirmation focuses the refused current password", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await signInAt(system, page, "change-password", OWNER);
+  const current = page.getByLabel("Current password");
+  const confirm = page.getByLabel("Confirm new password");
+  await current.fill("incorrect password");
+  await page.getByLabel("New password", { exact: true }).fill("a new password");
+  await confirm.fill("a new password");
+  await confirm.press("Enter");
+  await expectBrowser(current).toHaveAccessibleDescription("That is not your current password.");
+  await expectBrowser(current).toBeFocused();
+}, 30_000);
+
 test("in a browser, a member signs in, reloads a page, changes the password and signs out", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
