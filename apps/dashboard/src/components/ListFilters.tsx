@@ -106,7 +106,7 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
     onFlush(() => setOpen(false));
   }
 
-  const { pending, onSubmit } = createSearchForm({
+  const { pending, onSubmit, resetForNavigation } = createSearchForm({
     to: props.to,
     schema: props.schema,
     queryKey: props.queryKey,
@@ -116,12 +116,12 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
     },
   });
 
-  // Defaults follow the address. Reset edits only when the applied filters change.
+  // Defaults follow the applied filters across navigation.
   let form: HTMLFormElement | undefined;
   createEffect(
     () => props.filters,
     () => {
-      form?.reset();
+      if (form) resetForNavigation(form);
       // Back can remove the focused Clear link along with the last filter.
       if (!props.applied) focusIfLost(filterFocusTarget(props.to));
     },

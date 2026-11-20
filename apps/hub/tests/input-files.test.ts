@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
+import { getOpenAPIMeta } from "@orpc/openapi";
+import { apiContract, requestProblemsFromIssues } from "contract";
 import { Effect } from "effect";
 import { sql } from "kysely";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
@@ -239,6 +241,32 @@ test("a check answers which content the Organization holds, and where to upload 
   await client.jobs.cancel({ id: job.id });
 });
 
+test("a streaming upload without its byte count names the required header", async () => {
+  const request = {
+    method: "PUT",
+    headers: { "x-api-key": await system.newJobsKey(), "content-type": "application/octet-stream" },
+    body: new Blob(["file"]).stream(),
+    duplex: "half",
+  };
+  const response = await system.hub.fetch("/blobs/" + digestOf("file"), request);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ errors: [{ header: "content-length" }] });
+});
+
+test("an upload refusal can locate its digest while its raw bytes have no JSON Pointer", () => {
+  const route = getOpenAPIMeta(apiContract.blobs.upload);
+  assert.isDefined(route);
+  expect(
+    requestProblemsFromIssues(route, [
+      { path: ["params", "digest"], message: "Different digest" },
+      { path: ["body"], message: "Different byte count" },
+    ]),
+  ).toEqual([
+    { parameter: "digest", detail: "Different digest" },
+    { detail: "Different byte count" },
+  ]);
+});
+
 test("an upload whose bytes are not those its digest names stores nothing", async () => {
   const client = await system.clientWithNewJobsKey();
   const claimed = "What the caller meant to send.";
@@ -249,7 +277,12 @@ test("an upload whose bytes are not those its digest names stores nothing", asyn
       body: new Blob(["else"]).stream(),
     }),
   ).rejects.toMatchObject({
-    cause: { status: 400, detail: expect.stringContaining(digestOf("else")) },
+    cause: {
+      status: 400,
+      detail: expect.stringContaining(digestOf("else")),
+      errors: [{ parameter: "digest" }],
+    },
+    data: { issues: [{ path: ["params", "digest"] }] },
   });
   expect(await storedOf([claimed, "else"])).toEqual([]);
   await expect(

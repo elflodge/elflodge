@@ -505,20 +505,17 @@ export function createBatch(
       }),
     );
     if (!created.same) {
+      const message = "The ID was already used for a Batch with other content";
       return yield* Effect.fail(
-        new IdReused({ message: "The ID was already used for a Batch with other content" }),
+        new IdReused({
+          message,
+          cause: new InvalidInput({ problems: [{ message, path: ["id"] }] }),
+        }),
       );
     }
     const batch = yield* database.query((db) => readBatch(db, { uid: created.uid }));
     if (!batch) return yield* Effect.die(new Error(`The Batch ${id} vanished after its creation`));
     return batch;
-  });
-}
-
-/** `issues` as the API lists invalid input's problems: one per line, each with its path. */
-function problemsText(issues: readonly { message: string; path: (string | number)[] }[]) {
-  return z.prettifyError({
-    issues: issues.map((issue) => ({ code: "custom" as const, ...issue })),
   });
 }
 
@@ -713,7 +710,12 @@ export function addJobs(batchId: string, jobs: readonly JobSubmission[], submitt
       return yield* Effect.fail(new InvalidInput({ problems: added.unheld }));
     }
     if (added.kind === "reused") {
-      return yield* Effect.fail(new IdReused({ message: problemsText(added.reused) }));
+      return yield* Effect.fail(
+        new IdReused({
+          message: z.prettifyError({ issues: added.reused }),
+          cause: new InvalidInput({ problems: added.reused }),
+        }),
+      );
     }
     return added.added;
   });

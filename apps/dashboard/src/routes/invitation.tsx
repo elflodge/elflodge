@@ -17,7 +17,14 @@ import { FailedReadNotice } from "../components/FailedReadNotice.tsx";
 import { FieldError } from "../components/FieldError.tsx";
 import { Instant } from "../components/Instant.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { GIVEN_NAME, NEW_PASSWORD, createFormAction, fieldText, focusIfLost } from "../form.ts";
+import {
+  GIVEN_NAME,
+  NEW_PASSWORD,
+  createFormAction,
+  fieldText,
+  focusIfLost,
+  formRefusal,
+} from "../form.ts";
 import { DATE_TIME_ZONED, formatRoles } from "../format.ts";
 import {
   reloadAndWaitIfMemberChanged,
@@ -225,6 +232,8 @@ function AcceptInvitation(props: {
   const [error, setError] = createSignal<string>();
   const [offerSignIn, setOfferSignIn] = createSignal(false);
   const [passwordError, setPasswordError] = createSignal<string>();
+  const [nameError, setNameError] = createSignal<string>();
+  let nameField: HTMLInputElement | undefined;
   let password: HTMLInputElement | undefined;
   // A 401 asks the account that pressed to sign in. Another tab can satisfy that prompt.
   const [refusedAccount, setRefusedAccount] = createSignal<string | null>();
@@ -232,6 +241,7 @@ function AcceptInvitation(props: {
   const { pending, onSubmit } = createFormAction(async (element) => {
     setError(undefined);
     setPasswordError(undefined);
+    setNameError(undefined);
     setOfferSignIn(false);
     if (differentAccount()) {
       try {
@@ -261,19 +271,14 @@ function AcceptInvitation(props: {
         setRefusedAccount(submittedBy);
         return;
       }
-      const message = hubFailureMessage(failure);
-      // Invitation refusals carry the hub's detail, without Better Auth's field error code.
-      if (
-        account &&
-        password?.value === account.password &&
-        status === 400 &&
-        (message === "Password too long" || message === "Password too short")
-      ) {
-        setPasswordError(message);
-      } else {
-        setError(message);
-        setOfferSignIn(status === 422);
-      }
+      const refusal = formRefusal(failure, {
+        name: account && nameField?.value === account.name ? ["name"] : [],
+        password: account && password?.value === account.password ? ["password"] : [],
+      });
+      setNameError(refusal.fields.get("name"));
+      setPasswordError(refusal.fields.get("password"));
+      setError(refusal.alert);
+      setOfferSignIn(status === 422);
       return;
     }
     props.consumed();
@@ -373,7 +378,22 @@ function AcceptInvitation(props: {
               </div>
               <div class="field">
                 <label for="join-name">Your name</label>
-                <input id="join-name" name="name" autocomplete="name" required {...GIVEN_NAME} />
+                <input
+                  id="join-name"
+                  name="name"
+                  autocomplete="name"
+                  required
+                  {...GIVEN_NAME}
+                  ref={(field) => {
+                    nameField = field;
+                  }}
+                  aria-invalid={nameError() ? "true" : undefined}
+                  aria-describedby={nameError() ? "join-name-error" : undefined}
+                  onInput={() => setNameError(undefined)}
+                />
+                <Show when={nameError()}>
+                  {(message) => <FieldError id="join-name-error">{message()}</FieldError>}
+                </Show>
               </div>
               <div class="field">
                 <label for="join-password">Password</label>

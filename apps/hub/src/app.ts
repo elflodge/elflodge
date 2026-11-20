@@ -68,6 +68,7 @@ import {
   UploadChunkIndex,
 } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
+import { InvalidInput } from "./invalid-input.ts";
 import { acceptInvitation, listInvitations, previewInvitation } from "./invitations.ts";
 import {
   type Control,
@@ -83,7 +84,7 @@ import {
 } from "./jobs.ts";
 import { generateOpenAPIDocument, sessionCookieName } from "./openapi.ts";
 import { RunnerConnections, type HubServices } from "./platform.ts";
-import { toProblemDetails } from "./problem-details.ts";
+import { locateRequestProblems, toProblemDetails } from "./problem-details.ts";
 import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registration.ts";
 import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
@@ -227,7 +228,15 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       create: os.apiKeys.create.effect(function* ({ input, context, errors }) {
         const member = yield* callerMember(context.caller);
         const grant = GRANTABLE_KEY_ROLE.authorize(input.permissions);
-        if (!grant.success) return yield* Effect.fail(errors.BAD_REQUEST({ message: grant.error }));
+        if (!grant.success)
+          return yield* Effect.fail(
+            errors.BAD_REQUEST({
+              message: grant.error,
+              cause: new InvalidInput({
+                problems: [{ message: grant.error, path: ["permissions"] }],
+              }),
+            }),
+          );
         const auth = yield* Auth;
         // Without request headers, as a call from the hub itself: Better Auth sets a key's permissions
         // only then, and still checks that the member may create the Organization's keys.
@@ -471,6 +480,7 @@ const uploads = new OpenAPIHandler(router, {
   errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
+  interceptors: [locateRequestProblems],
   plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
 });
 
@@ -480,7 +490,7 @@ const api = new OpenAPIHandler(router, {
   errorStatusMap,
   errorResponseBodyEncoder: toProblemDetails,
   errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-  interceptors: [restoreDroppedQueryNamesForValidation],
+  interceptors: [locateRequestProblems, restoreDroppedQueryNamesForValidation],
   plugins: [
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
     coercion,

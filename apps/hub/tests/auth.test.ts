@@ -60,6 +60,7 @@ test("API errors are RFC 9457 Problem Details", async () => {
     title: "Bad Request",
     status: 400,
     detail: expect.stringContaining("name"),
+    errors: [{ pointer: "/name", detail: expect.any(String) }],
   });
 });
 
@@ -216,6 +217,15 @@ test("removing a Runner refuses its key and takes it off the list", async () => 
   expect(reconnect.status).toBe(401);
   expect(await reconnect.json()).toMatchObject({ status: 401, code: RUNNER_NOT_FOUND });
   socket.close(1000);
+});
+
+test("a name over the key limit locates the submitted name", async () => {
+  await expect(
+    system.owner().apiKeys.create({ name: "🌲".repeat(17), permissions: { job: ["read"] } }),
+  ).rejects.toMatchObject({
+    cause: { status: 400, errors: [{ pointer: "/name", detail: expect.any(String) }] },
+    data: { issues: [{ path: ["name"], message: expect.any(String) }] },
+  });
 });
 
 test("a key can be created to expire, within Better Auth's limits of a day to a year", async () => {

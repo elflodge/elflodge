@@ -1549,6 +1549,19 @@ p mark.placeholder {
 .check-group.is-inline .mark {
   color: var(--c-ink-2);
 }
+@media (width > 760px) {
+  .filters-row:has(.field-error) {
+    align-items: start;
+  }
+  .filter-field:has(> .field-error) {
+    display: inline-grid;
+    grid-template-columns: auto min-content;
+    row-gap: var(--space-1);
+  }
+  .filter-field > .field-error {
+    grid-column: 2;
+  }
+}
 @media (max-width: 760px) {
   .filter-toggle {
     display: flex;

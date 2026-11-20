@@ -4,7 +4,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
-import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
+import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, PASSWORD_LENGTH } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
@@ -111,6 +111,8 @@ export function authOptions(settings: AuthSettings) {
     // Members sign in with a password (ADR 0015); only setup and invitation redemption sign anyone up.
     emailAndPassword: {
       enabled: true,
+      minPasswordLength: PASSWORD_LENGTH.min,
+      maxPasswordLength: PASSWORD_LENGTH.max,
       disableSignUp: true,
       // A reset is often because the password leaked, so whoever signed in with it is signed out.
       revokeSessionsOnPasswordReset: true,

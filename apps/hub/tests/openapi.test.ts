@@ -23,7 +23,31 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       schemas: {
         Job: {},
         ProblemDetails: {
-          properties: { type: {}, title: {}, status: {}, detail: {} },
+          properties: {
+            type: {},
+            title: {},
+            status: {},
+            detail: {},
+            errors: {
+              type: "array",
+              minItems: 1,
+              items: {
+                anyOf: expect.arrayContaining([
+                  {
+                    type: "object",
+                    properties: expect.objectContaining({
+                      pointer: expect.objectContaining({ type: "string", format: "json-pointer" }),
+                    }),
+                    required: ["detail", "pointer"],
+                    additionalProperties: {},
+                  },
+                  expect.objectContaining({ required: ["detail", "parameter"] }),
+                  expect.objectContaining({ required: ["detail", "header"] }),
+                  expect.objectContaining({ required: ["detail"] }),
+                ]),
+              },
+            },
+          },
           required: ["type", "title", "status"],
         },
         // A body refuses fields the call does not define, which a generated client can check first.

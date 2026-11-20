@@ -37,7 +37,14 @@ test("a new invitee creates an account and lands signed in as a member", async (
   await page.goto(link.href);
   await expectBrowser(page.getByLabel("Email")).toHaveValue(email);
   await page.getByLabel("Your name").fill("Lucia");
-  await page.getByLabel("Password").fill("a long enough password");
+  const password = page.getByLabel("Password");
+  await password.fill("x".repeat(129));
+  await page.getByRole("button", { name: "Create account and join" }).click();
+  await expectBrowser(password).toHaveAccessibleDescription("At most 128 characters");
+  await expectBrowser(password).toBeFocused();
+  await expectBrowser(page.getByLabel("Your name")).toHaveValue("Lucia");
+  await expectBrowser(page.getByRole("alert")).toHaveCount(0);
+  await password.fill("a long enough password");
   await page.getByRole("button", { name: "Create account and join" }).click();
 
   await expectBrowser(page).toHaveURL(system.origin + "/dashboard/jobs");

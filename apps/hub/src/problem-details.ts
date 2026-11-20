@@ -1,15 +1,60 @@
-import { DEFAULT_ERROR_STATUS, ORPCError, ValidationError, type AnyORPCError } from "@orpc/server";
+import { getOpenAPIMeta } from "@orpc/openapi";
+import {
+  DEFAULT_ERROR_STATUS,
+  onError,
+  ORPCError,
+  ValidationError,
+  type AnyORPCError,
+} from "@orpc/server";
+import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn } from "@orpc/shared";
-import { errorStatusMap } from "contract";
+import {
+  errorStatusMap,
+  requestProblemsFromIssues,
+  problemDetailsSchema,
+  type RequestProblem,
+} from "contract";
 import { problemDetails, type ProblemDetails } from "hono-problem-details";
 import { prettifyError } from "zod/mini";
+
+import { InvalidInput } from "./invalid-input.ts";
 
 // The API's errors as RFC 9457 Problem Details (ADR 0023): oRPC's errors through the handler's
 // encoder here, and errors outside oRPC through the same library's handler in the app.
 
-/** The Problem Details document for `error`, for oRPC's handler to answer with. */
-export function toProblemDetails(error: AnyORPCError): ProblemDetails {
-  return problemDetails({ status: statusOf(error.code), detail: detailOf(error) }).problemDetails;
+export const locateRequestProblems: StandardHandlerInterceptor<object> = onError(
+  (error, options) => {
+    if (
+      !(error instanceof ORPCError) ||
+      (error.code !== "BAD_REQUEST" && error.code !== "UNPROCESSABLE_CONTENT")
+    )
+      return;
+    // Module refusals with their own public detail carry the paths as InvalidInput. A
+    // ValidationError would replace that detail with Zod's formatted issue list.
+    const issues =
+      error.cause instanceof ValidationError
+        ? error.cause.issues
+        : error.cause instanceof InvalidInput
+          ? error.cause.problems
+          : undefined;
+    const route = getOpenAPIMeta(options.procedure);
+    if (!issues || !route?.path) return;
+    const entries = requestProblemsFromIssues(route, issues);
+    if (entries.some((entry) => "pointer" in entry || "parameter" in entry || "header" in entry))
+      error.data = { errors: entries };
+  },
+);
+
+export function toProblemDetails(
+  error: AnyORPCError,
+): ProblemDetails & { errors?: RequestProblem[] } {
+  // No contract error declares data. Only the request validation interceptor supplies errors.
+  const errors = problemDetailsSchema.shape.errors.safeParse(error.data?.errors);
+  const { problemDetails: document } = problemDetails({
+    status: statusOf(error.code),
+    detail: detailOf(error),
+  });
+  return errors.success && errors.data ? { ...document, errors: errors.data } : document;
 }
 
 /** The status oRPC's handler answers `code` with, including its default for codes it does not know. */
