@@ -40,8 +40,8 @@ test("a new invitee creates an account and lands signed in as a member", async (
   await page.getByLabel("Password").fill("a long enough password");
   await page.getByRole("button", { name: "Create account and join" }).click();
 
-  await expectBrowser(page).toHaveURL(system.origin + "/dashboard/");
-  await expectBrowser(page.getByRole("heading", { name: "Connected to your hub" })).toBeVisible();
+  await expectBrowser(page).toHaveURL(system.origin + "/dashboard/jobs");
+  await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
   await expectBrowser(page.getByRole("button", { name: "Lucia" })).toBeVisible();
 
   await page.goBack();
@@ -75,7 +75,7 @@ test("a returning invitee can sign in through a private link and choose when to 
   await page.getByRole("button", { name: "Sign in" }).click();
   await expectBrowser(page).toHaveURL(link.href);
   await page.getByRole("button", { name: "Join Organization" }).click();
-  await expectBrowser(page.getByRole("heading", { name: "Connected to your hub" })).toBeVisible();
+  await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
   for (const request of requests) {
     expect(request.url()).not.toContain(link.hash.slice(1));
     expect((await request.headerValue("referer")) ?? "").not.toContain(link.hash.slice(1));
