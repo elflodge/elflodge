@@ -3,7 +3,15 @@ import { Link } from "@tanstack/solid-router";
 import type { UsageGroup, UsageReport } from "contract";
 import { For, Repeat, Show, createMemo } from "solid-js";
 
-import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY } from "../format.ts";
+import {
+  formatCount,
+  formatUsd,
+  plural,
+  UTC_DAY,
+  UTC_DAY_YEAR,
+  UTC_WEEKDAY,
+  usageDayFormat,
+} from "../format.ts";
 import { shortIds } from "../short-ids.ts";
 import { groupings, type usageGrouping } from "../usage-grouping.ts";
 import { JobSubmitter, RunnerReference, submitterName } from "./JobReferences.tsx";
@@ -122,10 +130,10 @@ function Ledger(props: {
             </th>
           </tr>
         </thead>
-        <tbody>
-          <Show
-            when={props.total}
-            fallback={
+        <Show
+          when={props.total}
+          fallback={
+            <tbody>
               <Repeat count={8}>
                 {() => (
                   <tr aria-hidden="true">
@@ -135,11 +143,11 @@ function Ledger(props: {
                   </tr>
                 )}
               </Repeat>
-            }
-          >
-            {props.children}
-          </Show>
-        </tbody>
+            </tbody>
+          }
+        >
+          {props.children}
+        </Show>
         <Show when={props.total}>
           {(total) => (
             <tfoot>
@@ -159,6 +167,10 @@ export function UsageLedgers(props: {
   grouping: ReturnType<typeof usageGrouping>;
   report?: UsageReport;
 }) {
+  const showYear = createMemo(() => props.report && usageDayFormat(props.report) === UTC_DAY_YEAR);
+  const years = createMemo(() =>
+    Array.from(Map.groupBy(props.report?.days ?? [], (day) => day.date.slice(0, 4))),
+  );
   const dayCount = () => props.report?.days.length ?? 0;
   const label = () => props.grouping.labelKey;
   const words = () => groupings[props.grouping.by];
@@ -195,31 +207,33 @@ export function UsageLedgers(props: {
         footer="Total"
         total={props.report}
       >
-        <For each={groups()}>
-          {(group) => (
-            <tr>
-              <th scope="row" class="is-name">
-                {groupName(group, groups(), ids(), label())}
-              </th>
-              <FigureCells figures={group} largest={groups()[0]?.usage.cost.totalUsd} />
-            </tr>
-          )}
-        </For>
-        <Show
-          when={
-            props.report?.other && props.report.other.groups > 0 ? props.report.other : undefined
-          }
-        >
-          {(other) => (
-            <tr>
-              <th scope="row">
-                {formatCount(other().groups)} other{" "}
-                {plural(other().groups, words().one, words().many)}
-              </th>
-              <FigureCells figures={other()} />
-            </tr>
-          )}
-        </Show>
+        <tbody>
+          <For each={groups()}>
+            {(group) => (
+              <tr>
+                <th scope="row" class="is-name">
+                  {groupName(group, groups(), ids(), label())}
+                </th>
+                <FigureCells figures={group} largest={groups()[0]?.usage.cost.totalUsd} />
+              </tr>
+            )}
+          </For>
+          <Show
+            when={
+              props.report?.other && props.report.other.groups > 0 ? props.report.other : undefined
+            }
+          >
+            {(other) => (
+              <tr>
+                <th scope="row">
+                  {formatCount(other().groups)} other{" "}
+                  {plural(other().groups, words().one, words().many)}
+                </th>
+                <FigureCells figures={other()} />
+              </tr>
+            )}
+          </Show>
+        </tbody>
       </Ledger>
       <Ledger
         id="usage-days"
@@ -228,26 +242,42 @@ export function UsageLedgers(props: {
         footer={`${formatCount(dayCount())} ${plural(dayCount(), "day", "days")}`}
         total={props.report}
       >
-        <For each={props.report?.days}>
-          {(day) => {
-            const date = () => new Date(day.date);
-            const soFar = () => day.date === props.report?.today;
-            return (
-              <tr class={{ "is-last-day-of-week": date().getUTCDay() === 0 }}>
-                <th scope="row">
-                  <time datetime={day.date}>
-                    <span class="day-name">{UTC_WEEKDAY.format(date())}</span>{" "}
-                    {UTC_DAY.format(date())}
-                  </time>
-                  <Show when={soFar()}>
-                    {" "}
-                    <span class="unit">so far</span>
-                  </Show>
-                </th>
-                <FigureCells figures={day} largest={largestDay()} />
-              </tr>
-            );
-          }}
+        <For each={years()}>
+          {([year, days]) => (
+            <tbody>
+              <Show when={showYear()}>
+                <tr class="day-line ledger-year">
+                  <th scope="rowgroup" colspan={4}>
+                    {year}
+                  </th>
+                </tr>
+              </Show>
+              <For each={days}>
+                {(day) => {
+                  const date = () => new Date(day.date);
+                  const soFar = () => day.date === props.report?.today;
+                  return (
+                    <tr class={{ "is-last-day-of-week": date().getUTCDay() === 0 }}>
+                      <th scope="row">
+                        <time datetime={day.date}>
+                          <span class="day-name">{UTC_WEEKDAY.format(date())}</span>{" "}
+                          <Show when={showYear()} fallback={UTC_DAY.format(date())}>
+                            <span class="day-with-year">{UTC_DAY_YEAR.format(date())}</span>
+                            <span class="day-in-year">{UTC_DAY.format(date())}</span>
+                          </Show>
+                        </time>
+                        <Show when={soFar()}>
+                          {" "}
+                          <span class="unit">so far</span>
+                        </Show>
+                      </th>
+                      <FigureCells figures={day} largest={largestDay()} />
+                    </tr>
+                  );
+                }}
+              </For>
+            </tbody>
+          )}
         </For>
       </Ledger>
     </div>

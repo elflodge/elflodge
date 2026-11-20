@@ -8,7 +8,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { focusAfterLinkDrops } from "../../../form.ts";
-import { TIME_SECONDS_ZONED, TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
+import { TIME_SECONDS_ZONED, TIME_ZONED, usageDayFormat } from "../../../format.ts";
 import { usageGrouping } from "../../../usage-grouping.ts";
 import { rangeOf, rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
 
@@ -70,14 +70,8 @@ function Report() {
   const search = Route.useSearch();
   const grouping = () => usageGrouping(search().groupBy);
   const query = useQuery(() => reportOptions(search()));
-  const period = () => {
-    const from = new Date(query.data.from);
-    const to = new Date(query.data.to);
-    const year = query.data.today.slice(0, 4);
-    const format =
-      query.data.from.startsWith(year) && query.data.to.startsWith(year) ? UTC_DAY : UTC_DAY_YEAR;
-    return format.formatRange(from, to);
-  };
+  const period = () =>
+    usageDayFormat(query.data).formatRange(new Date(query.data.from), new Date(query.data.to));
   const range = () => rangeOf(search());
   const soFar = () => query.data.to === query.data.today;
   const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));

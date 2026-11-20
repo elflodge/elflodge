@@ -90,11 +90,13 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
   for (const ledger of [group, daily]) {
     await expectBrowser(ledger.locator("tfoot td.num")).toHaveText(figures);
   }
-  await expectBrowser(daily.locator("tbody tr").first().locator("td.num")).toHaveText([
-    "0",
-    "0",
-    "0.0000",
-  ]);
+  await expectBrowser(
+    daily
+      .getByRole("row")
+      .filter({ has: page.locator("time") })
+      .first()
+      .locator("td.num"),
+  ).toHaveText(["0", "0", "0.0000"]);
 }, 30_000);
 
 test("changing the grouping keeps the window and totals", async () => {
@@ -169,10 +171,10 @@ test("an admin who loses the role sees the member page on the next Usage read", 
   await expectBrowser(page.getByRole("table")).toHaveCount(0);
 }, 30_000);
 
-test("west of UTC a job end keeps its UTC calendar day and weekday", async () => {
+test("west of UTC a job end keeps its UTC weekday, day and year in a cross-year report", async () => {
   const page = await newPage("America/Los_Angeles");
-  await signInAt(system, page, "usage", OWNER);
-  const report = await system.owner().usage.get({});
+  await signInAt(system, page, "usage?period=400d", OWNER);
+  const report = await system.owner().usage.get({ period: "400d" });
   const day = report.days.find(({ jobEnds }) => jobEnds > 0);
   if (!day) throw new Error("The window has no job ends");
   const expected = new Intl.DateTimeFormat("en-GB", {
@@ -180,12 +182,13 @@ test("west of UTC a job end keeps its UTC calendar day and weekday", async () =>
     weekday: "short",
     day: "numeric",
     month: "short",
+    year: "numeric",
   })
     .format(new Date(day.date))
     .replace(",", "");
   const daily = page.getByRole("table", { name: "By day" });
   const cell = page.locator(`time[datetime="${day.date}"]`);
-  await expectBrowser(cell).toHaveText(expected);
+  await expectBrowser(cell).toHaveText(expected, { useInnerText: true });
   await expectBrowser(
     daily.getByRole("row").filter({ has: cell }).getByRole("cell").first(),
   ).toHaveText(String(day.jobEnds));

@@ -686,9 +686,12 @@ p:has(> button) + .prose {
 }
 .records td.is-id,
 .ledger th.is-name {
-  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
   width: 100%;
   max-width: 0;
+}
+.records td.is-id,
+.ledger th.is-name:has(a.stands-alone) {
+  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
 }
 /* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
    It stays a block, so its value can be cut at its end, and is padded to the height. */
@@ -698,7 +701,7 @@ p:has(> button) + .prose {
 }
 @media (max-width: 640px), (pointer: coarse) {
   .records td.is-id,
-  .ledger th.is-name {
+  .ledger th.is-name:has(a.stands-alone) {
     padding-block: 0;
   }
   .records td.is-id :is(a, span).cut {
@@ -2255,6 +2258,10 @@ p mark.placeholder {
 .ledger.by-cost time {
   white-space: nowrap;
 }
+.ledger.by-cost time:has(.day-with-year) {
+  white-space: normal;
+  overflow-wrap: normal;
+}
 .ledger .runner-ref {
   flex-wrap: wrap;
   white-space: normal;
@@ -2277,6 +2284,10 @@ p mark.placeholder {
 .bar-cell meter::-moz-meter-bar {
   min-width: 1px;
 }
+.ledger-year,
+.day-in-year {
+  display: none;
+}
 .day-name {
   color: var(--c-ink-2);
 }
@@ -2295,8 +2306,18 @@ p mark.placeholder {
   }
 }
 
-/* Keep the UTC day and its figures on one line in the smallest ledger. */
+/* A shared year heading leaves room for the figures in the smallest ledger. */
 @container (max-width: 20rem) {
+  .ledger-year {
+    display: table-row;
+  }
+  .day-with-year {
+    display: none;
+  }
+  .day-in-year {
+    display: inline;
+    white-space: nowrap;
+  }
   .ledger.by-cost :is(th, td):nth-child(-n + 3) {
     padding-inline-end: var(--space-1);
   }
