@@ -793,6 +793,7 @@ dialog.is-wide {
   overflow-wrap: anywhere;
 }
 .dialog-b {
+  overflow-wrap: anywhere;
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -1483,4 +1484,69 @@ p mark.placeholder {
   padding-top: var(--space-3);
   color: var(--c-ink-2);
   font-size: var(--text-xs);
+}
+
+/* The Organization name and its control wrap together above the member records. */
+.org-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  overflow-wrap: anywhere;
+  margin-bottom: var(--space-4);
+}
+.record-section {
+  margin-block: var(--space-4) var(--space-7);
+}
+.record-section > :is(h2, p, table) {
+  margin-bottom: var(--space-2);
+}
+.records.is-fit {
+  width: auto;
+  max-width: 100%;
+}
+.records.is-fit td.is-id {
+  width: auto;
+  max-width: none;
+  overflow-wrap: anywhere;
+}
+.records.is-fit td[data-l="Email"],
+.records.is-fit td[data-l="Invited by"],
+.records td[data-l="Created by"] {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.records.is-fit .copy:has(code) {
+  max-width: 24rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.records.is-fit .controls {
+  justify-content: flex-end;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .records.is-fit .controls {
+    justify-content: flex-start;
+  }
+}
+/* A native role choice with the permissions it grants on a second line. */
+.role-choice {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--control);
+  cursor: pointer;
+}
+.role-choice input {
+  flex-shrink: 0;
+}
+.role-choice small {
+  display: block;
+  font-weight: var(--weight-regular);
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .role-choice {
+    min-height: var(--control-touch);
+  }
 }
