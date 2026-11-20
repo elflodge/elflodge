@@ -15,7 +15,7 @@ import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText } from "../../../form.ts";
 import { UTC_MONTH, UTC_ISO_DATE, UTC_ISO_MONTH } from "../../../format.ts";
-import { canReadUsage } from "../../../permissions.ts";
+import { readsUsage } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
 import { groupings, usageGrouping } from "../../../usage-grouping.ts";
 
@@ -85,13 +85,9 @@ export function refusedReport(error: unknown): error is HubReadError {
 function Usage() {
   // The shell keeps its last completed session while a retry rebuilds route context.
   const session = useLoaderData({ from: "/_signed-in" });
-  const readsUsage = () => {
-    const { membership } = session();
-    return membership.status === "member" && canReadUsage(membership.role);
-  };
   return (
     <Show
-      when={readsUsage()}
+      when={readsUsage(session().membership)}
       fallback={
         <>
           <div class="head">

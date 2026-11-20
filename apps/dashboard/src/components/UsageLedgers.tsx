@@ -233,7 +233,7 @@ export function UsageLedgers(props: {
         id="usage-days"
         heading="By day"
         column="Day"
-        footer={`${dayCount()} ${plural(dayCount(), "day", "days")}`}
+        footer={`${formatCount(dayCount())} ${plural(dayCount(), "day", "days")}`}
         total={props.report}
       >
         <For each={props.report?.days}>

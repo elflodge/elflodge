@@ -8,6 +8,12 @@ export function canManageKeys(role: string): boolean {
   });
 }
 
-export function canReadUsage(role: string): boolean {
-  return authClient.organization.checkRolePermission({ role, permissions: { usage: ["read"] } });
+export function readsUsage(membership: typeof authClient.$Infer.Session.membership): boolean {
+  return (
+    membership.status === "member" &&
+    authClient.organization.checkRolePermission({
+      role: membership.role,
+      permissions: { usage: ["read"] },
+    })
+  );
 }

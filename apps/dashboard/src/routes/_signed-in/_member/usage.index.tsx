@@ -9,15 +9,11 @@ import { Notice } from "../../../components/Notice.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR, UTC_ISO_MONTH } from "../../../format.ts";
 import { usageGrouping } from "../../../usage-grouping.ts";
-import {
-  rangeName,
-  reportDefaults,
-  reportOptions,
-  refusedReport,
-  Route as UsageRoute,
-} from "./usage.tsx";
+import { rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/usage/")({
+  // Read Usage when the page opens, on Show and on return. Hovering a link must never read it.
+  preload: false,
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     if (!context.readsUsage) return;
@@ -26,7 +22,8 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
     );
   },
   pendingComponent: () => {
-    const grouping = UsageRoute.useSearch({ select: (search) => usageGrouping(search.groupBy) });
+    const search = Route.useSearch();
+    const grouping = () => usageGrouping(search().groupBy);
     return (
       <>
         <UsageLedgers grouping={grouping()} />
@@ -48,7 +45,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
           }
         >
           <p>
-            <Link class="stands-alone" to="/usage" search={reportDefaults} preload={false}>
+            <Link class="stands-alone" to="/usage" search={reportDefaults}>
               Show the last 30 days by Batch
             </Link>
           </p>
@@ -61,6 +58,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
 
 function Report() {
   const search = Route.useSearch();
+  const grouping = () => usageGrouping(search().groupBy);
   const query = useQuery(() => reportOptions(search()));
   const period = () => {
     const from = new Date(query.data.from);
@@ -116,11 +114,7 @@ function Report() {
           </div>
         }
       >
-        <UsageLedgers
-          report={query.data}
-          grouping={usageGrouping(search().groupBy)}
-          readAt={query.dataUpdatedAt}
-        />
+        <UsageLedgers report={query.data} grouping={grouping()} readAt={query.dataUpdatedAt} />
       </Show>
     </>
   );
