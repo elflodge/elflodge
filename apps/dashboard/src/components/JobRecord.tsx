@@ -80,7 +80,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
                 props.job.startedAt ||
                 (props.job.status === "failed" && props.job.failure.reason === "runnerRemoved")
                   ? "Removed"
-                  : "None yet"
+                  : "None"
               }
             >
               {(runner) => (
@@ -121,7 +121,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
         <Show when={props.job.lastReportedAt}>
           {(at) => (
             <>
-              <dt>Last report</dt>
+              <dt>Last recorded report</dt>
               <dd>
                 <Instant value={at()} format={DATE_TIME_SECONDS} />
               </dd>

@@ -96,9 +96,8 @@ function JobPage() {
   }));
   const online = browserOnline();
   const fresh = readIsFresh(() => read.dataUpdatedAt);
-  const failed = () => read.errorUpdatedAt > read.dataUpdatedAt;
-  const waitingForRead = () => !fresh() || read.fetchStatus === "paused";
-  const current = () => online() && !waitingForRead() && !failed();
+  const waitingForRead = () => !fresh() || read.isPaused;
+  const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
   const job = () => latest(() => read.data);
   const stopped = () => {
@@ -160,7 +159,7 @@ function JobPage() {
             <Instant value={new Date(read.dataUpdatedAt)} format={TIME_ZONED} />.
           </p>
         </Match>
-        <Match when={failed()}>
+        <Match when={read.isRefetchError}>
           <FailedReadNotice
             what="The job"
             detail={hubFailureMessage(read.error)}
@@ -192,7 +191,7 @@ function JobPage() {
               current() && job().status === "running" && !job().statusUnknown && !job().deletedAt
             }
           >
-            <JobActivity job={job()} readAt={read.dataUpdatedAt} />
+            <JobActivity job={job()} />
           </Show>
           <Show when={!job().deletedAt || job().startedAt}>
             <JobLimits job={job()} resumeOffered={resumeOffered()} />

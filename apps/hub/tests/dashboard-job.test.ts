@@ -70,7 +70,7 @@ test("a member can finish reading a Cancel confirmation after the job starts", a
       await system.stopRunner();
     }
   });
-  await expectBrowser(dialog).toContainText("it can be resumed", { timeout: 15_000 });
+  await expectBrowser(dialog).toContainText("Not final: it can be resumed.", { timeout: 15_000 });
   await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expectBrowser(page.getByRole("status").filter({ hasText: "Running" })).toBeFocused();

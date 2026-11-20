@@ -22,20 +22,25 @@ function Retry(props: { retry: { at: string; error: string } }) {
   );
 }
 
-export function JobActivity(props: { job: Job; readAt: number }) {
+export function JobActivity(props: { job: Job }) {
   return (
     <section class="activity" aria-labelledby="job-activity">
-      <h2 id="job-activity">Current activity</h2>
-      <Show when={props.job.lastReportedAt} fallback={<p>No report yet from this run.</p>}>
+      <h2 id="job-activity">Latest activity recorded by the hub</h2>
+      <Show when={props.job.lastReportedAt} fallback={<p>No report recorded yet for this run.</p>}>
         {(report) => (
           <>
             <p class="note">
-              Last report <Instant value={report()} format={TIME_SECONDS} />,{" "}
-              {elapsedSince(report(), props.readAt)}.
-              <Show when={props.job.activity}>
-                {" "}
-                Activity was last observed at or before that report.
+              Last recorded report <Instant value={report()} format={TIME_SECONDS} />
+              <Show when={props.job.runner?.lastSeenAt}>
+                {(contact) => (
+                  <Show when={contact() >= report()}>
+                    {" "}
+                    ({elapsedSince(report(), contact().getTime())} as of the last recorded Runner
+                    contact)
+                  </Show>
+                )}
               </Show>
+              .<Show when={props.job.activity}> Activity may come from an earlier report.</Show>
             </p>
             <Show when={props.job.activity} fallback={<p>No activity has been reported.</p>}>
               {(activity) => (

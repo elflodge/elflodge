@@ -82,7 +82,7 @@ export function JobControls(props: {
         setBudgetFailure({ message, field });
         if (field) {
           flush();
-          budgetField?.focus();
+          focusIfLost(budgetField);
         }
         return undefined;
       }
