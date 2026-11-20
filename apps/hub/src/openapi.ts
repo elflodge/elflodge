@@ -3,7 +3,7 @@ import { getCookies } from "better-auth/cookies";
 import {
   API_KEY_SECURITY_SCHEME,
   apiContract,
-  contractSchemaConverter,
+  openOutputSchemaConverter,
   errorStatusMap,
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
@@ -19,7 +19,7 @@ import { Auth } from "./auth/auth.ts";
 // says who may make each call; the hub describes its errors as Problem Details (ADR 0023) and adds
 // what depends on its deployment.
 
-const generator = new OpenAPIGenerator({ converters: [contractSchemaConverter] });
+const generator = new OpenAPIGenerator({ converters: [openOutputSchemaConverter] });
 
 /** The cookie a member's session travels in, as Better Auth names it for the hub's settings. */
 export const sessionCookieName = Auth.use((auth) =>
@@ -45,7 +45,7 @@ export function generateOpenAPIDocument(sessionCookie: string) {
         },
       },
     },
-    errorResponseBodySchema: contractSchemaConverter.convert(problemDetailsSchema, "output")[0],
+    errorResponseBodySchema: openOutputSchemaConverter.convert(problemDetailsSchema, "output")[0],
     errorResponseContentType: PROBLEM_DETAILS_CONTENT_TYPE,
   });
 }

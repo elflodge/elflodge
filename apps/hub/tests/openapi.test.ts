@@ -1,14 +1,13 @@
 import { createORPCClient } from "@orpc/client";
 import { resolveJsonSchemaLocalPointer, type JsonSchema } from "@orpc/json-schema";
 import type { OpenAPIV3_2 } from "@orpc/openapi";
-import { walkProcedureContractsAsync } from "@orpc/server";
-import { apiContract, contractSchemaConverter, createProblemDetailsLink } from "contract";
+import { apiContract, createProblemDetailsLink } from "contract";
 import { compileSchema } from "json-schema-library";
 import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
 import { type ApiClient, startSystem } from "./harness.ts";
 
-// The hub's OpenAPI document, as callers in other languages read it.
+// The public API as described by the OpenAPI document and read by the TypeScript client.
 
 const system = startSystem();
 
@@ -167,7 +166,8 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       ...added,
     }).errors,
   ).toEqual([]);
-  // And no answer closes any object it holds, shared schemas included.
+  // The TypeScript client link shares the document's converter. Check every response object,
+  // including shared schemas and error responses.
   const schemas = new Map<JsonSchema, string>();
   for (const operation of operations) {
     expect(operation.responses, operation.operationId).toHaveProperty("400");
@@ -201,22 +201,8 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
   }
 });
 
-test("the client reads every public procedure's output objects open to added members", async () => {
-  await walkProcedureContractsAsync(apiContract, (procedure, path) => {
-    for (const schema of procedure["~orpc"].outputSchemas ?? []) {
-      const [output] = contractSchemaConverter.convert(schema, "output");
-      for (const node of compileSchema(output).toSchemaNodes()) {
-        expect(
-          node.schema.additionalProperties,
-          `${path.join(".")} ${node.schemaLocation}`,
-        ).not.toBe(false);
-      }
-    }
-  });
-});
-
 /** Read the JSON a newer hub would send through the CLI and dashboard's validating link. */
-function clientReading(answer: unknown): ApiClient {
+function clientWithFixedResponse(answer: unknown): ApiClient {
   return createORPCClient(
     createProblemDetailsLink(apiContract, {
       origin: system.url().origin,
@@ -241,20 +227,28 @@ test("the client converts dates when job, list, Batch and Events answers gain me
   const extra = { addedLater: true };
 
   await expect(
-    clientReading({ ...batch, ...extra, jobCounts: { ...batch.jobCounts, ...extra } }).batches.get({
+    clientWithFixedResponse({
+      ...batch,
+      ...extra,
+      jobCounts: { ...batch.jobCounts, ...extra },
+    }).batches.get({
       id: batch.id,
     }),
   ).resolves.toMatchObject(batch);
   const futureJob = { ...job, ...extra, usage: { ...job.usage, ...extra } };
-  await expect(clientReading(futureJob).jobs.get(id)).resolves.toMatchObject(job);
+  await expect(clientWithFixedResponse(futureJob).jobs.get(id)).resolves.toMatchObject(job);
   await expect(
-    clientReading({
+    clientWithFixedResponse({
       ...page,
       ...extra,
-      jobs: page.jobs.map((listed) => ({ ...listed, ...extra })),
+      jobs: page.jobs.map((listed) => ({
+        ...listed,
+        ...extra,
+        usage: { ...listed.usage, ...extra },
+      })),
     }).jobs.list({}),
   ).resolves.toMatchObject(page);
   await expect(
-    clientReading({ ...events, ...extra, job: futureJob }).jobs.events(id),
+    clientWithFixedResponse({ ...events, ...extra, job: futureJob }).jobs.events(id),
   ).resolves.toMatchObject(events);
 });
