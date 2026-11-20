@@ -4,6 +4,7 @@ import { Effect, Predicate } from "effect";
 import { Auth, requireRolePermission } from "./auth/auth.ts";
 import { RUNNER_KEY_CONFIG, RUNNER_KEY_ROLE } from "./auth/options.ts";
 import { Db } from "./db/database.ts";
+import { hasOwnerRole } from "./db/roles.ts";
 import { ApikeyId, type OrganizationId, RunnerId } from "./db/types.ts";
 import { deleteRunnerWithItsWork } from "./jobs.ts";
 
@@ -23,7 +24,8 @@ export function registerRunner(organizationId: OrganizationId, name: string) {
         .selectFrom("member")
         .select("userId")
         .where("organizationId", "=", organizationId)
-        .where("role", "=", "owner")
+        .where((eb) => hasOwnerRole(eb.ref("role")))
+        .limit(1)
         .executeTakeFirstOrThrow(),
     );
     const runnerId = RunnerId(crypto.randomUUID());

@@ -8,7 +8,6 @@ import { text } from "node:stream/consumers";
 
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
-import { betterAuth } from "better-auth";
 import { createAuthClient } from "better-auth/client";
 import { organizationClient } from "better-auth/client/plugins";
 import {
@@ -34,7 +33,7 @@ import { createTestHarness } from "wrangler";
 import WebSocket from "ws";
 import * as z from "zod/mini";
 
-import { offlineAuthOptions } from "../src/auth/options.ts";
+import { offlineAuthOptions, signUpAuth } from "../src/auth/options.ts";
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId, RunnerId } from "../src/db/types.ts";
 import { GONE_AFTER_MS } from "../src/runners.ts";
@@ -344,12 +343,12 @@ export function startSystem(
     return cookie.split(";")[0] ?? "";
   }
 
-  /** Better Auth's client of the hub's organization routes, signed in as `OWNER`. */
-  function ownerAuth() {
+  /** Better Auth's client of the hub's organization routes with the given session. */
+  function authClient(cookie: string) {
     return createAuthClient({
       baseURL: url.origin,
       plugins: [organizationClient()],
-      fetchOptions: { headers: { cookie: ownerCookie, origin: HUB_ORIGIN }, throw: true },
+      fetchOptions: { headers: { cookie, origin: HUB_ORIGIN }, throw: true },
     });
   }
 
@@ -366,19 +365,11 @@ export function startSystem(
     password?: string;
     name: string;
   }): Promise<{ client: ApiClient; cookie: string; userId: string }> {
-    const [organization] = await ownerAuth().organization.list();
+    const [organization] = await authClient(ownerCookie).organization.list();
     if (!organization) throw new Error("The hub has no Organization");
     // Public sign-up is off, so the account is created as setup creates the owner's.
     await using db = openDatabase(inject("databaseUrl"));
-    const authOptions = offlineAuthOptions(db);
-    const auth = betterAuth({
-      ...authOptions,
-      emailAndPassword: {
-        ...authOptions.emailAndPassword,
-        disableSignUp: false,
-        autoSignIn: false,
-      },
-    });
+    const auth = signUpAuth(offlineAuthOptions(db));
     const { user } = await auth.api.signUpEmail({ body: { email, name, password } });
     await auth.api.addMember({
       body: { userId: user.id, organizationId: organization.id, role: "member" },
@@ -469,7 +460,8 @@ export function startSystem(
     },
     /** The session cookie of `OWNER`. */
     ownerCookie: () => ownerCookie,
-    ownerAuth,
+    ownerAuth: () => authClient(ownerCookie),
+    authClient,
     addMember,
     async start() {
       const databaseUrl = inject("databaseUrl");

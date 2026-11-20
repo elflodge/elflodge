@@ -59,8 +59,16 @@ import {
 import { checkBlobs, uploadBlob } from "./blobs.ts";
 import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "./dashboard.ts";
 import { Db } from "./db/database.ts";
-import { EventId, InputFilePath, JobId, RunnerId, UploadChunkIndex } from "./db/types.ts";
+import {
+  EventId,
+  InputFilePath,
+  InvitationId,
+  JobId,
+  RunnerId,
+  UploadChunkIndex,
+} from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
+import { acceptInvitation, listInvitations, previewInvitation } from "./invitations.ts";
 import {
   type Control,
   controlJob,
@@ -179,6 +187,23 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
         if (result !== "created") {
           yield* Effect.fail(result === "linkRefused" ? errors.FORBIDDEN() : errors.CONFLICT());
         }
+      }),
+    },
+    invitations: {
+      preview: os.invitations.preview.effect(function* ({ input }) {
+        return yield* previewInvitation(InvitationId(input.invitationId));
+      }),
+      accept: os.invitations.accept.effect(function* ({ input, context }) {
+        return yield* acceptInvitation(
+          InvitationId(input.invitationId),
+          context.headers,
+          input.name,
+          input.password,
+        );
+      }),
+      list: os.invitations.list.effect(function* ({ context }) {
+        const { organization, role } = yield* callerMember(context.caller);
+        return yield* listInvitations(organization.id, role);
       }),
     },
     runners: {

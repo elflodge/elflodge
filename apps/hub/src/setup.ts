@@ -1,9 +1,14 @@
-import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { betterAuth } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
 import type { Kysely } from "kysely";
 
 import { findOrganization } from "./auth/auth.ts";
-import { offlineAuthOptions, SETUP_LINK_VALUE, SETUP_TOKEN_PREFIX } from "./auth/options.ts";
+import {
+  offlineAuthOptions,
+  signUpAuth,
+  SETUP_LINK_VALUE,
+  SETUP_TOKEN_PREFIX,
+} from "./auth/options.ts";
 import { dashboardUrl } from "./dashboard.ts";
 import { DB_SCHEMA, openDatabase } from "./db/database.ts";
 import type { Database } from "./db/types.ts";
@@ -119,7 +124,7 @@ async function issueSetupLink(db: Kysely<Database>, hubUrl: string) {
     // `verification.storeIdentifier` still matches its overrides by prefix. The setup tests exercise
     // these paths. Check separately that `findUserByEmail` still recovers an owner left by an
     // interrupted setup in 0.10.0 or earlier.
-    const context = await offlineAuth(transaction).$context;
+    const context = await betterAuth(offlineAuthOptions(transaction)).$context;
     // Earlier links have unknown tokens, but all share the setup verification value.
     await context.adapter.deleteMany({
       model: "verification",
@@ -153,11 +158,7 @@ export async function createOwnerAndOrganization(
   try {
     return await db.transaction().execute(async (transaction) => {
       if (await findOrganization(transaction.withSchema(DB_SCHEMA))) return "alreadySetUp";
-      const auth = offlineAuth(transaction, {
-        // Public sign-up stays off; only this instance may sign up the owner.
-        disableSignUp: false,
-        autoSignIn: false,
-      });
+      const auth = signUpAuth(offlineAuthOptions(transaction));
       const context = await auth.$context;
       if (token !== undefined) {
         // See `issueSetupLink` on the internal adapter. Consuming is atomic, so a token works once.
@@ -194,32 +195,25 @@ export async function createOwnerAndOrganization(
   }
 }
 
-/** Sets a new password for the member with `email`, for a member who has forgotten theirs. */
+/** Resets the account's password and revokes its sessions, including after its member has left. */
 export async function resetPassword(
   connectionString: string,
-  member: { email: string; password: string },
+  account: { email: string; password: string },
 ) {
   await using db = openDatabase(connectionString);
   // Better Auth resets a password with a token it would email; this instance keeps the token instead.
   let token: string | undefined;
-  const auth = offlineAuth(db, {
-    sendResetPassword: async (data) => {
-      token = data.token;
+  const options = offlineAuthOptions(db);
+  const auth = betterAuth({
+    ...options,
+    emailAndPassword: {
+      ...options.emailAndPassword,
+      sendResetPassword: async (data) => {
+        token = data.token;
+      },
     },
   });
-  await auth.api.requestPasswordReset({ body: { email: member.email } });
-  if (!token) throw new Error(`No member has the email ${member.email}`);
-  await auth.api.resetPassword({ body: { newPassword: member.password, token } });
-}
-
-/** Better Auth for setup and recovery, with the hub's options and `emailAndPassword` overrides. */
-function offlineAuth(
-  db: Kysely<Database>,
-  emailAndPassword: Partial<NonNullable<BetterAuthOptions["emailAndPassword"]>> = {},
-) {
-  const options = offlineAuthOptions(db);
-  return betterAuth({
-    ...options,
-    emailAndPassword: { ...options.emailAndPassword, ...emailAndPassword },
-  });
+  await auth.api.requestPasswordReset({ body: { email: account.email } });
+  if (!token) throw new Error(`No account has the email ${account.email}`);
+  await auth.api.resetPassword({ body: { newPassword: account.password, token } });
 }

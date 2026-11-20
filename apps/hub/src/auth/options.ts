@@ -1,5 +1,5 @@
 import { apiKey } from "@better-auth/api-key";
-import type { BetterAuthOptions } from "better-auth";
+import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
@@ -98,10 +98,10 @@ export function authOptions(settings: AuthSettings) {
       db: settings.db,
       type: "postgres",
       schemaName: DB_SCHEMA,
-      // Setup creates the owner and Organization in one Kysely transaction, which cannot open another.
+      // Setup and invitation redemption each supply a Kysely transaction that cannot open another.
       transaction: !settings.db.isTransaction,
     },
-    // Members sign in with a password (ADR 0015); only the hub's setup signs anyone up.
+    // Members sign in with a password (ADR 0015); only setup and invitation redemption sign anyone up.
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
@@ -136,8 +136,11 @@ export function authOptions(settings: AuthSettings) {
       },
     },
     // The hub's own routes manage API keys, adding which permissions may be granted and closing a
-    // removed Runner's connection; Better Auth's would skip both. Its server-side calls still work.
+    // removed Runner's connection. Its invitation claim must also verify the inviter's current
+    // authority. Better Auth's server-side calls still work.
     disabledPaths: [
+      "/organization/accept-invitation",
+      "/organization/reject-invitation",
       "/api-key/create",
       "/api-key/get",
       "/api-key/list",
@@ -162,6 +165,7 @@ export function authOptions(settings: AuthSettings) {
         roles,
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
+        cancelPendingInvitationsOnReInvite: true,
       }),
       apiKey([
         {
@@ -199,5 +203,13 @@ export function offlineAuthOptions(db: Kysely<Database>) {
     ipAddressHeaders: [],
     trustedProxies: [],
     rateLimit: true,
+  });
+}
+
+/** Setup and invitation redemption enable registration only inside their claim transaction. */
+export function signUpAuth(options: ReturnType<typeof authOptions>) {
+  return betterAuth({
+    ...options,
+    emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
   });
 }
