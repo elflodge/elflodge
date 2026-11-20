@@ -6,6 +6,8 @@ A member reading a Batch can see how many jobs are queued and how many are waiti
 
 The hub decides what blocks each queued job from being sent to a Runner. It applies the same rule when counting a Batch’s jobs by reason as when reading a job’s `blockedBy`. The Batch carries one count per reason, zero included. Each of those jobs also counts toward `jobCounts.queued`.
 
+A member following a job’s Events sees the job as it stood when the hub read those Events. A page at the newest end of the journal carries the job from the same statement, with the same fields as a read by ID. Reading earlier Events leaves the job on screen alone. Following continues after a run ends so the member sees a resume or deletion from elsewhere.
+
 ## Considered options
 
 - Read the newest queued job to see whether it is waiting for the Canary. A breaker resume starts a new Canary with the oldest unsent queued jobs. Near the end of the queue these can be the newest jobs in the Batch. If a member then resumes an older job paused on its own, it waits outside that Canary while the newest queued job is free to run. Sampling misses the block even if nothing changes between reads.
@@ -13,9 +15,15 @@ The hub decides what blocks each queued job from being sent to a Runner. It appl
 - Give the Batch a single `blockedBy`. Its pause would repeat `pausedBy`, and the value would mean two different things. A pause blocks every unsent queued job, while a Canary blocks only those outside it. An older client would reject the whole Batch on seeing an unfamiliar enum value. With counts it drops an unfamiliar key and reads the rest.
 - Order two answers by a revision or position. Knowing which answer came later still cannot tell the caller how many jobs were blocked at either moment. ADR 0026 rejected a per-job revision counter in the Runner protocol because nothing moves backwards within a run. The run and its forward-only intents already carry the order. Neither decision adds a counter.
 
+- Keep reading the job and its Events separately. Either answer can arrive first. A caller that sees different statuses must read the job again, and matching statuses say nothing about whether its activity or usage has changed.
+- Return the position of the last Event the job read reflects. Only a Runner’s report adds Events. The hub can resume a job, pause or cancel an unsent job, cancel a paused job or its Batch, or end a removed Runner’s jobs without adding an Event. A Runner can report a failure its journal could not record, or new usage without an Event. Time alone can change `statusUnknown` and `runner.connected`. Equal positions leave those changes unordered.
+- Carry just status, usage and controls on the Events page. A member would still read the rest of the job, including its Output and activity, from another moment.
+
 ## Consequences
 
 Counting blocks reads the Batch’s queued jobs, as counting statuses in ADR 0033 reads its jobs. A single Batch read counts blocks alongside status and usage. A list counts the unsent queued jobs of the Batches it shows. Both avoid another hub call for each Batch a member sees.
+
+The job can be much larger than a page of Events. An ascending page carries it once caught up, and a descending page carries it when read from the newest end. Other history pages carry only their Events and whether more are stored.
 
 ## When to reconsider
 
