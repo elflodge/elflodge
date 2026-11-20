@@ -1,8 +1,8 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import { ORPCError } from "@orpc/client";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
-import { QueryClient } from "@tanstack/solid-query";
-import { problemOf } from "contract";
+import { QueryClient, type UseQueryResult } from "@tanstack/solid-query";
+import { problemOf, type Runner } from "contract";
 
 import { api } from "./api-client.ts";
 
@@ -15,6 +15,11 @@ export const REFRESH_INTERVAL_MS = 5_000;
  * `orpc.jobs.counts.queryOptions({ input: {} })`, or `orpc.jobs.key()` for every read of jobs.
  */
 export const orpc = createTanstackQueryUtils(api);
+
+// Reading data before the first Runner answer suspends the list, even after its own list arrived.
+export function availableRunners(query: UseQueryResult<Runner[]>) {
+  return query.dataUpdatedAt ? query.data : undefined;
+}
 
 /** The client that holds what the dashboard reads from the hub, one for the document. */
 export function createQueryClient() {

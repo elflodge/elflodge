@@ -52,7 +52,9 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             <>
               <dt>Batch</dt>
               <dd>
-                <span class="mono">{batch()}</span>{" "}
+                <Link class="mono stands-alone" to="/batches/$id" params={{ id: batch() }}>
+                  {batch()}
+                </Link>{" "}
                 <Link class="stands-alone" to="/jobs" search={{ batchId: batch() }}>
                   its jobs
                 </Link>

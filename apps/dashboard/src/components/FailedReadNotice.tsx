@@ -3,6 +3,7 @@ import { useRouter, type ErrorComponentProps } from "@tanstack/solid-router";
 import { Show } from "solid-js";
 
 import { failureDetailSuffix, HubReadError } from "../api-client.ts";
+import { focusIfLost } from "../form.ts";
 import { TIME_SECONDS, timeZoneNote } from "../format.ts";
 import { DefaultCatchBoundary } from "./DefaultCatchBoundary.tsx";
 import { FallbackPage } from "./FallbackPage.tsx";
@@ -45,6 +46,17 @@ export function ReadErrorPage(
   if (!(failure instanceof HubReadError)) {
     return <DefaultCatchBoundary {...props} />;
   }
+  async function retry(event: MouseEvent & { currentTarget: HTMLButtonElement }) {
+    const button = event.currentTarget;
+    const address = location.href;
+    await router.invalidate();
+    if (button.isConnected || location.href !== address) return;
+    const heading = document.querySelector<HTMLElement>("main h1");
+    if (heading) {
+      heading.tabIndex = -1;
+      focusIfLost(heading);
+    }
+  }
   return (
     <FallbackPage heading={props.heading} focusHeading>
       <p class="note">
@@ -52,7 +64,7 @@ export function ReadErrorPage(
       </p>
       <FailedReadNotice what={failure.what} detail={failure.detail} failedAt={failure.failedAt} />
       <p>
-        <button type="button" class="primary" onClick={() => void router.invalidate()}>
+        <button type="button" class="primary" onClick={retry}>
           Try again
         </button>
       </p>

@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { Show, createSignal, createUniqueId, flush } from "solid-js";
+import { Show, createEffect, createSignal, createUniqueId, flush } from "solid-js";
 
 import { focusIfLost } from "../form.ts";
 import { Notice } from "./Notice.tsx";
@@ -39,10 +39,21 @@ export function ConfirmAction(props: {
   reportPageFailure: (message: string) => void;
 }) {
   let dialog: HTMLDialogElement | undefined;
+  let keepButton: HTMLButtonElement | undefined;
   let confirmButton: HTMLButtonElement | undefined;
   const headingId = createUniqueId();
   const [pending, setPending] = createSignal(false);
   const [failure, setFailure] = createSignal<string>();
+
+  // A poll can disable the focused confirm button while the dialog is still open.
+  createEffect(
+    () => props.canConfirm,
+    (available) => {
+      if (available !== false || !dialog?.open) return;
+      if (document.activeElement === confirmButton) keepButton?.focus();
+      else focusIfLost(keepButton);
+    },
+  );
 
   async function confirm() {
     setPending(true);
@@ -104,7 +115,13 @@ export function ConfirmAction(props: {
             <Show when={failure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
           </div>
           <div class="dialog-f">
-            <button value="keep" autofocus>
+            <button
+              value="keep"
+              autofocus
+              ref={(element) => {
+                keepButton = element;
+              }}
+            >
               {pending() ? "Close" : (props.keep ?? "Keep it")}
             </button>
             <button

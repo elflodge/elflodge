@@ -525,6 +525,7 @@
 .mark-pending {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.75%201.25h6.5M2.75%2010.75h6.5M3.6%201.6%208.4%2010.4M8.4%201.6%203.6%2010.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");
 }
+.mark-active,
 .mark-connected {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%223.6%22%2F%3E%3C%2Fsvg%3E");
 }
@@ -666,6 +667,11 @@ thead .unit {
   vertical-align: top;
 }
 
+/* .cut follows .stands-alone so the ellipsis keeps its inline-block box. Center its text here. */
+.cut.stands-alone {
+  align-content: center;
+}
+
 /* ---------- Records table: records that each have a page, one ruled line each; a block each on a phone ----------
    The identifier column takes what the others leave and cuts its value; the others keep their values whole.
    At 640px and below a record is a block: the identifier on its own line, then each other value after its name
@@ -685,7 +691,7 @@ p:has(> button) + .prose {
 }
 /* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
    It stays a block, so its value can be cut at its end, and is padded to the height. */
-.records td.is-id > :is(a, span).cut {
+.records td.is-id :is(a, span).cut {
   display: block;
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
@@ -693,7 +699,7 @@ p:has(> button) + .prose {
   .records td.is-id {
     padding-block: 0;
   }
-  .records td.is-id > :is(a, span).cut {
+  .records td.is-id :is(a, span).cut {
     padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
 }
@@ -722,7 +728,21 @@ p:has(> button) + .prose {
 .records td > ul.plain {
   white-space: normal;
 }
+/* On a phone every Records table folds. The seven-column Batch list also folds
+   when its own frame leaves less than about 12rem for the identifier. */
 @media (max-width: 640px) {
+  .page:has(.records) {
+    container: records / inline-size;
+  }
+}
+.batch-list {
+  container: records / inline-size;
+}
+@container records (width <= 48rem) {
+  /* At 390 × 844 two 205px folded placeholders fit the 571px below the filters. */
+  .batch-list-loading tbody tr:nth-child(n + 3) {
+    display: none;
+  }
   /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
   .records thead {
     position: absolute;
@@ -776,6 +796,41 @@ p:has(> button) + .prose {
     font-family: var(--font-sans);
     color: var(--c-ink-2);
   }
+}
+
+/* A Batch status and its condition share a cell. */
+.batch-status {
+  display: inline-grid;
+  vertical-align: top;
+}
+@container records (width > 48rem) {
+  .batch-list .records td.batch-submitter {
+    width: var(--submitter);
+    max-width: var(--submitter);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .batch-list .records {
+    width: auto;
+  }
+  .batch-list .records td.is-id {
+    width: auto;
+    max-width: none;
+  }
+  /* The ID contributes up to --batch-id-max to the table and can shrink below its unbroken text. */
+  .batch-list .batch-id {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    max-inline-size: var(--batch-id-max);
+  }
+}
+.s-active .mark {
+  color: var(--c-succeeded);
+}
+
+.batch-list .batch-status .beside {
+  white-space: nowrap;
 }
 
 /* ---------- Short ID: an ID's first characters beside a name that can repeat, such as a Runner's host name ---------- */
@@ -1095,7 +1150,7 @@ p mark.placeholder {
   width: var(--jobs-batch);
 }
 .job-list th.c-submitter {
-  width: var(--jobs-submitter);
+  width: var(--submitter);
 }
 .job-list th.c-labels {
   width: var(--jobs-labels);
@@ -1146,7 +1201,7 @@ p mark.placeholder {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.job-list td.c-job {
+.job-list td:is(.c-job, .c-batch) {
   padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
 }
 .job-name {
@@ -1371,8 +1426,19 @@ p mark.placeholder {
 @media (max-width: 640px), (pointer: coarse) {
   @container job-list (width < 73.625rem) {
     .job-list tr.job-row {
+      position: relative;
       padding: 0;
       align-items: center;
+    }
+    /* With a fine pointer in a wider window, keep the job name and ID selectable for copying. */
+    .job-list .job-name::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+    }
+    .job-list .c-batch a {
+      position: relative;
+      z-index: 1;
     }
     .job-list tr.job-row > td {
       min-height: var(--control-touch);
@@ -1393,6 +1459,15 @@ p mark.placeholder {
     line-height: var(--control-touch);
   }
 }
+@container job-list (width < 30rem) {
+  .job-list tr.job-row:has(.c-beside .beside) > .c-batch:focus-within {
+    position: static;
+    width: auto;
+    clip-path: none;
+    flex-basis: 100%;
+  }
+}
+
 /* Coarse pointers keep the same line height on wide screens. */
 @media (pointer: coarse) {
   @container job-list (width >= 73.625rem) {
@@ -1735,7 +1810,8 @@ p mark.placeholder {
   border-right: var(--rule-heavy) solid var(--c-ink-2);
   margin-block: var(--space-2);
 }
-.scale meter {
+.scale meter,
+.ledger meter {
   display: block;
   width: 100%;
   height: var(--space-2);
@@ -1750,10 +1826,12 @@ p mark.placeholder {
   border-bottom: var(--rule) dashed var(--c-ink-3);
   border-radius: 0;
 }
-.scale meter::-webkit-meter-optimum-value {
+.scale meter::-webkit-meter-optimum-value,
+.ledger meter::-webkit-meter-optimum-value {
   background: var(--c-link);
 }
-.scale meter::-moz-meter-bar {
+.scale meter::-moz-meter-bar,
+.ledger meter::-moz-meter-bar {
   background: var(--c-link);
 }
 .scale.is-over::after {
@@ -2081,4 +2159,68 @@ p mark.placeholder {
     outline: 2px solid SelectedItem;
     outline-offset: -3px;
   }
+}
+
+/* Parent pages above a record heading. The whole identifier stays in the facts. */
+.crumbs ol,
+.crumbs li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+}
+.crumbs ol {
+  list-style: none;
+  margin: 0 0 var(--space-1);
+  padding: 0;
+}
+.crumbs li:first-child {
+  flex: none;
+}
+.crumbs {
+  color: var(--c-ink-2);
+  font-size: var(--text-xs);
+}
+/* A current count of zero has no running lamp. */
+.ledger .is-zero .s-running,
+.ledger .is-zero .mark-running {
+  color: var(--c-ink-2);
+}
+
+/* A ledger measures each row against the same total. */
+.ledger td:last-child {
+  text-align: end;
+  white-space: nowrap;
+}
+
+/* A count crossing zero must not move the next row when its link appears or disappears. */
+.ledger tbody tr {
+  height: var(--row);
+}
+.ledger tbody :is(th, td) {
+  padding-block: 0;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .ledger tbody tr {
+    /* A 44px link plus the collapsed borders beside the total. */
+    height: calc(var(--control-touch) + var(--rule-heavy));
+  }
+}
+.ledger + .note {
+  display: block;
+}
+.ledger thead th:nth-child(3) {
+  width: calc(var(--ledger-bar) + var(--space-3));
+}
+.ledger :is(th, td) {
+  vertical-align: middle;
+}
+.ledger meter {
+  background: var(--c-ground-2);
+}
+.ledger meter::-webkit-meter-bar {
+  border: 0;
+  border-radius: 0;
+  background: var(--c-ground-2);
+  height: 100%;
 }

@@ -43,7 +43,7 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - A step that nothing uses is not defined, which is why the type sizes have no `--text-xl` and the spaces no `--space-5` or `--space-6`.
 - **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, `--strip`, `--mark` (a drawn mark), `--radius` (controls and dialogs), and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
 
-In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--jobs-submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`. On two lines `--jobs-cost-narrow` holds the cost and its USD unit.
+In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`. On two lines `--jobs-cost-narrow` holds the cost and its USD unit.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
 
@@ -392,11 +392,11 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 `div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Headers and cells share these classes in column order: `c-status`, `c-beside`, `c-job`, `c-batch`, `c-submitter`, `c-labels`, `c-runner`, `c-time`, `c-tokens` and `c-cost`. The last two headings give Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
 
-Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
+Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or with a coarse pointer, both lines are at least 44px tall and tapping either line opens the job. The Batch link opens its Batch.
 
 Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as `a.cut.mono.job-name`. Its title gives the whole name, and it opens the job. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
-The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
+The Batch is a cut mono link to its page. On a touch screen its target is at least 44px tall. A Batch that gave way to the condition becomes visible on keyboard focus. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
 
 `ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key (`span.lk`) and sign (`span.leq`) use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 
@@ -414,7 +414,7 @@ Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scop
 
 `h1.subject` gives the kind in `span.kind` above the whole custom ID in the strong mono, wrapping at any character. On a missing job, `code.job-address` wraps the identifier from the address the same way. Whitespace in the custom ID is preserved. A deleted job or a name made entirely of whitespace uses the full job ID for its heading. The zone note applies to all times on the page.
 
-`div.record-with-aside` puts the working record in `div.record-sections` and a ruled `dl` in `aside.facts-aside`. At 62.5rem and below the facts follow the working record. In the facts, `.selectable` selects the whole ID, Labels occupy one line each, and `span.sub` gives a second line. The Batch’s “its jobs” link follows its ID on the same line, wrapping below a long ID, and applies the ID as a Jobs filter. A Runner’s name links to its record by fragment.
+`div.record-with-aside` puts the working record in `div.record-sections` and a ruled `dl` in `aside.facts-aside`. At 62.5rem and below the facts follow the working record. In the facts, `.selectable` selects the whole ID, Labels occupy one line each, and `span.sub` gives a second line. The Batch ID links to its page. The “its jobs” link follows on the same line, wrapping below a long ID, and applies the ID as a Jobs filter. A Runner’s name links to its record by fragment.
 
 `div.job-status[role=status][tabindex="-1"]` holds the large status word (`.status-lg`), every condition in full, and the reason a failed or cancelled job cannot resume. Only applicable controls show. The buttons share a row in `.job-controls`. Below the row, each `p.note` names its control, flush left in button order. The button names its note through `aria-describedby`. A pending request disables the visible buttons and the status says “Working…”. A successful control focuses the status or the deletion notice. A spent budget opens a dialog for the new amount in USD. The budget field is read-only during its request. It describes a refused amount and receives focus if submission lost it. A member who moved focus to Close keeps it there. A conflict appears in the dialog notice. Resume’s note explains a spent budget or a lost journal. A Batch that is cancelled or being cancelled hides Resume. The status explains why, using the last successful Batch read. Polling can withdraw a trigger while its dialog is open. The dialog keeps the entered value, explains whether the action is still available, and returns focus to the status if the trigger is gone. A confirmed deletion shows the bare record until the hub gives 404.
 
@@ -508,7 +508,13 @@ The next cell holds each condition in its own `span.beside`. "Status unknown" ha
 
 ### Filters
 
-The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, even in an unapplied draft, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. Each `div.filter-field` pairs a label and its control. The second row holds Batch and Runner, then `span.filter-act` groups Apply and, when a filter applies, Clear. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Clear returns focus to Apply. Apply keeps focus throughout its read. Applying unchanged filters on the first page reads the list again in place, preserving the address and its history entry. If the hub refuses that refresh, the list stays visible with an inline alert. Focus stays on Apply above 760px and on Filters at 760px and below. If the hub refuses the first read during navigation, the error page takes focus on its heading. The disclosure starts at 760px to leave room for the six status checks on one line in the wide form. With the dashboard fonts they use 637px of the 725px available at 761px. At the shared 640px touch breakpoint the gutters leave only 609px. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
+Jobs and Batches keep their applied filters in the address. Both use `ListFilters`. The first `div.filters-row` holds the status checks in `fieldset.check-group.is-inline`. Jobs also shows Status unknown there, then Batch and Runner in the second row. Runner options with the same name include distinguishing short IDs. If an applied or drafted Runner is absent from the list, the option says “Runner ID” followed by its full ID. Batches uses the second row for Label key and Label value. A key with an empty value matches that exact Label. Typing a value requires a key.
+
+Each `div.filter-field` pairs a label and its control. The second row ends with `span.filter-act` containing Apply and, when a filter applies, Clear. Edits survive list reads and paging. When navigation changes the applied filters, the fields reset to those values. Status selections use enum order so a different order in the address reads the same list.
+
+At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Clear returns focus to Apply. Apply keeps focus throughout its read. Applying unchanged filters on the first page reads the list again in place, preserving the address and its history entry. If the hub refuses that refresh, the list stays visible with an inline alert. Focus stays on Apply above 760px and on Filters at 760px and below. If the hub refuses the first read during navigation, the error page focuses its heading, and clearing its filters returns focus to the form’s visible control.
+
+The disclosure starts at 760px to leave room for the six Jobs status checks on one line in the wide form. With the dashboard fonts they use 637px of the 725px available at 761px. At the shared 640px touch breakpoint the gutters leave only 609px. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
 
 1. The panel starts closed on arrival, including at a filtered address.
 2. Pressing Filters toggles the panel.
@@ -524,11 +530,11 @@ The filters live in the address. Runner options with the same name include disti
 </form>
 ```
 
-The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight `tr.sk-row` skeleton rows. Eight give a visible sample while keeping the loading table within a phone screen (296px of rows at 390px wide). On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
+The time-zone note sits below the filters when the list has records or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the loading table. Both lists show eight skeleton rows in table layout. On Jobs, eight compact rows fit within a phone screen (296px at 390px wide). The folded Batches table shows two records. On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the list’s error page with a way to clear any filters in the address. When Try again recovers a page, its heading receives focus if the member has not moved on.
 
 ### The end of a list
 
-Before a populated list, `a.vh.skip-list` leads to `p.list-end#jobs-end`. The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest jobs and Older jobs follow where available.
+Before a populated list, `a.vh.skip-list` leads to the list’s `p.list-end` (`jobs-end` or `batches-end`). The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest and Older links name the list and appear where available. If paging removes the link the member pressed, focus moves to the list end or, on an empty page, its empty-state heading. Clearing filters from an empty result returns focus to the visible filter control.
 
 ```html
 <a class="vh skip-list" href="#jobs-end">Skip to the end of the list</a>
@@ -545,6 +551,110 @@ content. Plain-text identifiers, addresses and the names of inviters and key cre
 
 A dialog offering roles uses a fieldset and legend. Each `label.role-choice` holds a native
 radio and the role name, with a `small.note` on the next line describing what it permits.
+
+### Batches list
+
+Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator uses the Jobs submitter measure and can wrap. In table layout the rules end at Created. A `div.batch-id` around each `a.cut.mono.stands-alone` lets the column fit the longest ID up to 30rem and shrink when the other columns need room. A short ID keeps its minimum link target. The whole ID is in its title. This table folds when its frame is 48rem wide or narrower to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The form follows [Filters](#filters), and the skip link leads to [the end of the list](#the-end-of-a-list).
+
+An active Batch may take jobs even when all of its jobs have ended. Its mark is the filled dot in the hood’s green. A waiting cancel or a pause’s cause appears under the status word in the list.
+
+```tsx
+<td role="cell" data-l="Status">
+  <span class="batch-status">
+    <span class="status-word s-active">
+      <span class="mark mark-active" aria-hidden="true" />
+      Active
+    </span>
+    <span class="beside">
+      <span class="mark mark-pending" aria-hidden="true" />
+      Cancel asked
+    </span>
+  </span>
+</td>
+```
+
+### Parent links
+
+Above a record heading, `nav.crumbs` lists its parents in order. The heading names the current record. A Batch has one parent link, Batches. A job has Jobs and its Batch while the job read holds the Batch ID. The list link uses exact route matching so a record does not mark its parent as current. A long ID fits on one line with its whole value in the title.
+
+```tsx
+<nav class="crumbs" aria-label="Where this is">
+  <ol>
+    <li>
+      <Link class="stands-alone" to="/jobs" activeOptions={{ exact: true }}>
+        Jobs
+      </Link>
+    </li>
+    <li>
+      <span aria-hidden="true">/</span>
+      <Link class="cut mono stands-alone" to="/batches/$id" params={{ id }} title={id}>
+        {id}
+      </Link>
+    </li>
+  </ol>
+</nav>
+```
+
+### Ledger
+
+A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. A current, known zero has an unlit mark and is announced as “Running” and its count. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
+
+```tsx
+<table class="ledger">
+  <caption class="vh">Jobs by status</caption>
+  <thead>
+    <tr>
+      <th scope="col">Status</th>
+      <th scope="col" class="num">
+        Jobs
+      </th>
+      <th scope="col">Share</th>
+      <th scope="col">
+        <span class="vh">Jobs list</span>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th scope="row">
+        <JobStatus status="queued" lastRecorded={false} />
+      </th>
+      <td class="num">3</td>
+      <td>
+        <meter
+          min={0}
+          max={12}
+          value={3}
+          aria-label="Share of queued jobs"
+          aria-valuetext="3 of 12 jobs"
+        />
+      </td>
+      <td>
+        <Link class="stands-alone" to="/jobs" search={{ batchId: id, status: ["queued"] }}>
+          See them<span class="vh">: its queued jobs</span>
+        </Link>
+      </td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <th scope="row">
+        <Link class="stands-alone" to="/jobs" search={{ batchId: id }}>
+          All its jobs
+        </Link>
+      </th>
+      <td class="num">12</td>
+      <td colspan={2} />
+    </tr>
+  </tfoot>
+</table>
+```
+
+### Batch page
+
+The subject, zone, status, control row and facts use the job page’s parts. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A running job that ends before its Runner stops it keeps its status and output. If another caller cancels while the confirmation is open, it explains the new state and disables confirmation. If the confirming button had focus, focus returns to Keep it. Closing the dialog returns focus to the status when its trigger has gone. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
+
+Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens. Its cost and tokens come from its present jobs. Facts give the full ID, creation time, creator, Labels and the failure breaker settings.
 
 ### Command to copy, and a secret shown once
 
@@ -568,7 +678,7 @@ A direct visit stays blank until the first Runners read finishes because the rou
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-cancelled`, a ring struck through; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; beside a status, `mark-blocked`, an arrow against a bar, and `mark-pending`, an hourglass, for a control waiting for its Runner or for Add Runner waiting for a connection; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-active`, a filled dot for an active Batch; `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-cancelled`, a ring struck through; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; beside a status, `mark-blocked`, an arrow against a bar, and `mark-pending`, an hourglass, for a control waiting for its Runner or for Add Runner waiting for a connection; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 

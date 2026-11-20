@@ -157,6 +157,8 @@
   --rule-total: 3px double; /* above a total */
   --topbar: 3rem; /* height of the top bar */
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
+  --batch-id-max: 30rem; /* 480px fits a 36-character UUID and caps a 100-character Batch ID */
+  --ledger-bar: 8rem; /* 128px at the default font size gives a 1% share more than one pixel */
   --job-preview-lines: 8; /* At the working mono size, eight lines and padding take 155px. With the 44px button the preview fits in a quarter of an 844px phone screen. */
   --line-sm: calc(
     var(--text-sm) * var(--leading)
@@ -173,7 +175,7 @@
   --jobs-tokens: 5rem; /* "1,402,118" */
   --jobs-cost: 8rem; /* 128px for "10.0184 of 9.9999" in the last column */
   --jobs-cost-narrow: 5.75rem; /* cost with its USD unit in a two-line row */
-  --jobs-submitter: 10.5rem; /* the submitter’s name and kind */
+  --submitter: 10.5rem; /* the submitter’s name and kind */
 }
 
 /* Dark: the mono drops a little weight, as light text on a dark ground reads heavier. */
