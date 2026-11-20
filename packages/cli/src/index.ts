@@ -10,7 +10,6 @@ import {
   type AnyProcedureContract,
   type ContractRouterClient,
   type RouterContract,
-  ValidationError,
 } from "@orpc/contract";
 import { getOpenAPIMeta } from "@orpc/openapi";
 import { walkProcedureContractsSync } from "@orpc/server";
@@ -24,7 +23,7 @@ import {
   type Batch,
   batchCreationSchema,
   batchIdSchema,
-  batchSchema,
+  type CreatedBatch,
   createProblemDetailsLink,
   FINAL_JOB_STATUSES,
   getAccess,
@@ -434,12 +433,6 @@ function submitCommand() {
     });
 }
 
-// The 0.10.0 hub returned this Batch on create. It predates submitter and both progress
-// counts. Preserve the fields it reported when a caller creates without jobs.
-const releasedBatchSchema = z.strictObject(
-  z.omit(batchSchema, { submitter: true, blockedJobCounts: true, statusUnknownJobs: true }).shape,
-);
-
 /**
  * `batches create`: the contract's call, retried on a transient failure under one ID, so a retry
  * never creates a second Batch: the caller's, or one made once for this run of the command, which
@@ -465,17 +458,6 @@ function createBatchCommand() {
             const created = yield* hintMadeIdOnStop(
               hubCall((signal) => client.batches.create({ ...input, id }, { signal })).pipe(
                 Effect.retry(retryTransient),
-                Effect.catch((error) => {
-                  if (
-                    input.jobs === undefined &&
-                    error instanceof ORPCError &&
-                    error.cause instanceof ValidationError
-                  ) {
-                    const released = z.safeParse(releasedBatchSchema, error.cause.invalidData);
-                    if (released.success) return Effect.succeed({ ...released.data, jobs: [] });
-                  }
-                  return Effect.fail(error);
-                }),
               ),
               runId,
               `The Batch's ID is ${id}: to find out whether it was created, run this command again with ${CommandLine.display(["--id", id])}.`,
@@ -865,31 +847,31 @@ function submissionGroups(
   jobs: Array.NonEmptyReadonlyArray<JobSubmission>,
 ) {
   return Effect.gen(function* () {
-    const groups: Array.NonEmptyArray<{ jobs: JobSubmission[]; offset: number }> = [
-      { jobs: [], offset: 0 },
-    ];
+    const [first, ...rest] = jobs;
+    const groups: Array.NonEmptyArray<{
+      jobs: Array.NonEmptyArray<JobSubmission>;
+      offset: number;
+    }> = [{ jobs: [first], offset: 0 }];
     let current = groups[0];
-    const createBytes = encodedBytes(creation);
-    if (createBytes > MAX_BODY_BYTES)
-      return yield* Effect.fail(new Error("The Batch's agent exceeds the request size limit"));
+    let bytes = encodedBytes({ ...creation, jobs: [first] });
+    // An empty create could commit on an older hub, or survive a failed first add.
+    if (bytes > MAX_BODY_BYTES)
+      return yield* Effect.fail(
+        new Error("The Batch's agent and first job exceed the request size limit"),
+      );
     const addBytes = encodedBytes({ jobs: [] });
-    let bytes = encodedBytes({ ...creation, jobs: [] });
-    for (const [index, job] of jobs.entries()) {
+    for (const [index, job] of rest.entries()) {
       const jobBytes = encodedBytes(job);
-      if (addBytes + jobBytes > MAX_BODY_BYTES) {
-        return yield* Effect.fail(new Error(`job ${index + 1} exceeds the request size limit`));
-      }
-      if (
-        current.jobs.length === MAX_JOBS_PER_ADD ||
-        bytes + Number(current.jobs.length > 0) + jobBytes > MAX_BODY_BYTES
-      ) {
-        // A first job too large to share the creation can still fit in an add on its own.
-        current = { jobs: [], offset: index };
+      if (current.jobs.length < MAX_JOBS_PER_ADD && bytes + 1 + jobBytes <= MAX_BODY_BYTES) {
+        current.jobs.push(job);
+        bytes += 1 + jobBytes;
+      } else {
+        bytes = addBytes + jobBytes;
+        if (bytes > MAX_BODY_BYTES)
+          return yield* Effect.fail(new Error(`job ${index + 2} exceeds the request size limit`));
+        current = { jobs: [job], offset: index + 1 };
         groups.push(current);
-        bytes = addBytes;
       }
-      bytes += Number(current.jobs.length > 0) + jobBytes;
-      current.jobs.push(job);
     }
     return groups;
   });
@@ -909,7 +891,7 @@ class WaitTimedOut extends Error {
 }
 
 /** Cancellation is final even while the Batch waits for a Runner to stop a placed job. */
-function batchWasCancelled(batch: Batch) {
+function batchWasCancelled(batch: Pick<Batch, "status" | "pendingControl">) {
   return batch.status === "cancelled" || batch.pendingControl?.type === "cancel";
 }
 
@@ -1039,7 +1021,7 @@ const saveJobLines = Effect.fnUntraced(function* (
  */
 function waitAndSave(
   client: ApiClient,
-  submitted: Batch,
+  submitted: Omit<CreatedBatch, "jobs">,
   jobs: readonly (readonly [string, Job])[],
   options: {
     again: string;
@@ -1342,7 +1324,7 @@ function submitBatchCommand() {
               group === 0
                 ? hubCall(async (signal) => {
                     const { jobs: added, ...batch } = await client.batches.create(
-                      { ...creation, jobs: jobs.length ? jobs : undefined },
+                      { ...creation, jobs },
                       { signal },
                     );
                     return { batch, jobs: added };

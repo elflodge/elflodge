@@ -534,12 +534,20 @@ export const batchesPageSchema = z
   .register(z.globalRegistry, { id: "BatchesPage" });
 export type BatchesPage = z.infer<typeof batchesPageSchema>;
 
-/** A requested job, with whether this call inserted it. A retry may find it already held. */
+/** A retry after a lost response returns `created: false`, so once-per-job work cannot depend on it. */
 export const addedJobSchema = z.object({ created: z.boolean(), job: jobSchema });
+
+// The 0.10.0 hub did not report a submitter or either progress count. A client reading its
+// create answer keeps those fields absent. The current hub emits them in every Batch.
+const creationResultFields = z.partial(batchSchema, {
+  submitter: true,
+  blockedJobCounts: true,
+  statusUnknownJobs: true,
+});
 
 /** The Batch and its first jobs. Earlier hubs returned the Batch alone. */
 export const createdBatchSchema = z
-  .extend(batchSchema, { jobs: z._default(z.array(addedJobSchema), []) })
+  .extend(creationResultFields, { jobs: z._default(z.array(addedJobSchema), []) })
   .register(z.globalRegistry, { id: "CreatedBatch" });
 export type CreatedBatch = z.infer<typeof createdBatchSchema>;
 
