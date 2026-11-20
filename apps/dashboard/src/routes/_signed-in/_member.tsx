@@ -1,8 +1,8 @@
 import { Outlet, createFileRoute, useLoaderData } from "@tanstack/solid-router";
-import { Show, onSettled } from "solid-js";
+import { Show } from "solid-js";
 
+import { FallbackPage } from "../../components/FallbackPage.tsx";
 import { Notice } from "../../components/Notice.tsx";
-import { focusIfLost } from "../../form.ts";
 import { canManageKeys } from "../../permissions.ts";
 
 // The pages about the Organization. A member removed from it keeps their session, and with it their
@@ -21,14 +21,9 @@ function Member() {
     <Show
       when={session().membership.status === "member"}
       fallback={
-        <>
-          <div class="head">
-            <h1 tabindex="-1" ref={(heading) => onSettled(() => focusIfLost(heading))}>
-              Organization access
-            </h1>
-          </div>
+        <FallbackPage heading="Organization access" focusHeading>
           <Notice role="alert">This account is no longer a member of the Organization.</Notice>
-        </>
+        </FallbackPage>
       }
     >
       <Outlet />

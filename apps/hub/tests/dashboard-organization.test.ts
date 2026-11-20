@@ -118,6 +118,7 @@ test("an invite refusal keeps focus on Close when the member moved there", async
     release.resolve();
   }
   await expectBrowser(email).toHaveAccessibleDescription("This address is already a member.");
+  // The same button reads Close while pending and Cancel once the hub answers.
   await expectBrowser(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
 }, 30_000);
 

@@ -5,7 +5,7 @@ import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
 
 import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
-import { authClient, hasAuthCode } from "../../../auth-client.ts";
+import { authClient, hasAuthCode, isAuthAccessError } from "../../../auth-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -179,10 +179,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
       error: members.error,
     }),
     ({ readerRole, error }) => {
-      if (
-        readerRole !== role() ||
-        (error instanceof BetterFetchError && [401, 403].includes(error.status))
-      ) {
+      if (readerRole !== role() || isAuthAccessError(error)) {
         void refreshSession();
       }
     },
@@ -223,35 +220,33 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         list?.status === "success" && !list.isInvalidated ? list.data?.members : undefined;
       const reader = fresh?.find(isOwn);
       const target = fresh?.find((m) => m.id === person.id);
-      if (error instanceof BetterFetchError) {
-        const memberMissing = hasAuthCode(error, "MEMBER_NOT_FOUND");
-        if ([401, 403].includes(error.status) || memberMissing) await refreshSession();
-        if (memberMissing && fresh && !target) {
-          status(`${name} is already gone.`, listed);
-          return undefined;
-        }
+      const memberMissing = hasAuthCode(error, "MEMBER_NOT_FOUND");
+      if (isAuthAccessError(error) || memberMissing) await refreshSession();
+      if (memberMissing && fresh && !target) {
+        status(`${name} is already gone.`, listed);
+        return undefined;
+      }
+      if (
+        hasAuthCode(
+          error,
+          "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
+          "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+        )
+      ) {
         if (
-          hasAuthCode(
-            error,
-            "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
-            "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
-          )
+          next === "remove" &&
+          (!fresh ||
+            (reader &&
+              !rolesOf(reader.role).includes("owner") &&
+              target &&
+              rolesOf(target.role).includes("owner")))
         ) {
-          if (
-            next === "remove" &&
-            (!fresh ||
-              (reader &&
-                !rolesOf(reader.role).includes("owner") &&
-                target &&
-                rolesOf(target.role).includes("owner")))
-          ) {
-            message = "Only an owner can remove an owner.";
-          } else if (fresh && soleOwner(fresh, context().user.id)) {
-            message = "You are now the only owner, so you cannot leave or change your own role.";
-          }
-        } else if (error.status >= 500 && fresh) {
-          message = `Check the refreshed member list before trying again (${message.replace(/\.$/, "")}).`;
+          message = "Only an owner can remove an owner.";
+        } else if (fresh && soleOwner(fresh, context().user.id)) {
+          message = "You are now the only owner, so you cannot leave or change your own role.";
         }
+      } else if (error instanceof BetterFetchError && error.status >= 500 && fresh) {
+        message = `Check the refreshed member list before trying again (${message.replace(/\.$/, "")}).`;
       }
       // Query can finish the read before the table unmounts a control that no longer applies.
       const available =
@@ -318,10 +313,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         status(<>{label} is already gone.</>, listed);
         return undefined;
       }
-      if (
-        error instanceof BetterFetchError &&
-        ([401, 403].includes(error.status) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
-      )
+      if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
         await refreshSession();
       return hubFailureMessage(error);
     }

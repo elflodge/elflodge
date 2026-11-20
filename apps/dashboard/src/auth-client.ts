@@ -24,8 +24,16 @@ export const authClient = createAuthClient({
 });
 
 // The client's $ERROR_CODES is a fetch proxy at runtime. Only its type lists the codes.
-export function hasAuthCode(error: unknown, ...codes: (keyof typeof authClient.$ERROR_CODES)[]) {
+export function hasAuthCode(
+  error: unknown,
+  ...codes: (keyof typeof authClient.$ERROR_CODES)[]
+): error is BetterFetchError {
   return error instanceof BetterFetchError && codes.some((code) => code === error.error?.code);
+}
+
+// A refused session or permission can mean the member's access changed since the last read.
+export function isAuthAccessError(error: unknown): boolean {
+  return error instanceof BetterFetchError && [401, 403].includes(error.status);
 }
 
 /** A 401, as when the session was deleted during renewal, also means no one is signed in. */

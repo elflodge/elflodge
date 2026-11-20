@@ -1,9 +1,8 @@
-import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { For, Show, createSignal, createUniqueId, onSettled, untrack } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
-import { authClient, hasAuthCode } from "../auth-client.ts";
+import { authClient, hasAuthCode, isAuthAccessError } from "../auth-client.ts";
 import { createFormAction, fieldText } from "../form.ts";
 import { isLoopback } from "../hub-address.ts";
 import { ROLE_LABEL, asRole, invitationLink, rolesOf, type MemberRole } from "../organization.ts";
@@ -11,6 +10,8 @@ import { CopyButton } from "./CopyButton.tsx";
 import { FieldError } from "./FieldError.tsx";
 import { Instant } from "./Instant.tsx";
 import { Notice } from "./Notice.tsx";
+
+type FieldRefusal = { message: string; showAtField: (message: string) => void };
 
 /** Form dialogs can be closed while the hub is answering. */
 function FormDialog(props: {
@@ -20,33 +21,30 @@ function FormDialog(props: {
   answered?: boolean;
   answer?: JSX.Element;
   close: () => void;
-  submit: (form: FormData, close: () => boolean) => Promise<JSX.Element | void>;
-  report: (message: JSX.Element) => void;
+  submit: (form: FormData, close: () => boolean) => Promise<string | FieldRefusal | void>;
+  report: (message: string, submitted: FormData) => void;
 }) {
   const headingId = createUniqueId();
   let dialog!: HTMLDialogElement;
-  const [failure, setFailure] = createSignal<JSX.Element>();
+  const [failure, setFailure] = createSignal<string>();
   const { pending, onSubmit } = createFormAction(async (form) => {
     setFailure(undefined);
-    let message;
+    const submitted = new FormData(form);
+    let refusal;
     try {
-      message = await props.submit(new FormData(form), () => {
+      refusal = await props.submit(submitted, () => {
         const open = dialog.open && dialog.isConnected;
         dialog.close();
         return open;
       });
     } catch (error) {
-      message = hubFailureMessage(error);
+      refusal = hubFailureMessage(error);
     }
-    if (message) {
-      if (dialog.isConnected && dialog.open) setFailure(message);
-      else
-        props.report(
-          <>
-            {props.confirm}: {message}
-          </>,
-        );
-    }
+    if (!refusal) return;
+    const message = typeof refusal === "string" ? refusal : refusal.message;
+    if (!dialog.isConnected || !dialog.open) props.report(message, submitted);
+    else if (typeof refusal === "string") setFailure(message);
+    else refusal.showAtField(message);
   });
   return (
     <dialog
@@ -182,27 +180,24 @@ export function InviteMember(
       });
       props.refresh();
     } catch (error) {
-      if (!(error instanceof BetterFetchError)) throw error;
-      if ([401, 403].includes(error.status) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
+      if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
         await props.refreshSession();
 
       const alreadyMember = hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION");
       // For a Member or Admin grant, this refusal refers to the invitation already at the address.
       const ownerInvitation =
-        error.status === 403 &&
         hasAuthCode(error, "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE") &&
+        error.status === 403 &&
         grant !== "owner";
       if (!alreadyMember && !ownerInvitation) throw error;
-      const reason = alreadyMember
-        ? "is already a member."
-        : "has an invitation only an owner can replace.";
-      if (!emailField.isConnected || !emailField.closest("dialog[open]"))
-        return (
-          <>
-            <span class="mono">{email}</span> {reason}
-          </>
-        );
-      if (emailField.value === email) setEmailError(`This address ${reason}`);
+      return {
+        message: alreadyMember
+          ? "This address is already a member."
+          : "This address has an invitation only an owner can replace.",
+        showAtField(message: string) {
+          if (emailField.value === email) setEmailError(message);
+        },
+      };
     }
     return undefined;
   }
@@ -220,6 +215,14 @@ export function InviteMember(
       }
       confirm="Create invitation"
       submit={invite}
+      report={(message, submitted) =>
+        props.report(
+          <>
+            Create invitation for <span class="mono">{fieldText(submitted, "email")}</span>:{" "}
+            {message}
+          </>,
+        )
+      }
       answered={!!created()}
       answer={
         <Show when={created()}>
@@ -287,6 +290,7 @@ export function RenameOrganization(
       {...props}
       heading="Rename the Organization"
       confirm="Rename"
+      report={(message) => props.report(`Rename: ${message}`)}
       submit={async (form, close) => {
         await props.rename(fieldText(form, "name"));
         close();
@@ -323,6 +327,7 @@ export function ChangeRole(
       {...props}
       heading={props.own ? "Change your role" : `Change the role of ${props.name}`}
       confirm="Change role"
+      report={(message) => props.report(`Change role: ${message}`)}
       submit={async (_form, close) => {
         const selected = choice();
         if (!selected) return undefined;
