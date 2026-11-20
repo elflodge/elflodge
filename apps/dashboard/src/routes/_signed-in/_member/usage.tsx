@@ -170,16 +170,18 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
   const [draftGroup, setGroup] = createSignal<string>();
   const custom = () => (draftRange() ?? range()) === "custom";
   const label = () => (draftGroup() ?? grouping().by) === "label";
+  // Place the refusal by the applied search that the hub answered. Editing the draft can
+  // hide its control, in which case the message stays in the alert until the next read.
   // Range supplies the period and both dates until Custom exposes the dates separately.
   // Grouped by supplies groupBy until Label exposes the key that completes its value.
   const refusal = createMemo(() =>
     props.error
       ? formRefusal(props.error, {
-          range: custom() ? ["period"] : ["period", "from", "to"],
-          from: custom() ? ["from"] : [],
-          to: custom() ? ["to"] : [],
-          group: label() ? [] : ["groupBy"],
-          label: label() ? ["groupBy"] : [],
+          range: range() === "custom" ? ["period"] : ["period", "from", "to"],
+          from: range() === "custom" && custom() ? ["from"] : [],
+          to: range() === "custom" && custom() ? ["to"] : [],
+          group: grouping().by === "label" ? [] : ["groupBy"],
+          label: grouping().by === "label" && label() ? ["groupBy"] : [],
         })
       : undefined,
   );

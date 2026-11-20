@@ -229,6 +229,12 @@ test("a member can correct a refused range and leave the end open through today"
   await expectBrowser(from).toHaveValue("2099-01-01");
   await expectBrowser(from).toBeFocused();
   await expectBrowser(page.getByRole("alert")).toHaveCount(0);
+  const range = page.getByLabel("Range");
+  await range.selectOption("7d");
+  await expectBrowser(range).not.toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(page.getByRole("alert")).toHaveText("Must not be after today");
+  await range.selectOption("custom");
+  await expectBrowser(from).toHaveAccessibleDescription("Must not be after today");
   await from.fill(first);
   const read = page.waitForResponse((response) => {
     const url = new URL(response.url());
