@@ -363,8 +363,8 @@ function commandsOf(router: RouterContract): Commands {
 
 /**
  * `jobs submit`: one job, as a Batch of one without a failure breaker, which means nothing for one
- * job and would leave the Batch paused by its failure. The command creates the Batch and adds the
- * job, each call retried on a transient failure under one custom ID, so a retry never creates a
+ * job and would leave the Batch paused by its failure. The command creates the Batch with its job
+ * in one call, retried on a transient failure under one custom ID, so a retry never creates a
  * second Batch or job: the caller's, or one made once for this run of the command, which is printed
  * on stderr only if the command stops early. The custom ID is both the job's and its Batch's ID, so
  * it takes the Batch ID's syntax: a run again under it finds the same Batch, which an ID made for
@@ -375,7 +375,7 @@ function submitCommand() {
   return os
     .meta({
       description:
-        "Submits one job and prints it: creates a Batch of one for it, running `agent`, without a failure breaker, and adds the job. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
+        "Submits one job and prints it. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
       // The command takes its input as JSON only: a flag per field would include the job's `--input`,
       // which `readInput` reads as the file holding the whole input before trpc-cli sees it.
       jsonInput: "always",
@@ -407,23 +407,17 @@ function submitCommand() {
           const hint = `The job's custom ID is ${id}: to find out whether the job was accepted, submit it again with this ID, as customId in its JSON.`;
           const batch = yield* hintMadeIdOnStop(
             hubCall((signal) =>
-              client.batches.create({ id, agent, breaker: false }, { signal }),
-            ).pipe(Effect.retry(retryTransient)),
-            runId,
-            hint,
-          );
-          const added = yield* hintMadeIdOnStop(
-            hubCall((signal) =>
-              client.batches.addJobs(
-                { id: batch.id, jobs: [{ ...given, customId: id }] },
+              client.batches.create(
+                { id, agent, breaker: false, jobs: [{ ...given, customId: id }] },
                 { signal },
               ),
             ).pipe(Effect.retry(retryTransient)),
             runId,
             hint,
-            { exists: true },
           );
-          yield* printStep(added.jobs[0]?.job);
+          yield* printStep(batch.jobs[0]?.job);
+          if (batch.status === "cancelled")
+            yield* Effect.fail(new Error("The Batch was cancelled"));
         }).pipe(Effect.mapError(commandError)),
       );
     });
@@ -970,7 +964,7 @@ const saveJobLines = Effect.fnUntraced(function* (
  */
 function waitAndSave(
   client: ApiClient,
-  batchId: string,
+  submitted: Batch,
   jobs: readonly (readonly [string, Job])[],
   options: {
     again: string;
@@ -980,11 +974,12 @@ function waitAndSave(
   },
 ) {
   return Effect.gen(function* () {
+    const batchId = submitted.id;
     const onTerminal = personWatches();
     const { again, idGiven, timeout, outputDir } = options;
     // Where a person watches, in openai-cli's words; the Batch's ID only when the person gave it, as
     // an ID the command made is shown only if it stops early.
-    if (onTerminal) {
+    if (onTerminal && submitted.status !== "cancelled") {
       yield* Effect.sync(() =>
         process.stderr.write(
           idGiven
@@ -1013,24 +1008,25 @@ function waitAndSave(
         );
       });
     const waitThenSave = Effect.gen(function* () {
-      const batch = yield* hubCall((signal) =>
-        client.batches.get({ id: batchId }, { signal }),
-      ).pipe(
-        Effect.retry(retryTransient),
-        Effect.tap(noticeUnknown),
-        Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
-        Effect.repeat({ schedule: pollSchedule, until: settled }),
-        Effect.ensuring(endProgress),
-        // A read that fails ends the wait, which says how to wait again, the ID with it; not on an
-        // interrupt, whose own message says so.
-        Effect.tapError(() =>
-          Effect.sync(() =>
-            process.stderr.write(
-              `Stopped waiting; the Batch carries on. To wait again, ${again}.\n`,
-            ),
-          ),
-        ),
-      );
+      const batch =
+        submitted.status === "cancelled"
+          ? submitted
+          : yield* hubCall((signal) => client.batches.get({ id: batchId }, { signal })).pipe(
+              Effect.retry(retryTransient),
+              Effect.tap(noticeUnknown),
+              Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
+              Effect.repeat({ schedule: pollSchedule, until: settled }),
+              Effect.ensuring(endProgress),
+              // A read that fails ends the wait, which says how to wait again, the ID with it; not on an
+              // interrupt, whose own message says so.
+              Effect.tapError(() =>
+                Effect.sync(() =>
+                  process.stderr.write(
+                    `Stopped waiting; the Batch carries on. To wait again, ${again}.\n`,
+                  ),
+                ),
+              ),
+            );
       // Saving's failure is kept, so the Batch is printed, its ID with it, whatever saving did,
       // as openai-cli prints it.
       const saved =
@@ -1253,22 +1249,23 @@ function submitBatchCommand() {
           // Once every job is added, the hints that follow say how to run the command again, the
           // ID with them.
           const hint = `The Batch's ID is ${id}: to add the jobs it lacks, ${again}.`;
-          const created = yield* hintMadeIdOnStop(
-            Effect.andThen(
-              uploadMissing(client, local.files),
-              hubCall((signal) =>
-                client.batches.create({ id, agent: parsedAgent.data }, { signal }),
-              ).pipe(Effect.retry(retryTransient)),
-            ),
-            runId,
-            hint,
-          );
-          const adds = yield* hintMadeIdOnStop(
-            Effect.forEach(Array.chunksOf(local.jobs, MAX_JOBS_PER_ADD), (jobs, group) =>
-              hubCall((signal) =>
-                client.batches.addJobs({ id: created.id, jobs }, { signal }),
-              ).pipe(
-                Effect.retry(retryTransient),
+          yield* hintMadeIdOnStop(uploadMissing(client, local.files), runId, hint);
+          const adds = yield* Effect.forEach(
+            Array.chunksOf(local.jobs, MAX_JOBS_PER_ADD),
+            (jobs, group) => {
+              const submit =
+                group === 0
+                  ? hubCall(async (signal) => {
+                      const { jobs: added, ...batch } = await client.batches.create(
+                        { id, agent: parsedAgent.data, jobs },
+                        { signal },
+                      );
+                      return { batch, jobs: added };
+                    })
+                  : hubCall((signal) => client.batches.addJobs({ id, jobs }, { signal }));
+              return hintMadeIdOnStop(submit.pipe(Effect.retry(retryTransient)), runId, hint, {
+                exists: group > 0,
+              }).pipe(
                 Effect.mapError((error) => {
                   if (!personWatches()) return error;
                   const lines: string[] = [];
@@ -1287,19 +1284,21 @@ function submitBatchCommand() {
                   const cause = commandError(error);
                   return new Error([cause.message, ...lines].join("\n"), { cause });
                 }),
-              ),
-            ),
-            runId,
-            hint,
-            { exists: true },
+              );
+            },
           );
+          // Both input forms require at least one job.
+          const batch = adds.at(-1)?.batch;
+          if (!batch) return yield* Effect.die(new Error("No jobs were submitted"));
           const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
           const submitted = Effect.gen(function* () {
-            yield* printStep(adds.at(-1)?.batch ?? created);
+            yield* printStep(batch);
+            if (batch.status === "cancelled")
+              yield* Effect.fail(new Error("The Batch was cancelled"));
             if (personWatches()) {
               yield* Effect.sync(() =>
                 process.stderr.write(
-                  `To wait for it and save each job's line, ${again} ${CommandLine.display(["--wait", "--output-dir", "NEW_DIR"])}; to see how it stands, run ${CommandLine.display(["elflodge", "batches", "get", "--id", created.id])}.\n`,
+                  `To wait for it and save each job's line, ${again} ${CommandLine.display(["--wait", "--output-dir", "NEW_DIR"])}; to see how it stands, run ${CommandLine.display(["elflodge", "batches", "get", "--id", batch.id])}.\n`,
                 ),
               );
             }
@@ -1307,7 +1306,7 @@ function submitBatchCommand() {
           return yield* flags.wait
             ? waitAndSave(
                 client,
-                created.id,
+                batch,
                 Array.zip(
                   local.jobs.map((job) => job.customId),
                   added,

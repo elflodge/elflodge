@@ -127,13 +127,13 @@ function fakeHub(
       held.add(uploaded);
       return answer(response, { digest: uploaded, sizeBytes: body.length });
     }
-    if (request.method === "POST" && request.url === "/batches") {
+    const creation = request.url === "/batches";
+    if (request.method === "POST" && creation) {
       const { id } = z.parse(z.object({ id: z.string() }), json());
       batchIds.push(id);
       batchId ||= id;
-      return answer(response, batchOf(batchId));
     }
-    if (request.method === "POST" && request.url === `/batches/${batchId}/jobs`) {
+    if (request.method === "POST" && (creation || request.url === `/batches/${batchId}/jobs`)) {
       const { jobs } = z.parse(addSchema, json());
       if (adds.length + 1 === refusedAdd) {
         response.writeHead(422, { "content-type": "application/problem+json" });
@@ -150,8 +150,9 @@ function fakeHub(
         );
       }
       adds.push(jobs);
+      const batch = batchOf(batchId, { queued: ids.size + jobs.length });
       return answer(response, {
-        batch: batchOf(batchId, { queued: ids.size + jobs.length }),
+        ...(creation ? batch : { batch }),
         jobs: jobs.map((job) => {
           const id = crypto.randomUUID();
           ids.set(id, job.customId);

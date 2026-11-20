@@ -27,7 +27,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Creates a Batch, without jobs, and answers with it: the \`agent\` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's \`id\` when adding its jobs. Giving the \`id\` makes the creation safe to retry: the same \`id\` with the same \`agent\`, \`labels\` and \`breaker\` answers with the Batch already created, and with any of them different is refused.",
+          "description": "Creates a Batch with its optional first jobs in one transaction. The answer is the Batch with each requested job in order and whether it was created. The hub checks the agent and jobs, including the Output contract's schema. Retrying the same ID, agent, labels and breaker returns the existing Batch. Each custom ID follows the same rule as an add: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
           "name": "create",
           "options": [
             {
@@ -48,6 +48,16 @@ exports[`the commands and their flags 1`] = `
               "optional": false,
               "required": true,
               "variadic": false,
+            },
+            {
+              "attributeName": "jobs",
+              "description": "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at \`GET /jobs/limits\` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 100 array",
+              "flags": "--jobs [values...]",
+              "name": "jobs",
+              "negate": false,
+              "optional": true,
+              "required": false,
+              "variadic": true,
             },
             {
               "attributeName": "labels",
@@ -87,7 +97,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Adds jobs to a Batch, at most 100 at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise the add is refused with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.",
+          "description": "Adds jobs to a Batch, at most 100 at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.",
           "name": "add-jobs",
           "options": [
             {
@@ -413,7 +423,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Submits one job and prints it: creates a Batch of one for it, running \`agent\`, without a failure breaker, and adds the job. Retrying with the same \`customId\` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
+          "description": "Submits one job and prints it. Creates the job and its Batch of one together, running \`agent\` without a failure breaker. Retrying with the same \`customId\` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
           "name": "submit",
           "options": [
             {
