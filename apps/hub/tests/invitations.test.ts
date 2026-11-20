@@ -176,13 +176,19 @@ test("an admin can replace an owner invitation after its inviter is demoted", as
   const admin = await joinAsInviter("replacement-admin@example.com", "admin");
   const email = "reinvited-member@example.com";
   const original = await invite(email, "owner", inviter);
+  const inviterMemberId = await memberId(inviterEmail);
   await system.ownerAuth().organization.updateMemberRole({
-    memberId: await memberId(inviterEmail),
+    memberId: inviterMemberId,
     role: "admin",
     organizationId,
   });
 
   const replacement = await invite(email, "member", admin);
+  await system.ownerAuth().organization.updateMemberRole({
+    memberId: inviterMemberId,
+    role: "owner",
+    organizationId,
+  });
   await expectUnavailable(original.id);
   expect(await system.client().invitations.preview({ invitationId: replacement.id })).toMatchObject(
     {

@@ -155,13 +155,11 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/delete",
     ],
     hooks: {
-      // Who may replace an invitation follows who may see it and grant its role. Inviting an address
-      // again replaces its pending invitation, so a request hook decides before anything is
-      // replaced. Remove it when the library enforces the same rule itself (ADR 0015).
+      // A caller may replace a live invitation only if they could see it and grant its role.
+      // The hub checks the inviter's current authority to decide whether the invitation is live.
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path !== "/organization/invite-member" || ctx.body?.resend === true) return;
-        // As the route does, lowercase the email and use the body's organizationId or the
-        // active Organization.
+        // Match the invite request's lowercased address and its explicit or active Organization.
         const address = ctx.body?.email;
         if (typeof address !== "string") return;
         const email = address.toLowerCase();
@@ -203,8 +201,7 @@ export function authOptions(settings: AuthSettings) {
         disableOrganizationDeletion: true,
         cancelPendingInvitationsOnReInvite: true,
         organizationHooks: {
-          // Only a member who could grant an invitation's role may cancel it. Remove this when the
-          // library enforces the same rule itself (ADR 0015).
+          // Cancelling by ID requires authority to grant the role even after the invitation lapses.
           async beforeCancelInvitation({ invitation, cancelledBy }) {
             const member = await db
               .selectFrom("member")

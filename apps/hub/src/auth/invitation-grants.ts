@@ -14,8 +14,7 @@ function mayInvite(role: Expression<string>) {
 }
 
 /**
- * Better Auth grants at least one role, only configured roles, and only an owner can grant a role
- * containing owner.
+ * An invitation grants one or more configured roles. Only an owner may include owner in the grant.
  */
 export function mayGrantRole(inviterRole: Expression<string>, grant: Expression<string | null>) {
   const eb = expressionBuilder();
@@ -56,7 +55,7 @@ export function findLiveInvitationCallerCannotGrantByEmail(
       )
       .where("invitation.organizationId", "=", organizationId)
       .where("invitation.email", "=", email)
-      // Let Better Auth return its ordinary permission error for members who cannot invite anyone.
+      // Members who cannot invite anyone get the same permission error for every address.
       .where((eb) => mayInvite(eb.ref("caller.role")))
       .where((eb) => eb.not(mayGrantRole(eb.ref("caller.role"), eb.ref("invitation.role"))))
       .select("invitation.id")
