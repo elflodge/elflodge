@@ -20,6 +20,22 @@ export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "sho
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
 /** A local creation day outside the year of the read. */
 export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
+// Usage days are dated by the hub in UTC, including for a reader west of midnight.
+export const UTC_DAY = new Intl.DateTimeFormat(LANGUAGE, {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+});
+export const UTC_DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, {
+  timeZone: "UTC",
+  dateStyle: "medium",
+});
+export const UTC_WEEKDAY = new Intl.DateTimeFormat(LANGUAGE, { timeZone: "UTC", weekday: "short" });
+export const UTC_MONTH = new Intl.DateTimeFormat(LANGUAGE, {
+  timeZone: "UTC",
+  month: "long",
+  year: "numeric",
+});
 export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
 /** An event time, dated when it falls outside the row group’s creation day. */
 export const DAY_TIME = new Intl.DateTimeFormat(LANGUAGE, {

@@ -15,18 +15,19 @@ export function FailedReadNotice(props: {
   detail: string;
   failedAt: number;
   readAt?: number;
+  format?: Intl.DateTimeFormat;
 }) {
   return (
     <Notice role="alert">
       {props.what} could not be read at{" "}
-      <Instant value={new Date(props.failedAt)} format={TIME_SECONDS} />
+      <Instant value={new Date(props.failedAt)} format={props.format ?? TIME_SECONDS} />
       {failureDetailSuffix(props.detail)}
       <Show when={props.readAt}>
         {(readAt) => (
           <>
             {" "}
             What is shown is from the read at{" "}
-            <Instant value={new Date(readAt())} format={TIME_SECONDS} />.
+            <Instant value={new Date(readAt())} format={props.format ?? TIME_SECONDS} />.
           </>
         )}
       </Show>

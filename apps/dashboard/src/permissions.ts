@@ -7,3 +7,7 @@ export function canManageKeys(role: string): boolean {
     permissions: { apiKey: ["create", "read", "delete"] },
   });
 }
+
+export function canReadUsage(role: string): boolean {
+  return authClient.organization.checkRolePermission({ role, permissions: { usage: ["read"] } });
+}

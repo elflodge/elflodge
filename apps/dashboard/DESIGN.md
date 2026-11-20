@@ -650,6 +650,65 @@ A `table.ledger` compares parts of the same total. Give each row a header, an en
 </table>
 ```
 
+### Usage report
+
+Usage follows Runners in the bar. Its form uses the filter row and fields, always visible. Range offers seven or thirty whole UTC days and the last twelve named months. An older month in the address stays selected. Grouped by offers Batch, Submitter, Runner, Status and Label. Label adds a required key. Show applies the choices to the address. An owner or admin sees the report. Another member sees whom to ask.
+
+The scope note wraps as one sentence block inside `p.note`. It gives the range, explains which job ends count, and dates the read in the reader's zone. Usage reads again on Show and when a stale report becomes visible. A failed refresh keeps the figures. Pass `format={TIME_ZONED}` to `FailedReadNotice` so each read time carries its zone. An empty window gives its range. “Show the last 30 days” returns from any other range and preserves the grouping.
+
+`div.ledger-layout` holds two sections in reading order. They stand side by side when each has 30rem plus the gap, and stack otherwise. Each table takes its accessible name from its heading. Job ends, tokens and estimated USD follow the row name. The group ledger gives up to ten groups in the hub's order, then the sum of any others. The day ledger gives every UTC day in order. Both footers use the hub's total.
+
+A `.bar-cell` holds a native meter against the largest cost in that table. Its header has visually hidden text naming the comparison. Zero, other and total rows leave the cell empty. At a table width of 30rem or less the bar column gives way and all three figures remain. `.day-name` sets the weekday in secondary ink. `tr.is-week-end` rules off a Sunday. If the window ends today, its row says “so far” and its meter uses the `.is-filling` hatch.
+
+```tsx
+<div class="ledger-layout">
+  <section>
+    <h2 id="usage-days">By day</h2>
+    <table class="ledger" aria-labelledby="usage-days">
+      <thead>
+        <tr>
+          <th scope="col">Day</th>
+          <th scope="col" class="num">
+            Job ends
+          </th>
+          <th scope="col" class="num">
+            Tokens
+          </th>
+          <th scope="col" class="num">
+            Cost <span class="unit">USD, est.</span>
+          </th>
+          <th scope="col" class="bar-cell">
+            <span class="vh">Cost, as a bar against the largest row</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="is-week-end">
+          <th scope="row">
+            <time datetime="2026-11-15">
+              <span class="day-name">Sun</span> 15 Nov
+            </time>{" "}
+            <span class="unit">so far</span>
+          </th>
+          <td class="num">3</td>
+          <td class="num">1,200</td>
+          <td class="num">0.1200</td>
+          <td class="bar-cell">
+            <meter
+              class="is-filling"
+              min={0}
+              max={0.24}
+              value={0.12}
+              aria-label="Cost against the largest row"
+            />
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+```
+
 ### Batch page
 
 The subject, zone, status, control row and facts use the job page’s parts. When jobs are waiting for the Batch’s Canary, the status shows their count beside the blocked mark. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A running job that ends before its Runner stops it keeps its status and output. If another caller cancels while the confirmation is open, it explains the new state and disables confirmation. If the confirming button had focus, focus returns to Keep it. Closing the dialog returns focus to the status when its trigger has gone. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.

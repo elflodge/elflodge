@@ -22,10 +22,12 @@ import { Route as SignedInMemberBatchesRouteImport } from './routes/_signed-in/_
 import { Route as SignedInMemberJobsRouteImport } from './routes/_signed-in/_member/jobs'
 import { Route as SignedInMemberOrganizationRouteImport } from './routes/_signed-in/_member/organization'
 import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_member/runners'
+import { Route as SignedInMemberUsageRouteImport } from './routes/_signed-in/_member/usage'
 import { Route as SignedInMemberBatchesIndexRouteImport } from './routes/_signed-in/_member/batches.index'
 import { Route as SignedInMemberBatchesIdRouteImport } from './routes/_signed-in/_member/batches_.$id'
 import { Route as SignedInMemberJobsIndexRouteImport } from './routes/_signed-in/_member/jobs.index'
 import { Route as SignedInMemberJobsIdRouteImport } from './routes/_signed-in/_member/jobs_.$id'
+import { Route as SignedInMemberUsageIndexRouteImport } from './routes/_signed-in/_member/usage.index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -91,6 +93,11 @@ const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
   path: '/runners',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberUsageRoute = SignedInMemberUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
 const SignedInMemberBatchesIndexRoute =
   SignedInMemberBatchesIndexRouteImport.update({
     id: '/',
@@ -112,6 +119,12 @@ const SignedInMemberJobsIdRoute = SignedInMemberJobsIdRouteImport.update({
   path: '/jobs/$id',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberUsageIndexRoute =
+  SignedInMemberUsageIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => SignedInMemberUsageRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -125,10 +138,12 @@ export interface FileRoutesByFullPath {
   '/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/organization': typeof SignedInMemberOrganizationRoute
   '/runners': typeof SignedInMemberRunnersRoute
+  '/usage': typeof SignedInMemberUsageRouteWithChildren
   '/batches/$id': typeof SignedInMemberBatchesIdRoute
   '/jobs/$id': typeof SignedInMemberJobsIdRoute
   '/batches/': typeof SignedInMemberBatchesIndexRoute
   '/jobs/': typeof SignedInMemberJobsIndexRoute
+  '/usage/': typeof SignedInMemberUsageIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -144,6 +159,7 @@ export interface FileRoutesByTo {
   '/jobs/$id': typeof SignedInMemberJobsIdRoute
   '/batches': typeof SignedInMemberBatchesIndexRoute
   '/jobs': typeof SignedInMemberJobsIndexRoute
+  '/usage': typeof SignedInMemberUsageIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -160,10 +176,12 @@ export interface FileRoutesById {
   '/_signed-in/_member/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/_signed-in/_member/organization': typeof SignedInMemberOrganizationRoute
   '/_signed-in/_member/runners': typeof SignedInMemberRunnersRoute
+  '/_signed-in/_member/usage': typeof SignedInMemberUsageRouteWithChildren
   '/_signed-in/_member/batches_/$id': typeof SignedInMemberBatchesIdRoute
   '/_signed-in/_member/jobs_/$id': typeof SignedInMemberJobsIdRoute
   '/_signed-in/_member/batches/': typeof SignedInMemberBatchesIndexRoute
   '/_signed-in/_member/jobs/': typeof SignedInMemberJobsIndexRoute
+  '/_signed-in/_member/usage/': typeof SignedInMemberUsageIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -179,10 +197,12 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/organization'
     | '/runners'
+    | '/usage'
     | '/batches/$id'
     | '/jobs/$id'
     | '/batches/'
     | '/jobs/'
+    | '/usage/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -198,6 +218,7 @@ export interface FileRouteTypes {
     | '/jobs/$id'
     | '/batches'
     | '/jobs'
+    | '/usage'
   id:
     | '__root__'
     | '/'
@@ -213,10 +234,12 @@ export interface FileRouteTypes {
     | '/_signed-in/_member/jobs'
     | '/_signed-in/_member/organization'
     | '/_signed-in/_member/runners'
+    | '/_signed-in/_member/usage'
     | '/_signed-in/_member/batches_/$id'
     | '/_signed-in/_member/jobs_/$id'
     | '/_signed-in/_member/batches/'
     | '/_signed-in/_member/jobs/'
+    | '/_signed-in/_member/usage/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -320,6 +343,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberRunnersRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/usage': {
+      id: '/_signed-in/_member/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof SignedInMemberUsageRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
     '/_signed-in/_member/batches/': {
       id: '/_signed-in/_member/batches/'
       path: '/'
@@ -348,6 +378,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberJobsIdRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/usage/': {
+      id: '/_signed-in/_member/usage/'
+      path: '/'
+      fullPath: '/usage/'
+      preLoaderRoute: typeof SignedInMemberUsageIndexRouteImport
+      parentRoute: typeof SignedInMemberUsageRoute
+    }
   }
 }
 
@@ -375,12 +412,24 @@ const SignedInMemberJobsRouteChildren: SignedInMemberJobsRouteChildren = {
 const SignedInMemberJobsRouteWithChildren =
   SignedInMemberJobsRoute._addFileChildren(SignedInMemberJobsRouteChildren)
 
+interface SignedInMemberUsageRouteChildren {
+  SignedInMemberUsageIndexRoute: typeof SignedInMemberUsageIndexRoute
+}
+
+const SignedInMemberUsageRouteChildren: SignedInMemberUsageRouteChildren = {
+  SignedInMemberUsageIndexRoute: SignedInMemberUsageIndexRoute,
+}
+
+const SignedInMemberUsageRouteWithChildren =
+  SignedInMemberUsageRoute._addFileChildren(SignedInMemberUsageRouteChildren)
+
 interface SignedInMemberRouteChildren {
   SignedInMemberApiKeysRoute: typeof SignedInMemberApiKeysRoute
   SignedInMemberBatchesRoute: typeof SignedInMemberBatchesRouteWithChildren
   SignedInMemberJobsRoute: typeof SignedInMemberJobsRouteWithChildren
   SignedInMemberOrganizationRoute: typeof SignedInMemberOrganizationRoute
   SignedInMemberRunnersRoute: typeof SignedInMemberRunnersRoute
+  SignedInMemberUsageRoute: typeof SignedInMemberUsageRouteWithChildren
   SignedInMemberBatchesIdRoute: typeof SignedInMemberBatchesIdRoute
   SignedInMemberJobsIdRoute: typeof SignedInMemberJobsIdRoute
 }
@@ -391,6 +440,7 @@ const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberJobsRoute: SignedInMemberJobsRouteWithChildren,
   SignedInMemberOrganizationRoute: SignedInMemberOrganizationRoute,
   SignedInMemberRunnersRoute: SignedInMemberRunnersRoute,
+  SignedInMemberUsageRoute: SignedInMemberUsageRouteWithChildren,
   SignedInMemberBatchesIdRoute: SignedInMemberBatchesIdRoute,
   SignedInMemberJobsIdRoute: SignedInMemberJobsIdRoute,
 }

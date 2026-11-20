@@ -2224,3 +2224,67 @@ p mark.placeholder {
   background: var(--c-ground-2);
   height: 100%;
 }
+
+/* Grouped and daily ledgers share the page when each has room for names and figures. */
+.ledger-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+  align-items: start;
+  gap: var(--space-7);
+  margin-top: var(--space-4);
+}
+.ledger-layout > section {
+  container-type: inline-size;
+  border-top: var(--rule-heavy) solid var(--c-rule-strong);
+  padding-top: var(--space-2);
+  min-width: 0;
+}
+.ledger-layout h2,
+.ledger-layout .ledger th {
+  overflow-wrap: anywhere;
+}
+.ledger-layout .ledger thead th:nth-child(3) {
+  width: auto;
+}
+.ledger-layout .bar-cell {
+  width: var(--ledger-bar);
+}
+.ledger-layout .bar-cell meter {
+  background: transparent;
+}
+.ledger-layout .bar-cell meter::-webkit-meter-bar {
+  background: transparent;
+}
+.bar-cell meter::-webkit-meter-optimum-value {
+  min-width: 1px;
+}
+.bar-cell meter::-moz-meter-bar {
+  min-width: 1px;
+}
+.bar-cell meter.is-filling::-webkit-meter-optimum-value {
+  background: var(--ledger-hatch);
+}
+.bar-cell meter.is-filling::-moz-meter-bar {
+  background: var(--ledger-hatch);
+}
+.day-name {
+  color: var(--c-ink-2);
+}
+.ledger tr.is-week-end > * {
+  border-bottom: var(--rule-heavy) solid var(--c-ink-3);
+}
+.ledger-layout .ledger tfoot .num {
+  font-weight: var(--weight-strong);
+}
+@container (max-width: 30rem) {
+  .ledger .bar-cell {
+    display: none;
+  }
+  .ledger-layout .ledger .num {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .ledger-layout .ledger .num:nth-child(4) {
+    padding-right: 0;
+  }
+}
