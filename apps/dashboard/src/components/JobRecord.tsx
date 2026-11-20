@@ -158,15 +158,10 @@ export function JobFacts(props: { job: Job; readAt: number }) {
   );
 }
 
-export function JobLimits(props: {
-  job: Job;
-  status: Job["status"];
-  resumeOffered: boolean;
-  countFrom?: TimedEvent;
-}) {
+export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?: TimedEvent }) {
   const cost = () => props.job.usage.cost.totalUsd;
   const suffix = () =>
-    !FINAL_JOB_STATUSES.includes(props.status) || props.resumeOffered ? " so far" : "";
+    !FINAL_JOB_STATUSES.includes(props.job.status) || props.resumeOffered ? " so far" : "";
   const measured = createMemo(() => {
     const start = props.countFrom;
     const report = props.job.lastReportedAt;
@@ -259,7 +254,6 @@ export function JobLimits(props: {
               <Show
                 when={
                   props.job.startedAt &&
-                  props.status === "failed" &&
                   props.job.status === "failed" &&
                   props.job.failure.reason === "runTimedOut"
                 }

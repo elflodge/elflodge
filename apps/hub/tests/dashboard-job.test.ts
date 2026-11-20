@@ -421,11 +421,13 @@ test("a member reading earlier Events can jump to new ones, and following ends a
     await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("267", {
       timeout: 12_000,
     });
-    await expectBrowser(page.locator(".status-lg")).toHaveText("Succeeded");
-    await expectBrowser(page.locator("#latest")).toHaveCount(0);
+    await expectBrowser(page.locator(".status-lg")).toHaveText("Running (last recorded)");
+    await expectBrowser(page.locator("#latest, #job-activity")).toHaveCount(0);
+    await expectBrowser(page.getByText("Tokens so far", { exact: true })).toBeVisible();
   } finally {
     releaseJobRead.resolve();
   }
+  await expectBrowser(page.locator(".status-lg")).toHaveText("Succeeded");
   const finalReads = reads;
   // Two job refreshes cover an entire polling interval, regardless of their phase.
   for (let i = 0; i < 2; i++)

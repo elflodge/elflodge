@@ -13,21 +13,16 @@ import { Notice } from "./Notice.tsx";
 
 type Control = "pause" | "resume" | "cancel" | "delete";
 
-function cancelConsequence(job: Job, status: Job["status"]) {
-  if (status !== job.status) {
-    return status === "running" || job.startedAt
-      ? "Cancel is not final: it can be resumed."
-      : "Cancellation is final if the job has not started.";
-  }
-  const sentBeforeStart = status === "queued" && !!job.runner && !job.startedAt;
+function cancelConsequence(job: Job) {
+  const sentBeforeStart = job.status === "queued" && !!job.runner && !job.startedAt;
   const finality = sentBeforeStart
     ? "Final if it has not started by then; otherwise it can be resumed."
     : job.startedAt
       ? "Not final: it can be resumed."
       : "Final: it has not started, so it cannot be resumed.";
   if (job.pendingControl?.type === "pause") return `Cancel replaces the waiting pause. ${finality}`;
-  if (status === "paused") return `Cancel ends it now. ${finality}`;
-  if ((status === "running" || sentBeforeStart) && job.runner)
+  if (job.status === "paused") return `Cancel ends it now. ${finality}`;
+  if ((job.status === "running" || sentBeforeStart) && job.runner)
     return `Cancel ${job.statusUnknown ? "waits for" : "asks"} ${job.runner.name} to stop it. ${finality}`;
   return job.startedAt
     ? "Cancel is not final: it can be resumed."
@@ -36,7 +31,6 @@ function cancelConsequence(job: Job, status: Job["status"]) {
 
 export function JobControls(props: {
   job: Job;
-  status: Job["status"];
   resumeOffered: boolean;
   lastRecorded: boolean;
   cannotResume?: string;
@@ -117,17 +111,16 @@ export function JobControls(props: {
   }
 
   const active = () =>
-    !props.job.deletedAt && (props.status === "queued" || props.status === "running");
+    !props.job.deletedAt && (props.job.status === "queued" || props.job.status === "running");
   const spent = () =>
     props.job.modelBudgetUsd !== undefined &&
     props.job.usage.cost.totalUsd >= props.job.modelBudgetUsd;
-  const canCancel = () => !FINAL_JOB_STATUSES.includes(props.status);
-  const waiting = () =>
-    props.status === props.job.status ? props.job.pendingControl?.type : undefined;
+  const canCancel = () => !FINAL_JOB_STATUSES.includes(props.job.status);
+  const waiting = () => props.job.pendingControl?.type;
 
   const cancelAvailable = () => !props.job.deletedAt && canCancel() && waiting() !== "cancel";
   const confirmCancel = () =>
-    cancelAvailable() && props.status !== "running" && !props.job.startedAt;
+    cancelAvailable() && props.job.status !== "running" && !props.job.startedAt;
   const deleteAvailable = () => !props.job.deletedAt && !canCancel();
   const focusStatusIfLost = () => focusIfLost(deletionNotice ?? status);
 
@@ -146,12 +139,10 @@ export function JobControls(props: {
         }}
       >
         <div class="status-lg">
-          <JobStatus status={props.status} lastRecorded={props.lastRecorded} />
+          <JobStatus status={props.job.status} lastRecorded={props.lastRecorded} />
         </div>
-        <Show when={props.status === props.job.status}>
-          <BesideStatus job={props.job} detailed />
-        </Show>
-        <Show when={props.status === props.job.status && props.job.statusUnknown}>
+        <BesideStatus job={props.job} detailed />
+        <Show when={props.job.statusUnknown}>
           <p class="note">
             {props.job.startedAt
               ? "It may still be running on its Runner’s host."
@@ -314,7 +305,7 @@ export function JobControls(props: {
         >
           <p>
             {cancelAvailable()
-              ? cancelConsequence(props.job, props.status)
+              ? cancelConsequence(props.job)
               : waiting() === "cancel"
                 ? "Cancel has already been asked."
                 : "This job can no longer be cancelled."}
@@ -356,7 +347,7 @@ export function JobControls(props: {
         </Show>
         <Show when={canCancel() && waiting() !== "cancel"}>
           <p class="note" id="cancel-note">
-            {cancelConsequence(props.job, props.status)}
+            {cancelConsequence(props.job)}
           </p>
         </Show>
         <Show when={!canCancel()}>

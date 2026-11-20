@@ -145,6 +145,16 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
               { ...input, after },
               { signal: context.signal },
             );
+            // Only a tail answer prompts a fresh job read. History pages may have been
+            // held while the job changed, and usage and controls belong to the whole job.
+            const jobKey = orpc.jobs.get.queryKey({ input: { id: input.id } });
+            const record = context.client.getQueryState(jobKey);
+            if (record?.data && record.data.status !== page.status && !context.signal.aborted) {
+              void context.client.invalidateQueries(
+                { queryKey: jobKey, exact: true },
+                { cancelRefetch: !record.isInvalidated },
+              );
+            }
             const newest = page.events.at(-1);
             const end = closingTime(page);
             yield {
@@ -164,21 +174,6 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const followed = createMemo(() =>
     follow.dataUpdatedAt ? latest(() => deep(follow.data)) : undefined,
   );
-  // A request can still be draining pages while Solid displays its previous rows.
-  // Read each cached answer and its timestamp together when Query reports new data.
-  const statusRead = createMemo(() => {
-    const past = history.dataUpdatedAt
-      ? client.getQueryState(historyRequest().queryKey)
-      : undefined;
-    const live =
-      tailCursor() !== undefined && follow.dataUpdatedAt
-        ? client.getQueryState<FollowedPage>(followKey())
-        : undefined;
-    if (live?.data && live.dataUpdatedAt > (past?.dataUpdatedAt ?? 0))
-      return { status: live.data.status, readAt: live.dataUpdatedAt };
-    const last = past?.data?.pages.at(-1);
-    return past && last ? { status: last.status, readAt: past.dataUpdatedAt } : undefined;
-  });
   // A job can end and resume between two job reads, even ending again with the same status.
   createEffect(jobReadAt, (readAt) => {
     if (
@@ -312,7 +307,6 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   }
 
   return {
-    statusRead,
     events,
     liveEvents,
     firstHeadEventId,

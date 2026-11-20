@@ -145,7 +145,6 @@ const MOMENTS: ReadonlySet<string> = new Set([JOB_PAUSED, JOB_RESUMED, JOB_RECOV
 
 export function JobTimeline(props: {
   job: Job;
-  status: Job["status"];
   running: boolean;
   events: JobEvents;
   groups: JobEventGroups;
@@ -328,13 +327,11 @@ export function JobTimeline(props: {
       >
         <div class="empty">
           <h3>
-            {props.status === "cancelled" &&
-            props.job.status === "cancelled" &&
-            !props.job.startedAt
+            {props.job.status === "cancelled" && !props.job.startedAt
               ? "No Events: it ended before it started."
               : "No Events yet"}
           </h3>
-          <Show when={props.status === "queued" && !props.job.startedAt}>
+          <Show when={props.job.status === "queued" && !props.job.startedAt}>
             <Link class="button" to="/runners">
               See which Runners are connected
             </Link>
@@ -412,7 +409,6 @@ export function JobTimeline(props: {
                 shortRunId={props.groups.shortRunIds.get(row().runId ?? "")}
                 subAgent={props.groups.subAgents.has(row().conversationId ?? 0)}
                 currentOutput={
-                  props.status === "succeeded" &&
                   props.job.status === "succeeded" &&
                   events.isAtLatest() &&
                   row().kind === JOB_SUCCEEDED &&

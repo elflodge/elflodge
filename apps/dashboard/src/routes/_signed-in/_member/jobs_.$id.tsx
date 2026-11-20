@@ -1,4 +1,4 @@
-import { skipToken, useQuery } from "@tanstack/solid-query";
+import { skipToken, useIsFetching, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { jobRefSchema, problemOf } from "contract";
 import {
@@ -110,11 +110,20 @@ function JobPage() {
       problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
   }));
   const online = browserOnline();
-  const fresh = readIsFresh(() => read.dataUpdatedAt);
+  // A conflicting tail answer invalidates the job. Ordinary polls keep its live indication
+  // until the age cutoff; an invalidated read uses the same stale display immediately.
+  const checkingInvalidatedJob = useIsFetching(() => ({
+    queryKey: jobQuery(params().id).queryKey,
+    exact: true,
+    predicate: (query) => query.state.isInvalidated,
+  }));
+  const fresh = readIsFresh(() => (checkingInvalidatedJob() ? 0 : read.dataUpdatedAt));
   const waitingForRead = () => !fresh() || read.isPaused;
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
   const job = createMemo(() => latest(() => deep(read.data)));
+  const lastRecorded = () => !current() || !!job().statusUnknown;
+  const running = () => job().status === "running" && !lastRecorded() && !job().deletedAt;
   const jobEvents = useJobEvents(
     job,
     () =>
@@ -123,22 +132,11 @@ function JobPage() {
       problemOf(read.error)?.status !== 404,
     () => read.dataUpdatedAt,
   );
-  const status = createMemo(() => {
-    const answer = jobEvents.statusRead();
-    return answer && answer.readAt > read.dataUpdatedAt ? answer.status : job().status;
-  });
-  // An Events page carries the stored status. Only the full job read can tell us that its
-  // Runner is still reporting, so it must be current before the page lights the running mark.
-  const statusUnknown = () =>
-    (status() === "running" || status() === "queued") && !!job().statusUnknown;
-  const lastRecorded = () => !current() || statusUnknown();
-  const running = () => status() === "running" && !lastRecorded() && !job().deletedAt;
   const events = mapArray(jobEvents.events, readJobEvent, { keyed: true });
   const groups = createMemo(() => groupJobEvents(events(), jobEvents.firstHeadEventId()));
   const stopped = () => {
     const record = job();
     return (
-      record.status === status() &&
       !record.deletedAt &&
       !record.pendingControl &&
       (record.status === "paused" || record.status === "failed" || record.status === "cancelled")
@@ -168,13 +166,13 @@ function JobPage() {
   const resumeOffered = () => stopped() && !cannotResume();
   const output = createMemo(() => {
     const record = job();
-    return status() === "succeeded" && record.status === "succeeded" && record.output !== undefined
+    return record.status === "succeeded" && record.output !== undefined
       ? JSON.stringify(record.output, null, 2)
       : undefined;
   });
   const failure = () => {
     const record = job();
-    return status() === "failed" && record.status === "failed" ? record.failure : undefined;
+    return record.status === "failed" ? record.failure : undefined;
   };
   return (
     <Show
@@ -190,12 +188,12 @@ function JobPage() {
       <Show
         when={
           !job().deletedAt &&
-          (running() || status() === "paused") &&
+          (running() || job().status === "paused") &&
           jobEvents.isAtLatest() &&
           groups().sentenceRun
         }
       >
-        {(run) => <RunSentence run={run()} status={status()} />}
+        {(run) => <RunSentence run={run()} status={job().status} />}
       </Show>
       <p class="note">{timeZoneNote()}</p>
       <Switch>
@@ -225,7 +223,6 @@ function JobPage() {
           <div>
             <JobControls
               job={job()}
-              status={status()}
               lastRecorded={lastRecorded()}
               cannotResume={cannotResume()}
               resumeOffered={resumeOffered()}
@@ -234,12 +231,11 @@ function JobPage() {
             />
           </div>
           <Show when={running()}>
-            <JobActivity job={job().status === "running" ? job() : undefined} />
+            <JobActivity job={job()} />
           </Show>
           <Show when={!job().deletedAt || job().startedAt}>
             <JobLimits
               job={job()}
-              status={status()}
               resumeOffered={resumeOffered()}
               countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
@@ -251,13 +247,7 @@ function JobPage() {
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />
         <Show when={!job().deletedAt}>
-          <JobTimeline
-            job={job()}
-            status={status()}
-            running={running()}
-            events={jobEvents}
-            groups={groups()}
-          />
+          <JobTimeline job={job()} running={running()} events={jobEvents} groups={groups()} />
         </Show>
       </div>
     </Show>
