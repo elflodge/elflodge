@@ -1,10 +1,10 @@
 import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, expect, onTestFinished, test, vi } from "vite-plus/test";
+import { afterAll, beforeAll, beforeEach, expect, onTestFinished, test } from "vite-plus/test";
 
 import { formatCount, formatUsd } from "../../dashboard/src/format.ts";
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
-import { OWNER, startSystem } from "./harness.ts";
+import { OWNER, startSystem, untilStatus } from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
 const system = startSystem();
@@ -13,6 +13,9 @@ let browser: Browser;
 beforeAll(async () => {
   await system.start();
   browser = await launchDashboardBrowser(system);
+});
+
+async function seedUsage() {
   const owner = system.owner();
   const agent = { outputContract: { schema: { type: "integer" } } };
   for (const id of ["receipts", "statements"]) {
@@ -28,13 +31,13 @@ beforeAll(async () => {
     else {
       system.model.setResponses([callTool("submit_output", { value: 1 })]);
       await system.startRunner();
-      await vi.waitFor(
-        async () => expect((await owner.jobs.get({ id: added.job.id })).status).toBe("succeeded"),
-        { timeout: 10000 },
-      );
+      await untilStatus(owner, added.job.id, "succeeded");
     }
   }
-});
+}
+// untilStatus uses a polling assertion, which runs in a test context.
+let seeded: Promise<void> | undefined;
+beforeEach(() => (seeded ??= seedUsage()));
 afterAll(async () => {
   await browser?.close();
   await system.stop();
@@ -71,7 +74,7 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
 
 test("changing the grouping keeps the window and totals", async () => {
   const page = await newPage();
-  await signInAt(system, page, "usage?range=7d", OWNER);
+  await signInAt(system, page, "usage?period=7d", OWNER);
   const batchTotal = page.getByRole("table", { name: "By Batch" }).locator("tfoot td.num");
   await expectBrowser(batchTotal).toHaveCount(3);
   const total = await batchTotal.allTextContents();
@@ -161,4 +164,31 @@ test("west of UTC a job end keeps its UTC calendar day and weekday", async () =>
   await expectBrowser(
     daily.getByRole("row").filter({ has: cell }).getByRole("cell").first(),
   ).toHaveText(String(day.jobEnds));
+}, 30_000);
+
+test("a member can correct the refused date and leave the end open through today", async () => {
+  const page = await newPage();
+  await signInAt(system, page, "usage?period=7d", OWNER);
+  const report = await system.owner().usage.get({ period: "7d" });
+  await page.getByLabel("Range").selectOption("custom");
+  const from = page.getByLabel("From", { exact: true });
+  const to = page.getByLabel("To", { exact: true });
+  await expectBrowser(from).toHaveValue(report.from);
+  await expectBrowser(to).toHaveValue(report.to);
+  await from.fill("2000-01-01");
+  await to.fill("");
+  const show = page.getByRole("button", { name: "Show", exact: true });
+  await show.click();
+  await expectBrowser(from).toBeFocused();
+  await expectBrowser(from).toHaveAccessibleDescription(/400 days/);
+  // Showing the same refused question retries the loader and returns focus to the date again.
+  await show.click();
+  await expectBrowser(from).toBeFocused();
+  await expectBrowser(show).not.toHaveAttribute("aria-disabled", "true");
+  await from.fill(report.today);
+  await show.click();
+  await expectBrowser(page.getByRole("table", { name: "By day" }).locator("tbody tr")).toHaveCount(
+    1,
+  );
+  expect(new URL(page.url()).searchParams.has("to")).toBe(false);
 }, 30_000);

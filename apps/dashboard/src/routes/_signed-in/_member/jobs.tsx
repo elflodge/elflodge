@@ -5,13 +5,9 @@ import { For, createMemo, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
-import {
-  ListFilters,
-  StatusFilters,
-  statusFilter,
-  optionalText,
-} from "../../../components/ListFilters.tsx";
+import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
 import { availableRunners, orpc } from "../../../query.ts";
+import { optionalText } from "../../../search-form.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 /**

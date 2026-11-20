@@ -2194,20 +2194,23 @@ p mark.placeholder {
 }
 
 /* A count crossing zero must not move the next row when its link appears or disappears. */
-.ledger tbody tr {
+.ledger.by-share tbody tr {
   height: var(--row);
 }
-.ledger tbody :is(th, td) {
+.ledger.by-share tbody :is(th, td) {
   padding-block: 0;
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .ledger tbody tr {
+  .ledger.by-share tbody tr {
     /* A 44px link plus the collapsed borders beside the total. */
     height: calc(var(--control-touch) + var(--rule-heavy));
   }
 }
 .ledger + .note {
   display: block;
+}
+.ledger.by-share {
+  --ledger-track: var(--c-ground-2);
 }
 .ledger.by-share thead th:nth-child(3) {
   width: calc(var(--ledger-bar) + var(--space-3));
@@ -2246,6 +2249,22 @@ p mark.placeholder {
 .ledger-layout .bar-cell {
   width: var(--ledger-bar);
 }
+.ledger.by-cost th:has(time) {
+  white-space: nowrap;
+}
+.ledger.by-cost th:has(> a.cut) {
+  /* Let the other cells size to their figures and cut the link in the space left. */
+  max-width: 0;
+}
+.report-range {
+  color: var(--c-ink);
+}
+.report-range + .note {
+  max-width: var(--measure);
+}
+.filter-field > .field-error {
+  flex-basis: 100%;
+}
 .ledger.by-cost .label-value {
   white-space: pre-wrap;
 }
@@ -2255,30 +2274,27 @@ p mark.placeholder {
 .bar-cell meter::-moz-meter-bar {
   min-width: 1px;
 }
-.bar-cell meter.is-filling::-webkit-meter-optimum-value {
-  background: var(--ledger-hatch);
-}
-.bar-cell meter.is-filling::-moz-meter-bar {
-  background: var(--ledger-hatch);
-}
 .day-name {
   color: var(--c-ink-2);
 }
 .ledger tr.is-last-day-of-week > * {
-  border-bottom: var(--rule-heavy) solid var(--c-ink-3);
+  border-bottom: var(--rule) solid var(--c-ink-3);
 }
-.ledger-layout .ledger tfoot .num {
-  font-weight: var(--weight-strong);
+.ledger tfoot .num {
+  font-weight: var(--weight-mono-strong);
 }
 @container (max-width: 30rem) {
   .ledger .bar-cell {
     display: none;
   }
-  .ledger-layout .ledger .num {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
   .ledger-layout .ledger .num:nth-child(4) {
     padding-right: 0;
+  }
+}
+
+/* Keep the UTC day and its figures on one line in the smallest ledger. */
+@container (max-width: 20rem) {
+  .ledger.by-cost :is(th, td):nth-child(-n + 3) {
+    padding-inline-end: var(--space-1);
   }
 }

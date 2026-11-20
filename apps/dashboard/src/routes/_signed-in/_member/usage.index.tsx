@@ -7,12 +7,22 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
-import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR, UTC_ISO_MONTH } from "../../../format.ts";
+import { focusAfterLinkDrops } from "../../../form.ts";
+import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
 import { usageGrouping } from "../../../usage-grouping.ts";
-import { rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
+import {
+  rangeOf,
+  rangeName,
+  refusedField,
+  reportDefaults,
+  reportOptions,
+  refusedReport,
+} from "./usage.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/usage/")({
-  // Read Usage when the page opens, on Show and on return. Hovering a link must never read it.
+  // Read on activation, on Show and when a stale report becomes visible. A 30-day report by
+  // Batch over 100,000 job ends took 93 ms, against 0.25 ms for the first Jobs page and
+  // 21 ms for Batches (medians of five warm reads). Hovering a link should not incur that read.
   preload: false,
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
@@ -36,16 +46,22 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
   errorComponent: (props) => {
     const search = Route.useSearch();
     const error = props.error;
-    if (refusedReport(error)) return <Notice role="alert">{error.detail}</Notice>;
+    const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));
+    if (refusedReport(error)) {
+      if (["from", "to", "period", "groupBy"].some((name) => refusedField(error.detail, name)))
+        return null;
+      return <Notice role="alert">{error.detail}</Notice>;
+    }
     return (
       <ReadErrorPage {...props} heading="Usage">
         <Show
           when={
-            search().range !== reportDefaults.range || search().groupBy !== reportDefaults.groupBy
+            rangeOf(search()) !== reportDefaults.period ||
+            search().groupBy !== reportDefaults.groupBy
           }
         >
           <p>
-            <Link class="stands-alone" to="/usage" search={reportDefaults}>
+            <Link class="stands-alone" to="/usage" search={reportDefaults} onClick={focusRange}>
               Show the last 30 days by Batch
             </Link>
           </p>
@@ -63,35 +79,37 @@ function Report() {
   const period = () => {
     const from = new Date(query.data.from);
     const to = new Date(query.data.to);
-    const year = new Date(query.dataUpdatedAt).getUTCFullYear();
+    const year = query.data.today.slice(0, 4);
     const format =
-      from.getUTCFullYear() === year && to.getUTCFullYear() === year ? UTC_DAY : UTC_DAY_YEAR;
+      query.data.from.startsWith(year) && query.data.to.startsWith(year) ? UTC_DAY : UTC_DAY_YEAR;
     return format.formatRange(from, to);
   };
-  const currentMonth = () => search().range === UTC_ISO_MONTH.format(query.dataUpdatedAt);
+  const range = () => rangeOf(search());
+  const soFar = () => query.data.to === query.data.today;
+  const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));
   const empty = () => {
-    const range = search().range;
-    if (currentMonth()) return `No job has ended in ${rangeName(range)} yet.`;
-    return range.endsWith("d")
-      ? `No job has ended in the ${rangeName(range).toLowerCase()}.`
-      : `No job ended in ${rangeName(range)}.`;
+    if (range() === "custom") return "No job ended in this range";
+    if (range().endsWith("d")) return `No job has ended in the ${rangeName(range()).toLowerCase()}`;
+    return soFar()
+      ? `No job has ended in ${rangeName(range())} yet`
+      : `No job ended in ${rangeName(range())}`;
   };
   return (
     <>
+      <p class="report-range">
+        {rangeName(range())}, {period()} (UTC){soFar() ? " so far" : ""}.
+      </p>
       <p class="note">
-        <span>
-          {rangeName(search().range)}
-          {currentMonth() ? " so far" : ""}, {period()}, UTC days. Each job end counts on the day
-          the hub recorded it, deleted jobs included. A job resumed after it ended counts again.
-          Read at <Instant value={new Date(query.dataUpdatedAt)} format={TIME_ZONED} />.
-        </span>
+        Each job end counts on the day the hub recorded it, deleted jobs included. A job resumed
+        after it ended counts again. Read at{" "}
+        <Instant value={query.data.readAt} format={TIME_ZONED} />.
       </p>
       <Show when={query.isError}>
         <FailedReadNotice
           what="Usage"
           detail={hubFailureMessage(query.error)}
           failedAt={query.errorUpdatedAt}
-          readAt={query.dataUpdatedAt}
+          readAt={query.data.readAt.getTime()}
           format={TIME_ZONED}
         />
       </Show>
@@ -100,12 +118,13 @@ function Report() {
         fallback={
           <div class="empty">
             <h2>{empty()}</h2>
-            <Show when={search().range !== "30d"}>
-              <p>
+            <Show when={range() !== "30d"}>
+              <p class="empty-act">
                 <Link
                   class="stands-alone"
                   to="/usage"
-                  search={{ range: reportDefaults.range, groupBy: search().groupBy }}
+                  search={{ period: reportDefaults.period, groupBy: search().groupBy }}
+                  onClick={focusRange}
                 >
                   Show the last 30 days
                 </Link>
@@ -114,7 +133,7 @@ function Report() {
           </div>
         }
       >
-        <UsageLedgers report={query.data} grouping={grouping()} readAt={query.dataUpdatedAt} />
+        <UsageLedgers report={query.data} grouping={grouping()} />
       </Show>
     </>
   );

@@ -159,11 +159,6 @@
   --strip: 1.75rem; /* 28px: the least height of the hub strip under the bar */
   --batch-id-max: 30rem; /* 480px fits a 36-character UUID and caps a 100-character Batch ID */
   --ledger-bar: 8rem; /* 128px at the default font size gives a 1% share more than one pixel */
-  --ledger-hatch: repeating-linear-gradient(
-    120deg,
-    var(--brand-shape) 0 2px,
-    var(--c-ground) 2px 4px
-  ); /* Today’s cost can still grow. */
   --job-preview-lines: 8; /* At the working mono size, eight lines and padding take 155px. With the 44px button the preview fits in a quarter of an 844px phone screen. */
   --line-sm: calc(
     var(--text-sm) * var(--leading)

@@ -1,5 +1,6 @@
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useQuery } from "@tanstack/solid-query";
 import {
+  Link,
   Outlet,
   createFileRoute,
   useChildMatches,
@@ -7,26 +8,36 @@ import {
   stripSearchParams,
   useRouter,
 } from "@tanstack/solid-router";
-import { LABEL_KEY_PATTERN, problemOf, usageGroupBySchema } from "contract";
+import {
+  LABEL_KEY_PATTERN,
+  problemOf,
+  usageGroupBySchema,
+  usagePeriodSchema,
+  type UsageReport,
+} from "contract";
 import { For, Show, createSignal, createEffect } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
+import { FieldError } from "../../../components/FieldError.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText } from "../../../form.ts";
-import { UTC_MONTH, UTC_ISO_DATE, UTC_ISO_MONTH } from "../../../format.ts";
-import { readsUsage } from "../../../permissions.ts";
+import { UTC_MONTH } from "../../../format.ts";
+import { canReadUsage } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
+import { createSearchForm, optionalText } from "../../../search-form.ts";
 import { groupings, usageGrouping } from "../../../usage-grouping.ts";
 
-const month = z.string().check(z.regex(/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/));
-export const reportDefaults = { range: "30d", groupBy: "batch" } as const;
+export const reportDefaults = { period: "30d", groupBy: "batch" } as const;
 const searchSchema = z.object({
-  range: z._default(
-    z.catch(z.union([z.enum(["7d", "30d"]), month]), reportDefaults.range),
-    reportDefaults.range,
+  period: optionalText,
+  from: optionalText,
+  to: optionalText,
+  // A Label key in a shared address may never have passed the form’s native validation.
+  groupBy: z._default(
+    z.catch(z.union([usageGroupBySchema, z.templateLiteral(["label:", z.string()])]), "batch"),
+    "batch",
   ),
-  groupBy: z._default(z.catch(usageGroupBySchema, reportDefaults.groupBy), reportDefaults.groupBy),
 });
 type UsageSearch = z.infer<typeof searchSchema>;
 
@@ -36,50 +47,37 @@ export const Route = createFileRoute("/_signed-in/_member/usage")({
   component: Usage,
 });
 
+export function rangeOf(search: UsageSearch) {
+  return search.period ?? (search.from || search.to ? "custom" : "30d");
+}
 export function rangeName(range: string) {
-  if (range === "30d") return "Last 30 days";
-  if (range === "7d") return "Last 7 days";
+  if (range === "custom") return "Custom range";
+  if (!usagePeriodSchema.safeParse(range).success) return range;
+  if (range.endsWith("d")) {
+    const days = Number(range.slice(0, -1));
+    return `Last ${days} ${days === 1 ? "day" : "days"}`;
+  }
   return UTC_MONTH.format(new Date(`${range}-01`));
 }
 
-export function reportOptions({ range, groupBy }: UsageSearch) {
-  const usage = orpc.usage.get;
-  if (range === "30d") return usage.queryOptions({ input: { groupBy } });
-  if (range === "7d") {
-    // The hub takes absolute dates for seven days. A tab reopened after UTC midnight must resolve
-    // them at the read, including Query's focus/reconnect reads and Show on the same report.
-    return usage.queryOptions({
-      input: { groupBy },
-      queryKey: [...usage.queryKey({ input: { groupBy } }), range],
-      queryFn: ({ signal }) => {
-        const start = new Date();
-        const to = UTC_ISO_DATE.format(start);
-        start.setUTCDate(start.getUTCDate() - 6);
-        return usage.call({ groupBy, from: UTC_ISO_DATE.format(start), to }, { signal });
-      },
-    });
-  }
-  const from = `${range}-01`;
-  const end = new Date(from);
-  end.setUTCMonth(end.getUTCMonth() + 1, 0);
-  // Intl writes years before 1000 without the leading zeroes the hub’s ISO date requires.
-  const input = { groupBy, from, to: UTC_ISO_DATE.format(end).padStart(10, "0") };
-  if (range < UTC_ISO_MONTH.format(new Date())) return usage.queryOptions({ input });
-  return usage.queryOptions({
-    input,
-    // Future days have no figures yet. Resolve today at each read so an open tab follows UTC midnight.
-    queryFn: ({ signal }) => {
-      const now = new Date();
-      return usage.call(
-        { ...input, to: UTC_ISO_MONTH.format(now) === range ? UTC_ISO_DATE.format(now) : input.to },
-        { signal },
-      );
-    },
-  });
+export function reportOptions(search: UsageSearch) {
+  // An absent preset and the explicit default ask the same question.
+  const input = {
+    ...search,
+    period: search.period ?? (search.from || search.to ? undefined : "30d"),
+  };
+  return orpc.usage.get.queryOptions({ input });
 }
 
 export function refusedReport(error: unknown): error is HubReadError {
   return error instanceof HubReadError && problemOf(error.cause)?.status === 400;
+}
+
+// The hub sends validation paths in Zod’s printed detail, including for a refused window.
+export function refusedField(detail: string | undefined, name: string) {
+  const lines = detail?.split("\n");
+  const path = lines?.indexOf(`  → at ${name}`) ?? -1;
+  return path > 0 ? lines?.[path - 1]?.replace(/^✖ /, "") : undefined;
 }
 
 function Usage() {
@@ -87,7 +85,7 @@ function Usage() {
   const session = useLoaderData({ from: "/_signed-in" });
   return (
     <Show
-      when={readsUsage(session().membership)}
+      when={canReadUsage(session().membership)}
       fallback={
         <>
           <div class="head">
@@ -96,6 +94,11 @@ function Usage() {
           <p class="prose">
             Usage shows what the Organization's jobs cost. Only owners and admins can read it. Each
             Batch's page shows what that Batch has used.
+          </p>
+          <p>
+            <Link class="stands-alone" to="/batches">
+              Batches
+            </Link>
           </p>
         </>
       }
@@ -108,20 +111,22 @@ function Usage() {
 function GrantedUsage() {
   const search = Route.useSearch();
   const router = useRouter();
-  // The form stays mounted across questions, including errors. Observe the current read's
-  // timestamp and refusal here; the route loader and report own fetching.
+  // The form observes the shown report and its refusal. The loader and the report own fetching.
   const report = useQuery(() => ({ ...reportOptions(search()), enabled: false }));
-  const denied = () => problemOf(report.error)?.status === 403;
-  createEffect(denied, (lost) => {
-    if (lost) void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
-  });
+  const problem = () => problemOf(report.error);
+  createEffect(
+    () => problem()?.status === 403,
+    (lost) => {
+      if (lost) void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
+    },
+  );
   const failed = useChildMatches({
     select: (matches) =>
       matches.some((match) => match.status === "error" && !refusedReport(match.error)),
   });
   return (
     <Show
-      when={!denied()}
+      when={problem()?.status !== 403}
       fallback={
         <>
           <div class="head">
@@ -135,108 +140,146 @@ function GrantedUsage() {
         <div class="head">
           <h1>Usage</h1>
         </div>
-        <ReportForm readAt={report.dataUpdatedAt} />
+        <ReportForm
+          report={report.dataUpdatedAt ? report.data : undefined}
+          detail={problem()?.status === 400 ? problem()?.detail : undefined}
+        />
       </div>
       <Outlet />
     </Show>
   );
 }
 
-function ReportForm(props: { readAt: number }) {
+function ReportForm(props: { report?: UsageReport; detail?: string }) {
   const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const router = useRouter();
-  const client = useQueryClient();
+  const range = () => rangeOf(search());
   const grouping = () => usageGrouping(search().groupBy);
-  const [selectedRange, setRange] = createSignal(() => search().range);
-  const [group, setGroup] = createSignal<string>(() => grouping().by);
-  // Track each successful read so a tab left open into a new month refreshes its choices.
-  // A cached report may predate the month in which the form opens.
-  const [monthAt, setMonthAt] = createSignal(() => Math.max(props.readAt, Date.now()));
+  const [draftRange, setRange] = createSignal<string>();
+  const [draftGroup, setGroup] = createSignal<string>();
   const months = () => {
-    const now = new Date(monthAt());
-    const recent = Array.from({ length: 12 }, (_, i) =>
-      UTC_ISO_MONTH.format(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)),
-    );
-    const range = search().range;
-    return range && month.safeParse(range).success && !recent.includes(range)
-      ? [...recent, range]
-      : recent;
+    const anchor = new Date(props.report?.today ?? Date.now());
+    anchor.setUTCDate(1);
+    const recent = Array.from({ length: 12 }, () => {
+      const month = anchor.toISOString().slice(0, 7);
+      anchor.setUTCMonth(anchor.getUTCMonth() - 1);
+      return month;
+    });
+    const selected = range();
+    if (!["7d", "30d", "custom", ...recent].includes(selected)) recent.push(selected);
+    return recent;
   };
-  function show(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const selected = fieldText(data, "group");
-    const groupBy = usageGroupBySchema.parse(
-      selected === "label" ? `label:${fieldText(data, "labelKey")}` : selected,
-    );
-    const range = fieldText(data, "range");
-    const next = { range, groupBy };
-    if (range === search().range && groupBy === search().groupBy) {
-      const { queryKey } = reportOptions(next);
-      // An identical read already in flight can answer Show.
-      if (client.getQueryData(queryKey))
-        void client.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false });
-      // With no answer the route is showing its first-read error. Retry its loader.
-      else void router.invalidate();
-    } else {
-      void navigate({ search: next });
-    }
-  }
+  const { pending, onSubmit } = createSearchForm({
+    to: "/usage",
+    schema: searchSchema,
+    beforeSubmit(form) {
+      if (form.get("period") === "custom") form.delete("period");
+      if (form.get("groupBy") === "label")
+        form.set("groupBy", `label:${fieldText(form, "labelKey")}`);
+    },
+    queryKey: (input) => reportOptions(input).queryKey,
+    retryFirstRead: true,
+  });
+  let form: HTMLFormElement | undefined;
+  createEffect(search, () => form?.reset(), { defer: true });
+  const error = (name: string) => refusedField(props.detail, name);
+  const fieldAttrs = (name: string) => ({
+    "aria-invalid": error(name) ? ("true" as const) : undefined,
+    "aria-describedby": error(name) ? `usage-${name}-error` : undefined,
+  });
+  const fieldError = (name: string) => (
+    <Show when={error(name)}>
+      {(message) => <FieldError id={`usage-${name}-error`}>{message()}</FieldError>}
+    </Show>
+  );
   return (
-    <form class="filters" aria-label="Usage report" onSubmit={show}>
+    <form
+      ref={(el) => {
+        form = el;
+      }}
+      class="filters"
+      aria-label="Usage report"
+      onSubmit={onSubmit}
+      onReset={() => {
+        setRange(undefined);
+        setGroup(undefined);
+      }}
+    >
       <div class="filters-row">
         <div class="filter-field">
           <label for="usage-range">Range</label>
-          {/* Desktop Firefox 125 and Safari 17.5 have no month picker. One select works across the dashboard floor.
-          https://github.com/mdn/browser-compat-data/blob/main/html/elements/input/month.json */}
+          {/* Desktop Firefox 125 and Safari 17.5 have no month picker. */}
           <select
             id="usage-range"
-            name="range"
-            // Range may still have focus when the month changes, so update on pointer and key use too.
-            onFocus={() => setMonthAt(Date.now())}
-            onPointerDown={() => setMonthAt(Date.now())}
-            onKeyDown={() => setMonthAt(Date.now())}
-            value={selectedRange()}
+            name="period"
+            {...fieldAttrs("period")}
             onChange={({ currentTarget }) => setRange(currentTarget.value)}
           >
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-            <For each={months()}>
-              {(value) => <option value={value}>{rangeName(value)}</option>}
+            <For each={["7d", "30d", ...months(), "custom"]}>
+              {(value) => (
+                <option value={value} defaultSelected={value === range()}>
+                  {rangeName(value)}
+                </option>
+              )}
             </For>
           </select>
+          {fieldError("period")}
         </div>
+        <Show when={(draftRange() ?? range()) === "custom"}>
+          <For each={["from", "to"] as const}>
+            {(name) => (
+              <div class="filter-field">
+                <label for={`usage-${name}`}>{name === "from" ? "From" : "To"}</label>
+                <input
+                  type="date"
+                  name={name}
+                  id={`usage-${name}`}
+                  required={name === "from"}
+                  defaultValue={
+                    (draftRange() === "custom"
+                      ? (props.report?.[name] ?? search()[name])
+                      : search()[name]) ?? ""
+                  }
+                  {...fieldAttrs(name)}
+                />
+                {fieldError(name)}
+              </div>
+            )}
+          </For>
+        </Show>
         <div class="filter-field">
           <label for="usage-group">Grouped by</label>
           <select
             id="usage-group"
-            name="group"
-            value={group()}
+            name="groupBy"
             onChange={({ currentTarget }) => setGroup(currentTarget.value)}
           >
             {Object.entries(groupings).map(([value, words]) => (
-              <option value={value}>{words.option}</option>
+              <option value={value} defaultSelected={grouping().by === value}>
+                {words.option}
+              </option>
             ))}
           </select>
         </div>
-        <Show when={group() === "label"}>
+        <Show when={(draftGroup() ?? grouping().by) === "label"}>
           <div class="filter-field">
             <label for="usage-label">Label key</label>
             <input
-              class="mono"
               id="usage-label"
               name="labelKey"
-              required
-              value={grouping().labelKey ?? ""}
               pattern={LABEL_KEY_PATTERN.source}
               title="A Label name, optionally after a DNS prefix and /"
+              required
+              defaultValue={grouping().labelKey ?? ""}
+              {...fieldAttrs("groupBy")}
             />
+            {fieldError("groupBy")}
           </div>
         </Show>
-        <button type="submit" class="primary">
-          Show
-        </button>
+        <span class="filter-act">
+          <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+            Show
+          </button>
+        </span>
       </div>
     </form>
   );

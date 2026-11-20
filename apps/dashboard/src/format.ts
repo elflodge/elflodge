@@ -16,18 +16,6 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
 /** The local calendar date in the YYYY-MM-DD form HTML time elements take. */
 export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" });
 
-/** A report day as YYYY-MM-DD, independent of the reader's time zone. */
-export const UTC_ISO_DATE = new Intl.DateTimeFormat("sv-SE", {
-  timeZone: "UTC",
-  dateStyle: "short",
-});
-/** A Range option's value as YYYY-MM, on the same calendar as the report. */
-export const UTC_ISO_MONTH = new Intl.DateTimeFormat("sv-SE", {
-  timeZone: "UTC",
-  year: "numeric",
-  month: "2-digit",
-});
-
 /** A local creation day in the year of the read. */
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
 /** A local creation day outside the year of the read. */

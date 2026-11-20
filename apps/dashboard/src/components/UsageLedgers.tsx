@@ -3,11 +3,11 @@ import { Link } from "@tanstack/solid-router";
 import type { UsageGroup, UsageReport } from "contract";
 import { For, Repeat, Show, createMemo } from "solid-js";
 
-import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY, UTC_ISO_DATE } from "../format.ts";
+import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY } from "../format.ts";
 import { shortIds } from "../short-ids.ts";
 import { groupings, type usageGrouping } from "../usage-grouping.ts";
 import { JobSubmitter } from "./JobReferences.tsx";
-import { STATUS_WORDS } from "./JobStatus.tsx";
+import { JobStatus } from "./JobStatus.tsx";
 
 type Figures = Pick<UsageReport, "jobEnds" | "usage">;
 
@@ -20,17 +20,16 @@ function groupName(
   // A Batch cannot be deleted, so its recorded ID still opens its page.
   if ("batchId" in group)
     return (
-      <Link class="mono stands-alone" to="/batches/$id" params={{ id: group.batchId }}>
+      <Link
+        class="mono cut stands-alone"
+        title={group.batchId}
+        to="/batches/$id"
+        params={{ id: group.batchId }}
+      >
         {group.batchId}
       </Link>
     );
-  if ("status" in group)
-    return (
-      <span class={["status-word", `s-${group.status}`]}>
-        <span aria-hidden="true" class={["mark", `mark-${group.status}`]} />
-        {STATUS_WORDS[group.status]}
-      </span>
-    );
+  if ("status" in group) return <JobStatus status={group.status} lastRecorded={false} />;
   if ("labelValue" in group)
     return group.labelValue === null ? (
       <>
@@ -48,7 +47,12 @@ function groupName(
         {group.runner.name === undefined ? (
           "A Runner since removed"
         ) : (
-          <Link class="mono stands-alone" to="/runners" hash={group.runner.id}>
+          <Link
+            class="mono cut stands-alone"
+            title={group.runner.name}
+            to="/runners"
+            hash={group.runner.id}
+          >
             {group.runner.name}
           </Link>
         )}{" "}
@@ -77,7 +81,7 @@ function groupName(
   );
 }
 
-function FigureCells(props: { figures: Figures; largest?: number; today?: boolean }) {
+function FigureCells(props: { figures: Figures; largest?: number }) {
   return (
     <>
       <td class="num">{formatCount(props.figures.jobEnds)}</td>
@@ -89,7 +93,6 @@ function FigureCells(props: { figures: Figures; largest?: number; today?: boolea
             min={0}
             max={props.largest}
             value={props.figures.usage.cost.totalUsd}
-            class={{ "is-filling": props.today }}
             aria-label="Cost against the largest row"
           />
         </Show>
@@ -127,7 +130,7 @@ function Ledger(props: {
               Cost <span class="unit">USD, est.</span>
             </th>
             <th scope="col" class="bar-cell">
-              <span class="vh">Cost, as a bar against the largest row</span>
+              Against the largest
             </th>
           </tr>
         </thead>
@@ -167,7 +170,6 @@ function Ledger(props: {
 export function UsageLedgers(props: {
   grouping: ReturnType<typeof usageGrouping>;
   report?: UsageReport;
-  readAt?: number;
 }) {
   const dayCount = () => props.report?.days.length ?? 0;
   const label = () => props.grouping.labelKey;
@@ -184,7 +186,7 @@ export function UsageLedgers(props: {
       ),
     ),
   );
-  const today = () => (props.readAt === undefined ? undefined : UTC_ISO_DATE.format(props.readAt));
+  // Only the visual scale compares days here. Every printed figure comes from the report.
   const largestDay = createMemo(() =>
     Math.max(0, ...(props.report?.days ?? []).map((day) => day.usage.cost.totalUsd)),
   );
@@ -239,7 +241,7 @@ export function UsageLedgers(props: {
         <For each={props.report?.days}>
           {(day) => {
             const date = () => new Date(day.date);
-            const soFar = () => day.date === props.report?.to && day.date === today();
+            const soFar = () => day.date === props.report?.today;
             return (
               <tr class={{ "is-last-day-of-week": date().getUTCDay() === 0 }}>
                 <th scope="row">
@@ -252,7 +254,7 @@ export function UsageLedgers(props: {
                     <span class="unit">so far</span>
                   </Show>
                 </th>
-                <FigureCells figures={day} largest={largestDay()} today={soFar()} />
+                <FigureCells figures={day} largest={largestDay()} />
               </tr>
             );
           }}

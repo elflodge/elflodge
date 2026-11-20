@@ -3,7 +3,7 @@ import { Show } from "solid-js";
 
 import { FallbackPage } from "../../components/FallbackPage.tsx";
 import { Notice } from "../../components/Notice.tsx";
-import { canManageKeys, readsUsage } from "../../permissions.ts";
+import { canManageKeys, canReadUsage } from "../../permissions.ts";
 
 // The pages about the Organization. A member removed from it keeps their session, and with it their
 // password, which they can still change; these pages are no longer theirs.
@@ -12,8 +12,8 @@ export const Route = createFileRoute("/_signed-in/_member")({
     const member = membership.status === "member" ? membership : undefined;
     return {
       member,
-      managesKeys: member !== undefined && canManageKeys(member.role),
-      readsUsage: readsUsage(membership),
+      managesKeys: canManageKeys(membership),
+      readsUsage: canReadUsage(membership),
     };
   },
   component: Member,

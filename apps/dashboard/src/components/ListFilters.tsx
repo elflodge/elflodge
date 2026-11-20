@@ -1,15 +1,13 @@
-import { parseFormData } from "@orpc/openapi/helpers";
 import type { JSX } from "@solidjs/web";
-import { useQueryClient, type QueryKey } from "@tanstack/solid-query";
-import { Link, deepEqual, linkOptions, trimPathRight, useRouter } from "@tanstack/solid-router";
+import type { QueryKey } from "@tanstack/solid-query";
+import { Link } from "@tanstack/solid-router";
 import { For, Show, createEffect, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
-import { createFormAction, focusIfLost, focusAfterLinkDrops } from "../form.ts";
+import { focusIfLost, focusAfterLinkDrops } from "../form.ts";
 import { formatCount } from "../format.ts";
 import { listPages } from "../list-pages.ts";
-
-export const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undefined);
+import { createSearchForm } from "../search-form.ts";
 
 // One checked status is a scalar. Equal sets in any URL order share one list read.
 export function statusFilter<T extends string>(status: z.ZodMiniType<T> & { options: T[] }) {
@@ -100,8 +98,6 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
   firstRow: JSX.Element;
   children: JSX.Element;
 }) {
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const id = () => listPages[props.to].filters;
   const [open, setOpen] = createSignal(false);
 
@@ -110,27 +106,14 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
     onFlush(() => setOpen(false));
   }
 
-  const { pending, onSubmit } = createFormAction((element) => {
-    const form = new FormData(element);
-    closePanel();
-    filterFocusTarget(props.to)?.focus();
-    const search = props.schema.parse(parseFormData(form));
-    const destination = linkOptions({ to: props.to, search });
-    const current = router.latestLocation;
-    const next = router.buildLocation(destination);
-    // The current location holds URL values: one status is text and a page cursor is still present.
-    if (
-      trimPathRight(current.pathname) === trimPathRight(next.pathname) &&
-      deepEqual(props.schema.parse(current.search), next.search)
-    ) {
-      // The router loads an unchanged location inside the Solid action, which can hold the commit
-      // navigation is waiting for. Apply here only needs to refresh the displayed list.
-      return queryClient.invalidateQueries({
-        queryKey: props.queryKey(search),
-        exact: true,
-      });
-    }
-    return router.navigate(destination);
+  const { pending, onSubmit } = createSearchForm({
+    to: props.to,
+    schema: props.schema,
+    queryKey: props.queryKey,
+    beforeSubmit() {
+      closePanel();
+      filterFocusTarget(props.to)?.focus();
+    },
   });
 
   // Defaults follow the address. Reset edits only when the applied filters change.
