@@ -55,7 +55,7 @@ With no class at all:
 - **Links** are underlined at rest in a quieter tint of their colour, and at full strength under the pointer or the keyboard. Focus everywhere is a 2px ring.
 - **Tables** are ruled: a hairline under each row, a one-line row 30px tall, small quiet column heads, a double rule above a `tfoot`.
 - **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
-- **Buttons** are paper with an edge; a disabled one is greyed. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
+- **Buttons** are paper with an edge. Disabled buttons are greyed. A pending submit button uses `aria-disabled` and keeps its keyboard focus ring. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
 - **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
 - **`dialog`** and **`[popover]`** are paper with an edge and a shadow.
 
@@ -91,7 +91,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
       <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
       <ul class="pop-list">
         <li><Link to="/change-password">Change password</Link></li>
-        <li><form onSubmit={signOut}><button type="submit" class="quiet" disabled={pending()}>Sign out</button></form></li>
+        <li><form onSubmit={signOut}><button type="submit" class="quiet" aria-disabled={pending() ? "true" : undefined}>Sign out</button></form></li>
       </ul>
     </div>
   </div>
@@ -250,7 +250,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling the focused button or field moved focus to the body, the form returns focus to that control when the action settles, unless a field was refused or focus has moved elsewhere.
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere. See [MDN’s focusable submit button example](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-disabled#description) and [React Aria’s pending button](https://react-aria.adobe.com/Button#pending).
 
 ```tsx
 <div class="field">

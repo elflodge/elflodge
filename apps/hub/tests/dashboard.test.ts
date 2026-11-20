@@ -122,7 +122,7 @@ test("a request with neither a session nor a key is told how to authenticate", a
   expect(response.headers.get("www-authenticate")).not.toBeNull();
 });
 
-test("sign-in allows keyboard retry, stays disabled during navigation and discards an off-site redirect", async () => {
+test("sign-in allows keyboard retry, takes only one submit during navigation and discards an off-site redirect", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   const member = await newMember(system, "Keyboard Reader");
@@ -143,16 +143,23 @@ test("sign-in allows keyboard retry, stays disabled during navigation and discar
     await release.promise;
     await route.continue();
   });
+  let submissions = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/sign-in/email") submissions++;
+  });
   const reading = page.waitForRequest("**/api/auth/get-session");
   await password.fill(member.password);
   await submit.click();
   try {
     await reading;
-    await expectBrowser(submit).toBeDisabled();
+    await expectBrowser(submit).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Enter");
+    await page.locator("form").evaluate((form) => form.requestSubmit());
   } finally {
     release.resolve();
   }
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
+  expect(submissions).toBe(1);
 }, 30_000);
 
 test("in a browser, the bar leads to the dashboard's pages", async () => {

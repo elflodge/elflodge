@@ -160,7 +160,11 @@ function SignedIn() {
               </li>
               <li>
                 <form onSubmit={signOut}>
-                  <button type="submit" class="quiet" disabled={pending()}>
+                  <button
+                    type="submit"
+                    class="quiet"
+                    aria-disabled={pending() ? "true" : undefined}
+                  >
                     Sign out
                   </button>
                 </form>

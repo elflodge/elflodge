@@ -29,7 +29,7 @@
   border-color: var(--brand-shape);
 }
 @media (hover: hover) {
-  .primary:hover:not(:disabled) {
+  .primary:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--c-primary-hover);
   }
 }
@@ -42,14 +42,14 @@
   color: var(--c-failed);
   border-color: currentColor;
 }
-.danger.is-fill:not(:disabled) {
+.danger.is-fill:not(:disabled, [aria-disabled="true"]) {
   background: var(--c-failed);
   color: var(--c-paper);
   border-color: var(--c-failed);
 }
 /* Hover moves the fill toward the ink, darker in light and lighter in dark. */
 @media (hover: hover) {
-  .danger.is-fill:hover:not(:disabled) {
+  .danger.is-fill:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--c-danger-hover);
   }
 }

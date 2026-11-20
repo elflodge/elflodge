@@ -339,7 +339,7 @@ function AcceptInvitation(props: {
           </p>
           <form class="fields" onSubmit={onSubmit}>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
-            <button type="submit" disabled={pending()}>
+            <button type="submit" aria-disabled={pending() ? "true" : undefined}>
               Sign out to use it
             </button>
           </form>
@@ -399,7 +399,7 @@ function AcceptInvitation(props: {
               </div>
             </Show>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
-            <button type="submit" class="primary" disabled={pending()}>
+            <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
               {session() ? join() : "Create account and join"}
             </button>
           </form>
