@@ -424,13 +424,17 @@
 /* ---------- Notes and field errors: small lines explaining a part or a refused field ---------- */
 .note,
 .field-error {
-  display: flex;
-  gap: var(--space-1);
-  align-items: baseline;
   font-size: var(--text-xs);
 }
 .note {
+  display: block;
   color: var(--c-ink-2);
+}
+.note:has(> .mark),
+.field-error {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
 }
 /* Why the hub refused what a field holds, under the field, which names it with aria-describedby. */
 .field-error {
@@ -1668,13 +1672,6 @@ p mark.placeholder {
 .job-status .beside .mark {
   margin-right: var(--space-1);
 }
-.job-status .note,
-.limit .note,
-.activity .note,
-.output-or-failure .note,
-.job-controls .note {
-  display: block;
-}
 .job-status .note {
   max-width: var(--measure);
 }
@@ -1686,7 +1683,6 @@ p mark.placeholder {
   align-items: flex-start;
 }
 .job-controls ~ .note {
-  display: block;
   margin-top: var(--space-1);
   max-width: var(--measure);
   overflow-wrap: anywhere;
