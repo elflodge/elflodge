@@ -603,13 +603,16 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 /** The most days one read of usage covers. */
 export const MAX_USAGE_DAYS = 400;
 
+const usageDaysPattern = new RegExp(`^([1-9][0-9]{0,${String(MAX_USAGE_DAYS).length - 1}})d$`);
+const usageMonthPattern = /^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
+
 /** Read a rolling number of UTC days or a calendar month in the wire format of `period`. */
 export function parseUsagePeriod(value: string) {
-  const days = /^([1-9]\d*)d$/.exec(value);
+  const days = usageDaysPattern.exec(value);
   if (days) {
     const count = Number(days[1]);
     if (count <= MAX_USAGE_DAYS) return { kind: "days" as const, days: count };
-  } else if (/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/.test(value)) {
+  } else if (usageMonthPattern.test(value) && !value.startsWith("0000")) {
     return { kind: "month" as const, month: value };
   }
   return undefined;
@@ -621,6 +624,7 @@ export const usagePeriodSchema = z.string().check(
   z.refine((value) => parseUsagePeriod(value) !== undefined, {
     error: USAGE_PERIOD_ERROR,
   }),
+  z.meta({ anyOf: [{ pattern: usageDaysPattern.source }, { pattern: usageMonthPattern.source }] }),
 );
 
 /** A calendar day, as `YYYY-MM-DD`. */
@@ -639,6 +643,9 @@ export const usageGroupBySchema = z.union(
   { error: "Must be `batch`, `submitter`, `runner`, `status` or `label:` and a label key" },
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
+
+// A shared address can supply any query text or repeat the key. Only validated groupings reach the handler.
+const requestedGrouping: z.ZodMiniType<UsageGroupBy, string | string[]> = usageGroupBySchema;
 
 /** Job ends and the usage they account for in a window, day or group. */
 const usageCountSchema = z.object({
@@ -1404,7 +1411,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
             ),
           ),
           groupBy: z.optional(
-            usageGroupBySchema.check(
+            requestedGrouping.check(
               z.describe(
                 "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),

@@ -1,4 +1,5 @@
-import type { UsageGroupBy } from "contract";
+import { usageGroupBySchema, type UsageGroupBy } from "contract";
+import * as z from "zod/mini";
 
 export const groupings = {
   batch: { option: "Batch", heading: "By Batch", column: "Batch", one: "Batch", many: "Batches" },
@@ -36,8 +37,14 @@ function byLabel(by: UsageGroupBy): by is `label:${string}` {
   return by.startsWith("label:");
 }
 
+// A Label address can carry a key the hub will refuse. Keep it available for correction.
+const displayedGrouping = z.union([usageGroupBySchema, z.templateLiteral(["label:", z.string()])]);
+
 /** The form and ledger use the same grouping; only a Label grouping also names a key. */
-export function usageGrouping(by: UsageGroupBy) {
+export function usageGrouping(value: string | string[]) {
+  const result = displayedGrouping.safeParse(value);
+  if (!result.success) return undefined;
+  const by = result.data;
   return byLabel(by)
     ? { by: "label" as const, labelKey: by.slice("label:".length) }
     : { by, labelKey: undefined };

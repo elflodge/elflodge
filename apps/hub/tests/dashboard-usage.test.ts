@@ -4,7 +4,7 @@ import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
-import { OWNER, protocolClient, startSystem, untilStatus } from "./harness.ts";
+import { OWNER, protocolClient, startSystem } from "./harness.ts";
 
 const system = startSystem();
 let browser: Browser;
@@ -62,7 +62,6 @@ beforeAll(async () => {
           10_000,
         );
         expect(report.refused).toEqual([]);
-        await untilStatus(owner, added.job.id, "succeeded");
       } finally {
         socket.close();
       }
@@ -195,12 +194,16 @@ test("west of UTC a job end keeps its UTC calendar day and weekday", async () =>
 test("a member can correct a refused range and leave the end open through today", async () => {
   const page = await newPage();
   await signInAt(system, page, "usage?period=7d", OWNER);
-  const report = await system.owner().usage.get({ period: "7d" });
+  const days = page.getByRole("table", { name: "By day" }).locator("tbody time");
+  await expectBrowser(days).toHaveCount(7);
+  const first = await days.first().getAttribute("datetime");
+  const last = await days.last().getAttribute("datetime");
+  if (!first || !last) throw new Error("The report has no dated window");
   await page.getByLabel("Range").selectOption("custom");
   const from = page.getByLabel("From", { exact: true });
   const to = page.getByLabel("To", { exact: true });
-  await expectBrowser(from).toHaveValue(report.from);
-  await expectBrowser(to).toHaveValue(report.to);
+  await expectBrowser(from).toHaveValue(first);
+  await expectBrowser(to).toHaveValue(last);
   await from.fill("2000-01-01");
   await to.fill("");
   const show = page.getByRole("button", { name: "Show", exact: true });
@@ -211,11 +214,15 @@ test("a member can correct a refused range and leave the end open through today"
     "Choose at most 400 days, counting both From and To.",
   );
   await expectBrowser(page.getByRole("alert")).toHaveCount(0);
-  await from.fill(report.today);
+  await from.fill(first);
+  const read = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/usage" && url.searchParams.get("from") === first && response.ok();
+  });
   await show.click();
-  await expectBrowser(page.getByRole("table", { name: "By day" }).locator("tbody tr")).toHaveCount(
-    1,
-  );
+  const answer = await (await read).json();
+  await expectBrowser(days).toHaveCount(answer.days.length);
+  await expectBrowser(days.last()).toHaveAttribute("datetime", answer.today);
   await expectBrowser(page.locator(".report-range")).toContainText("(UTC) so far.");
   expect(new URL(page.url()).searchParams.has("to")).toBe(false);
 }, 30_000);

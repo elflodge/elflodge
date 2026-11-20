@@ -11,7 +11,6 @@ import {
 import {
   LABEL_KEY_PATTERN,
   problemOf,
-  usageGroupBySchema,
   MAX_USAGE_DAYS,
   parseUsagePeriod,
   type UsageReport,
@@ -33,17 +32,27 @@ const searchSchema = z.object({
   period: optionalText,
   from: optionalText,
   to: optionalText,
-  // A Label key in a shared address may never have passed the form’s native validation.
-  groupBy: z._default(
-    z.catch(z.union([usageGroupBySchema, z.templateLiteral(["label:", z.string()])]), "batch"),
-    "batch",
-  ),
+  groupBy: z._default(z.union([z.string(), z.array(z.string())]), reportDefaults.groupBy),
 });
 type UsageSearch = z.infer<typeof searchSchema>;
 
 export const Route = createFileRoute("/_signed-in/_member/usage")({
   validateSearch: searchSchema,
-  search: { middlewares: [stripSearchParams({ groupBy: reportDefaults.groupBy })] },
+  search: {
+    middlewares: [
+      ({ search, next, meta }) => {
+        const destination = next(search);
+        // A period beside either date is a conflicting request, including an explicit 30d.
+        const defaults =
+          destination.from || destination.to ? { groupBy: reportDefaults.groupBy } : reportDefaults;
+        return stripSearchParams<typeof destination>(defaults)({
+          search: destination,
+          next: (value) => value,
+          meta,
+        });
+      },
+    ],
+  },
   component: Usage,
 });
 
@@ -177,7 +186,11 @@ function ReportForm(props: { report?: UsageReport }) {
         props.report?.from === form.get("from")
       )
         form.delete("from");
-      if (form.get("groupBy") === "label")
+      if (form.get("groupBy") === "") {
+        const asked = search().groupBy;
+        form.delete("groupBy");
+        for (const value of Array.isArray(asked) ? asked : [asked]) form.append("groupBy", value);
+      } else if (form.get("groupBy") === "label")
         form.set("groupBy", `label:${fieldText(form, "labelKey")}`);
     },
     queryKey: (input) => reportOptions(input).queryKey,
@@ -194,19 +207,23 @@ function ReportForm(props: { report?: UsageReport }) {
     },
     { defer: true },
   );
+  function dateValue(name: "from" | "to") {
+    if (draftRange() === "custom") return props.report?.[name] ?? search()[name] ?? "";
+    return search()[name] ?? (name === "from" ? props.report?.from : undefined) ?? "";
+  }
   function checkWindow(element: HTMLFormElement) {
     const from = element.elements.namedItem("from");
     const to = element.elements.namedItem("to");
     if (!(from instanceof HTMLInputElement) || !(to instanceof HTMLInputElement)) return;
-    const end = to.value || props.report?.today;
-    const days = end ? (Date.parse(end) - from.valueAsNumber) / 86_400_000 + 1 : NaN;
+    to.min = from.value;
+    // Without a shown report we cannot tell whether the hub will cap To at its UTC today.
+    const today = props.report?.today;
+    const end = today ? Math.min(Date.parse(today), to.value ? to.valueAsNumber : Infinity) : NaN;
+    const days = (end - from.valueAsNumber) / 86_400_000 + 1;
     from.setCustomValidity(
       days > MAX_USAGE_DAYS
         ? `Choose at most ${MAX_USAGE_DAYS} days, counting both From and To.`
         : "",
-    );
-    to.setCustomValidity(
-      to.valueAsNumber < from.valueAsNumber ? "To must be on or after From." : "",
     );
   }
   return (
@@ -255,12 +272,8 @@ function ReportForm(props: { report?: UsageReport }) {
                   name={name}
                   id={`usage-${name}`}
                   required={name === "from"}
-                  defaultValue={
-                    (draftRange() === "custom"
-                      ? (props.report?.[name] ?? search()[name])
-                      : (search()[name] ?? (name === "from" ? props.report?.from : undefined))) ??
-                    ""
-                  }
+                  min={name === "to" ? dateValue("from") : undefined}
+                  defaultValue={dateValue(name)}
                 />
               </div>
             )}
@@ -273,14 +286,19 @@ function ReportForm(props: { report?: UsageReport }) {
             name="groupBy"
             onChange={({ currentTarget }) => setGroup(currentTarget.value)}
           >
+            <Show when={!grouping()}>
+              <option value="" defaultSelected>
+                {String(search().groupBy) || "Empty grouping"}
+              </option>
+            </Show>
             {Object.entries(groupings).map(([value, words]) => (
-              <option value={value} defaultSelected={grouping().by === value}>
+              <option value={value} defaultSelected={grouping()?.by === value}>
                 {words.option}
               </option>
             ))}
           </select>
         </div>
-        <Show when={(draftGroup() ?? grouping().by) === "label"}>
+        <Show when={(draftGroup() ?? grouping()?.by) === "label"}>
           <div class="filter-field">
             <label for="usage-label">Label key</label>
             <input
@@ -289,7 +307,7 @@ function ReportForm(props: { report?: UsageReport }) {
               pattern={LABEL_KEY_PATTERN.source}
               title="A Label name, optionally after a DNS prefix and /"
               required
-              defaultValue={grouping().labelKey ?? ""}
+              defaultValue={grouping()?.labelKey ?? ""}
             />
           </div>
         </Show>

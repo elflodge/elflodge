@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
     const grouping = () => usageGrouping(search().groupBy);
     return (
       <>
-        <UsageLedgers grouping={grouping()} />
+        <Show when={grouping()}>{(group) => <UsageLedgers grouping={group()} />}</Show>
         <p class="vh" role="status">
           Loading Usage
         </p>
@@ -132,7 +132,9 @@ function Report() {
           </div>
         }
       >
-        <UsageLedgers report={query.data} grouping={grouping()} />
+        <Show when={grouping()}>
+          {(group) => <UsageLedgers report={query.data} grouping={group()} />}
+        </Show>
       </Show>
     </>
   );
