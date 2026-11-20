@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
 import { Show, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -37,8 +37,7 @@ export const Route = createFileRoute("/sign-in")({
 
 function SignIn() {
   const search = Route.useSearch();
-  const navigate = useNavigate();
-  const hash = useLocation({ select: (location) => location.hash });
+  const router = useRouter();
   const [error, setError] = createSignal<string>();
   const { pending, onSubmit } = createFormAction(async (element) => {
     const form = new FormData(element);
@@ -52,12 +51,20 @@ function SignIn() {
       return;
     }
     const target = search().redirect;
-    // An invitation stays in the fragment through sign-in, outside request URLs and referrers.
-    if (target === "/invitation") {
-      await navigate({ to: "/invitation", hash: hash() });
+    if (!target) {
+      await router.navigate({ to: "/" });
       return;
     }
-    await (target === undefined ? navigate({ to: "/" }) : navigate({ href: target }));
+    // A return address can have its own query and fragment. Otherwise keep the fragment the
+    // sign-in link carried separately, outside the HTTP request.
+    const destination = router.parseLocation(
+      Object.assign(new URL(target, location.origin), { state: router.history.location.state }),
+    );
+    await router.navigate({
+      to: destination.pathname,
+      search: destination.search,
+      hash: destination.hash || true,
+    });
   });
 
   return (

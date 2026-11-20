@@ -1,4 +1,4 @@
-import type { Browser } from "playwright";
+import type { Browser, Request } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
@@ -43,6 +43,10 @@ test("a new invitee creates an account and lands signed in as a member", async (
   await expectBrowser(page).toHaveURL(system.origin + "/dashboard/");
   await expectBrowser(page.getByRole("heading", { name: "Connected to your hub" })).toBeVisible();
   await expectBrowser(page.getByRole("button", { name: "Lucia" })).toBeVisible();
+
+  await page.goBack();
+  await expectBrowser(page.getByText(/^This invitation is no longer available/)).toBeVisible();
+  await expectBrowser(page.getByRole("link", { name: "Go to the dashboard" })).toBeVisible();
 }, 30_000);
 
 test("a returning invitee can sign in through a private link and choose when to rejoin", async () => {
@@ -54,8 +58,8 @@ test("a returning invitee can sign in through a private link and choose when to 
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   // A reload on the sign-in page must keep the invitation out of request URLs and referrers.
-  const requests: string[] = [];
-  page.on("request", (request) => requests.push(request.url(), request.headers().referer ?? ""));
+  const requests: Request[] = [];
+  page.on("request", (request) => requests.push(request));
 
   await page.goto(link.href);
   await page.getByLabel("Your name").fill("Returning member");
@@ -72,5 +76,8 @@ test("a returning invitee can sign in through a private link and choose when to 
   await expectBrowser(page).toHaveURL(link.href);
   await page.getByRole("button", { name: "Join Organization" }).click();
   await expectBrowser(page.getByRole("heading", { name: "Connected to your hub" })).toBeVisible();
-  expect(requests.map((url) => url.split("#")[0]).join("\n")).not.toContain(link.hash.slice(1));
+  for (const request of requests) {
+    expect(request.url()).not.toContain(link.hash.slice(1));
+    expect((await request.headerValue("referer")) ?? "").not.toContain(link.hash.slice(1));
+  }
 }, 30_000);
