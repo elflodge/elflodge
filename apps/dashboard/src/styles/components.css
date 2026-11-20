@@ -998,6 +998,10 @@ p mark.placeholder {
 .beside.is-unknown .mark {
   color: var(--c-unknown);
 }
+.condition-detail {
+  display: block;
+  color: var(--c-ink-2);
+}
 /* Why a job failed, as the hub names it. */
 .beside code {
   color: var(--c-failed);
@@ -1145,6 +1149,7 @@ p mark.placeholder {
 .c-labels .labels {
   font-size: var(--text-xs);
 }
+.job-list td.c-tokens,
 .job-list td.c-cost {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1192,7 +1197,7 @@ p mark.placeholder {
 }
 /* Each tier adds the visible --jobs-* widths and 15.375rem for the Job name. Container
    conditions cannot use var(). A column at zero width still counts in the day heading’s span. */
-@container job-list (width < 97.25rem) {
+@container job-list (width < 97.375rem) {
   .job-list .c-submitter > .cell-line {
     display: none;
   }
@@ -1203,15 +1208,17 @@ p mark.placeholder {
     visibility: hidden;
   }
 }
-@container job-list (width < 86.75rem) {
+@container job-list (width < 86.875rem) {
   .job-list :is(th, td).c-tokens {
+    /* Wrapping inside a hidden cell would still increase the row height. */
+    white-space: nowrap;
     width: 0;
     padding: 0;
     overflow: hidden;
     visibility: hidden;
   }
 }
-@container job-list (width < 82rem) {
+@container job-list (width < 81.875rem) {
   .job-list :is(th, td).c-labels {
     width: 0;
     padding: 0;
@@ -1223,7 +1230,7 @@ p mark.placeholder {
 /* Two lines a job. Line 1: its status and name. Line 2: what stands beside its status, its Batch, its time, its cost.
    The row is a wrapping flex line; its ::before, a full-width item between the two, breaks it.
  */
-@container job-list (width < 74.125rem) {
+@container job-list (width < 73.625rem) {
   .job-list,
   .job-list tbody {
     display: block;
@@ -1289,6 +1296,9 @@ p mark.placeholder {
     flex-direction: column;
     white-space: normal;
   }
+  .condition-detail time {
+    white-space: normal;
+  }
   .job-list tr.job-row > td.c-batch {
     flex: 1 1 0;
   }
@@ -1348,7 +1358,7 @@ p mark.placeholder {
 }
 /* Each line is at least 44px on touch. */
 @media (max-width: 640px), (pointer: coarse) {
-  @container job-list (width < 74.125rem) {
+  @container job-list (width < 73.625rem) {
     .job-list tr.job-row {
       padding: 0;
       align-items: center;
@@ -1365,7 +1375,7 @@ p mark.placeholder {
 }
 /* Coarse pointers keep the same line height on wide screens. */
 @media (pointer: coarse) {
-  @container job-list (width >= 74.125rem) {
+  @container job-list (width >= 73.625rem) {
     .job-list tr.job-row > td {
       height: var(--control-touch);
       vertical-align: middle;

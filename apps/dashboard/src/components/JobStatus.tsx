@@ -2,6 +2,7 @@ import type { BlockedBy, Job, JobStatus as Status, ListedJob, StatusUnknownReaso
 import { Show } from "solid-js";
 
 import { FULL } from "../format.ts";
+import { Instant } from "./Instant.tsx";
 
 /** Each status's word, as a job's status and a filter by it say it. */
 export const STATUS_WORDS: Record<Status, string> = {
@@ -59,7 +60,9 @@ export function BesideStatus(props: { job: ListedJob | Job }) {
             title={`${UNKNOWN_WORDS[unknown().reason]}, since ${FULL.format(unknown().since)}`}
           >
             <span class="mark mark-unknown" aria-hidden="true" />
-            Status unknown<span class="vh">: {UNKNOWN_WORDS[unknown().reason]}</span>
+            <span>
+              Status unknown<span class="condition-detail">{UNKNOWN_WORDS[unknown().reason]}</span>
+            </span>
           </span>
         )}
       </Show>
@@ -67,7 +70,12 @@ export function BesideStatus(props: { job: ListedJob | Job }) {
         {(control) => (
           <span class="beside" title={`Asked ${FULL.format(control().requestedAt)}`}>
             <span class="mark mark-pending" aria-hidden="true" />
-            {CONTROL_WORDS[control().type]}
+            <span>
+              {CONTROL_WORDS[control().type]}
+              <span class="condition-detail">
+                <Instant value={control().requestedAt} />
+              </span>
+            </span>
           </span>
         )}
       </Show>
