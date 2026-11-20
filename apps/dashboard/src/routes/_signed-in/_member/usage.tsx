@@ -1,47 +1,47 @@
-import { useQueryClient } from "@tanstack/solid-query";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
   Outlet,
   createFileRoute,
   useChildMatches,
-  useLoaderData,
+  stripSearchParams,
   useRouter,
 } from "@tanstack/solid-router";
-import { problemOf, usageGroupBySchema } from "contract";
-import { For, Show, createSignal } from "solid-js";
+import { LABEL_KEY_PATTERN, problemOf, usageGroupBySchema } from "contract";
+import { For, Show, createSignal, createEffect } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError } from "../../../api-client.ts";
+import { Notice } from "../../../components/Notice.tsx";
 import { fieldText } from "../../../form.ts";
-import { UTC_MONTH } from "../../../format.ts";
-import { canReadUsage } from "../../../permissions.ts";
+import { UTC_MONTH, UTC_ISO_DATE, UTC_ISO_MONTH } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
+import { groupings, usageGrouping } from "../../../usage-grouping.ts";
 
 const month = z.string().check(z.regex(/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/));
+export const reportDefaults = { range: "30d", groupBy: "batch" } as const;
 const searchSchema = z.object({
-  range: z.catch(z.optional(z.union([z.enum(["7d", "30d"]), month])), undefined),
-  groupBy: z.catch(z.optional(usageGroupBySchema), undefined),
+  range: z._default(
+    z.catch(z.union([z.enum(["7d", "30d"]), month]), reportDefaults.range),
+    reportDefaults.range,
+  ),
+  groupBy: z._default(z.catch(usageGroupBySchema, reportDefaults.groupBy), reportDefaults.groupBy),
 });
 type UsageSearch = z.infer<typeof searchSchema>;
 
 export const Route = createFileRoute("/_signed-in/_member/usage")({
   validateSearch: searchSchema,
+  search: { middlewares: [stripSearchParams(reportDefaults)] },
+  loaderDeps: ({ search }) => usageGrouping(search.groupBy),
   component: Usage,
 });
 
-const GROUPS = {
-  batch: "Batch",
-  submitter: "Submitter",
-  runner: "Runner",
-  status: "Status",
-  label: "Label",
-} as const;
-export function rangeName(range = "30d") {
+export function rangeName(range: string) {
   if (range === "30d") return "Last 30 days";
   if (range === "7d") return "Last 7 days";
   return UTC_MONTH.format(new Date(`${range}-01`));
 }
 
-export function reportOptions({ range = "30d", groupBy = "batch" }: UsageSearch) {
+export function reportOptions({ range, groupBy }: UsageSearch) {
   const usage = orpc.usage.get;
   if (range === "30d") return usage.queryOptions({ input: { groupBy } });
   if (range === "7d") {
@@ -52,16 +52,28 @@ export function reportOptions({ range = "30d", groupBy = "batch" }: UsageSearch)
       queryKey: [...usage.queryKey({ input: { groupBy } }), range],
       queryFn: ({ signal }) => {
         const start = new Date();
-        const to = start.toISOString().slice(0, 10);
+        const to = UTC_ISO_DATE.format(start);
         start.setUTCDate(start.getUTCDate() - 6);
-        return usage.call({ groupBy, from: start.toISOString().slice(0, 10), to }, { signal });
+        return usage.call({ groupBy, from: UTC_ISO_DATE.format(start), to }, { signal });
       },
     });
   }
   const from = `${range}-01`;
   const end = new Date(from);
   end.setUTCMonth(end.getUTCMonth() + 1, 0);
-  return usage.queryOptions({ input: { groupBy, from, to: end.toISOString().slice(0, 10) } });
+  // Intl writes years before 1000 without the leading zeroes the hub’s ISO date requires.
+  const input = { groupBy, from, to: UTC_ISO_DATE.format(end).padStart(10, "0") };
+  if (range < UTC_ISO_MONTH.format(new Date())) return usage.queryOptions({ input });
+  return usage.queryOptions({
+    input,
+    queryFn: ({ signal }) => {
+      const now = new Date();
+      return usage.call(
+        { ...input, to: UTC_ISO_MONTH.format(now) === range ? UTC_ISO_DATE.format(now) : input.to },
+        { signal },
+      );
+    },
+  });
 }
 
 export function refusedReport(error: unknown): error is HubReadError {
@@ -69,52 +81,77 @@ export function refusedReport(error: unknown): error is HubReadError {
 }
 
 function Usage() {
-  // The shell keeps its last completed session while a retry rebuilds route context.
-  const session = useLoaderData({ from: "/_signed-in" });
-  const readsUsage = () => {
-    const { membership } = session();
-    return membership.status === "member" && canReadUsage(membership.role);
-  };
+  const context = Route.useRouteContext();
+  return (
+    <Show
+      when={context().readsUsage}
+      fallback={
+        <>
+          <div class="head">
+            <h1>Usage</h1>
+          </div>
+          <p class="prose">
+            Usage shows what the Organization's jobs cost. Only owners and admins can read it. Each
+            Batch's page shows what that Batch has used.
+          </p>
+        </>
+      }
+    >
+      <GrantedUsage />
+    </Show>
+  );
+}
+
+function GrantedUsage() {
+  const search = Route.useSearch();
+  const router = useRouter();
+  // The form stays mounted across questions, including errors. Observe the current read's
+  // timestamp and refusal here; the route loader and report own fetching.
+  const report = useQuery(() => ({ ...reportOptions(search()), enabled: false }));
+  const denied = () => problemOf(report.error)?.status === 403;
+  createEffect(denied, (lost) => {
+    if (lost) void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
+  });
   const failed = useChildMatches({
     select: (matches) =>
       matches.some((match) => match.status === "error" && !refusedReport(match.error)),
   });
   return (
-    <>
+    <Show
+      when={!denied()}
+      fallback={
+        <>
+          <div class="head">
+            <h1>Usage</h1>
+          </div>
+          <Notice role="alert">{report.error?.message}</Notice>
+        </>
+      }
+    >
       <div hidden={failed()}>
         <div class="head">
           <h1>Usage</h1>
         </div>
-        <Show
-          when={readsUsage()}
-          fallback={
-            <p class="prose">
-              Usage shows what every Member's work cost. Only owners and admins see it. Ask one for
-              the figures you need.
-            </p>
-          }
-        >
-          <ReportForm />
-        </Show>
+        <ReportForm readAt={report.dataUpdatedAt} />
       </div>
-      <Show when={readsUsage()}>
-        <Outlet />
-      </Show>
-    </>
+      <Outlet />
+    </Show>
   );
 }
 
-function ReportForm() {
+function ReportForm(props: { readAt: number }) {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const client = useQueryClient();
-  const [selectedRange, setRange] = createSignal(() => search().range ?? "30d");
-  const [group, setGroup] = createSignal(() => search().groupBy?.split(":", 1)[0] ?? "batch");
+  const grouping = Route.useLoaderDeps();
+  const [selectedRange, setRange] = createSignal(() => search().range);
+  const [group, setGroup] = createSignal<string>(() => grouping().by);
+  const [monthAt, setMonthAt] = createSignal(() => Math.max(props.readAt, Date.now()));
   const months = () => {
-    const now = new Date();
+    const now = new Date(monthAt());
     const recent = Array.from({ length: 12 }, (_, i) =>
-      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 7),
+      UTC_ISO_MONTH.format(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)),
     );
     const range = search().range;
     return range && month.safeParse(range).success && !recent.includes(range)
@@ -129,14 +166,13 @@ function ReportForm() {
       selected === "label" ? `label:${fieldText(data, "labelKey")}` : selected,
     );
     const range = fieldText(data, "range");
-    const next = {
-      range: range === "30d" ? undefined : range,
-      groupBy: groupBy === "batch" ? undefined : groupBy,
-    };
-    if (range === (search().range ?? "30d") && groupBy === (search().groupBy ?? "batch")) {
+    const next = { range, groupBy };
+    if (range === search().range && groupBy === search().groupBy) {
       const { queryKey } = reportOptions(next);
+      // An identical read already in flight can answer Show.
       if (client.getQueryData(queryKey))
         void client.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false });
+      // With no answer the route is showing its first-read error. Retry its loader.
       else void router.invalidate();
     } else {
       void navigate({ search: next });
@@ -152,6 +188,9 @@ function ReportForm() {
           <select
             id="usage-range"
             name="range"
+            onFocus={() => setMonthAt(Date.now())}
+            onPointerDown={() => setMonthAt(Date.now())}
+            onKeyDown={() => setMonthAt(Date.now())}
             value={selectedRange()}
             onChange={({ currentTarget }) => setRange(currentTarget.value)}
           >
@@ -170,8 +209,8 @@ function ReportForm() {
             value={group()}
             onChange={({ currentTarget }) => setGroup(currentTarget.value)}
           >
-            {Object.entries(GROUPS).map(([value, name]) => (
-              <option value={value}>{name}</option>
+            {Object.entries(groupings).map(([value, words]) => (
+              <option value={value}>{words.option}</option>
             ))}
           </select>
         </div>
@@ -183,9 +222,8 @@ function ReportForm() {
               id="usage-label"
               name="labelKey"
               required
-              value={search().groupBy?.startsWith("label:") ? search().groupBy?.slice(6) : ""}
-              // HTML patterns use Unicode sets, so the contract’s literal hyphens are escaped.
-              pattern={String.raw`(?:(?=.{1,253}\/)[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[\-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?`}
+              value={grouping().labelKey ?? ""}
+              pattern={LABEL_KEY_PATTERN.source}
               title="A Label name, optionally after a DNS prefix and /"
             />
           </div>

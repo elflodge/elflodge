@@ -2209,19 +2209,19 @@ p mark.placeholder {
 .ledger + .note {
   display: block;
 }
-.ledger thead th:nth-child(3) {
+.ledger.by-share thead th:nth-child(3) {
   width: calc(var(--ledger-bar) + var(--space-3));
 }
 .ledger :is(th, td) {
   vertical-align: middle;
 }
 .ledger meter {
-  background: var(--c-ground-2);
+  background: var(--ledger-track, transparent);
 }
 .ledger meter::-webkit-meter-bar {
   border: 0;
   border-radius: 0;
-  background: var(--c-ground-2);
+  background: var(--ledger-track, transparent);
   height: 100%;
 }
 
@@ -2243,17 +2243,11 @@ p mark.placeholder {
 .ledger-layout .ledger th {
   overflow-wrap: anywhere;
 }
-.ledger-layout .ledger thead th:nth-child(3) {
-  width: auto;
-}
 .ledger-layout .bar-cell {
   width: var(--ledger-bar);
 }
-.ledger-layout .bar-cell meter {
-  background: transparent;
-}
-.ledger-layout .bar-cell meter::-webkit-meter-bar {
-  background: transparent;
+.ledger.by-cost .label-value {
+  white-space: pre-wrap;
 }
 .bar-cell meter::-webkit-meter-optimum-value {
   min-width: 1px;
@@ -2270,7 +2264,7 @@ p mark.placeholder {
 .day-name {
   color: var(--c-ink-2);
 }
-.ledger tr.is-week-end > * {
+.ledger tr.is-last-day-of-week > * {
   border-bottom: var(--rule-heavy) solid var(--c-ink-3);
 }
 .ledger-layout .ledger tfoot .num {

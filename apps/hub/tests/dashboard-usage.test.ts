@@ -97,14 +97,14 @@ test("a Label report reopens from its address with the chosen range and key", as
   await page.getByLabel("Label key").fill("customer");
   await page.getByRole("button", { name: "Show", exact: true }).click();
   const labels = page.getByRole("table", { name: "By the Label customer" });
-  await expectBrowser(labels.getByRole("rowheader")).toHaveText(["customer = Acme", "Total"]);
+  await expectBrowser(labels.getByRole("rowheader")).toHaveText(['"Acme"', "Total"]);
   await page.reload();
-  await expectBrowser(labels.getByRole("rowheader")).toHaveText(["customer = Acme", "Total"]);
+  await expectBrowser(labels.getByRole("rowheader")).toHaveText(['"Acme"', "Total"]);
   await expectBrowser(page.getByLabel("Label key")).toHaveValue("customer");
   await expectBrowser(page.getByLabel("Range")).toHaveValue("7d");
 }, 30_000);
 
-test("a member can find who to ask for usage without requesting the report", async () => {
+test("a member learns where to read Batch usage without requesting the report", async () => {
   const page = await newPage();
   const reads: string[] = [];
   page.on("request", (req) => {
@@ -112,9 +112,33 @@ test("a member can find who to ask for usage without requesting the report", asy
   });
   await signInAt(system, page, "change-password", await newMember(system, "Usage reader"));
   await page.getByRole("link", { name: "Usage", exact: true }).click();
-  await expectBrowser(page.getByText(/Only owners and admins see it/)).toBeVisible();
+  await expectBrowser(
+    page.getByText(/Each Batch's page shows what that Batch has used/),
+  ).toBeVisible();
   await expectBrowser(page.getByRole("form", { name: "Usage report" })).toHaveCount(0);
   expect(reads).toEqual([]);
+}, 30_000);
+
+test("an admin who loses the role sees the member page on the next Usage read", async () => {
+  const page = await newPage();
+  const account = await newMember(system, "Former admin");
+  const organization = system.ownerAuth().organization;
+  const [org] = await organization.list();
+  if (!org) throw new Error("The hub has no Organization");
+  const { members } = await organization.listMembers({ query: { organizationId: org.id } });
+  const member = members.find(({ user }) => user.email === account.email);
+  if (!member) throw new Error("The Organization has no such member");
+  const membership = { memberId: member.id, organizationId: org.id };
+  await organization.updateMemberRole({ ...membership, role: "admin" });
+  await signInAt(system, page, "usage", account);
+  await expectBrowser(page.getByRole("link", { name: "statements" })).toBeVisible();
+
+  await organization.updateMemberRole({ ...membership, role: "member" });
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await expectBrowser(
+    page.getByText(/Each Batch's page shows what that Batch has used/),
+  ).toBeVisible();
+  await expectBrowser(page.getByRole("table")).toHaveCount(0);
 }, 30_000);
 
 test("west of UTC a job end keeps its UTC calendar day and weekday", async () => {
@@ -131,9 +155,10 @@ test("west of UTC a job end keeps its UTC calendar day and weekday", async () =>
   })
     .format(new Date(day.date))
     .replace(",", "");
-  const cell = page.getByRole("table", { name: "By day" }).locator(`time[datetime="${day.date}"]`);
+  const daily = page.getByRole("table", { name: "By day" });
+  const cell = page.locator(`time[datetime="${day.date}"]`);
   await expectBrowser(cell).toHaveText(expected);
-  await expectBrowser(cell.locator("..").locator("..").getByRole("cell").first()).toHaveText(
-    String(day.jobEnds),
-  );
+  await expectBrowser(
+    daily.getByRole("row").filter({ has: cell }).getByRole("cell").first(),
+  ).toHaveText(String(day.jobEnds));
 }, 30_000);

@@ -1,21 +1,15 @@
 import type { JSX } from "@solidjs/web";
-import type { UsageGroup, UsageGroupBy, UsageReport } from "contract";
+import { Link } from "@tanstack/solid-router";
+import type { UsageGroup, UsageReport } from "contract";
 import { For, Repeat, Show, createMemo } from "solid-js";
 
-import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY } from "../format.ts";
+import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY, UTC_ISO_DATE } from "../format.ts";
 import { shortIds } from "../short-ids.ts";
+import { groupings, type usageGrouping } from "../usage-grouping.ts";
 import { JobSubmitter } from "./JobReferences.tsx";
 import { STATUS_WORDS } from "./JobStatus.tsx";
 
 type Figures = Pick<UsageReport, "jobEnds" | "usage">;
-
-const grouping = {
-  batch: { heading: "By Batch", column: "Batch", one: "Batch", many: "Batches" },
-  submitter: { heading: "By submitter", column: "Submitter", one: "submitter", many: "submitters" },
-  runner: { heading: "By Runner", column: "Runner", one: "Runner", many: "Runners" },
-  status: { heading: "By status", column: "Status", one: "status", many: "statuses" },
-  label: { heading: "By the Label", column: "Value of", one: "value", many: "values" },
-} as const;
 
 function groupName(
   group: UsageGroup,
@@ -23,7 +17,13 @@ function groupName(
   ids: Map<string, string>,
   label?: string,
 ) {
-  if ("batchId" in group) return <span class="mono">{group.batchId}</span>;
+  // A Batch cannot be deleted, so its recorded ID still opens its page.
+  if ("batchId" in group)
+    return (
+      <Link class="mono stands-alone" to="/batches/$id" params={{ id: group.batchId }}>
+        {group.batchId}
+      </Link>
+    );
   if ("status" in group)
     return (
       <span class={["status-word", `s-${group.status}`]}>
@@ -37,11 +37,9 @@ function groupName(
         Jobs without the Label <code>{label}</code>
       </>
     ) : (
-      <code>
-        <span class="lk">{label}</span> <span class="leq">=</span>{" "}
-        {group.labelValue === "" ? '""' : group.labelValue}
-      </code>
+      <code class="label-value">{JSON.stringify(group.labelValue)}</code>
     );
+  // A removed Runner has no record to link to: the hub gives its ID without a name.
   if ("runner" in group)
     return group.runner === null ? (
       "No Runner: ended before one started them"
@@ -50,7 +48,9 @@ function groupName(
         {group.runner.name === undefined ? (
           "A Runner since removed"
         ) : (
-          <span class="mono">{group.runner.name}</span>
+          <Link class="mono stands-alone" to="/runners" hash={group.runner.id}>
+            {group.runner.name}
+          </Link>
         )}{" "}
         <span class="sid" title={group.runner.id}>
           {ids.get(group.runner.id)}
@@ -109,7 +109,11 @@ function Ledger(props: {
   return (
     <section>
       <h2 id={props.id}>{props.heading}</h2>
-      <table class="ledger" aria-labelledby={props.id} aria-busy={props.total ? undefined : "true"}>
+      <table
+        class="ledger by-cost"
+        aria-labelledby={props.id}
+        aria-busy={props.total ? undefined : "true"}
+      >
         <thead>
           <tr>
             <th scope="col">{props.column}</th>
@@ -131,7 +135,7 @@ function Ledger(props: {
           <Show
             when={props.total}
             fallback={
-              <Repeat count={5}>
+              <Repeat count={8}>
                 {() => (
                   <tr aria-hidden="true">
                     <td colspan={5}>
@@ -161,17 +165,12 @@ function Ledger(props: {
 }
 
 export function UsageLedgers(props: {
-  groupBy: UsageGroupBy;
+  grouping: ReturnType<typeof usageGrouping>;
   report?: UsageReport;
   readAt?: number;
 }) {
-  const label = () => (props.groupBy.startsWith("label:") ? props.groupBy.slice(6) : undefined);
-  const words = () => {
-    const by = props.groupBy;
-    return by === "batch" || by === "submitter" || by === "runner" || by === "status"
-      ? grouping[by]
-      : grouping.label;
-  };
+  const label = () => props.grouping.labelKey;
+  const words = () => groupings[props.grouping.by];
   const groups = () => props.report?.groups ?? [];
   const ids = createMemo(() =>
     shortIds(
@@ -184,8 +183,7 @@ export function UsageLedgers(props: {
       ),
     ),
   );
-  const today = () =>
-    props.readAt === undefined ? undefined : new Date(props.readAt).toISOString().slice(0, 10);
+  const today = () => (props.readAt === undefined ? undefined : UTC_ISO_DATE.format(props.readAt));
   const largestDay = createMemo(() =>
     Math.max(0, ...(props.report?.days ?? []).map((day) => day.usage.cost.totalUsd)),
   );
@@ -242,7 +240,7 @@ export function UsageLedgers(props: {
             const date = () => new Date(day.date);
             const soFar = () => day.date === props.report?.to && day.date === today();
             return (
-              <tr class={{ "is-week-end": date().getUTCDay() === 0 }}>
+              <tr class={{ "is-last-day-of-week": date().getUTCDay() === 0 }}>
                 <th scope="row">
                   <time datetime={day.date}>
                     <span class="day-name">{UTC_WEEKDAY.format(date())}</span>{" "}

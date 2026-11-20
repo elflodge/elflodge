@@ -16,21 +16,36 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
 /** The local calendar date in the YYYY-MM-DD form HTML time elements take. */
 export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" });
 
+/** A report day as YYYY-MM-DD, independent of the reader's time zone. */
+export const UTC_ISO_DATE = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "UTC",
+  dateStyle: "short",
+});
+/** A Range option's value as YYYY-MM, on the same calendar as the report. */
+export const UTC_ISO_MONTH = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "2-digit",
+});
+
 /** A local creation day in the year of the read. */
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
 /** A local creation day outside the year of the read. */
 export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
-// Usage days are dated by the hub in UTC, including for a reader west of midnight.
+/** A Usage day, such as “19 Nov”, dated by the hub in UTC. */
 export const UTC_DAY = new Intl.DateTimeFormat(LANGUAGE, {
   timeZone: "UTC",
   day: "numeric",
   month: "short",
 });
+/** A UTC day with its year, for a report outside the year of the read. */
 export const UTC_DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, {
   timeZone: "UTC",
   dateStyle: "medium",
 });
+/** The short weekday of a Usage day in UTC. */
 export const UTC_WEEKDAY = new Intl.DateTimeFormat(LANGUAGE, { timeZone: "UTC", weekday: "short" });
+/** The name and year of a calendar month in Range. */
 export const UTC_MONTH = new Intl.DateTimeFormat(LANGUAGE, {
   timeZone: "UTC",
   month: "long",

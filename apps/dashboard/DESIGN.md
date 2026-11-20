@@ -600,7 +600,7 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
 A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. A current, known zero has an unlit mark and is announced as “Running” and its count. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
 
 ```tsx
-<table class="ledger">
+<table class="ledger by-share">
   <caption class="vh">Jobs by status</caption>
   <thead>
     <tr>
@@ -652,19 +652,19 @@ A `table.ledger` compares parts of the same total. Give each row a header, an en
 
 ### Usage report
 
-Usage follows Runners in the bar. Its form uses the filter row and fields, always visible. Range offers seven or thirty whole UTC days and the last twelve named months. An older month in the address stays selected. Grouped by offers Batch, Submitter, Runner, Status and Label. Label adds a required key. Show applies the choices to the address. An owner or admin sees the report. Another member sees whom to ask.
+Usage follows Runners in the bar and opens on activation. Its form uses the filter row and fields. Range offers seven or thirty whole UTC days and the last twelve named months. The current month ends on today’s UTC day. An older month in the address stays selected. Grouped by offers Batch, Submitter, Runner, Status and Label. Label adds a required key. Show applies the choices to the address. An owner or admin sees the report. Another member learns where to find a Batch’s own usage.
 
-The scope note wraps as one sentence block inside `p.note`. It gives the range, explains which job ends count, and dates the read in the reader's zone. Usage reads again on Show and when a stale report becomes visible. A failed refresh keeps the figures. Pass `format={TIME_ZONED}` to `FailedReadNotice` so each read time carries its zone. An empty window gives its range. “Show the last 30 days” returns from any other range and preserves the grouping.
+The scope note wraps as one sentence block inside `p.note`. It gives the range, explains which job ends count, and dates the read in the reader's zone. Usage reads again on Show and when a stale report becomes visible. A transient failure on the same question keeps its figures. A permission refusal hides them while the shell checks membership. The first failure for a newly chosen question offers a retry and a link back to the last thirty days by Batch. Pass `format={TIME_ZONED}` to `FailedReadNotice` so each read time carries its zone. An empty window gives its range. “Show the last 30 days” returns from any other range and preserves the grouping.
 
 `div.ledger-layout` holds two sections in reading order. They stand side by side when each has 30rem plus the gap, and stack otherwise. Each table takes its accessible name from its heading. Job ends, tokens and estimated USD follow the row name. The group ledger gives up to ten groups in the hub's order, then the sum of any others. The day ledger gives every UTC day in order. Both footers use the hub's total.
 
-A `.bar-cell` holds a native meter against the largest cost in that table. Its header has visually hidden text naming the comparison. Zero, other and total rows leave the cell empty. At a table width of 30rem or less the bar column gives way and all three figures remain. `.day-name` sets the weekday in secondary ink. `tr.is-week-end` rules off a Sunday. If the window ends today, its row says “so far” and its meter uses the `.is-filling` hatch.
+In `table.ledger.by-cost`, Batch IDs and existing Runner names link to their records. Each Label value is a JSON string in `code.label-value`, preserving spaces. A missing Label is described in words. A `.bar-cell` holds a native meter against the largest cost in that table. Its header has visually hidden text naming the comparison. Zero, other and total rows leave the cell empty. At a table width of 30rem or less the bar column gives way and all three figures remain. `.day-name` sets the weekday in secondary ink. `tr.is-last-day-of-week` rules off a Sunday. If the window ends today, its row says “so far” and its meter uses the `.is-filling` hatch.
 
 ```tsx
 <div class="ledger-layout">
   <section>
     <h2 id="usage-days">By day</h2>
-    <table class="ledger" aria-labelledby="usage-days">
+    <table class="ledger by-cost" aria-labelledby="usage-days">
       <thead>
         <tr>
           <th scope="col">Day</th>
@@ -683,7 +683,7 @@ A `.bar-cell` holds a native meter against the largest cost in that table. Its h
         </tr>
       </thead>
       <tbody>
-        <tr class="is-week-end">
+        <tr class="is-last-day-of-week">
           <th scope="row">
             <time datetime="2026-11-15">
               <span class="day-name">Sun</span> 15 Nov

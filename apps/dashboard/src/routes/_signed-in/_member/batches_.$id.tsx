@@ -146,7 +146,7 @@ function BatchJobs(props: { batch: Batch; current: boolean }) {
     <section aria-labelledby="batch-jobs">
       <h2 id="batch-jobs">Its jobs</h2>
       <Show when={total()} fallback={<p>It has no jobs.</p>}>
-        <table class="ledger">
+        <table class="ledger by-share">
           <caption class="vh">Jobs by status</caption>
           <thead>
             <tr>

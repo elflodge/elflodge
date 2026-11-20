@@ -7,23 +7,28 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
-import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
-import { canReadUsage } from "../../../permissions.ts";
-import { rangeName, reportOptions, refusedReport } from "./usage.tsx";
+import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR, UTC_ISO_MONTH } from "../../../format.ts";
+import {
+  rangeName,
+  reportDefaults,
+  reportOptions,
+  refusedReport,
+  Route as UsageRoute,
+} from "./usage.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/usage/")({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
-    if (!context.member || !canReadUsage(context.member.role)) return;
+    if (!context.readsUsage) return;
     await readFromHub("Usage", () =>
       context.queryClient.query({ ...reportOptions(deps), staleTime: "static" }),
     );
   },
   pendingComponent: () => {
-    const search = Route.useSearch();
+    const grouping = UsageRoute.useLoaderDeps();
     return (
       <>
-        <UsageLedgers groupBy={search().groupBy ?? "batch"} />
+        <UsageLedgers grouping={grouping()} />
         <p class="vh" role="status">
           Loading Usage
         </p>
@@ -31,15 +36,31 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
     );
   },
   errorComponent: (props) => {
+    const search = Route.useSearch();
     const error = props.error;
     if (refusedReport(error)) return <Notice role="alert">{error.detail}</Notice>;
-    return <ReadErrorPage {...props} heading="Usage" />;
+    return (
+      <ReadErrorPage {...props} heading="Usage">
+        <Show
+          when={
+            search().range !== reportDefaults.range || search().groupBy !== reportDefaults.groupBy
+          }
+        >
+          <p>
+            <Link class="stands-alone" to="/usage" search={reportDefaults}>
+              Show the last 30 days by Batch
+            </Link>
+          </p>
+        </Show>
+      </ReadErrorPage>
+    );
   },
   component: Report,
 });
 
 function Report() {
   const search = Route.useSearch();
+  const grouping = UsageRoute.useLoaderDeps();
   const query = useQuery(() => reportOptions(search()));
   const period = () => {
     const from = new Date(query.data.from);
@@ -49,8 +70,10 @@ function Report() {
       from.getUTCFullYear() === year && to.getUTCFullYear() === year ? UTC_DAY : UTC_DAY_YEAR;
     return format.formatRange(from, to);
   };
+  const currentMonth = () => search().range === UTC_ISO_MONTH.format(query.dataUpdatedAt);
   const empty = () => {
-    const range = search().range ?? "30d";
+    const range = search().range;
+    if (currentMonth()) return `No job has ended in ${rangeName(range)} yet.`;
     return range.endsWith("d")
       ? `No job has ended in the ${rangeName(range).toLowerCase()}.`
       : `No job ended in ${rangeName(range)}.`;
@@ -59,9 +82,10 @@ function Report() {
     <>
       <p class="note">
         <span>
-          {rangeName(search().range)}, {period()}, UTC days. Each job end counts on the day the hub
-          recorded it, deleted jobs included. A job resumed after it ended counts again. Read at{" "}
-          <Instant value={new Date(query.dataUpdatedAt)} format={TIME_ZONED} />.
+          {rangeName(search().range)}
+          {currentMonth() ? " so far" : ""}, {period()}, UTC days. Each job end counts on the day
+          the hub recorded it, deleted jobs included. A job resumed after it ended counts again.
+          Read at <Instant value={new Date(query.dataUpdatedAt)} format={TIME_ZONED} />.
         </span>
       </p>
       <Show when={query.isError}>
@@ -78,9 +102,13 @@ function Report() {
         fallback={
           <div class="empty">
             <h2>{empty()}</h2>
-            <Show when={(search().range ?? "30d") !== "30d"}>
+            <Show when={search().range !== "30d"}>
               <p>
-                <Link class="stands-alone" to="/usage" search={{ groupBy: search().groupBy }}>
+                <Link
+                  class="stands-alone"
+                  to="/usage"
+                  search={{ range: reportDefaults.range, groupBy: search().groupBy }}
+                >
                   Show the last 30 days
                 </Link>
               </p>
@@ -88,11 +116,7 @@ function Report() {
           </div>
         }
       >
-        <UsageLedgers
-          report={query.data}
-          groupBy={search().groupBy ?? "batch"}
-          readAt={query.dataUpdatedAt}
-        />
+        <UsageLedgers report={query.data} grouping={grouping()} readAt={query.dataUpdatedAt} />
       </Show>
     </>
   );
