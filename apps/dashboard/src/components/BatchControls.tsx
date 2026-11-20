@@ -13,7 +13,7 @@ import { Notice } from "./Notice.tsx";
 
 const finality = "It takes no new jobs, and none of its jobs can be resumed.";
 
-export function BatchControls(props: { batch: Batch; canary: boolean }) {
+export function BatchControls(props: { batch: Batch }) {
   const client = useQueryClient();
   const [failure, setFailure] = createSignal<string>();
   const [pending, setPending] = createSignal(false);
@@ -83,7 +83,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
         <div class="status-lg">
           <BatchStatus batch={props.batch} />
         </div>
-        <BatchConditions batch={props.batch} detailed canary={props.canary} />
+        <BatchConditions batch={props.batch} detailed />
         <Show when={cancellationStarted()}>
           <p class="note">{finality}</p>
         </Show>

@@ -43,6 +43,7 @@ import { deleteUnusedBlobs } from "./blobs.ts";
 import { Db, DB_SCHEMA, greatest, plusDuration } from "./db/database.ts";
 import {
   type ApikeyId,
+  type BatchRow,
   type BatchUid,
   type Database,
   type EventId,
@@ -163,54 +164,82 @@ function toApiJob(
   return withOutcome({ ...rest, ...summary }, { status, output, failureReason, failureMessage });
 }
 
-/**
- * What keeps the job from being sent to a Runner, or null: only a queued job not yet sent to
- * one is blocked, by its Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary,
- * by the Canary while any of its jobs is unfinished. Derived whenever it is read, from the Batch,
- * so pausing or resuming a Batch is one write; placement sends only the jobs this finds nothing for.
- */
-export function blockedByOf(job: {
+/** Whether any job of the Batch `batchUid`'s Canary is unfinished. */
+export function hasUnfinishedCanary(batchUid: Expression<BatchUid>) {
+  const eb = expressionBuilder<Database>();
+  return eb.exists(
+    eb
+      .selectFrom("job as canary")
+      .select("canary.id")
+      .whereRef("canary.batchUid", "=", batchUid)
+      .where("canary.inCanary", "=", true)
+      .where("canary.status", "in", UNFINISHED),
+  );
+}
+
+interface JobForBlock {
   status: Expression<JobRow["status"]>;
   placedAt: Expression<JobRow["placedAt"]>;
-  batchUid: Expression<JobRow["batchUid"]>;
   inCanary: Expression<JobRow["inCanary"]>;
-}): AliasableExpression<BlockedBy | null> {
-  const eb = expressionBuilder<Database>();
+}
+
+interface BatchForBlock {
+  pausedBy: Expression<BatchRow["pausedBy"]>;
+  unfinishedCanary: Expression<SqlBool>;
+}
+
+/** Why an unsent queued job is blocked, given its Batch's pause and whether its Canary is unfinished. */
+export function blockedByForUnsentQueuedJob(
+  inCanary: Expression<JobRow["inCanary"]>,
+  batch: BatchForBlock,
+) {
+  const eb = expressionBuilder();
+  return eb
+    .case(batch.pausedBy)
+    .when("caller")
+    .then(eb.val<BlockedBy>("batchPausedByCaller"))
+    .when("breaker")
+    .then(eb.val<BlockedBy>("batchPausedByBreaker"))
+    .else(
+      eb
+        .case()
+        .when(eb.and([eb(inCanary, "=", false), batch.unfinishedCanary]))
+        .then(eb.val<BlockedBy>("batchCanary"))
+        .else(eb.lit(null))
+        .end(),
+    )
+    .end();
+}
+
+/**
+ * What blocks the job, or null, from its status, placement and Canary membership, its Batch's
+ * pause and whether its Canary is unfinished. Only a queued job not yet sent is blocked, by its
+ * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
+ * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
+ * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
+ * by reason use the same rule.
+ */
+export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
+  const eb = expressionBuilder();
   return eb
     .case()
     .when(eb.or([eb(job.status, "!=", "queued"), eb(job.placedAt, "is not", null)]))
     .then(eb.lit(null))
-    .else(
-      eb
-        .selectFrom("batch as b")
-        .select((batch) =>
-          batch
-            .case()
-            .when("b.pausedBy", "=", "caller")
-            .then(batch.val<BlockedBy>("batchPausedByCaller"))
-            .when("b.pausedBy", "=", "breaker")
-            .then(batch.val<BlockedBy>("batchPausedByBreaker"))
-            .when(
-              batch.and([
-                batch(job.inCanary, "=", false),
-                batch.exists(
-                  batch
-                    .selectFrom("job as canary")
-                    .select("canary.id")
-                    .whereRef("canary.batchUid", "=", job.batchUid)
-                    .where("canary.inCanary", "=", true)
-                    .where("canary.status", "in", UNFINISHED),
-                ),
-              ]),
-            )
-            .then(batch.val<BlockedBy>("batchCanary"))
-            .else(batch.lit(null))
-            .end()
-            .as("reason"),
-        )
-        .whereRef("b.uid", "=", job.batchUid),
-    )
+    .else(blockedByForUnsentQueuedJob(job.inCanary, batch))
     .end();
+}
+
+/** Looks up a single job's Batch. Batch reads supply the same facts once for all its jobs. */
+export function blockedByOf(job: JobForBlock & { batchUid: Expression<BatchUid> }) {
+  const eb = expressionBuilder<Database>();
+  return blockedByFrom(job, {
+    pausedBy: eb
+      .selectFrom("batch as b")
+      .select("b.pausedBy")
+      .whereRef("b.uid", "=", job.batchUid)
+      .$asScalar(),
+    unfinishedCanary: hasUnfinishedCanary(job.batchUid),
+  });
 }
 
 /** A job's Runner as a job read gives it: inside JSON, pg gives `lastSeenAt` as an ISO string. */
@@ -1428,15 +1457,15 @@ const LISTED_JOB_COLUMNS = [
   ...SUBMITTER_COLUMNS,
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
-/** A filtered job count for each requested status, with the status as its column name. */
-export function jobCountsByStatus<S extends JobStatus>(
-  column: Expression<JobStatus>,
-  statuses: readonly S[],
+/** A filtered job count for each value, with the value as its column name. */
+export function jobCountsBy<Value extends string, Counted extends Value>(
+  column: Expression<Value | null>,
+  values: readonly Counted[],
 ) {
   const eb = expressionBuilder();
-  return statuses.map((status) =>
-    eb.fn.countAll<number>().filterWhere(column, "=", status).as(status),
-  );
+  // Counted restricts the values, but Kysely needs a concrete column type to infer the filter operand.
+  const text: Expression<string | null> = column;
+  return values.map((value) => eb.fn.countAll<number>().filterWhere(text, "=", value).as(value));
 }
 
 /**
@@ -1453,7 +1482,7 @@ export function countJobs() {
       const totals = db
         .selectFrom("job")
         .where("job.status", "in", UNFINISHED)
-        .select((eb) => jobCountsByStatus(eb.ref("job.status"), UNFINISHED));
+        .select((eb) => jobCountsBy(eb.ref("job.status"), UNFINISHED));
       const unknown = db
         .selectFrom("job")
         // A placed job has a Runner (`job_placedAt_check`). When most queued jobs are unplaced,
@@ -1477,7 +1506,7 @@ export function countJobs() {
             now,
           ),
         )
-        .select((eb) => jobCountsByStatus(eb.ref("job.status"), QUEUED_OR_RUNNING));
+        .select((eb) => jobCountsBy(eb.ref("job.status"), QUEUED_OR_RUNNING));
       return db
         .selectFrom(totals.as("totals"))
         .crossJoin(unknown.as("unknown"))

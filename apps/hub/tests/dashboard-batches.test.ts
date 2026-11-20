@@ -169,5 +169,5 @@ test("a member sees when the Canary is holding queued jobs", async () => {
   });
   const page = await open("Canary reader", `batches/${id}`);
   const status = page.getByRole("status").filter({ hasText: "Active" });
-  await expectBrowser(status).toContainText("Jobs waiting for its Canary");
+  await expectBrowser(status).toContainText("1 job waiting for its Canary");
 }, 30_000);

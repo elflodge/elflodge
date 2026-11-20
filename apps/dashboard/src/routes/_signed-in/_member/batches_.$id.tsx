@@ -1,4 +1,4 @@
-import { skipToken, useQuery } from "@tanstack/solid-query";
+import { useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { batchRefSchema, jobStatusSchema, problemOf, type Batch } from "contract";
 import { For, Show, createMemo, deep, latest } from "solid-js";
@@ -93,28 +93,6 @@ function BatchPage() {
   const online = browserOnline();
   const fresh = readIsFresh(() => read.dataUpdatedAt);
   const current = () => online() && fresh() && !read.isPaused && !read.isRefetchError;
-  const canShowCanary = () => {
-    const { status, pendingControl, breaker, jobCounts } = batch();
-    return (
-      status === "active" &&
-      !pendingControl &&
-      breaker &&
-      breaker.canary > 0 &&
-      jobCounts.queued > 0
-    );
-  };
-  // As in CLI progress, the newest queued job tells whether the Canary holds the rest.
-  // A Batch read carrying its Canary condition would replace this read.
-  const queued = useQuery(() =>
-    orpc.jobs.list.queryOptions({
-      input:
-        session().membership.status === "member" && canShowCanary()
-          ? { batchId: batch().id, status: ["queued"], limit: 1 }
-          : skipToken,
-      placeholderData: { jobs: [], hasMore: false },
-      refetchInterval: REFRESH_INTERVAL_MS,
-    }),
-  );
   return (
     <>
       <RecordCrumbs to="/batches" />
@@ -136,22 +114,7 @@ function BatchPage() {
       <div class="record-with-aside">
         <div class="record-sections">
           <div>
-            <BatchControls
-              batch={batch()}
-              canary={
-                canShowCanary() &&
-                !queued.isLoadingError &&
-                queued.data.jobs[0]?.blockedBy === "batchCanary"
-              }
-            />
-            <Show when={queued.isError}>
-              <FailedReadNotice
-                what="The Canary condition"
-                detail={hubFailureDetail(queued.error)}
-                failedAt={queued.errorUpdatedAt}
-                readAt={queued.dataUpdatedAt}
-              />
-            </Show>
+            <BatchControls batch={batch()} />
           </div>
           <BatchJobs batch={batch()} current={current()} />
           <Show when={batch().usage.totalTokens > 0}>

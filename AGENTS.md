@@ -53,6 +53,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ## API
 
+- Read a record in one statement and include the facts the hub derives about it in its own answer, so callers can report them from one snapshot.
 - The contract defines the caller-visible input, output and errors; handlers stay thin and the logic lives in the hub's modules.
 - Each procedure declares in the contract who may make it (`byKey`, `byMember` or `byKeyOrMember`, with the key's permissions, or `byAnyone` for calls anyone can start, including setup and invitation preview or acceptance); the hub checks it before every call and never runs one that declares none. A call a member may make is built on `forMembers`, which declares the 403 a signed-in account that is not a member gets.
 - A route's method and full path are declared on the procedure and verified at runtime and in the generated OpenAPI document; contract nesting does not build the path.

@@ -9,6 +9,7 @@ import {
   type Labels,
   type ListedBatch,
   BREAKER_DEFAULTS,
+  blockedBySchema,
   ControlRefused,
   IdReused,
   type JobSubmission,
@@ -16,7 +17,7 @@ import {
   labelsSchema,
   NotFound,
 } from "contract";
-import { Array, Effect, Order } from "effect";
+import { Array, Effect, Order, Struct } from "effect";
 import {
   type Expression,
   expressionBuilder,
@@ -48,7 +49,10 @@ import { InvalidInput } from "./invalid-input.ts";
 import {
   apiSubmitterOf,
   contentHashOf,
-  jobCountsByStatus,
+  blockedByForUnsentQueuedJob,
+  blockedByFrom,
+  hasUnfinishedCanary,
+  jobCountsBy,
   insertUsageRecords,
   limitProblems,
   readJobs,
@@ -134,7 +138,23 @@ export async function readBatch(
 ): Promise<Batch | undefined> {
   const now = new Date();
   const row = await db
-    .selectFrom("batch as b")
+    // Materializing the Batch runs its Canary check once for the whole Batch, outside the per-job scan.
+    .with(
+      (cte) => cte("b").materialized(),
+      (qb) =>
+        qb
+          .selectFrom("batch")
+          .select(BATCH_COLUMNS)
+          .select("uid")
+          .select((eb) => hasUnfinishedCanary(eb.ref("batch.uid")).as("unfinishedCanary"))
+          .$call((q) =>
+            "uid" in which
+              ? q.where("uid", "=", which.uid)
+              : // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
+                q.where("id", "=", which.id),
+          ),
+    )
+    .selectFrom("b")
     .innerJoinLateral(
       (eb) =>
         eb
@@ -142,7 +162,21 @@ export async function readBatch(
           .innerJoin("jobProgress as p", "p.jobId", "j.id")
           .whereRef("j.batchUid", "=", "b.uid")
           .select((agg) => [
-            ...jobCountsByStatus(agg.ref("j.status"), jobStatusSchema.options),
+            ...jobCountsBy(agg.ref("j.status"), jobStatusSchema.options),
+            ...jobCountsBy(
+              blockedByFrom(
+                {
+                  status: agg.ref("j.status"),
+                  placedAt: agg.ref("j.placedAt"),
+                  inCanary: agg.ref("j.inCanary"),
+                },
+                {
+                  pausedBy: agg.ref("b.pausedBy"),
+                  unfinishedCanary: agg.ref("b.unfinishedCanary"),
+                },
+              ),
+              blockedBySchema.options,
+            ),
             agg.fn
               .countAll<number>()
               .filterWhere(
@@ -175,12 +209,6 @@ export async function readBatch(
         hasUnfinishedJobs((status) => eb.ref(`j.${status}`)),
       ).as("status"),
     )
-    .$call((query) =>
-      "uid" in which
-        ? query.where("b.uid", "=", which.uid)
-        : // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
-          query.where("b.id", "=", which.id),
-    )
     .executeTakeFirst();
   if (!row) return undefined;
   return {
@@ -191,7 +219,8 @@ export async function readBatch(
 
 /** What `listedBatchOf` reads of a Batch: its row, and its jobs' counts. */
 type ListedBatchRow = Pick<BatchRow, (typeof BATCH_COLUMNS)[number]> &
-  Batch["jobCounts"] & { status: BatchStatus; statusUnknown: number };
+  Batch["jobCounts"] &
+  Batch["blockedJobCounts"] & { status: BatchStatus; statusUnknown: number };
 
 /** A Batch as a list shows it, from its row and its jobs' counts. */
 function listedBatchOf(row: ListedBatchRow): ListedBatch {
@@ -206,14 +235,8 @@ function listedBatchOf(row: ListedBatchRow): ListedBatch {
       : {}),
     labels: row.labels,
     breaker: apiBreakerOf(row),
-    jobCounts: {
-      queued: row.queued,
-      running: row.running,
-      paused: row.paused,
-      succeeded: row.succeeded,
-      failed: row.failed,
-      cancelled: row.cancelled,
-    },
+    jobCounts: Struct.pick(row, jobStatusSchema.options),
+    blockedJobCounts: Struct.pick(row, blockedBySchema.options),
     statusUnknownJobs: row.statusUnknown,
   };
 }
@@ -295,7 +318,8 @@ export function listBatches(query: BatchListQuery) {
         .with("shown", (qb) =>
           qb
             .selectFrom("page")
-            .select("page.uid")
+            .select(["page.uid", "page.pausedBy"])
+            .select((eb) => hasUnfinishedCanary(eb.ref("page.uid")).as("unfinishedCanary"))
             .orderBy("page.uid", "desc")
             .offset(cursorRows)
             .limit(limit),
@@ -308,7 +332,25 @@ export function listBatches(query: BatchListQuery) {
             .groupBy("j.batchUid")
             .select((agg) => [
               "j.batchUid",
-              ...jobCountsByStatus(agg.ref("j.status"), jobStatusSchema.options),
+              ...jobCountsBy(agg.ref("j.status"), jobStatusSchema.options),
+            ]),
+        )
+        .with("blocked", (qb) =>
+          qb
+            .selectFrom("job as j")
+            .innerJoin("shown", "shown.uid", "j.batchUid")
+            .where("j.status", "=", "queued")
+            .where("j.placedAt", "is", null)
+            .groupBy("j.batchUid")
+            .select((agg) => [
+              "j.batchUid",
+              ...jobCountsBy(
+                blockedByForUnsentQueuedJob(agg.ref("j.inCanary"), {
+                  pausedBy: agg.ref("shown.pausedBy"),
+                  unfinishedCanary: agg.ref("shown.unfinishedCanary"),
+                }),
+                blockedBySchema.options,
+              ),
             ]),
         )
         .with("unknown", (qb) =>
@@ -332,6 +374,7 @@ export function listBatches(query: BatchListQuery) {
         )
         .selectFrom("page")
         .leftJoin("counts", "counts.batchUid", "page.uid")
+        .leftJoin("blocked", "blocked.batchUid", "page.uid")
         .leftJoin("unknown", "unknown.batchUid", "page.uid")
         .selectAll("page")
         .select((eb) => {
@@ -344,6 +387,9 @@ export function listBatches(query: BatchListQuery) {
               hasUnfinishedJobs(countOrZero),
             ).as("status"),
             ...jobStatusSchema.options.map((status) => countOrZero(status).as(status)),
+            ...blockedBySchema.options.map((reason) =>
+              eb.fn.coalesce(`blocked.${reason}` as const, eb.lit(0)).as(reason),
+            ),
             eb.fn.coalesce("unknown.statusUnknown", eb.lit(0)).as("statusUnknown"),
           ];
         })
@@ -1101,16 +1147,7 @@ export async function countEndsAndPauseTrippedBatches(
       // not run.
       const canaryOver = eb.and([
         eb("b.canaryPlacesLeft", "=", eb.lit(0)),
-        eb.not(
-          eb.exists(
-            eb
-              .selectFrom("job as canary")
-              .select("canary.id")
-              .whereRef("canary.batchUid", "=", "b.uid")
-              .where("canary.inCanary", "=", true)
-              .where("canary.status", "in", UNFINISHED),
-          ),
-        ),
+        eb.not(hasUnfinishedCanary(eb.ref("b.uid"))),
       ]);
       const trips = eb.and([
         eb("b.cancelledAt", "is", null),
