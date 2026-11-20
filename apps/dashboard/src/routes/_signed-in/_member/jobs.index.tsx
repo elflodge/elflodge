@@ -6,7 +6,7 @@ import { For, Repeat, Show, createMemo } from "solid-js";
 import { hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
-import { JobSubmitter, RunnerOfJob } from "../../../components/JobReferences.tsx";
+import { JobSubmitter, RunnerReference } from "../../../components/JobReferences.tsx";
 import { BesideStatus, JobStatus } from "../../../components/JobStatus.tsx";
 import { EmptyList, ListEnd } from "../../../components/ListEnd.tsx";
 import { ClearFiltersLink } from "../../../components/ListFilters.tsx";
@@ -249,7 +249,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       <td role="cell" class="c-runner">
         <Show when={props.job.runner}>
           {(runner) => (
-            <RunnerOfJob
+            <RunnerReference
               runner={runner()}
               shortId={props.runnerIds.get(runner().id) ?? runner().id}
             />

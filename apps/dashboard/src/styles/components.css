@@ -684,10 +684,14 @@ p:has(> button) + .prose {
 .records.is-narrow {
   max-width: 64rem;
 }
-.records td.is-id {
-  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
+.records td.is-id,
+.ledger th.is-name {
   width: 100%;
   max-width: 0;
+}
+.records td.is-id,
+.ledger th.is-name:has(a.stands-alone) {
+  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
 }
 /* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
    It stays a block, so its value can be cut at its end, and is padded to the height. */
@@ -696,7 +700,8 @@ p:has(> button) + .prose {
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .records td.is-id {
+  .records td.is-id,
+  .ledger th.is-name:has(a.stands-alone) {
     padding-block: 0;
   }
   .records td.is-id :is(a, span).cut {
@@ -2194,14 +2199,14 @@ p mark.placeholder {
 }
 
 /* A count crossing zero must not move the next row when its link appears or disappears. */
-.ledger tbody tr {
+.ledger.by-share tbody tr {
   height: var(--row);
 }
-.ledger tbody :is(th, td) {
+.ledger.by-share tbody :is(th, td) {
   padding-block: 0;
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .ledger tbody tr {
+  .ledger.by-share tbody tr {
     /* A 44px link plus the collapsed borders beside the total. */
     height: calc(var(--control-touch) + var(--rule-heavy));
   }
@@ -2209,18 +2214,98 @@ p mark.placeholder {
 .ledger + .note {
   display: block;
 }
-.ledger thead th:nth-child(3) {
+.ledger.by-share {
+  --ledger-track: var(--c-ground-2);
+}
+.ledger.by-share thead th:nth-child(3) {
   width: calc(var(--ledger-bar) + var(--space-3));
 }
 .ledger :is(th, td) {
   vertical-align: middle;
 }
 .ledger meter {
-  background: var(--c-ground-2);
+  background: var(--ledger-track, transparent);
 }
 .ledger meter::-webkit-meter-bar {
   border: 0;
   border-radius: 0;
-  background: var(--c-ground-2);
+  background: var(--ledger-track, transparent);
   height: 100%;
+}
+
+/* Grouped and daily ledgers share the page when each has room for names and figures. */
+.ledger-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+  align-items: start;
+  gap: var(--space-7);
+  margin-top: var(--space-4);
+}
+.ledger-layout > section {
+  container-type: inline-size;
+  border-top: var(--rule-heavy) solid var(--c-rule-strong);
+  padding-top: var(--space-2);
+  min-width: 0;
+}
+.ledger-layout h2,
+.ledger-layout .ledger th {
+  overflow-wrap: anywhere;
+}
+.ledger-layout .bar-cell {
+  width: var(--ledger-bar);
+  min-width: var(--ledger-bar);
+}
+.ledger.by-cost time {
+  white-space: normal;
+  overflow-wrap: normal;
+}
+@container (width > 20rem) {
+  .ledger.by-cost time span {
+    white-space: nowrap;
+  }
+}
+.ledger .runner-ref {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+.ledger .runner-ref > a {
+  max-width: 100%;
+}
+.report-range {
+  color: var(--c-ink);
+}
+.report-range + .note {
+  max-width: var(--measure);
+}
+.ledger.by-cost .label-value {
+  white-space: pre-wrap;
+}
+.bar-cell meter::-webkit-meter-optimum-value {
+  min-width: 1px;
+}
+.bar-cell meter::-moz-meter-bar {
+  min-width: 1px;
+}
+.day-name {
+  color: var(--c-ink-2);
+}
+.ledger tr.is-last-day-of-week > * {
+  border-bottom: var(--rule) solid var(--c-ink-3);
+}
+.ledger tfoot .num {
+  font-weight: var(--weight-mono-strong);
+}
+@container (max-width: 30rem) {
+  .ledger .bar-cell {
+    display: none;
+  }
+  .ledger-layout .ledger .num:nth-child(4) {
+    padding-right: 0;
+  }
+}
+
+@container (max-width: 20rem) {
+  .ledger.by-cost :is(th, td):nth-child(-n + 3) {
+    padding-inline-end: var(--space-1);
+  }
 }

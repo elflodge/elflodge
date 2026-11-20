@@ -1,6 +1,9 @@
+import type { DistributiveOmit } from "@orpc/shared";
 import {
   type Labels,
   MAX_USAGE_DAYS,
+  parseUsagePeriod,
+  USAGE_PERIOD_ERROR,
   usageGroupsSchema,
   type UsageGroupBy,
   type UsageReport,
@@ -31,6 +34,7 @@ import { batchIdOf } from "./jobs.ts";
 
 /** What a read of usage asks for, beside its window. */
 export interface UsageQuery {
+  period?: string;
   from?: string;
   to?: string;
   groupBy?: UsageGroupBy;
@@ -60,11 +64,14 @@ const FIRST_DAY = DateTime.makeUnsafe("0001-01-01");
 export function readUsage(role: string, query: UsageQuery) {
   return Effect.gen(function* () {
     yield* requireRolePermission(role, { usage: ["read"] });
-    const today = DateTime.startOf(yield* DateTime.now, "day");
+    // The database’s clock dates recordedAt (ADR 0044). The hub’s clock dates the read and its window.
+    const now = yield* DateTime.now;
+    const today = DateTime.startOf(now, "day");
     const window = yield* windowOf(query, today);
-    return yield* Db.use((database) =>
+    const report = yield* Db.use((database) =>
       database.cancellableQuery((db, options) => selectUsage(db, window, query, options)),
     );
+    return { ...report, today: DateTime.formatIsoDateUtc(today), readAt: DateTime.toDateUtc(now) };
   });
 }
 
@@ -74,45 +81,55 @@ interface Window {
   to: string;
 }
 
+function refused(path: "period" | "from" | "to", message: string) {
+  return Effect.fail(new InvalidInput({ problems: [{ message, path: [path] }] }));
+}
+
 /**
- * The window `query` asks for, by default the `DEFAULT_DAYS` days ending `today`, or the problem
- * with it, naming the field given: a day before `FIRST_DAY`, as when `to` puts the default
- * `from` there, a `from` after its `to`, or more than `MAX_USAGE_DAYS` days. The default
- * `from` is otherwise always within bounds, so the other problems are always the `from` given.
+ * Resolve a rolling period, a calendar month or explicit dates. Both ends are included,
+ * and a requested end after `today` stops at `today`.
+ * With no period or start date, take `DEFAULT_DAYS` ending on the effective last day.
+ * A refusal names the input that put the window outside its bounds.
  */
-function windowOf(query: Pick<UsageQuery, "from" | "to">, today: DateTime.Utc) {
-  const to = query.to === undefined ? today : DateTime.makeUnsafe(query.to);
-  const from =
-    query.from === undefined
-      ? DateTime.subtract(to, { days: DEFAULT_DAYS - 1 })
-      : DateTime.makeUnsafe(query.from);
-  const days = Duration.toDays(DateTime.distance(from, to)) + 1;
-  const tooEarly = `Must be ${DateTime.formatIsoDateUtc(FIRST_DAY)} or later`;
-  const problem =
-    query.to !== undefined && DateTime.isLessThan(to, FIRST_DAY)
-      ? { path: "to", message: tooEarly }
-      : query.from === undefined && DateTime.isLessThan(from, FIRST_DAY)
-        ? {
-            path: "to",
-            message: `Must be ${DateTime.formatIsoDateUtc(DateTime.add(FIRST_DAY, { days: DEFAULT_DAYS - 1 }))} or later without \`from\`, which is then ${DEFAULT_DAYS - 1} days before it`,
-          }
-        : DateTime.isLessThan(from, FIRST_DAY)
-          ? { path: "from", message: tooEarly }
-          : days < 1
-            ? { path: "from", message: "Must not be after `to`" }
-            : days > MAX_USAGE_DAYS
-              ? {
-                  path: "from",
-                  message: `Must be at most ${MAX_USAGE_DAYS} days before \`to\`, counting both`,
-                }
-              : undefined;
-  if (problem !== undefined) {
-    const { path, message } = problem;
-    return Effect.fail(new InvalidInput({ problems: [{ message, path: [path] }] }));
+function windowOf({ period, from, to }: UsageQuery, today: DateTime.Utc) {
+  const last = to === undefined ? today : DateTime.min(DateTime.makeUnsafe(to), today);
+  let count = DEFAULT_DAYS;
+  if (period !== undefined) {
+    if (from !== undefined || to !== undefined)
+      return refused("period", "Choose a period or give from and to separately");
+    const parsed = parseUsagePeriod(period);
+    if (!parsed) return refused("period", USAGE_PERIOD_ERROR);
+    if (parsed.kind === "days") {
+      count = parsed.days;
+    } else {
+      const first = DateTime.makeUnsafe(`${parsed.month}-01`);
+      if (DateTime.isGreaterThan(first, today))
+        return refused("period", "The month must have begun");
+      return Effect.succeed({
+        from: DateTime.formatIsoDateUtc(first),
+        to: DateTime.formatIsoDateUtc(DateTime.min(DateTime.endOf(first, "month"), today)),
+      });
+    }
   }
-  return Effect.succeed<Window>({
-    from: DateTime.formatIsoDateUtc(from),
-    to: DateTime.formatIsoDateUtc(to),
+  const first =
+    from === undefined ? DateTime.subtract(last, { days: count - 1 }) : DateTime.makeUnsafe(from);
+  const tooEarly = `Must be ${DateTime.formatIsoDateUtc(FIRST_DAY)} or later`;
+  if (DateTime.isLessThan(last, FIRST_DAY)) return refused("to", tooEarly);
+  if (DateTime.isLessThan(first, FIRST_DAY)) {
+    if (from !== undefined) return refused("from", tooEarly);
+    const earliestEnd = DateTime.add(FIRST_DAY, { days: DEFAULT_DAYS - 1 });
+    return refused(
+      "to",
+      `Must be ${DateTime.formatIsoDateUtc(earliestEnd)} or later without \`from\`, which is then ${DEFAULT_DAYS - 1} days before \`to\``,
+    );
+  }
+  if (DateTime.isGreaterThan(first, today)) return refused("from", "Must not be after today");
+  if (DateTime.isGreaterThan(first, last)) return refused("from", "Must not be after `to`");
+  if (Duration.toDays(DateTime.distance(first, last)) + 1 > MAX_USAGE_DAYS)
+    return refused("from", `Must be at most ${MAX_USAGE_DAYS} days before \`to\`, counting both`);
+  return Effect.succeed({
+    from: DateTime.formatIsoDateUtc(first),
+    to: DateTime.formatIsoDateUtc(last),
   });
 }
 
@@ -213,7 +230,7 @@ async function selectUsage(
   window: Window,
   query: UsageQuery,
   options: AbortableQueryOptions,
-): Promise<UsageReport> {
+): Promise<DistributiveOmit<UsageReport, "today" | "readAt">> {
   const records = recordsOf(db, window, query);
   const grouping = query.groupBy === undefined ? undefined : groupingOf(query.groupBy, records);
   const report = db

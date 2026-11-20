@@ -20,6 +20,25 @@ export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "sho
 export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
 /** A local creation day outside the year of the read. */
 export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
+/** A Usage day, such as “19 Nov”, dated by the hub in UTC. */
+export const UTC_DAY = new Intl.DateTimeFormat(LANGUAGE, {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+});
+/** A UTC day with its year, for a report outside the year of the read. */
+export const UTC_DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, {
+  timeZone: "UTC",
+  dateStyle: "medium",
+});
+/** The short weekday of a Usage day in UTC. */
+export const UTC_WEEKDAY = new Intl.DateTimeFormat(LANGUAGE, { timeZone: "UTC", weekday: "short" });
+/** The name and year of a calendar month in Range. */
+export const UTC_MONTH = new Intl.DateTimeFormat(LANGUAGE, {
+  timeZone: "UTC",
+  month: "long",
+  year: "numeric",
+});
 export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
 /** An event time, dated when it falls outside the row group’s creation day. */
 export const DAY_TIME = new Intl.DateTimeFormat(LANGUAGE, {
@@ -55,6 +74,12 @@ const zonedTime = {
 
 /** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
 export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, zonedTime);
+
+/** The failed and last successful reads each give the second and the reader’s zone. */
+export const TIME_SECONDS_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
+  ...zonedTime,
+  second: "2-digit",
+});
 
 /** An invitation can expire on another day, so its lone instant includes the date as well. */
 export const DATE_TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {

@@ -282,3 +282,44 @@ test("a member whose role does not allow reading usage is refused", async () => 
     cause: { status: 403, detail: expect.stringContaining("usage:read") },
   });
 });
+
+test("the hub dates rolling days and calendar months by the UTC day of its read", async () => {
+  const get = system.owner().usage.get;
+  const week = await get({ period: "7d" });
+  expect(week.readAt).toBeInstanceOf(Date);
+  expect(week.today).toBe(week.readAt.toISOString().slice(0, 10));
+  const first = new Date(week.today);
+  first.setUTCDate(first.getUTCDate() - 6);
+  expect([week.from, week.to, week.days.length]).toEqual([
+    first.toISOString().slice(0, 10),
+    week.today,
+    7,
+  ]);
+  const month = week.today.slice(0, 7);
+  const monthly = await get({ period: month });
+  const monthEnd = new Date(`${month}-01`);
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1, 0);
+  expect(monthly.from).toBe(`${month}-01`);
+  expect(monthly.to).toBe(
+    monthly.today.startsWith(month) ? monthly.today : monthEnd.toISOString().slice(0, 10),
+  );
+  expect(await get({ period: "2024-02" })).toMatchObject({ from: "2024-02-01", to: "2024-02-29" });
+  const capped = await get({ from: week.today, to: "9999-12-31" });
+  expect(capped.from).toBe(week.today);
+  expect(capped.to).toBe(capped.today);
+  expect(capped.days.at(-1)?.date).toBe(capped.today);
+});
+
+test("refused periods and future starts name the conflicting field", async () => {
+  for (const [input, field] of [
+    [{ period: "7d", from: "2024-02-01" }, "period"],
+    [{ period: "2024-02", to: "2024-02-29" }, "period"],
+    [{ period: "9999-01" }, "period"],
+    [{ period: "401d" }, "period"],
+    [{ from: "9999-12-31" }, "from"],
+  ] as const) {
+    await expect(system.owner().usage.get(input)).rejects.toMatchObject({
+      cause: { status: 400, detail: expect.stringMatching(`→ at ${field}$`) },
+    });
+  }
+});

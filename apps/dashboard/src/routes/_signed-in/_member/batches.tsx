@@ -4,13 +4,9 @@ import { createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { BATCH_STATUS_WORDS } from "../../../batch.ts";
-import {
-  ListFilters,
-  StatusFilters,
-  optionalText,
-  statusFilter,
-} from "../../../components/ListFilters.tsx";
+import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
 import { orpc } from "../../../query.ts";
+import { optionalText } from "../../../search-form.ts";
 
 export const batchesSearchSchema = z.pipe(
   z.object({

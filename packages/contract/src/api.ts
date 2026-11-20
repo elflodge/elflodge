@@ -603,6 +603,31 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 /** The most days one read of usage covers. */
 export const MAX_USAGE_DAYS = 400;
 
+const usageDaysPattern = new RegExp(`^([1-9][0-9]{0,${String(MAX_USAGE_DAYS).length - 1}})d$`);
+const usageMonthPattern =
+  /^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})-(?:0[1-9]|1[0-2])$/;
+
+/** Read a rolling number of UTC days or a calendar month in the wire format of `period`. */
+export function parseUsagePeriod(value: string) {
+  const days = usageDaysPattern.exec(value);
+  if (days) {
+    const count = Number(days[1]);
+    if (count <= MAX_USAGE_DAYS) return { kind: "days" as const, days: count };
+  } else if (usageMonthPattern.test(value)) {
+    return { kind: "month" as const, month: value };
+  }
+  return undefined;
+}
+
+export const USAGE_PERIOD_ERROR = `Must be 1d through ${MAX_USAGE_DAYS}d or a calendar month as YYYY-MM, from year 0001`;
+
+export const usagePeriodSchema = z.string().check(
+  z.refine((value) => parseUsagePeriod(value) !== undefined, {
+    error: USAGE_PERIOD_ERROR,
+  }),
+  z.meta({ anyOf: [{ pattern: usageDaysPattern.source }, { pattern: usageMonthPattern.source }] }),
+);
+
 /** A calendar day, as `YYYY-MM-DD`. */
 const dateSchema = z.iso.date();
 
@@ -651,8 +676,12 @@ export const usageGroupsSchema = z.array(usageGroupSchema);
 const usageWindowSchema = z.extend(usageCountSchema, {
   /** The window's first day, a UTC day. */
   from: dateSchema,
-  /** The window's last day, included. */
+  /** The window's last UTC day, included, capped at today. */
   to: dateSchema,
+  /** The hub's UTC day at the read, still being recorded. */
+  today: dateSchema,
+  /** When the figures were read, by the hub's clock. */
+  readAt: z.date(),
   /** Every UTC day of the window, oldest first, including days without job ends. */
   days: z.array(z.extend(usageCountSchema, { date: dateSchema })),
 });
@@ -1358,17 +1387,24 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       )
       .input(
         z.strictObject({
+          period: z.optional(
+            usagePeriodSchema.check(
+              z.describe(
+                `1d through ${MAX_USAGE_DAYS}d for that many UTC days ending today, or YYYY-MM (years 0001–9999) for that month through today. With from or to, or for a month that has not begun, the hub refuses period with 400. With no period or dates, the window is the last 30 days.`,
+              ),
+            ),
+          ),
           from: z.optional(
             dateSchema.check(
               z.describe(
-                "The window's first day, as `YYYY-MM-DD`, a UTC day; by default 29 days before `to`, for 30 days.",
+                "The window's first day, as `YYYY-MM-DD`, a UTC day. A start after today is refused with 400 naming `from`. Defaults to 29 days before the effective `to`.",
               ),
             ),
           ),
           to: z.optional(
             dateSchema.check(
               z.describe(
-                "The window's last day, included, as `YYYY-MM-DD`, a UTC day; today by default.",
+                "The window's last day, included, as `YYYY-MM-DD`, a UTC day. Defaults to today and is capped at today.",
               ),
             ),
           ),

@@ -597,10 +597,10 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
 
 ### Ledger
 
-A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. A current, known zero has an unlit mark and is announced as “Running” and its count. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
+A `table.ledger.by-share` compares parts of the same total. Its shaded `--c-ground-2` track shows the whole. A Usage ledger compares costs against the largest row, so its meters show only the filled length. Both ledgers set footer figures in `--weight-mono-strong`. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. A current, known zero has an unlit mark and is announced as “Running” and its count. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
 
 ```tsx
-<table class="ledger">
+<table class="ledger by-share">
   <caption class="vh">Jobs by status</caption>
   <thead>
     <tr>
@@ -648,6 +648,69 @@ A `table.ledger` compares parts of the same total. Give each row a header, an en
     </tr>
   </tfoot>
 </table>
+```
+
+### Usage report
+
+Usage follows Runners in the bar and opens on activation. Owners and admins see the Organization’s report. Other members get a link to Batches. Range offers Last 7 days, Last 30 days, the twelve months ending in the report’s UTC month, and Custom range. An older month in the address stays selected. Custom range opens two date fields prefilled from the displayed window. From is required and To can be left empty for today. Grouped by offers Batch, Submitter, Runner, Status and Label. Label opens a required key in the same sans as the other fields. Show sits in `span.filter-act`. To’s minimum is the entered From. The form checks at most 400 days, counting both ends, through the earlier of To and the shown report’s today. An empty To means today. Without a shown report the hub checks the length. The hub names the refused field only in the words of its reason, so its refusal appears in a single alert below the form. The entered dates and grouping stay in place.
+
+The effective dates stand in a working-size `p.report-range`. A preset leads with its name, followed by “so far” if it ends on the hub’s today. A custom range gives its dates and zone, followed by “so far” when it reaches the report’s today, as in “15 – 20 Nov (UTC) so far.” When either end falls outside the year of the read, the range includes the year and a year heading precedes the first day of each year in the ledger. The counting rule and the hub’s read time follow in a `p.note` of at most `--measure`, with the time in the reader’s zone.
+
+```tsx
+<p class="report-range">Last 30 days so far, 22 Oct – 20 Nov (UTC).</p>
+<p class="note">
+  Each job end counts on the day the hub recorded it, deleted jobs included. A job resumed after it
+  ended counts again. Read at <Instant value={report.readAt} format={TIME_ZONED} />.
+</p>
+```
+
+Show reads the displayed report again in place. A stale report also refreshes when it becomes visible. If the hub refused the question before a report was shown, pressing Show on the same question keeps the alert without another read. If that address also breaks a native form constraint, Show focuses the field and the browser displays its validation message. Otherwise focus stays on Show. A transient failure on the same question keeps its figures. A permission refusal hides them while the shell checks membership. A failed first read offers a retry and, for a non-default question, a link to the last thirty days by Batch. Pass `format={TIME_SECONDS_ZONED}` to `FailedReadNotice` so each read time gives the second and its zone. An empty window names its range, with “Show the last 30 days” in `p.empty-act` for other windows. It keeps the grouping.
+
+`div.ledger-layout` holds two sections in reading order. They stand side by side when each has 30rem plus the gap, and stack otherwise. Each table takes its accessible name from its heading. Job ends, tokens and estimated USD follow the row name. The group ledger gives up to ten groups in the hub's order, then the sum of any others. The day ledger gives every UTC day in order. Both footers use the hub's total.
+
+In `table.ledger.by-cost`, the group’s name cell (`th.is-name`) takes the space left by the figures. A name cell with a link uses the Records ID cell’s padding. A name cell with only text keeps the table’s padding. A Runner’s name or removal description and short ID share the baseline in `span.runner-ref`. Batch IDs use `a.cut.stands-alone`, with the full ID in the title and on the record. Runner names wrap, and the short ID can follow on another line. Each Label value is a JSON string in `code.label-value`, preserving spaces. A missing Label is described in words. A `.bar-cell` holds a native meter against the largest cost in that table. Its header reads “Against the largest”. Zero, other and total rows leave the cell empty. At a table width of 30rem or less the bar column gives way and all three figures stay whole. `.day-name` sets the weekday in secondary ink. `tr.is-last-day-of-week` rules off a Sunday. Single-line day rows keep the standard row height. At 20rem and below, cell gaps shrink and the day and month may wrap onto separate lines to leave room for the figures. Today’s row says “so far”, which can wrap beneath its date.
+
+```tsx
+<div class="ledger-layout">
+  <section>
+    <h2 id="usage-days">By day</h2>
+    <table class="ledger by-cost" aria-labelledby="usage-days">
+      <thead>
+        <tr>
+          <th scope="col">Day</th>
+          <th scope="col" class="num">
+            Job ends
+          </th>
+          <th scope="col" class="num">
+            Tokens
+          </th>
+          <th scope="col" class="num">
+            Cost <span class="unit">USD, est.</span>
+          </th>
+          <th scope="col" class="bar-cell">
+            Against the largest
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="is-last-day-of-week">
+          <th scope="row">
+            <time datetime="2026-11-15">
+              <span class="day-name">Sun</span> <span>15 Nov</span>
+            </time>{" "}
+            <span class="unit">so far</span>
+          </th>
+          <td class="num">3</td>
+          <td class="num">1,200</td>
+          <td class="num">0.1200</td>
+          <td class="bar-cell">
+            <meter min={0} max={0.24} value={0.12} aria-label="Cost against the largest row" />
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</div>
 ```
 
 ### Batch page
