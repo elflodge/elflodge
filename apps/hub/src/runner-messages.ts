@@ -538,11 +538,11 @@ function applyReportsStatement(
       .with("stored", (qb) =>
         qb
           .insertInto("jobEventChunk")
-          .columns(["jobId", "lastId", "events", "storedAt"])
+          .columns(["jobId", "lastId", "events"])
           .expression((eb) =>
             eb
               .selectFrom("current")
-              .select((selectEb) => ["jobId", "lastId", "events", selectEb.val(now).as("storedAt")])
+              .select(["jobId", "lastId", "events"])
               .where("fresh", "=", true)
               .where("lastId", "is not", null)
               .$narrowType<{ lastId: number; events: string }>(),
