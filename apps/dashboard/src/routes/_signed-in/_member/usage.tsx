@@ -11,6 +11,7 @@ import {
 import {
   LABEL_KEY_PATTERN,
   problemOf,
+  usageGroupBySchema,
   MAX_USAGE_DAYS,
   parseUsagePeriod,
   type UsageReport,
@@ -32,7 +33,14 @@ const searchSchema = z.object({
   period: optionalText,
   from: optionalText,
   to: optionalText,
-  groupBy: z._default(z.union([z.string(), z.array(z.string())]), reportDefaults.groupBy),
+  // As on Jobs and Batches, drop unusable filters. Keep a Label key so the hub can explain its refusal.
+  groupBy: z._default(
+    z.catch(
+      z.union([usageGroupBySchema, z.templateLiteral(["label:", z.string()])]),
+      reportDefaults.groupBy,
+    ),
+    reportDefaults.groupBy,
+  ),
 });
 type UsageSearch = z.infer<typeof searchSchema>;
 
@@ -186,11 +194,7 @@ function ReportForm(props: { report?: UsageReport }) {
         props.report?.from === form.get("from")
       )
         form.delete("from");
-      if (form.get("groupBy") === "") {
-        const asked = search().groupBy;
-        form.delete("groupBy");
-        for (const value of Array.isArray(asked) ? asked : [asked]) form.append("groupBy", value);
-      } else if (form.get("groupBy") === "label")
+      if (form.get("groupBy") === "label")
         form.set("groupBy", `label:${fieldText(form, "labelKey")}`);
     },
     queryKey: (input) => reportOptions(input).queryKey,
@@ -211,6 +215,13 @@ function ReportForm(props: { report?: UsageReport }) {
     if (draftRange() === "custom") return props.report?.[name] ?? search()[name] ?? "";
     return search()[name] ?? (name === "from" ? props.report?.from : undefined) ?? "";
   }
+  // When the fields mount or get new defaults, From may already hold the member's edit.
+  createEffect(
+    () => ((draftRange() ?? range()) === "custom" ? dateValue("from") : undefined),
+    () => {
+      if (form) checkWindow(form);
+    },
+  );
   function checkWindow(element: HTMLFormElement) {
     const from = element.elements.namedItem("from");
     const to = element.elements.namedItem("to");
@@ -272,7 +283,6 @@ function ReportForm(props: { report?: UsageReport }) {
                   name={name}
                   id={`usage-${name}`}
                   required={name === "from"}
-                  min={name === "to" ? dateValue("from") : undefined}
                   defaultValue={dateValue(name)}
                 />
               </div>
@@ -286,19 +296,14 @@ function ReportForm(props: { report?: UsageReport }) {
             name="groupBy"
             onChange={({ currentTarget }) => setGroup(currentTarget.value)}
           >
-            <Show when={!grouping()}>
-              <option value="" defaultSelected>
-                {String(search().groupBy) || "Empty grouping"}
-              </option>
-            </Show>
             {Object.entries(groupings).map(([value, words]) => (
-              <option value={value} defaultSelected={grouping()?.by === value}>
+              <option value={value} defaultSelected={grouping().by === value}>
                 {words.option}
               </option>
             ))}
           </select>
         </div>
-        <Show when={(draftGroup() ?? grouping()?.by) === "label"}>
+        <Show when={(draftGroup() ?? grouping().by) === "label"}>
           <div class="filter-field">
             <label for="usage-label">Label key</label>
             <input
@@ -307,7 +312,7 @@ function ReportForm(props: { report?: UsageReport }) {
               pattern={LABEL_KEY_PATTERN.source}
               title="A Label name, optionally after a DNS prefix and /"
               required
-              defaultValue={grouping()?.labelKey ?? ""}
+              defaultValue={grouping().labelKey ?? ""}
             />
           </div>
         </Show>

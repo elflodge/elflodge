@@ -156,7 +156,7 @@ function Ledger(props: {
 }
 
 export function UsageLedgers(props: {
-  grouping: NonNullable<ReturnType<typeof usageGrouping>>;
+  grouping: ReturnType<typeof usageGrouping>;
   report?: UsageReport;
 }) {
   const dayCount = () => props.report?.days.length ?? 0;

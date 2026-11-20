@@ -604,7 +604,8 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 export const MAX_USAGE_DAYS = 400;
 
 const usageDaysPattern = new RegExp(`^([1-9][0-9]{0,${String(MAX_USAGE_DAYS).length - 1}})d$`);
-const usageMonthPattern = /^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
+const usageMonthPattern =
+  /^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})-(?:0[1-9]|1[0-2])$/;
 
 /** Read a rolling number of UTC days or a calendar month in the wire format of `period`. */
 export function parseUsagePeriod(value: string) {
@@ -612,7 +613,7 @@ export function parseUsagePeriod(value: string) {
   if (days) {
     const count = Number(days[1]);
     if (count <= MAX_USAGE_DAYS) return { kind: "days" as const, days: count };
-  } else if (usageMonthPattern.test(value) && !value.startsWith("0000")) {
+  } else if (usageMonthPattern.test(value)) {
     return { kind: "month" as const, month: value };
   }
   return undefined;
@@ -643,9 +644,6 @@ export const usageGroupBySchema = z.union(
   { error: "Must be `batch`, `submitter`, `runner`, `status` or `label:` and a label key" },
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
-
-// A shared address can supply any query text or repeat the key. Only validated groupings reach the handler.
-const requestedGrouping: z.ZodMiniType<UsageGroupBy, string | string[]> = usageGroupBySchema;
 
 /** Job ends and the usage they account for in a window, day or group. */
 const usageCountSchema = z.object({
@@ -1411,7 +1409,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
             ),
           ),
           groupBy: z.optional(
-            requestedGrouping.check(
+            usageGroupBySchema.check(
               z.describe(
                 "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
