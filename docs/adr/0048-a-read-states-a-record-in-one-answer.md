@@ -1,6 +1,8 @@
 # A read states a record in one answer
 
-A member reading a Batch can see how many jobs are queued and how many are waiting for its Canary. Both facts describe the same Batch at the same moment. The hub reads them in one SQL statement, from one snapshot, and includes them in the Batch it returns. This holds for a Batch in a list as well as one read by ID.
+Read a record in one SQL statement and return the facts the hub derives about it in that record’s own answer. A caller can then describe the record from one snapshot without sampling another read.
+
+A member reading a Batch can see how many jobs are queued and how many are waiting for its Canary. Both counts come from the same snapshot, whether the member reads the Batch by ID or in a list.
 
 The hub decides what blocks each queued job from being sent to a Runner. It applies the same rule when counting a Batch’s jobs by reason as when reading a job’s `blockedBy`. The Batch carries one count per reason, zero included. Each of those jobs also counts toward `jobCounts.queued`.
 
@@ -9,7 +11,7 @@ The hub decides what blocks each queued job from being sent to a Runner. It appl
 - Read the newest queued job to see whether it is waiting for the Canary. A breaker resume starts a new Canary with the oldest unsent queued jobs. Near the end of the queue these can be the newest jobs in the Batch. If a member then resumes an older job paused on its own, it waits outside that Canary while the newest queued job is free to run. Sampling misses the block even if nothing changes between reads.
 - Return a boolean for jobs waiting for the Canary. It answers one sentence. Showing how many jobs are waiting needs a count anyway, and each other reason would need a field of its own.
 - Give the Batch a single `blockedBy`. Its pause would repeat `pausedBy`, and the value would mean two different things. A pause blocks every unsent queued job, while a Canary blocks only those outside it. An older client would reject the whole Batch on seeing an unfamiliar enum value. With counts it drops an unfamiliar key and reads the rest.
-- Order two answers by a revision or position. Knowing which answer came later cannot tell a caller how many jobs were blocked at the time of either answer. ADR 0026 rejected a per-job revision counter in the Runner protocol because the run and its forward-only intents already carry the order that matters. Both decisions put the facts together where one answer can carry them.
+- Order two answers by a revision or position. Knowing which answer came later still cannot tell the caller how many jobs were blocked at either moment. ADR 0026 rejected a per-job revision counter in the Runner protocol because nothing moves backwards within a run. The run and its forward-only intents already carry the order. Neither decision adds a counter.
 
 ## Consequences
 
