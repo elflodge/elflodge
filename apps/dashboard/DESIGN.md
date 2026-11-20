@@ -297,7 +297,7 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 ### Dialogs
 
-A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). "Keep it" comes first and has the focus. The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
+A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). The keeping button comes first and has the focus. It reads "Keep it", "Keep them" or "Stay". The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
 
 ```tsx
 <dialog aria-labelledby="remove-h">
@@ -463,6 +463,16 @@ Before a populated list, `a.vh.skip-list` leads to `p.list-end#jobs-end`. The en
 <!-- Jobs table -->
 <p class="list-end" id="jobs-end" tabindex="-1"><span>2 read; no more match.</span></p>
 ```
+
+### Organization records and role choices
+
+The Organization's name and Rename share a wrapping `div.org-name`. Each list is a
+`section.record-section` with its own heading and `table.records.is-fit`, sized to its
+content. Plain-text identifiers, addresses and the names of inviters and key creators wrap in full. A row's `td.is-act` holds
+`div.controls` when two controls can act there. They sit together after the record on a phone.
+
+A dialog offering roles uses a fieldset and legend. Each `label.role-choice` holds a native
+radio and the role name, with a `small.note` on the next line describing what it permits.
 
 ### Command to copy, and a secret shown once
 

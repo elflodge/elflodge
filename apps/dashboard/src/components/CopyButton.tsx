@@ -9,9 +9,12 @@ import { createSignal } from "solid-js";
 export function CopyButton(props: {
   text: string;
   label: string;
+  accessibleLabel?: string;
+  /** A table button has no adjacent copyable text unless a clipboard write fails. */
+  showTextOnFailure?: boolean;
   buttonRef?: (button: HTMLButtonElement) => void;
 }) {
-  const [result, setResult] = createSignal<{ text: string; message: string }>();
+  const [result, setResult] = createSignal<{ text: string; message: string; manual?: boolean }>();
 
   async function copy() {
     const text = props.text;
@@ -23,6 +26,7 @@ export function CopyButton(props: {
       console.error(asError(error));
       setResult({
         text,
+        manual: props.showTextOnFailure,
         message: "This browser did not allow copying here: select the text and copy it.",
       });
     }
@@ -32,6 +36,7 @@ export function CopyButton(props: {
     <p class="copy">
       <button
         type="button"
+        aria-label={props.accessibleLabel}
         ref={(element) => props.buttonRef?.(element)}
         onClick={() => void copy()}
       >
@@ -39,6 +44,9 @@ export function CopyButton(props: {
       </button>
       {/* In the page from the start, so that a screen reader says what is written into it. */}
       <span role="status">{result()?.text === props.text ? result()?.message : ""}</span>
+      {result()?.text === props.text && result()?.manual && (
+        <code class="command">{props.text}</code>
+      )}
     </p>
   );
 }
