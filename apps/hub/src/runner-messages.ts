@@ -45,11 +45,11 @@ import {
 } from "./db/types.ts";
 import {
   FINAL_STATUSES,
+  hasUnfinishedCanary,
   insertUsageRecords,
   QUEUED_OR_RUNNING,
   summedToolCalls,
   USAGE_COPIED_COLUMNS,
-  blockedByOf,
 } from "./jobs.ts";
 import {
   recordRunnerHello,
@@ -774,21 +774,25 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
                     runnerEb("runnerId", "=", runnerId),
                   ]),
                 )
-                // A job its Batch blocks waits: for the Batch's pause, a caller's or its breaker's,
-                // or for its Canary. The Batch's row is read without a lock, so placement never
-                // waits on a Batch: a placement already under way when a pause commits may still
-                // send the jobs it took, as one that committed a moment before would have (ADR 0033).
+                // Use existence predicates so Postgres can check the Batch rules while walking
+                // the queue in order. The Batch is read without a lock: a placement already under
+                // way when a pause commits may still send the jobs it took (ADR 0033).
                 .where((batchEb) =>
-                  batchEb(
-                    blockedByOf({
-                      status: batchEb.ref("job.status"),
-                      placedAt: batchEb.ref("job.placedAt"),
-                      batchUid: batchEb.ref("job.batchUid"),
-                      inCanary: batchEb.ref("job.inCanary"),
-                    }),
-                    "is",
-                    null,
+                  batchEb.not(
+                    batchEb.exists(
+                      batchEb
+                        .selectFrom("batch")
+                        .select("batch.uid")
+                        .whereRef("batch.uid", "=", "job.batchUid")
+                        .where("batch.pausedBy", "is not", null),
+                    ),
                   ),
+                )
+                .where((canaryEb) =>
+                  canaryEb.or([
+                    canaryEb("job.inCanary", "=", true),
+                    canaryEb.not(hasUnfinishedCanary(canaryEb.ref("job.batchUid"))),
+                  ]),
                 )
                 // A removed Runner takes no job, though its socket is still open while it closes. Its
                 // row is locked, so a removal waits for this placement and then ends what it placed.
@@ -829,7 +833,7 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
                     ),
                   ),
                 )
-                .forUpdate()
+                .forUpdate("job")
                 .skipLocked(),
             )
             .returning(RUN_COLUMNS),
