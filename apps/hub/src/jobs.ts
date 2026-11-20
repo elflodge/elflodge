@@ -188,14 +188,7 @@ interface BatchForBlock {
   unfinishedCanary: Expression<SqlBool>;
 }
 
-/**
- * What keeps the job from being sent to a Runner, or null, given its Batch's pause and whether any
- * job of its Batch's Canary is unfinished: only a queued job not yet sent to one is blocked, by its
- * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
- * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
- * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
- * by reason use the same rule.
- */
+/** Why an unsent queued job is blocked, given its Batch's pause and whether its Canary is unfinished. */
 export function blockedByForUnsentQueuedJob(
   inCanary: Expression<JobRow["inCanary"]>,
   batch: BatchForBlock,
@@ -218,7 +211,14 @@ export function blockedByForUnsentQueuedJob(
     .end();
 }
 
-/** Only an unsent queued job can be blocked. */
+/**
+ * What blocks the job, or null, from its status, placement and Canary membership, its Batch's
+ * pause and whether its Canary is unfinished. Only a queued job not yet sent is blocked, by its
+ * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
+ * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
+ * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
+ * by reason use the same rule.
+ */
 export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
   const eb = expressionBuilder();
   return eb

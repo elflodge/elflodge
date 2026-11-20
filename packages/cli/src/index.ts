@@ -859,7 +859,7 @@ function progressOf(batch: Batch) {
     // Each running job is one agent loop in a Runner, which is what the count shows.
     .map(([status, count]) => `${count} ${status === "running" ? "agents running" : status}`)
     .join(", ");
-  // Keep the wording short for 80-column terminals when thousands of jobs wait for their Canary.
+  // Short wording keeps the usual line near 80 columns. log-update also rewrites lines that wrap.
   const waiting = batch.blockedJobCounts.batchCanary;
   const canary = waiting > 0 ? `; ${waiting} waiting for its Canary` : "";
   const pause = batch.pausedBy === "caller" ? "; paused" : "";
