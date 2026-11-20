@@ -138,7 +138,12 @@ function fakeHub(
       if (adds.length + 1 === refusedAdd) {
         response.writeHead(422, { "content-type": "application/problem+json" });
         return response.end(
-          JSON.stringify({ type: "about:blank", title: "Unprocessable Content", status: 422 }),
+          JSON.stringify({
+            type: "about:blank",
+            title: "Unprocessable Content",
+            status: 422,
+            errors: [{ pointer: "/jobs/0/customId", detail: "Already used" }],
+          }),
         );
       }
       adds.push(jobs);
@@ -274,6 +279,7 @@ test("batches submit prints the ID it made when the hub refuses an add after the
 
   expect(exitCode).toBe(1);
   expect(hub.adds.map((jobs) => jobs.length)).toEqual([100]);
+  expect(stderr).toContain("job 101: /customId: Already used");
   expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
 });
 

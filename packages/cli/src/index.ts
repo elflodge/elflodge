@@ -1264,10 +1264,25 @@ function submitBatchCommand() {
             hint,
           );
           const adds = yield* hintMadeIdOnStop(
-            Effect.forEach(Array.chunksOf(local.jobs, MAX_JOBS_PER_ADD), (jobs) =>
+            Effect.forEach(Array.chunksOf(local.jobs, MAX_JOBS_PER_ADD), (jobs, group) =>
               hubCall((signal) =>
                 client.batches.addJobs({ id: created.id, jobs }, { signal }),
-              ).pipe(Effect.retry(retryTransient)),
+              ).pipe(
+                Effect.retry(retryTransient),
+                Effect.mapError((error) => {
+                  const lines: string[] = [];
+                  for (const entry of problemOf(error)?.errors ?? []) {
+                    if (entry.pointer === undefined) continue;
+                    const match = /^\/jobs\/(0|[1-9]\d*)(\/.*)?$/s.exec(entry.pointer);
+                    if (!match || Number(match[1]) >= jobs.length) continue;
+                    const number = group * MAX_JOBS_PER_ADD + Number(match[1]) + 1;
+                    lines.push(`job ${number}: ${match[2] ?? ""}: ${entry.detail}`);
+                  }
+                  if (!lines.length) return error;
+                  const cause = commandError(error);
+                  return new Error([cause.message, ...lines].join("\n"), { cause });
+                }),
+              ),
             ),
             runId,
             hint,

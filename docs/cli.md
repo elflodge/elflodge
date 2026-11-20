@@ -15,6 +15,25 @@ Without either, the commands call the hub `elflodge stack` runs with the key it 
 
 Each command takes its input as one flag per field, or whole as JSON: from a file with `--input <file>`, from stdin with `--input -`, or inline with `--json`. `jobs submit` takes JSON only, since a job's `input` field would otherwise take the `--input` flag. A command prints the API's answer as one line of JSON. An error the hub answers prints its Problem Details on stderr and exits with 1. The `blobs` calls, which check and upload file content, have no commands: `batches submit --each` hashes local files and uploads the ones the hub lacks.
 
+When the hub locates an issue, its Problem Details includes one entry for every issue found at that check. For example, a custom ID already used for different job content produces this response:
+
+```json
+{
+  "type": "about:blank",
+  "status": 422,
+  "title": "Unprocessable Content",
+  "detail": "✖ Already used in the Batch for a job with other content\n  → at jobs[0].customId",
+  "errors": [
+    {
+      "detail": "Already used in the Batch for a job with other content",
+      "pointer": "/jobs/0/customId"
+    }
+  ]
+}
+```
+
+The pointer counts from zero within that request. If this is the first job in the second group of 100, `batches submit` also prints `job 101: /customId: Already used in the Batch for a job with other content` on stderr. Query and path issues use a `parameter` name and header issues use a `header` name.
+
 ## Jobs and Batches
 
 ```sh
