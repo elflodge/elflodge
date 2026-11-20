@@ -534,17 +534,8 @@ export const batchSchema = z
       failed: z.int(),
       cancelled: z.int(),
     }),
-    /**
-     * How many of its jobs show each `blockedBy` reason. Each is also counted in
-     * `jobCounts.queued`. New reasons may be added.
-     */
-    // An object, not a record keyed by the enum, so an older client drops a reason a newer hub
-    // adds instead of refusing the Batch; `satisfies` keeps a key for every reason.
-    blockedJobCounts: z.object({
-      batchPausedByCaller: z.int(),
-      batchPausedByBreaker: z.int(),
-      batchCanary: z.int(),
-    } satisfies Record<z.infer<typeof blockedBySchema>, unknown>),
+    /** How many of its queued jobs show `blockedBy: "batchCanary"`. */
+    jobsWaitingForCanary: z.int(),
     /**
      * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
      * recorded status.
