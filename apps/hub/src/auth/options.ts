@@ -12,7 +12,7 @@ import * as z from "zod/mini";
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import { findLiveInvitationCallerCannotGrantByEmail, mayGrantRole } from "./invitation-grants.ts";
+import { findInvitationBlockingRepeat, mayGrantRole } from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -157,10 +157,11 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/delete",
     ],
     hooks: {
-      // A caller may replace a live invitation only if they could see it and grant its role.
-      // The hub checks the inviter's current authority to decide whether the invitation is live.
+      // Better Auth may cancel the old invitation before beforeCreateInvitation runs, and a
+      // resend keeps the original inviter. Check both paths before Better Auth changes the row.
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== "/organization/invite-member" || ctx.body?.resend === true) return;
+        if (ctx.path !== "/organization/invite-member") return;
+        const resend = ctx.body?.resend === true;
         // Match the invite request's lowercased address and its explicit or active Organization.
         const address = ctx.body?.email;
         if (typeof address !== "string") return;
@@ -170,12 +171,18 @@ export function authOptions(settings: AuthSettings) {
         if (!session) return;
         const organizationId = ctx.body.organizationId || session.session.activeOrganizationId;
         if (typeof organizationId !== "string") return;
-        const invitation = await findLiveInvitationCallerCannotGrantByEmail(
+        const invitation = await findInvitationBlockingRepeat(
           db,
           OrganizationId(organizationId),
           UserId(session.user.id),
           email,
+          resend,
         );
+        if (invitation && resend) {
+          throw APIError.fromStatus("CONFLICT", {
+            message: "This invitation can no longer be renewed. Create a new invitation.",
+          });
+        }
         if (invitation)
           throw APIError.from(
             "FORBIDDEN",
@@ -228,7 +235,7 @@ export function authOptions(settings: AuthSettings) {
           configId: API_KEY_CONFIG,
           maximumNameLength: MAX_API_KEY_NAME_LENGTH,
           references: "organization",
-          // API rate limits are a separate concern; per-key limits would add a write to every request.
+          // The hub rate-limits requests separately. Better Auth still records each key's use.
           rateLimit: { enabled: false },
           // Better Auth keeps an Organization's key without the member who created it, so the hub
           // records them in the key's metadata. Only the hub writes it: Better Auth's routes that

@@ -10,6 +10,8 @@ import * as NodeRuntime from "@effect/platform-node-shared/NodeRuntime";
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
 import { writeFile } from "atomically";
+import { createAuthClient } from "better-auth/client";
+import { setCookieToHeader } from "better-auth/cookies";
 import {
   apiContract,
   asError,
@@ -33,7 +35,6 @@ import {
   Runtime,
   Stream,
 } from "effect";
-import { Cookies } from "effect/http";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import ensureError from "ensure-error";
 import envPaths from "env-paths";
@@ -520,23 +521,22 @@ function signIn(state: State) {
   return Effect.tryPromise({
     try: async (signal) => {
       const url = hubUrl(state.port);
-      // Effect's Cookies reads the session from this one fetch. Better Auth documents its client
-      // for browsers.
-      const response = await fetch(`${url}/api/auth/sign-in/email`, {
-        signal,
-        method: "POST",
-        // Better Auth refuses a sign-in from fetch without an origin it trusts, as it guards
-        // against cross-site requests; the hub trusts its own URL.
-        headers: { "content-type": "application/json", origin: url },
-        body: JSON.stringify({ email: OWNER_EMAIL, password: state.ownerPassword }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          `The hub refused the owner's sign-in (HTTP ${response.status}): ${await response.text()}`,
-        );
-      }
-      const cookie = Cookies.toCookieHeader(Cookies.fromSetCookie(response.headers.getSetCookie()));
-      return stackClient(state.port, { cookie });
+      // Better Auth's origin check applies to this sign-in even though it runs in Node.
+      const headers = new Headers({ origin: url });
+      const auth = createAuthClient({ baseURL: url, fetchOptions: { headers, throw: true } });
+      await auth.signIn.email(
+        { email: OWNER_EMAIL, password: state.ownerPassword },
+        {
+          signal,
+          onSuccess: setCookieToHeader(headers),
+          onError: ({ error, response }) => {
+            throw new Error(
+              `The hub refused the owner's sign-in (HTTP ${response.status}): ${error.message ?? response.statusText}`,
+            );
+          },
+        },
+      );
+      return stackClient(state.port, { cookie: headers.get("cookie") ?? "" });
     },
     catch: asError,
   });
