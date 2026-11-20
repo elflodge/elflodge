@@ -203,7 +203,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
   return (
     <tr role="row" class="job-row">
       <td role="cell" class="c-status">
-        <JobStatus job={props.job} />
+        <JobStatus status={props.job.status} lastRecorded={!!props.job.statusUnknown} />
       </td>
       <td role="cell" class="c-beside">
         <BesideStatus job={props.job} />

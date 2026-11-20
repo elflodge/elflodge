@@ -158,15 +158,19 @@ export function JobFacts(props: { job: Job; readAt: number }) {
   );
 }
 
-export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?: TimedEvent }) {
+export function JobLimits(props: {
+  job: Job;
+  status: Job["status"];
+  resumeOffered: boolean;
+  countFrom?: TimedEvent;
+}) {
   const cost = () => props.job.usage.cost.totalUsd;
   const suffix = () =>
-    !FINAL_JOB_STATUSES.includes(props.job.status) || props.resumeOffered ? " so far" : "";
+    !FINAL_JOB_STATUSES.includes(props.status) || props.resumeOffered ? " so far" : "";
   const measured = createMemo(() => {
     const start = props.countFrom;
     const report = props.job.lastReportedAt;
-    if (!start || props.job.status !== "running" || props.job.statusUnknown || !report)
-      return undefined;
+    if (!start || props.job.status !== "running" || !report) return undefined;
     // The Runner timestamps the opening Event. The hub timestamps receipt of the report.
     return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
   });
@@ -255,6 +259,7 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
               <Show
                 when={
                   props.job.startedAt &&
+                  props.status === "failed" &&
                   props.job.status === "failed" &&
                   props.job.failure.reason === "runTimedOut"
                 }

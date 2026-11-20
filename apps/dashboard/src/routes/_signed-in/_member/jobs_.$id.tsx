@@ -115,8 +115,6 @@ function JobPage() {
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
   const job = createMemo(() => latest(() => deep(read.data)));
-  const running = () =>
-    current() && job().status === "running" && !job().statusUnknown && !job().deletedAt;
   const jobEvents = useJobEvents(
     job,
     () =>
@@ -125,11 +123,22 @@ function JobPage() {
       problemOf(read.error)?.status !== 404,
     () => read.dataUpdatedAt,
   );
+  const status = createMemo(() => {
+    const answer = jobEvents.statusRead();
+    return answer && answer.readAt > read.dataUpdatedAt ? answer.status : job().status;
+  });
+  // An Events page carries the stored status. Only the full job read can tell us that its
+  // Runner is still reporting, so it must be current before the page lights the running mark.
+  const statusUnknown = () =>
+    (status() === "running" || status() === "queued") && !!job().statusUnknown;
+  const lastRecorded = () => !current() || statusUnknown();
+  const running = () => status() === "running" && !lastRecorded() && !job().deletedAt;
   const events = mapArray(jobEvents.events, readJobEvent, { keyed: true });
   const groups = createMemo(() => groupJobEvents(events(), jobEvents.firstHeadEventId()));
   const stopped = () => {
     const record = job();
     return (
+      record.status === status() &&
       !record.deletedAt &&
       !record.pendingControl &&
       (record.status === "paused" || record.status === "failed" || record.status === "cancelled")
@@ -159,13 +168,13 @@ function JobPage() {
   const resumeOffered = () => stopped() && !cannotResume();
   const output = createMemo(() => {
     const record = job();
-    return record.status === "succeeded" && record.output !== undefined
+    return status() === "succeeded" && record.status === "succeeded" && record.output !== undefined
       ? JSON.stringify(record.output, null, 2)
       : undefined;
   });
   const failure = () => {
     const record = job();
-    return record.status === "failed" ? record.failure : undefined;
+    return status() === "failed" && record.status === "failed" ? record.failure : undefined;
   };
   return (
     <Show
@@ -181,12 +190,12 @@ function JobPage() {
       <Show
         when={
           !job().deletedAt &&
-          (running() || job().status === "paused") &&
+          (running() || status() === "paused") &&
           jobEvents.isAtLatest() &&
           groups().sentenceRun
         }
       >
-        {(run) => <RunSentence run={run()} job={job()} />}
+        {(run) => <RunSentence run={run()} status={status()} />}
       </Show>
       <p class="note">{timeZoneNote()}</p>
       <Switch>
@@ -216,7 +225,8 @@ function JobPage() {
           <div>
             <JobControls
               job={job()}
-              lastRecorded={!current()}
+              status={status()}
+              lastRecorded={lastRecorded()}
               cannotResume={cannotResume()}
               resumeOffered={resumeOffered()}
               deletedHere={deletedHere()}
@@ -224,11 +234,12 @@ function JobPage() {
             />
           </div>
           <Show when={running()}>
-            <JobActivity job={job()} />
+            <JobActivity job={job().status === "running" ? job() : undefined} />
           </Show>
           <Show when={!job().deletedAt || job().startedAt}>
             <JobLimits
               job={job()}
+              status={status()}
               resumeOffered={resumeOffered()}
               countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
@@ -240,7 +251,13 @@ function JobPage() {
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />
         <Show when={!job().deletedAt}>
-          <JobTimeline job={job()} running={running()} events={jobEvents} groups={groups()} />
+          <JobTimeline
+            job={job()}
+            status={status()}
+            running={running()}
+            events={jobEvents}
+            groups={groups()}
+          />
         </Show>
       </div>
     </Show>

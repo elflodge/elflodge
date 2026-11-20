@@ -18,7 +18,6 @@ import { TextPreview, countLines } from "./TextPreview.tsx";
 interface RowProps {
   row: ReadJobEvent;
   shortRunId?: string;
-  resumeNote?: boolean;
   subAgent?: boolean;
   currentOutput?: boolean;
 }
@@ -100,7 +99,7 @@ function agentStop(reason: string) {
   }
 }
 
-function eventLabel({ row, resumeNote }: RowProps) {
+function eventLabel({ row }: RowProps) {
   const record = row.record;
   if (row.kind === "conversation" && row.relation) {
     const { owner, parent } = row.relation;
@@ -112,7 +111,7 @@ function eventLabel({ row, resumeNote }: RowProps) {
   if (row.lifecycle) return `Runner: ${row.lifecycle.label}`;
   switch (record?.kind) {
     case "pi.user":
-      return resumeNote ? "Note at the resume" : "Message to the agent";
+      return "Message to the agent";
     case "pi.assistant":
       return "Agent";
     case "pi.tool-result": {

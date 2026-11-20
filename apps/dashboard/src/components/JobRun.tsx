@@ -2,20 +2,15 @@ import { JOB_PAUSED, JOB_RESUMED, type Job } from "contract";
 import { Show } from "solid-js";
 
 import { DATE_TIME_SECONDS, TIME_SECONDS, duration, formatCount } from "../format.ts";
-import type { LoadedRun, TimedEvent } from "../job-runs.ts";
+import type { LoadedRun } from "../job-runs.ts";
 import { Instant } from "./Instant.tsx";
 
-function time(at: Date) {
-  return <Instant value={at} format={TIME_SECONDS} />;
+function time(at: Date, format = TIME_SECONDS) {
+  return <Instant value={at} format={format} />;
 }
 
 function between(from: Date, to: Date) {
   return duration((to.getTime() - from.getTime()) / 1000);
-}
-
-function wordsBetween(ended: TimedEvent, resumed: TimedEvent, form: "gap" | "after") {
-  const parts = ended.lifecycle[form]?.(ended.at, resumed.at, between(ended.at, resumed.at));
-  return parts?.map((part) => (typeof part === "string" ? part : time(part)));
 }
 
 export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId?: string }) {
@@ -25,7 +20,8 @@ export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId
       <Show when={opening().kind === JOB_RESUMED && props.run.previousEnd}>
         {(end) => (
           <li class="run-gap" tabindex="-1">
-            {wordsBetween(end(), opening(), "gap")}
+            {end().lifecycle.label} {time(end().at, DATE_TIME_SECONDS)}. {opening().lifecycle.label}{" "}
+            {time(opening().at, DATE_TIME_SECONDS)}.
           </li>
         )}
       </Show>
@@ -50,14 +46,15 @@ export function RunHeading(props: { run: LoadedRun; running: boolean; shortRunId
   );
 }
 
-export function RunSentence(props: { run: LoadedRun; job: Job }) {
+export function RunSentence(props: { run: LoadedRun; status: Job["status"] }) {
   const opening = () => props.run.opening;
   const recovered = () => props.run.recoveries.at(-1);
+  const previousEnd = () => opening().kind === JOB_RESUMED && props.run.previousEnd;
   return (
     <Show
       when={
-        (props.job.status === "running" && !props.job.statusUnknown && !props.run.end) ||
-        (props.job.status === "paused" && props.run.end?.kind === JOB_PAUSED)
+        (props.status === "running" && !props.run.end) ||
+        (props.status === "paused" && props.run.end?.kind === JOB_PAUSED)
       }
     >
       <p class="head-sentence">
@@ -65,11 +62,17 @@ export function RunSentence(props: { run: LoadedRun; job: Job }) {
           when={props.run.end}
           fallback={
             <>
-              {opening().lifecycle.since} {time(opening().at)}
-              <Show when={opening().kind === JOB_RESUMED && props.run.previousEnd}>
-                {(end) => wordsBetween(end(), opening(), "after")}
+              {opening().lifecycle.since}{" "}
+              {time(opening().at, previousEnd() ? DATE_TIME_SECONDS : TIME_SECONDS)}.
+              <Show when={previousEnd()}>
+                {(end) => (
+                  <>
+                    {" "}
+                    Previously {end().lifecycle.label.toLowerCase()}{" "}
+                    {time(end().at, DATE_TIME_SECONDS)}.
+                  </>
+                )}
               </Show>
-              .
             </>
           }
         >

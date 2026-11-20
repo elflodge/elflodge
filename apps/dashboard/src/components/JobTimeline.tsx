@@ -72,7 +72,6 @@ function firstAddedItem(previous: number | undefined, lastAdded: number | undefi
 function PageEdge(props: {
   direction: PagingDirection;
   events: JobEvents;
-  at?: Date;
   read: (direction: PagingDirection) => Promise<HTMLElement | null>;
   jump: (button: HTMLButtonElement) => Promise<void>;
   timeline: () => HTMLOListElement | undefined;
@@ -83,7 +82,6 @@ function PageEdge(props: {
   const retryJump = () => error()?.jump;
   const jumpLabel = () => (earlier() ? "Start" : "Latest");
   const usedUp = () => props.events.usedUp(props.direction) && !retryJump();
-  const edgeTime = createMemo<Date | undefined>((previous) => (usedUp() ? previous : props.at));
   let box: HTMLDivElement | undefined;
   async function read(button: HTMLButtonElement) {
     const hadFocus = document.activeElement === button;
@@ -112,21 +110,7 @@ function PageEdge(props: {
           <Show
             when={error()}
             fallback={
-              <p>
-                <Show
-                  when={edgeTime()}
-                  fallback={
-                    earlier() ? "Earlier Events are not shown." : "Later Events are not shown."
-                  }
-                >
-                  {(at) => (
-                    <>
-                      Events {earlier() ? "before" : "after"}{" "}
-                      <Instant value={at()} format={TIME_SECONDS} /> are not shown.
-                    </>
-                  )}
-                </Show>
-              </p>
+              <p>{earlier() ? "Earlier Events are not shown." : "Later Events are not shown."}</p>
             }
           >
             {(failure) => (
@@ -161,6 +145,7 @@ const MOMENTS: ReadonlySet<string> = new Set([JOB_PAUSED, JOB_RESUMED, JOB_RECOV
 
 export function JobTimeline(props: {
   job: Job;
+  status: Job["status"];
   running: boolean;
   events: JobEvents;
   groups: JobEventGroups;
@@ -255,8 +240,6 @@ export function JobTimeline(props: {
     const added = addition();
     return added && added.newest === last()?.id ? `${added.sentence} ${total}.` : total;
   };
-  const earlierTime = () => rows().find((row) => row.at)?.at;
-  const laterTime = () => rows().findLast((row) => row.at)?.at;
   const moments = createMemo(() => rows().filter((row) => row.lifecycle && MOMENTS.has(row.kind)));
   const subAgents = createMemo(() => rows().filter((row) => row.ownerId !== undefined));
   const compactions = createMemo(() => rows().filter((row) => row.kind === "pi.compaction"));
@@ -305,12 +288,23 @@ export function JobTimeline(props: {
       </div>
       <Show when={events.failure()}>
         {(failure) => (
-          <FailedReadNotice
-            what="The Events"
-            detail={hubFailureDetail(failure().error)}
-            failedAt={failure().failedAt}
-            readAt={failure().readAt}
-          />
+          <>
+            <FailedReadNotice
+              what="The Events"
+              detail={hubFailureDetail(failure().error)}
+              failedAt={failure().failedAt}
+              readAt={failure().readAt}
+            />
+            <Show when={!rows().length && failure().follower}>
+              <button
+                type="button"
+                disabled={events.isReadingPage()}
+                onClick={(e) => void jump(false, e.currentTarget)}
+              >
+                Latest
+              </button>
+            </Show>
+          </>
         )}
       </Show>
       <Show when={events.isLoading()}>
@@ -334,11 +328,13 @@ export function JobTimeline(props: {
       >
         <div class="empty">
           <h3>
-            {props.job.status === "cancelled" && !props.job.startedAt
+            {props.status === "cancelled" &&
+            props.job.status === "cancelled" &&
+            !props.job.startedAt
               ? "No Events: it ended before it started."
               : "No Events yet"}
           </h3>
-          <Show when={props.job.status === "queued" && !props.job.startedAt}>
+          <Show when={props.status === "queued" && !props.job.startedAt}>
             <Link class="button" to="/runners">
               See which Runners are connected
             </Link>
@@ -349,7 +345,6 @@ export function JobTimeline(props: {
         direction="earlier"
         jump={(button) => jump(true, button)}
         events={events}
-        at={earlierTime()}
         read={extend}
         timeline={() => timeline}
       />
@@ -415,9 +410,9 @@ export function JobTimeline(props: {
               <JobEventRow
                 row={row()}
                 shortRunId={props.groups.shortRunIds.get(row().runId ?? "")}
-                resumeNote={props.groups.resumeNotes.has(row().id)}
                 subAgent={props.groups.subAgents.has(row().conversationId ?? 0)}
                 currentOutput={
+                  props.status === "succeeded" &&
                   props.job.status === "succeeded" &&
                   events.isAtLatest() &&
                   row().kind === JOB_SUCCEEDED &&
@@ -455,7 +450,6 @@ export function JobTimeline(props: {
         direction="later"
         jump={(button) => jump(false, button)}
         events={events}
-        at={laterTime()}
         read={extend}
         timeline={() => timeline}
       />
@@ -470,7 +464,7 @@ export function JobTimeline(props: {
               <Show when={newestUnreadTime()}>
                 {(at) => (
                   <>
-                    , the latest <Instant value={at()} format={TIME_SECONDS} />
+                    , Event {unread().at(-1)?.id} at <Instant value={at()} format={TIME_SECONDS} />
                   </>
                 )}
               </Show>

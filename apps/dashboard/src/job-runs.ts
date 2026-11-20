@@ -27,12 +27,10 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
   const headings = new Map<number, LoadedRun>();
   const dayLines = new Set<number>();
   const subAgents = new Set<number>();
-  const resumeNotes = new Set<number>();
   let currentRun: LoadedRun | undefined;
   let countFrom: TimedEvent | undefined;
   let previousEnd: TimedEvent | undefined;
   let previousDay: string | undefined;
-  let awaitingResumeNote = false;
 
   for (const row of events) {
     if (row.runId) runIds.add(row.runId);
@@ -51,7 +49,6 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
           headings.set(row.id, currentRun);
           previousEnd = undefined;
           countFrom = timed;
-          awaitingResumeNote = row.kind === JOB_RESUMED;
           break;
         case JOB_RECOVERED:
           countFrom = timed;
@@ -64,20 +61,11 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
           if (currentRun) currentRun.end = timed;
           previousEnd = timed;
           countFrom = undefined;
-          awaitingResumeNote = false;
           break;
       }
     }
     if (!currentRun || currentRun.end) continue;
     if (row.providerModel) currentRun.models.add(row.providerModel);
-    if (
-      awaitingResumeNote &&
-      row.kind === "pi.user" &&
-      row.conversationId === currentRun.opening.conversationId
-    ) {
-      resumeNotes.add(row.id);
-      awaitingResumeNote = false;
-    }
   }
   // Earlier history expands below the paging button. A newly revealed opening or previous end
   // belongs in the timeline without adding to the sentence or timeout above it.
@@ -95,7 +83,6 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
     countFrom: forHead(countFrom),
     dayLines,
     subAgents,
-    resumeNotes,
   };
 }
 export type JobEventGroups = ReturnType<typeof groupJobEvents>;

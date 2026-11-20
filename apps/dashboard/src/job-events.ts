@@ -13,6 +13,7 @@ import {
   flush,
   latest,
   onCleanup,
+  resolve,
   until,
 } from "solid-js";
 
@@ -70,8 +71,9 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const [direction, setDirection] = createSignal<PagingDirection>("earlier");
   const [isReadingPage, setReadingPage] = createSignal(false);
   const [jumpFailure, setJumpFailure] = createSignal<{ side: PagingDirection; error: Error }>();
+  const historyRequest = createMemo(() => historyOptions(job().id, direction()));
   const history = useInfiniteQuery(() => ({
-    ...historyOptions(job().id, direction()),
+    ...historyRequest(),
     enabled: enabled(),
     refetchInterval: (query) =>
       query.state.error && !refused(query.state.error) && !query.state.data
@@ -90,10 +92,18 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const tailCursor = () =>
     pages().length && !hasPage("later") ? (historyEvents().at(-1)?.id ?? 0) : undefined;
 
+  const followInput = createMemo(() => ({
+    id: job().id,
+    order: "asc" as const,
+    after: tailCursor(),
+    limit: PAGE_SIZE,
+  }));
+  const followKey = createMemo(() =>
+    orpc.jobs.events.key({ type: "streamed", input: followInput() }),
+  );
   const follow = useQuery(() => {
     const cursor = tailCursor();
-    const id = job().id;
-    const input = { id, order: "asc" as const, after: cursor, limit: PAGE_SIZE };
+    const input = followInput();
     const mayFollow = enabled() && cursor !== undefined;
     const last = direction() === "later" && cursor !== undefined ? pages().at(-1) : undefined;
     const endedAt = last && closingTime(last);
@@ -103,7 +113,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       status: last?.status ?? job().status,
     };
     return {
-      queryKey: orpc.jobs.events.key({ type: "streamed", input }),
+      queryKey: followKey(),
       enabled: ({ state }) =>
         mayFollow &&
         (state.error ? !refused(state.error) : !state.data || !isFinalPage(state.data)),
@@ -114,6 +124,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       // identifies which ending it shows. Without one, read forward to confirm its cursor.
       initialData:
         last && (!isFinalPage(last) || endedAt !== undefined) ? { ...initial, endedAt } : undefined,
+      initialDataUpdatedAt: history.dataUpdatedAt,
       gcTime: 0,
       queryFn: experimental_streamedQuery<FollowedPage, FollowedPage>({
         refetchMode: "append",
@@ -153,6 +164,21 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
   const followed = createMemo(() =>
     follow.dataUpdatedAt ? latest(() => deep(follow.data)) : undefined,
   );
+  // A request can still be draining pages while Solid displays its previous rows.
+  // Read each cached answer and its timestamp together when Query reports new data.
+  const statusRead = createMemo(() => {
+    const past = history.dataUpdatedAt
+      ? client.getQueryState(historyRequest().queryKey)
+      : undefined;
+    const live =
+      tailCursor() !== undefined && follow.dataUpdatedAt
+        ? client.getQueryState<FollowedPage>(followKey())
+        : undefined;
+    if (live?.data && live.dataUpdatedAt > (past?.dataUpdatedAt ?? 0))
+      return { status: live.data.status, readAt: live.dataUpdatedAt };
+    const last = past?.data?.pages.at(-1);
+    return past && last ? { status: last.status, readAt: past.dataUpdatedAt } : undefined;
+  });
   // A job can end and resume between two job reads, even ending again with the same status.
   createEffect(jobReadAt, (readAt) => {
     if (
@@ -202,7 +228,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         const result = await follow.refetch({ cancelRefetch: false });
         if (!result.isSuccess) throw result.error;
         if (ownerLifetime.signal.aborted) return false;
-        if ("promise" in follow) await follow.promise;
+        await resolve(() => follow.data);
         setJumpFailure(undefined);
         return enabled();
       }
@@ -257,8 +283,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       const result = await history.fetchNextPage();
       if (!result.isSuccess || ownerLifetime.signal.aborted) return undefined;
       // Query's response can arrive before Solid has committed the replacement for the button.
-      // Solid Query exposes the settled value as promise, which its infinite result type omits.
-      if ("promise" in history) await history.promise;
+      await resolve(() => history.data);
       return result.data.pages.at(-1);
     } finally {
       setJumpFailure(undefined);
@@ -277,11 +302,17 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         ? history
         : follow;
     return read.isError && read.error !== jumpFailure()?.error
-      ? { error: read.error, failedAt: read.errorUpdatedAt, readAt }
+      ? {
+          error: read.error,
+          failedAt: read.errorUpdatedAt,
+          readAt,
+          follower: read === follow && tailCursor() !== undefined,
+        }
       : undefined;
   }
 
   return {
+    statusRead,
     events,
     liveEvents,
     firstHeadEventId,

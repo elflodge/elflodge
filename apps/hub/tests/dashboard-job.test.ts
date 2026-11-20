@@ -395,25 +395,37 @@ test("a member reading earlier Events can jump to new ones, and following ends a
   await report([message(260), { id: 264, type: "conversation", record: { id: 264 } }]);
   const notice = page.getByRole("status").filter({ hasText: "2 new Events below" });
   await expectBrowser(notice).toBeVisible({ timeout: 12_000 });
-  await expectBrowser(notice).not.toContainText("the latest");
+  await expectBrowser(notice.locator("time")).toHaveCount(0);
   expect(await first.evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(top, 0);
   await notice.getByText("Go to them", { exact: true }).click();
   await expectBrowser(page.locator("#event-260")).toBeFocused();
-  await report([
-    {
-      id: 267,
-      type: "entry",
-      record: {
-        id: 267,
-        conversationId: 1,
-        kind: JOB_SUCCEEDED,
-        data: { timestamp: Date.now(), output: 17 },
-      },
-    },
-  ]);
-  await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("267", {
-    timeout: 12_000,
+  // The Events poll can report success before the next detailed job read answers.
+  const releaseJobRead = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${id}`, async (route) => {
+    await releaseJobRead.promise;
+    await route.continue();
   });
+  try {
+    await report([
+      {
+        id: 267,
+        type: "entry",
+        record: {
+          id: 267,
+          conversationId: 1,
+          kind: JOB_SUCCEEDED,
+          data: { timestamp: Date.now(), output: 17 },
+        },
+      },
+    ]);
+    await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("267", {
+      timeout: 12_000,
+    });
+    await expectBrowser(page.locator(".status-lg")).toHaveText("Succeeded");
+    await expectBrowser(page.locator("#latest")).toHaveCount(0);
+  } finally {
+    releaseJobRead.resolve();
+  }
   const finalReads = reads;
   // Two job refreshes cover an entire polling interval, regardless of their phase.
   for (let i = 0; i < 2; i++)

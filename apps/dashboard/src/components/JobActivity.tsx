@@ -22,14 +22,23 @@ function Retry(props: { retry: { at: string; error: string } }) {
   );
 }
 
-export function JobActivity(props: { job: Job }) {
+export function JobActivity(props: { job?: Job }) {
   return (
     <section class="activity" aria-labelledby="job-activity">
       <h2 id="job-activity" tabindex="-1">
         Latest activity
       </h2>
-      <Show when={props.job.lastReportedAt} fallback={<p>No report recorded yet for this run.</p>}>
-        <Show when={props.job.activity} fallback={<p>No activity has been reported.</p>}>
+      <Show
+        when={props.job?.lastReportedAt}
+        fallback={
+          <p>
+            {props.job
+              ? "No report recorded yet for this run."
+              : "Waiting for this run’s activity report."}
+          </p>
+        }
+      >
+        <Show when={props.job?.activity} fallback={<p>No activity has been reported.</p>}>
           {(activity) => (
             <For
               keyed={(part) => part.conversationId}
