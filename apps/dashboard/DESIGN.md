@@ -530,7 +530,7 @@ The disclosure starts at 760px to leave room for the six Jobs status checks on o
 </form>
 ```
 
-The time-zone note sits below the filters when the list has records or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. Eight give a visible sample while keeping the loading table within a phone screen (296px of rows at 390px wide). On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the list’s error page with a way to clear any filters in the address.
+The time-zone note sits below the filters when the list has records or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. On Jobs, the eight rows fit within a phone screen (296px at 390px wide). On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the list’s error page with a way to clear any filters in the address.
 
 ### The end of a list
 
