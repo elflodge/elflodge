@@ -1,5 +1,6 @@
 export * from "./api.ts";
 export {
+  BATCH_ID_PATTERN,
   batchIdSchema,
   blobRefSchema,
   digestSchema,
@@ -10,6 +11,7 @@ export {
   labelsSchema,
   type ListedInputFile,
   type OutputContract,
+  jobIdSchema,
   jobRefSchema,
 } from "./job.ts";
 export * from "./json-rpc.ts";

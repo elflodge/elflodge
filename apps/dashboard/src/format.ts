@@ -13,6 +13,22 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
+/** The local calendar date in the YYYY-MM-DD form HTML time elements take. */
+export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" });
+
+/** A local creation day in the year of the read. */
+export const DAY = new Intl.DateTimeFormat(LANGUAGE, { day: "numeric", month: "short" });
+/** A local creation day outside the year of the read. */
+export const DAY_YEAR = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "medium" });
+export const TIME = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "short" });
+/** An event time, dated when it falls outside the row group’s creation day. */
+export const DAY_TIME = new Intl.DateTimeFormat(LANGUAGE, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 /** Second-precision instants where the page already names the reader's zone. */
 export const TIME_SECONDS = new Intl.DateTimeFormat(LANGUAGE, { timeStyle: "medium" });
 export const DATE_TIME_SECONDS = new Intl.DateTimeFormat(LANGUAGE, {
@@ -65,6 +81,12 @@ export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeS
 
 const COUNT = new Intl.NumberFormat(LANGUAGE);
 
+// Four decimals: a job's cost is often a fraction of a cent, which two would show as 0.00.
+const USD = new Intl.NumberFormat(LANGUAGE, {
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4,
+});
+
 const PLURAL = new Intl.PluralRules(LANGUAGE);
 
 /** `one` or `other`, the word that goes with `count`, such as "1 agent" and "2 agents". */
@@ -83,3 +105,14 @@ const ROLE_LIST = new Intl.ListFormat(LANGUAGE, { type: "conjunction" });
 export function formatRoles(roles: string): string {
   return ROLE_LIST.format(roles.split(","));
 }
+
+/** An amount in US dollars, to four decimal places so a fraction of a cent remains visible. */
+export function formatUsd(amount: number): string {
+  return USD.format(amount);
+}
+
+/** A budget in USD, with two to four decimal places. */
+export const USD_BUDGET = new Intl.NumberFormat(LANGUAGE, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});

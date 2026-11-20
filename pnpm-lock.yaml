@@ -404,6 +404,9 @@ catalogs:
     typescript:
       specifier: ~7.0.2
       version: 7.0.2
+    ufo:
+      specifier: 1.6.4
+      version: 1.6.4
     uuid:
       specifier: ^14.0.3
       version: 14.0.3
@@ -483,6 +486,9 @@ importers:
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.50
+      '@orpc/openapi':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))
       '@orpc/tanstack-query':
         specifier: 'catalog:'
         version: 2.0.0-beta.50(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))
@@ -507,6 +513,9 @@ importers:
       solid-js:
         specifier: 'catalog:'
         version: 2.0.0
+      ufo:
+        specifier: 'catalog:'
+        version: 1.6.4
       zod:
         specifier: 'catalog:'
         version: 4.6.7

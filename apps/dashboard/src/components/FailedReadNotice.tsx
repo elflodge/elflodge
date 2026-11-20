@@ -45,7 +45,7 @@ export function ReadErrorPage(
     return <DefaultCatchBoundary {...props} />;
   }
   return (
-    <FallbackPage heading={props.heading}>
+    <FallbackPage heading={props.heading} focusHeading>
       <p class="note">
         {timeZoneNote()} {props.note}
       </p>

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignedInRouteImport } from './routes/_signed-in'
 import { Route as InvitationRouteImport } from './routes/invitation'
 import { Route as SetupRouteImport } from './routes/setup'
@@ -16,10 +17,16 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignedInSplatRouteImport } from './routes/_signed-in/$'
 import { Route as SignedInMemberRouteImport } from './routes/_signed-in/_member'
 import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/change-password'
-import { Route as SignedInMemberIndexRouteImport } from './routes/_signed-in/_member/index'
 import { Route as SignedInMemberApiKeysRouteImport } from './routes/_signed-in/_member/api-keys'
+import { Route as SignedInMemberJobsRouteImport } from './routes/_signed-in/_member/jobs'
 import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_member/runners'
+import { Route as SignedInMemberJobsIndexRouteImport } from './routes/_signed-in/_member/jobs.index'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignedInRoute = SignedInRouteImport.update({
   id: '/_signed-in',
   getParentRoute: () => rootRouteImport,
@@ -53,14 +60,14 @@ const SignedInChangePasswordRoute = SignedInChangePasswordRouteImport.update({
   path: '/change-password',
   getParentRoute: () => SignedInRoute,
 } as any)
-const SignedInMemberIndexRoute = SignedInMemberIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SignedInMemberRoute,
-} as any)
 const SignedInMemberApiKeysRoute = SignedInMemberApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
+const SignedInMemberJobsRoute = SignedInMemberJobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
 const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
@@ -68,19 +75,26 @@ const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
   path: '/runners',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberJobsIndexRoute = SignedInMemberJobsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SignedInMemberJobsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof SignedInMemberIndexRoute
+  '/': typeof IndexRoute
   '/invitation': typeof InvitationRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
   '/api-keys': typeof SignedInMemberApiKeysRoute
+  '/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/runners': typeof SignedInMemberRunnersRoute
+  '/jobs/': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof SignedInMemberIndexRoute
+  '/': typeof IndexRoute
   '/invitation': typeof InvitationRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
@@ -88,9 +102,11 @@ export interface FileRoutesByTo {
   '/change-password': typeof SignedInChangePasswordRoute
   '/api-keys': typeof SignedInMemberApiKeysRoute
   '/runners': typeof SignedInMemberRunnersRoute
+  '/jobs': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/_signed-in': typeof SignedInRouteWithChildren
   '/invitation': typeof InvitationRoute
   '/setup': typeof SetupRoute
@@ -99,8 +115,9 @@ export interface FileRoutesById {
   '/_signed-in/_member': typeof SignedInMemberRouteWithChildren
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
   '/_signed-in/_member/api-keys': typeof SignedInMemberApiKeysRoute
+  '/_signed-in/_member/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/_signed-in/_member/runners': typeof SignedInMemberRunnersRoute
-  '/_signed-in/_member/': typeof SignedInMemberIndexRoute
+  '/_signed-in/_member/jobs/': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -112,7 +129,9 @@ export interface FileRouteTypes {
     | '/$'
     | '/change-password'
     | '/api-keys'
+    | '/jobs'
     | '/runners'
+    | '/jobs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -123,8 +142,10 @@ export interface FileRouteTypes {
     | '/change-password'
     | '/api-keys'
     | '/runners'
+    | '/jobs'
   id:
     | '__root__'
+    | '/'
     | '/_signed-in'
     | '/invitation'
     | '/setup'
@@ -133,11 +154,13 @@ export interface FileRouteTypes {
     | '/_signed-in/_member'
     | '/_signed-in/change-password'
     | '/_signed-in/_member/api-keys'
+    | '/_signed-in/_member/jobs'
     | '/_signed-in/_member/runners'
-    | '/_signed-in/_member/'
+    | '/_signed-in/_member/jobs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   SignedInRoute: typeof SignedInRouteWithChildren
   InvitationRoute: typeof InvitationRoute
   SetupRoute: typeof SetupRoute
@@ -146,6 +169,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/solid-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_signed-in': {
       id: '/_signed-in'
       path: ''
@@ -195,18 +225,18 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInChangePasswordRouteImport
       parentRoute: typeof SignedInRoute
     }
-    '/_signed-in/_member/': {
-      id: '/_signed-in/_member/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof SignedInMemberIndexRouteImport
-      parentRoute: typeof SignedInMemberRoute
-    }
     '/_signed-in/_member/api-keys': {
       id: '/_signed-in/_member/api-keys'
       path: '/api-keys'
       fullPath: '/api-keys'
       preLoaderRoute: typeof SignedInMemberApiKeysRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
+    '/_signed-in/_member/jobs': {
+      id: '/_signed-in/_member/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof SignedInMemberJobsRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
     '/_signed-in/_member/runners': {
@@ -216,19 +246,37 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberRunnersRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/jobs/': {
+      id: '/_signed-in/_member/jobs/'
+      path: '/'
+      fullPath: '/jobs/'
+      preLoaderRoute: typeof SignedInMemberJobsIndexRouteImport
+      parentRoute: typeof SignedInMemberJobsRoute
+    }
   }
 }
 
+interface SignedInMemberJobsRouteChildren {
+  SignedInMemberJobsIndexRoute: typeof SignedInMemberJobsIndexRoute
+}
+
+const SignedInMemberJobsRouteChildren: SignedInMemberJobsRouteChildren = {
+  SignedInMemberJobsIndexRoute: SignedInMemberJobsIndexRoute,
+}
+
+const SignedInMemberJobsRouteWithChildren =
+  SignedInMemberJobsRoute._addFileChildren(SignedInMemberJobsRouteChildren)
+
 interface SignedInMemberRouteChildren {
   SignedInMemberApiKeysRoute: typeof SignedInMemberApiKeysRoute
+  SignedInMemberJobsRoute: typeof SignedInMemberJobsRouteWithChildren
   SignedInMemberRunnersRoute: typeof SignedInMemberRunnersRoute
-  SignedInMemberIndexRoute: typeof SignedInMemberIndexRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberApiKeysRoute: SignedInMemberApiKeysRoute,
+  SignedInMemberJobsRoute: SignedInMemberJobsRouteWithChildren,
   SignedInMemberRunnersRoute: SignedInMemberRunnersRoute,
-  SignedInMemberIndexRoute: SignedInMemberIndexRoute,
 }
 
 const SignedInMemberRouteWithChildren = SignedInMemberRoute._addFileChildren(
@@ -252,6 +300,7 @@ const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
 )
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   SignedInRoute: SignedInRouteWithChildren,
   InvitationRoute: InvitationRoute,
   SetupRoute: SetupRoute,

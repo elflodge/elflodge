@@ -25,17 +25,26 @@ export const Route = createFileRoute("/_signed-in")({
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     return { user: session.user, membership: session.membership };
   },
+  // Pending routes lose beforeLoad context (TanStack/router#8115). Keep the last completed
+  // session visible and publish each check because membership can change for the same user.
+  // Once Solid Start includes TanStack/router#8964, move the shell and _member from this loader
+  // back to route context together, then remove the loader.
+  shouldReload: true,
+  loader: {
+    staleReloadMode: "blocking",
+    handler: ({ context: { user, membership } }) => ({ user, membership }),
+  },
   component: SignedIn,
 });
 
 function SignedIn() {
-  const context = Route.useRouteContext();
+  const session = Route.useLoaderData();
   const memberOrganization = () => {
-    const { membership } = context();
+    const { membership } = session();
     return membership.status === "member" ? membership.organization : undefined;
   };
   const router = useRouter();
-  onSettled(() => watchDocumentMember(context().user.id));
+  onSettled(() => watchDocumentMember(session().user.id));
   const [error, setError] = createSignal<string>();
   let account: HTMLDivElement | undefined;
   let opener: HTMLButtonElement | undefined;
@@ -113,8 +122,8 @@ function SignedIn() {
               opener = element;
             }}
           >
-            <span class="member-name" title={context().user.name}>
-              {context().user.name}
+            <span class="member-name" title={session().user.name}>
+              {session().user.name}
             </span>
             <span class="mark mark-opens" aria-hidden="true" />
           </button>
@@ -131,11 +140,11 @@ function SignedIn() {
               <Destinations class="nav-stack" />
             </nav>
             <p class="pop-who">
-              <strong>{context().user.name}</strong>
+              <strong>{session().user.name}</strong>
               <br />
               {/* In the mono, as what a person may copy. The sans also draws a full stop close into
                   a round letter beside it, which closes up an address such as "pine.example". */}
-              <span class="mono">{context().user.email}</span>
+              <span class="mono">{session().user.email}</span>
               <Show when={memberOrganization()}>
                 {(organization) => (
                   <>

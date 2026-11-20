@@ -34,14 +34,16 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 
 - **Brand:** `--brand-ground`, `--brand-shape`, `--brand-lamp`. Nothing replaces them.
 - **Neutrals** (rules, bands, edges) are mixes of the ground and the shape, `color-mix(in oklab, …)`, so they stay in the brand's family. The code band (`--c-sunk`) mixes them in light and uses a darker ground in dark, where the mix cannot sink below the page. On the band, `--c-ink` measures 11.40:1 in light and 12.20:1 in dark. A placeholder's `--c-ink-3` outline measures 3.47:1 and 6.54:1 respectively.
-- **Inks** are explicit values. Text reaches 4.5:1 on every ground it is set on, in both themes.
+- **Inks** are explicit values. `--c-lamp-ink` is the text ink for Running. Text reaches 4.5:1 on every ground it is set on, in both themes.
 - **Lines that must be seen** (`--c-ink-3`, `--c-field-edge`, `--c-focus`) reach 3:1 on every ground; the comment beside each gives its measured lowest value. `--c-rule`, the hairline, only separates and is quieter.
-- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued and paused, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
+- **Status colours.** `--c-running` is the lamp, a shade darker in light so the mark keeps 3:1 on the lamp's own wash and the strip's band (`--c-ground-2`); it is live now. `--c-waiting` (ink-2) is for queued, paused and cancelled, which are not alarms. `--c-unknown` is for a status the hub cannot confirm, and is text-strength.
 - **Washes** are grounds for a sentence the reader must not miss: `--c-failed-wash` for a refusal or an invalid field, `--c-lamp-wash` for what is live and for marked text.
 - **Type:** sizes from `--text-xs` (12px: units, column heads, notes) through `--text-sm` (13px, the working size), `--text-md` (15px, sentences that explain) and `--text-lg` (17px, section headings) to `--text-2xl` (23px, a page heading). The mono is set at `--mono-size` beside the sans so their x-heights meet.
 - **Space** is in steps of 4px: `--space-1` to `--space-4` (4 to 16px) and `--space-7` (48px). The page's side margin is `--gutter`.
 - A step that nothing uses is not defined, which is why the type sizes have no `--text-xl` and the spaces no `--space-5` or `--space-6`.
 - **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, `--strip`, `--mark` (a drawn mark), `--radius` (controls and dialogs), and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
+
+In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--jobs-submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`. On two lines `--jobs-cost-narrow` holds the cost and its USD unit.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
 
@@ -100,7 +102,7 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 ```
 
 - The bar holds the brand, the Organization's name, the destinations and, at its end, the member's name. Its links are not underlined: the bar is a known place.
-- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise, as Home's exact path match does. A search string does not change the current destination.
+- The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise. A search string does not change the current destination.
 - The member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
 - The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
@@ -124,25 +126,33 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
       Runners 4 of 5 connected
     </li>
     <li>
-      <span class="mark mark-running" aria-hidden="true" />
-      45 agents running
+      <Link to="/jobs" search={{ status: ["running"] }}>
+        <span class="mark mark-running" aria-hidden="true" />
+        45 agents running
+      </Link>
     </li>
     <li>
-      <span class="mark mark-queued" aria-hidden="true" />
-      303 queued
+      <Link to="/jobs" search={{ status: ["queued"] }}>
+        <span class="mark mark-queued" aria-hidden="true" />
+        303 queued
+      </Link>
     </li>
     <li>
-      <span class="mark mark-paused" aria-hidden="true" />3 paused
+      <Link to="/jobs" search={{ status: ["paused"] }}>
+        <span class="mark mark-paused" aria-hidden="true" />3 paused
+      </Link>
     </li>
     <li class="hub-unknown">
-      <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
+      <Link to="/jobs" search={{ statusUnknown: true }}>
+        <span class="mark mark-unknown" aria-hidden="true" />4 status unknown
+      </Link>
     </li>
   </ul>
 </section>
 ```
 
-- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall. The Runners item leads to the Runners page.
-- The running mark takes the lamp's colour only while the hub can confirm that at least one job is running. At zero it is plain, as queued and paused are. When every job counted as running has its status unknown, nothing is known to be live: the item is `li.hub-unknown`, with `mark-unknown` in place of the running mark, and says so: "3 agents running, status unknown". The count stays the hub's, which counts such a job under the last status its Runner confirmed. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
+- Each item is a mark and its words, small. An item may hold a link, such as to the list it counts, in the item's colour and at least 24px tall. The Runners item leads to the Runners page. Each job count opens the Jobs list filtered to what it counts.
+- The running mark takes the lamp's colour only while the hub can confirm that at least one job is running. At zero it is plain, as queued and paused are. When every job counted as running has its status unknown, nothing is known to be live: the item is `li.hub-unknown`, with `mark-unknown` in place of the running mark, and says so: "3 agents running, status unknown". The count stays the hub's, which counts such a job under the last status the hub recorded. What the hub cannot confirm is in `--c-unknown`, words and mark: jobs whose status is unknown, and Runners there are none of which is connected (`li.hub-unknown`). "No Runners" is plain.
 - A read's items show only while its last answer is less than 15 seconds old, so an earlier answer is never shown as current. When they give way, one line in their place says why. While the browser reports that it is offline, no read is made, and one line replaces every item at once, whatever their age: "The hub cannot be read: this browser is offline." It carries no time, being true for as long as it shows. Otherwise, if the latest read to finish failed, the line says what could not be read and when, drawn like the offline line in the failed colour: "The job counts could not be read at 15:41 CET." The time is the latest failure's, and the line stays while the reads go on failing. If none has failed, as when the hub is slow to answer or the page has just come back into view, the line gives the time of the last answer, in `--c-unknown` with the unknown mark (`li.hub-unknown`): "The job counts have not been read since 15:41 CET." Until a read's first answer there is no time to give, and its items are not there. If the items cannot be drawn, the strip says they could not be shown. The bar and the page stay.
 - At 640px and below the items wrap from the start, so the first stays put whether it reads counts or a failure; there, or with a coarse pointer, a link in it is 44px tall.
 
@@ -318,7 +328,7 @@ A destructive control opens a modal `dialog` that says what it ends and whether 
 <span class="mono">robin@example.com</span>
 ```
 
-`span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. It is the ID's first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`).
+`span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. A Runner's short ID is the first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`). A job's short ID is an ellipsis followed by the last eight characters, such as `…3f9a2c1b`. Jobs created together share their UUIDv7 prefix. The ellipsis tells the reader where to look in the whole ID, given in its title.
 
 An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
@@ -329,6 +339,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 - **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An invitation shows its expiry date and zoned time with `DATE_TIME_ZONED`, for example "22 Nov, 15:42 UTC". The year is omitted because the invitation lasts 48 hours. An instant alone on a page that has the note carries none.
 - **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
+- **An amount in US dollars** is written with `formatUsd`, to four decimals, since a job often costs a fraction of a cent. Its budget uses `USD_BUDGET`, with two to four decimals.
 
 ```tsx
 <p class="note">{timeZoneNote()}</p>
@@ -375,6 +386,84 @@ A record with no page of its own, such as an API key, has its identifier as a `s
 
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
+### Jobs list
+
+`div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Headers and cells share these classes in column order: `c-status`, `c-beside`, `c-job`, `c-batch`, `c-submitter`, `c-labels`, `c-runner`, `c-time`, `c-tokens` and `c-cost`. The last two headings give Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
+
+Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall.
+
+Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as a plain `span.cut.job-name`, with the whole name in its title. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
+
+The Batch is a cut identifier in the mono. A submitter's name wraps across the full column. Its kind follows inline in `span.unit`. A member's name is in the sans, a named key's in the mono, and an unnamed key reads "Unnamed" in the secondary sans.
+
+`ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key (`span.lk`) and sign (`span.leq`) use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
+
+Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The heading’s `time` carries the local calendar date. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read in `span.age`. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. A cost has four decimals and its budget follows in `span.of` in secondary ink with two to four decimals. A larger cost or budget wraps within its column. On two lines the cost carries “USD, est.” in `span.unit-inline` and the budget gives way.
+
+```html
+<tr class="day-line" role="row">
+  <th colspan="10" scope="rowgroup" role="rowheader">
+    Created <time datetime="2026-11-18">18 Nov</time>
+  </th>
+</tr>
+```
+
+### A job's status
+
+The first cell holds the strong `span.status-word`. Its `s-*` class names the recorded status. Running takes the lamp text colour and its mark the running colour. When the status is unknown, both use the secondary ink and the word includes "(last recorded)" for assistive technology.
+
+The next cell holds each condition in its own `span.beside`. "Status unknown" has the unknown mark and colour. The reason appears below the words in secondary ink in `span.condition-detail`. The title adds the full instant since which the status has been unknown. A pending control reads "Pause asked", "Cancel asked" or "Delete asked", with the request date and time in the same secondary text. Both details stay visible on the second line of a narrow row. A blocked job names its Batch pause or failure breaker, or says "Waiting for Canary". A failure reason appears as code in the failed colour.
+
+```html
+<td class="c-status" role="cell">
+  <span class="status-word s-running"
+    ><span class="mark mark-running" aria-hidden="true"></span>Running</span
+  >
+</td>
+```
+
+### Runner reference
+
+`span.runner-ref` holds the Runner name as a cut identifier, its short ID, and the connection mark with "connected" or "not connected" for assistive technology. The abbreviation takes account of both the Runners list and the Runners on the page. The cell is empty before the job is placed or after its Runner is removed.
+
+```html
+<span class="runner-ref">
+  <span class="cut mono" title="cedar">cedar</span>
+  <span class="sid" title="a81b275d-965c-43b4-8328-b8b49ea83b64">a81b275d</span>
+  <span class="mark mark-connected" aria-hidden="true"></span><span class="vh">connected</span>
+</span>
+```
+
+### Filters
+
+The filters live in the address. Runner options with the same name include distinguishing short IDs. If the selected Runner is absent from the list, the option says “Runner ID” followed by its full ID. The first `div.filters-row` holds the six status checks in `fieldset.check-group.is-inline` and the Status unknown field. Each `div.filter-field` pairs a label and its control. The second row holds Batch and Runner, then `span.filter-act` groups Apply and, when a filter applies, Clear. At intermediate widths each row wraps where its fields need room. Above 760px the form is always visible. Clear returns focus to Apply. Apply loses focus while disabled and regains it after a successful read. If the hub refuses the read, the error page takes focus on its heading. The disclosure starts at 760px to leave room for the six status checks on one line in the wide form. With the dashboard fonts they use 637px of the 725px available at 761px. At the shared 640px touch breakpoint the gutters leave only 609px. At 760px and below the Filters button reports how many filters apply. Fields stack at full width and checkboxes use the shared touch target.
+
+1. The panel starts closed on arrival, including at a filtered address.
+2. Pressing Filters toggles the panel.
+3. Pressing Apply or Clear immediately closes the panel and focuses Filters.
+4. List links, paging, Back, and the success or failure of a read leave the panel as the reader set it.
+
+```html
+<button type="button" class="filter-toggle" aria-expanded="false" aria-controls="jobs-filters">
+  Filters (2 applied)
+</button>
+<form id="jobs-filters" class="filters-form" aria-label="Filter the jobs">
+  <!-- Filter rows -->
+</form>
+```
+
+The time-zone note sits below the filters when the list has jobs or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight `tr.sk-row` skeleton rows. Eight give a visible sample while keeping the loading table within a phone screen (296px of rows at 390px wide). On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the Jobs error page with a way to clear any filters in the address.
+
+### The end of a list
+
+Before a populated list, `a.vh.skip-list` leads to `p.list-end#jobs-end`. The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest jobs and Older jobs follow where available.
+
+```html
+<a class="vh skip-list" href="#jobs-end">Skip to the end of the list</a>
+<!-- Jobs table -->
+<p class="list-end" id="jobs-end" tabindex="-1"><span>2 read; no more match.</span></p>
+```
+
 ### Command to copy, and a secret shown once
 
 What a person copies to run elsewhere, such as the command that starts a Runner, is a `pre.code.command` in `div.copyable`, with a `CopyButton` (`src/components/CopyButton.tsx`) under it that says when it has copied. `pre.code` is typed text on a band, scrolling in its own block; give it `tabindex="0"` and an `aria-label`. `.code.wraps` wraps it at any character instead, for a command whose lines are long or a key with no space to break at. `.command` selects it whole with one press, for a browser that does not allow copying, as over plain HTTP from another machine. In it, `mark.key` marks a secret and `mark.placeholder`, outlined, what the reader puts in its place. At the end of Add Runner, `p.waiting-line` shows the pending mark until a newly registered Runner appears. The line keeps its `role="status"` from the start. When a Runner registers, the line names it and its short ID beside the succeeded mark. Its contents are empty during a failed read. A secret the hub gives only once, such as a new key, is followed by `p.shown-once`, which says so.
@@ -397,7 +486,7 @@ A direct visit stays blank until the first Runners read finishes because the rou
 
 ### Marks
 
-A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-pending`, an hourglass for something awaited; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
+A mark is a small drawn shape that stands beside words and takes their colour: `<span class="mark mark-failed" aria-hidden="true"></span>`. It is always hidden from assistive technology, because the words beside it say the same. There are `mark-failed`, a cross; `mark-succeeded`, a tick; `mark-error`, a triangle beside a field's error; `mark-opens`, a chevron after words that open a menu; and for a job's status and a Runner's connection, `mark-queued`, a ring; `mark-running`, a lit bar; `mark-paused`, two bars; `mark-cancelled`, a ring struck through; `mark-unknown`, a broken ring round a dot, for a status the hub cannot confirm; beside a status, `mark-blocked`, an arrow against a bar, and `mark-pending`, an hourglass, for a control waiting for its Runner or for Add Runner waiting for a connection; `mark-connected`, a filled dot; and `mark-disconnected`, a hollow one. No icon set is used. In forced-colours mode a mark keeps its shape and takes the system's text colour.
 
 ## Rules
 
@@ -405,7 +494,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height.
 3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.
-5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`.
+5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`. In the Jobs list a cut job name or Batch ID has its full value in its title.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
 
 ## Adding a part

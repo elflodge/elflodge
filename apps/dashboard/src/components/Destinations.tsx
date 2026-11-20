@@ -7,7 +7,7 @@ import { Show } from "solid-js";
  * destination; by default, at its page and at every page under it.
  */
 const DESTINATIONS = linkOptions([
-  { to: "/", label: "Home", activeOptions: { exact: true, includeSearch: false } },
+  { to: "/jobs", label: "Jobs", activeOptions: { includeSearch: false } },
   { to: "/runners", label: "Runners", activeOptions: { includeSearch: false } },
   { to: "/api-keys", label: "API keys", activeOptions: { includeSearch: false } },
 ]);

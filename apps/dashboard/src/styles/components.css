@@ -495,9 +495,10 @@
 .mark-succeeded {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M1.75%206.4%204.7%209.3%2010.4%202.9%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.9%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
 }
-/* A job's status and a Runner's connection: queued, a ring; running, a lit bar; paused, two bars; a
-   status the hub cannot confirm, a broken ring round a dot; connected, a filled dot; not connected, a
-   hollow one. */
+/* A job's status and a Runner's connection: queued, a ring; running, a lit bar; paused, two bars;
+   cancelled, a ring struck through; a status the hub cannot confirm, a broken ring round a dot;
+   connected, a filled dot; not connected, a hollow one. Beside a status: blocked, an arrow against a
+   bar; a control waiting for its Runner, an hourglass. */
 .mark-queued {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.25%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
 }
@@ -507,8 +508,14 @@
 .mark-paused {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Crect%20x%3D%222.25%22%20y%3D%222%22%20width%3D%222.75%22%20height%3D%228%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%222%22%20width%3D%222.75%22%20height%3D%228%22%2F%3E%3C%2Fsvg%3E");
 }
+.mark-cancelled {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.25%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M2.6%206h6.8%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.6%22%2F%3E%3C%2Fsvg%3E");
+}
 .mark-unknown {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%224.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%20stroke-dasharray%3D%222.1%201.35%22%2F%3E%3Ccircle%20cx%3D%226%22%20cy%3D%226%22%20r%3D%221.3%22%2F%3E%3C%2Fsvg%3E");
+}
+.mark-blocked {
+  --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M1%206h6.2M5%203.6%207.6%206%205%208.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M10.1%201.5v9%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.8%22%2F%3E%3C%2Fsvg%3E");
 }
 .mark-pending {
   --m: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20d%3D%22M2.75%201.25h6.5M2.75%2010.75h6.5M3.6%201.6%208.4%2010.4M8.4%201.6%203.6%2010.4%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");
@@ -946,4 +953,534 @@ p mark.placeholder {
 }
 .sk.is-part {
   width: 70%;
+}
+
+/* ---------- A job’s last recorded status and the conditions reported beside it ---------- */
+.status-word {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.s-running {
+  color: var(--c-lamp-ink);
+}
+.s-running .mark {
+  color: var(--c-running);
+}
+.s-succeeded .mark {
+  color: var(--c-succeeded);
+}
+.s-failed,
+.s-failed .mark {
+  color: var(--c-failed);
+}
+.s-queued .mark,
+.s-paused .mark,
+.s-cancelled .mark {
+  color: var(--c-waiting);
+}
+/* A status the hub cannot confirm: the word is only the last one the hub recorded, so it is quiet, the lamp included. */
+.status-word.is-unknown,
+.status-word.is-unknown .mark {
+  color: var(--c-ink-2);
+}
+.beside {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--c-ink-2);
+  white-space: normal;
+}
+.beside.is-unknown,
+.beside.is-unknown .mark {
+  color: var(--c-unknown);
+}
+.condition-detail {
+  display: block;
+  color: var(--c-ink-2);
+}
+/* Why a job failed, as the hub names it. */
+.beside code {
+  color: var(--c-failed);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Labels: key = value, in the mono, no chips; in one line, the first and how many more ---------- */
+.labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  font-weight: var(--weight-mono);
+}
+.labels li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lk {
+  color: var(--c-ink-2);
+}
+.leq {
+  color: var(--c-ink-2);
+  margin: 0 0.15em;
+}
+/* In one line: the first Label, then how many more as plain text, every Label in its title. */
+.labels.is-line {
+  flex-wrap: nowrap;
+  gap: var(--space-2);
+}
+.labels.is-line > li {
+  flex: 0 1 auto;
+  display: flex;
+}
+.labels.is-line > .labels-more {
+  flex: none;
+  color: var(--c-ink-2);
+  font-family: var(--font-sans);
+}
+
+/* ---------- Runner reference: its host name, not unique, so its short ID beside it, and whether it is connected ---------- */
+.runner-ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+.runner-ref > .cut {
+  flex: 0 1 auto;
+  min-width: 2ch;
+}
+.runner-ref > :not(.cut) {
+  flex: none;
+}
+.runner-ref > .mark {
+  align-self: center;
+}
+.runner-ref .mark-connected {
+  color: var(--c-succeeded);
+}
+.runner-ref .mark-disconnected {
+  color: var(--c-unknown);
+}
+
+/* ---------- Jobs list: one 30px line a job while its columns fit, columns giving way in a set order, then two lines a job ---------- */
+.job-list-frame {
+  container: job-list / inline-size;
+}
+.job-list {
+  table-layout: fixed;
+}
+.job-list th.c-status {
+  width: var(--jobs-status);
+}
+.job-list th.c-beside {
+  width: var(--jobs-beside);
+}
+.job-list th.c-batch {
+  width: var(--jobs-batch);
+}
+.job-list th.c-submitter {
+  width: var(--jobs-submitter);
+}
+.job-list th.c-labels {
+  width: var(--jobs-labels);
+}
+.job-list th.c-runner {
+  width: var(--jobs-runner);
+}
+.job-list th.c-time {
+  width: var(--jobs-time);
+}
+.job-list th.c-tokens {
+  width: var(--jobs-tokens);
+}
+.job-list th.c-cost {
+  width: var(--jobs-cost);
+}
+.job-list thead th {
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.job-list td {
+  white-space: nowrap;
+  vertical-align: top;
+  min-width: 0;
+}
+.job-list td :is(.cut, .labels, .sid, .runner-ref, .cell-line, .beside, .status-word) {
+  line-height: var(--line-sm);
+}
+.job-list td :is(.status-word, .runner-ref) {
+  display: flex;
+}
+.cell-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.cell-line > .cut {
+  flex: 0 1 auto;
+}
+.cell-line > .sid {
+  flex: none;
+}
+.c-submitter .cell-line {
+  display: block;
+}
+.job-list td.c-submitter {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.job-name {
+  color: var(--c-ink);
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  font-weight: var(--weight-mono-strong);
+}
+.c-labels .labels {
+  font-size: var(--text-xs);
+}
+.job-list td.c-tokens,
+.job-list td.c-cost {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.c-time .age {
+  white-space: nowrap;
+}
+.c-time .age,
+.c-cost .of {
+  color: var(--c-ink-2);
+}
+/* The Cost head carries the unit; a row says it only where the head is not shown. */
+.unit-inline {
+  display: none;
+}
+.sk-row .sk {
+  width: 9rem;
+}
+.sk-row :is(.c-status, .c-cost) .sk {
+  width: 6rem;
+}
+.sk-row .c-job .sk {
+  width: 12rem;
+}
+.sk-row .c-tokens .sk {
+  width: 3rem;
+}
+.sk-row .num .sk {
+  margin-left: auto;
+}
+/* A day line between a list's days. */
+.day-line th {
+  height: var(--row-day);
+  padding: var(--space-2) 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  color: var(--c-ink);
+  border-bottom-color: var(--c-ink-3);
+  vertical-align: bottom;
+}
+
+/* The Batch beside a custom ID identifies the job on a single line. */
+.job-list .job-name + .sid {
+  display: none;
+}
+/* Each tier adds the visible --jobs-* widths and 15.375rem for the Job name. Container
+   conditions cannot use var(). A column at zero width still counts in the day heading’s span. */
+@container job-list (width < 97.375rem) {
+  .job-list .c-submitter > .cell-line {
+    display: none;
+  }
+  .job-list :is(th, td).c-submitter {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+}
+@container job-list (width < 86.875rem) {
+  .job-list :is(th, td).c-tokens {
+    /* Wrapping inside a hidden cell would still increase the row height. */
+    white-space: nowrap;
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+}
+@container job-list (width < 81.875rem) {
+  .job-list :is(th, td).c-labels {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+}
+
+/* Two lines a job. Line 1: its status and name. Line 2: what stands beside its status, its Batch, its time, its cost.
+   The row is a wrapping flex line; its ::before, a full-width item between the two, breaks it.
+ */
+@container job-list (width < 73.625rem) {
+  .job-list,
+  .job-list tbody {
+    display: block;
+  }
+  /* Keep the visible cells’ headings and row-specific empty positions in the reading order. */
+  .job-list thead,
+  .job-list tr.job-row > td.c-beside:not(:has(.beside)) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .job-list thead :is(.c-submitter, .c-labels, .c-runner, .c-tokens) {
+    display: none;
+  }
+  .job-list tr.job-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    padding: var(--space-1) 0;
+    border-bottom: var(--rule) solid var(--c-rule);
+  }
+  .job-list tr.job-row::before {
+    content: "";
+    flex: 0 0 100%;
+    order: 2;
+  }
+  .job-list tr.job-row > td {
+    display: block;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    order: 3;
+    margin-top: 2px;
+    font-size: var(--text-xs);
+  }
+  .job-list tr.job-row > td.c-status {
+    order: 1;
+    flex: none;
+    margin-top: 0;
+    font-size: inherit;
+  }
+  .job-list tr.job-row > td.c-job {
+    order: 1;
+    flex: 1 1 0;
+    margin-top: 0;
+    font-size: inherit;
+  }
+  /* Line 2 stays one line of items: what stands beside the status and the time are never cut; each takes its width,
+     wrapping its words if it must, and the Batch takes what is left. A wrapping flex line decides its breaks from each
+     item's smallest size, so these two start from their longest word and the far larger grow gives them first claim. */
+  .job-list tr.job-row > td.c-beside {
+    flex: 1000 1 0;
+    min-width: min-content;
+    max-width: max-content;
+    display: flex;
+    flex-direction: column;
+    white-space: normal;
+  }
+  .condition-detail time {
+    white-space: normal;
+  }
+  .job-list tr.job-row > td.c-batch {
+    flex: 1 1 0;
+  }
+  .job-list tr.job-row > td.c-time {
+    flex: 1000 1 0;
+    min-width: min-content;
+    max-width: max-content;
+    margin-left: auto;
+    text-align: end;
+    white-space: normal;
+  }
+  /* Cost keeps one width, empty or not, so the times line up at its left. */
+  .job-list tr.job-row > td.c-cost {
+    flex: none;
+    width: var(--jobs-cost-narrow);
+  }
+  .job-list tr.job-row > :is(.c-submitter, .c-labels, .c-runner, .c-tokens),
+  .job-list .c-cost .of {
+    display: none;
+  }
+  .job-list .job-name + .sid {
+    display: inline;
+  }
+  .job-list .unit-inline {
+    display: inline;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    color: var(--c-ink-2);
+  }
+  .job-list tr.day-line,
+  .job-list tr.day-line th {
+    display: block;
+  }
+  .job-list tr.sk-row {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+    border-bottom: var(--rule) solid var(--c-rule);
+  }
+  .job-list tr.sk-row > td {
+    display: block;
+    border: 0;
+    padding: 0;
+  }
+  .job-list tr.sk-row > td:nth-child(n + 5) {
+    display: none;
+  }
+}
+/* Narrower than 30rem, a row with something beside its status gives up its Batch: the two would not both fit. */
+@container job-list (width < 30rem) {
+  .job-list tr.job-row:has(.c-beside .beside) > .c-batch {
+    position: absolute;
+    width: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+/* Each line is at least 44px on touch. */
+@media (max-width: 640px), (pointer: coarse) {
+  @container job-list (width < 73.625rem) {
+    .job-list tr.job-row {
+      padding: 0;
+      align-items: center;
+    }
+    .job-list tr.job-row > td {
+      min-height: var(--control-touch);
+      align-content: center;
+      margin-top: 0;
+    }
+    .job-list tr.job-row > td.c-beside {
+      justify-content: center;
+    }
+  }
+}
+/* Coarse pointers keep the same line height on wide screens. */
+@media (pointer: coarse) {
+  @container job-list (width >= 73.625rem) {
+    .job-list tr.job-row > td {
+      height: var(--control-touch);
+      vertical-align: middle;
+      padding-block: 0;
+    }
+  }
+}
+/* Before the list, seen on focus: a way past it. */
+.skip-list:focus {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control);
+  margin: var(--space-1) 0;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .skip-list:focus {
+    min-height: var(--control-touch);
+  }
+}
+
+/* ---------- Filters: one form, two rows at wide widths, behind a disclosure at narrow ones ---------- */
+.filters {
+  margin-bottom: var(--space-3);
+  border-bottom: var(--rule) solid var(--c-rule);
+}
+.filter-toggle {
+  display: none;
+}
+
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) 0;
+}
+.filters-row + .filters-row {
+  padding-bottom: var(--space-2);
+}
+.check-group.is-inline {
+  align-items: center;
+  gap: 0 var(--space-3);
+}
+.check-group.is-inline > legend {
+  width: auto;
+  margin-right: var(--space-1);
+}
+.filter-field {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.filter-field > label,
+.check-group.is-inline > legend {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--c-ink-2);
+}
+.filter-field > input {
+  width: 11rem;
+}
+.filter-field select {
+  max-width: 14rem;
+}
+.filter-act {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.check-group.is-inline .mark {
+  color: var(--c-ink-2);
+}
+@media (max-width: 760px) {
+  .filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--control-touch);
+  }
+  .filter-toggle[aria-expanded="false"] + form {
+    display: none;
+  }
+  .filters-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-field {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .filter-field > input,
+  .filter-field > select {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* ---------- The end of a list: how many were read, that the hub gives no total, and how to read on ---------- */
+.list-end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  padding-top: var(--space-3);
+  color: var(--c-ink-2);
+  font-size: var(--text-xs);
 }
