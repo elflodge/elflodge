@@ -292,14 +292,14 @@ export const agentSchema = z
     runTimeoutSeconds: z.optional(
       runTimeoutSecondsSchema.check(
         z.describe(
-          "How long each run of a job on a Runner may work, in seconds; the hub's default when left out, and refused above its maximum.",
+          "How long each run of a job on a Runner may work, in seconds. Leaving it out when creating a Batch uses the hub's default. See `GET /jobs/limits` for the default and the largest accepted timeout.",
         ),
       ),
     ),
     modelBudgetUsd: z.optional(
       modelBudgetUsdSchema.check(
         z.describe(
-          "The most each job's model calls may cost over its whole life, in US dollars; the hub's default when left out, and refused above its maximum.",
+          "Each job's model budget over its whole life, in US dollars. Leaving it out when creating a Batch uses the hub's default. See `GET /jobs/limits` for the default and the largest accepted budget.",
         ),
       ),
     ),
@@ -461,6 +461,20 @@ export const jobCountsSchema = z
   })
   .register(z.globalRegistry, { id: "JobCounts" });
 export type JobCounts = z.infer<typeof jobCountsSchema>;
+
+/**
+ * The hub's current job limits. Each default applies at Batch creation when the field is omitted.
+ * A value supplied at creation or resume may be at most the corresponding `max`, inclusive.
+ */
+export const jobLimitsSchema = z
+  .object({
+    /** How long each run may work, in seconds. */
+    runTimeoutSeconds: z.object({ default: runTimeoutSecondsSchema, max: runTimeoutSecondsSchema }),
+    /** The total model budget for one job across all its runs, in US dollars. */
+    modelBudgetUsd: z.object({ default: modelBudgetUsdSchema, max: modelBudgetUsdSchema }),
+  })
+  .register(z.globalRegistry, { id: "JobLimits" });
+export type JobLimits = z.infer<typeof jobLimitsSchema>;
 
 /**
  * A Batch as a list shows it: without its `usage`, which only reading every job's progress tells,
@@ -1004,7 +1018,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
               z.minLength(1),
               z.maxLength(MAX_JOBS_PER_ADD),
               z.describe(
-                "The jobs to add in this call. For a larger Batch, add more jobs with the same Batch ID in later calls.",
+                "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
               ),
             ),
         }),
@@ -1124,7 +1138,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "POST",
           path: "/jobs/{id}/resume",
           description:
-            "Resumes a stopped job and answers with the job. A paused, failed or cancelled job goes back to `queued` and carries on from where it stopped, on the Runner that holds its work; one paused before it started simply starts. Resuming a job that is queued or running changes nothing, and one that gives it other limits than its own is refused: its run keeps them. A job whose pause its Runner has not yet confirmed, whose cancel waits, that succeeded, that never started before it ended, or whose Batch is cancelled, is refused. A job resumed while its Batch is paused is `queued` and waits for the Batch. A resume that changes the job may give it a new `runTimeoutSeconds` and `modelBudgetUsd`, and is refused when the job's model calls have cost its `modelBudgetUsd` or more, as for a job that failed with `modelBudgetExceeded`.",
+            "Resumes a stopped job and answers with the job. A paused, failed or cancelled job goes back to `queued` and carries on from where it stopped, on the Runner that holds its work; one paused before it started simply starts. Resuming a job that is queued or running changes nothing, and one that gives it other limits than its own is refused: its run keeps them. A job whose pause its Runner has not yet confirmed, whose cancel waits, that succeeded, that never started before it ended, or whose Batch is cancelled, is refused. A job resumed while its Batch is paused is `queued` and waits for the Batch. A resume may give a new `runTimeoutSeconds` or `modelBudgetUsd`. Each limit left out keeps the job's stored value. `GET /jobs/limits` gives the maxima for supplied values and the defaults used only at Batch creation. A resume that requeues the job is refused when its model calls have already cost its budget or more, as for a job that failed with `modelBudgetExceeded`.",
         }),
         ...byKeyOrMember({ job: ["resume"] }),
       )
@@ -1287,6 +1301,23 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       // Organization's counts, which would read as the Batch's (ADR 0010).
       .input(noQueryParametersSchema)
       .output(jobCountsSchema),
+    // Their own read rather than a general settings document: a submit form needs these limits before
+    // it has a Batch or job, and no other deployment setting shapes what it may send. Putting them on
+    // either would mix policy with stored values. Like other job reads, this takes job:read. A key needs
+    // every permission a call lists, so accepting either job:create or job:resume would require a
+    // different check. We can grant those keys access later.
+    limits: forMembers
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/jobs/limits",
+          description:
+            "Reads the hub's default run timeout and total model budget for each job in a new Batch, and the maximum it accepts for each limit at Batch creation or job resume.",
+        }),
+        ...byKeyOrMember({ job: ["read"] }),
+      )
+      .input(noQueryParametersSchema)
+      .output(jobLimitsSchema),
   },
   usage: {
     get: forMembers

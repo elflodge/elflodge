@@ -1,4 +1,5 @@
 import { getDotPath } from "@standard-schema/utils";
+import type { JobLimits } from "contract";
 import {
   Cause,
   Config,
@@ -25,11 +26,8 @@ const runTimeoutSeconds = Schema.Int.check(Schema.isInt32(), Schema.isGreaterTha
 /** A model budget in US dollars, as the API reads it: above zero. */
 const modelBudgetUsd = Schema.Finite.check(Schema.isGreaterThan(0));
 
-/**
- * Refuses the default `value` of the limit `name` names, above its maximum `max`, at the default's
- * setting, so it reads as any malformed setting does.
- */
-function refuseDefaultAboveMax(name: string, value: number, max: number) {
+/** Reports a default above its maximum at the default's setting, even for a built-in default. */
+function refuseDefaultAboveMax(name: string, { default: value, max }: JobLimits[keyof JobLimits]) {
   return Effect.fail(
     new Config.ConfigError(
       new Schema.SchemaError(
@@ -45,41 +43,32 @@ function refuseDefaultAboveMax(name: string, value: number, max: number) {
 }
 
 /**
- * The limits the hub gives jobs: the run timeout and model budget a job gets when it gives
- * none, and the most it may give, above which a submission or a resume is refused. A job's limits
- * are resolved when it is submitted, so lowering a maximum reaches no job already submitted. A
- * default above its maximum would give jobs what no caller may ask for, so the hub refuses such
- * settings as it refuses any malformed one.
+ * Batch creation uses the default for each omitted limit. Added jobs inherit the Batch's stored
+ * limits. Resume keeps the job's stored value for each omitted limit, even after a maximum falls.
+ * A default above its maximum would give jobs a limit the hub refuses when explicitly supplied.
  */
 const jobLimits = Config.all({
-  runTimeoutSecondsDefault: Config.schema(
-    runTimeoutSeconds,
-    "JOB_RUN_TIMEOUT_SECONDS_DEFAULT",
-  ).pipe(Config.withDefault(30 * 60)),
-  runTimeoutSecondsMax: Config.schema(runTimeoutSeconds, "JOB_RUN_TIMEOUT_SECONDS_MAX").pipe(
-    Config.withDefault(24 * 60 * 60),
-  ),
-  modelBudgetUsdDefault: Config.schema(modelBudgetUsd, "JOB_MODEL_BUDGET_USD_DEFAULT").pipe(
-    Config.withDefault(1),
-  ),
-  modelBudgetUsdMax: Config.schema(modelBudgetUsd, "JOB_MODEL_BUDGET_USD_MAX").pipe(
-    Config.withDefault(10),
-  ),
+  runTimeoutSeconds: Config.all({
+    default: Config.schema(runTimeoutSeconds, "JOB_RUN_TIMEOUT_SECONDS_DEFAULT").pipe(
+      Config.withDefault(30 * 60),
+    ),
+    max: Config.schema(runTimeoutSeconds, "JOB_RUN_TIMEOUT_SECONDS_MAX").pipe(
+      Config.withDefault(24 * 60 * 60),
+    ),
+  }),
+  modelBudgetUsd: Config.all({
+    default: Config.schema(modelBudgetUsd, "JOB_MODEL_BUDGET_USD_DEFAULT").pipe(
+      Config.withDefault(1),
+    ),
+    max: Config.schema(modelBudgetUsd, "JOB_MODEL_BUDGET_USD_MAX").pipe(Config.withDefault(10)),
+  }),
 }).pipe(
   Config.mapEffect((limits) => {
-    if (limits.runTimeoutSecondsDefault > limits.runTimeoutSecondsMax) {
-      return refuseDefaultAboveMax(
-        "RUN_TIMEOUT_SECONDS",
-        limits.runTimeoutSecondsDefault,
-        limits.runTimeoutSecondsMax,
-      );
-    }
-    if (limits.modelBudgetUsdDefault > limits.modelBudgetUsdMax) {
-      return refuseDefaultAboveMax(
-        "MODEL_BUDGET_USD",
-        limits.modelBudgetUsdDefault,
-        limits.modelBudgetUsdMax,
-      );
+    for (const [name, limit] of [
+      ["RUN_TIMEOUT_SECONDS", limits.runTimeoutSeconds],
+      ["MODEL_BUDGET_USD", limits.modelBudgetUsd],
+    ] as const) {
+      if (limit.default > limit.max) return refuseDefaultAboveMax(name, limit);
     }
     return Effect.succeed(limits);
   }),
@@ -106,7 +95,7 @@ export const hubSettings = Config.all({
 export type HubSettings = Config.Success<typeof hubSettings>;
 
 /** The hub's defaults and maximums for jobs' limits, for its handlers. */
-export class JobLimitSettings extends Context.Service<JobLimitSettings, HubSettings["jobLimits"]>()(
+export class JobLimitSettings extends Context.Service<JobLimitSettings, JobLimits>()(
   "hub/JobLimitSettings",
 ) {}
 

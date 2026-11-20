@@ -103,7 +103,7 @@ exports[`the commands and their flags 1`] = `
             {
               "attributeName": "jobs",
               "defaultValue": [],
-              "description": "The jobs to add in this call. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 100 array",
+              "description": "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at \`GET /jobs/limits\` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 100 array",
               "flags": "--jobs [values...]",
               "name": "jobs",
               "negate": false,
@@ -490,7 +490,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Resumes a stopped job and answers with the job. A paused, failed or cancelled job goes back to \`queued\` and carries on from where it stopped, on the Runner that holds its work; one paused before it started simply starts. Resuming a job that is queued or running changes nothing, and one that gives it other limits than its own is refused: its run keeps them. A job whose pause its Runner has not yet confirmed, whose cancel waits, that succeeded, that never started before it ended, or whose Batch is cancelled, is refused. A job resumed while its Batch is paused is \`queued\` and waits for the Batch. A resume that changes the job may give it a new \`runTimeoutSeconds\` and \`modelBudgetUsd\`, and is refused when the job's model calls have cost its \`modelBudgetUsd\` or more, as for a job that failed with \`modelBudgetExceeded\`.",
+          "description": "Resumes a stopped job and answers with the job. A paused, failed or cancelled job goes back to \`queued\` and carries on from where it stopped, on the Runner that holds its work; one paused before it started simply starts. Resuming a job that is queued or running changes nothing, and one that gives it other limits than its own is refused: its run keeps them. A job whose pause its Runner has not yet confirmed, whose cancel waits, that succeeded, that never started before it ended, or whose Batch is cancelled, is refused. A job resumed while its Batch is paused is \`queued\` and waits for the Batch. A resume may give a new \`runTimeoutSeconds\` or \`modelBudgetUsd\`. Each limit left out keeps the job's stored value. \`GET /jobs/limits\` gives the maxima for supplied values and the defaults used only at Batch creation. A resume that requeues the job is refused when its model calls have already cost its budget or more, as for a job that failed with \`modelBudgetExceeded\`.",
           "name": "resume",
           "options": [
             {
@@ -777,6 +777,14 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
+          "description": "Reads the hub's default run timeout and total model budget for each job in a new Batch, and the maximum it accepts for each limit at Batch creation or job resume.",
+          "name": "limits",
+          "options": [],
+          "usage": "[options]",
+        },
+        {
+          "arguments": [],
+          "commands": [],
           "description": "Waits for a job to end and prints it, exiting non-zero unless it succeeded. A paused job keeps it waiting, as its work is still owed, until the job is resumed and ends or is cancelled. Stopping the command leaves the job running.",
           "name": "wait",
           "options": [
@@ -804,7 +812,7 @@ exports[`the commands and their flags 1`] = `
           "usage": "[options]",
         },
       ],
-      "description": "Available subcommands: submit, get, pause, resume, cancel, delete, events, list, counts, wait",
+      "description": "Available subcommands: submit, get, pause, resume, cancel, delete, events, list, counts, limits, wait",
       "name": "jobs",
       "options": [],
       "usage": "[options] [command]",

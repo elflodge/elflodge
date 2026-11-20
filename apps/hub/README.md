@@ -13,10 +13,10 @@ On Workers, set them in `wrangler.jsonc` and as Wrangler secrets; for `wrangler 
 - `CLIENT_IP_HEADER`: the request header carrying the client's IP address, for Better Auth's rate limits: `cf-connecting-ip` on Workers, `x-real-ip` on Railway. Unset, Better Auth reads `x-forwarded-for`, and a request whose address it cannot resolve shares one rate-limit bucket per path.
 - `REPORT_INTERVAL_MS`: how often each Runner reports its jobs' new events, usage and activity, in milliseconds; 3000 by default. A job's activity is up to one interval old.
 - `TRUSTED_PROXIES`: the proxies in front of the hub, as IPs or CIDRs separated by commas. A forwarded chain is read from the right past these, so a client cannot name its own address; unset, only a chain of one address counts.
-- `JOB_RUN_TIMEOUT_SECONDS_DEFAULT` and `JOB_RUN_TIMEOUT_SECONDS_MAX`: the run timeout a job gets when it gives none, and the most it may give, in seconds; 1800 and 86400 by default.
-- `JOB_MODEL_BUDGET_USD_DEFAULT` and `JOB_MODEL_BUDGET_USD_MAX`: the model budget a job gets when it gives none, and the most it may give, in US dollars; 1 and 10 by default.
+- `JOB_RUN_TIMEOUT_SECONDS_DEFAULT` and `JOB_RUN_TIMEOUT_SECONDS_MAX`: the default and maximum timeout for each run, in seconds; 1800 and 86400 by default.
+- `JOB_MODEL_BUDGET_USD_DEFAULT` and `JOB_MODEL_BUDGET_USD_MAX`: the default and maximum total model budget for each job, in US dollars; 1 and 10 by default.
 
-A job's limits are resolved when it is submitted, so lowering a maximum reaches no job already submitted. A default above its maximum is refused as a missing setting is.
+The hub refuses a default above its maximum as it refuses a missing required setting. Members and API keys with `job:read` can read the current settings at `GET /jobs/limits`. The API descriptions in `/spec.json` explain how Batch creation, adding jobs and job resume use these limits.
 
 In Docker, also:
 

@@ -354,6 +354,9 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       counts: os.jobs.counts.effect(function* () {
         return yield* countJobs();
       }),
+      limits: os.jobs.limits.effect(function* () {
+        return yield* JobLimitSettings;
+      }),
       get: os.jobs.get.effect(function* ({ input }) {
         // The ID enters the hub here.
         return yield* getJob(JobId(input.id));
