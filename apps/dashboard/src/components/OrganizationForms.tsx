@@ -103,6 +103,7 @@ function RoleChoices(props: {
   value?: string;
   choose: (role: MemberRole) => void;
 }) {
+  // A click on the Role legend leaves focus on the dialog. FieldGroup would focus the group itself.
   return (
     <fieldset class="field">
       <legend>Role</legend>

@@ -179,7 +179,7 @@ A page's controls, such as the one action it exists for, go at the heading's end
 </div>
 ```
 
-Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line that explains the part it stands under. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
+Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line of supporting text. In a field, the note gives a hint above the control. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
 
 `ul.plain` lists items one under another, without bullets, as several values of one fact.
 
@@ -234,22 +234,33 @@ What failed is said in an alert notice above "Try again". A read that fails says
 
 A plain form uses `form.fields` to stack fields up to 24rem wide, with the button at the start of the last line. A checkbox with its words is one `label.check`.
 
-Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field` it draws the label, an optional hint as `p.note`, the control and, when refused, the reason as `p.field-error`. The error mark and words are small and in the failed colour. Several reasons appear on separate lines.
+Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field` it draws the label, an optional hint as `p.note` (pass `undefined` when absent), the control and, when refused, the reason as `p.field-error`. The error mark and words are small and in the failed colour. Several reasons appear on separate lines.
 
-Spread the attributes from `Field` on the control. Its ID connects it to the label. Its `aria-describedby` names the hint first and the refusal second, each while present. It carries `aria-invalid="true"` while refused. For an editable control with a starting value, use `defaultValue`. When a spread attribute changes, Solid 2 can write a bound `value` back to the DOM and overwrite the member's edit. Select options use `defaultSelected`.
+Spread the attributes from `Field` on the control. Its ID connects it to the label. Its `aria-describedby` names the hint first and the refusal second, when each has words. It carries `aria-invalid="true"` while refused. A control that takes the part’s attributes must not bind `value`. Use `defaultValue` for a starting value. When a spread attribute changes, Solid 2 can write a bound `value` back to the DOM and overwrite the member's edit. Select options use `defaultSelected`.
 
-A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in the hint. Required fields carry no mark. For several controls under one legend, `FieldGroup` draws a `fieldset.field` that takes the refusal and focus itself. In a filters row, pass `class="filter-field"` to put the label beside the control.
+A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in the hint. Required fields carry no mark. For several controls under one legend, `FieldGroup` draws a `fieldset.field` that takes the refusal and focus itself. In a filters row, pass `class="filter-field"` to put the label beside the control. Filter fields take no hint.
 
 ```tsx
-<Field label="Model budget" unit="USD, over its life" hint={budgetHint()} error={refused("budget")}>
+<Field
+  label="New model budget"
+  unit="USD"
+  hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
+  error={budgetFailure()?.fields.get("budget")}
+>
   {(control) => (
     <input
       {...control}
-      name="agent[modelBudgetUsd]"
+      name="modelBudgetUsd"
       type="number"
+      required
       min="0"
       step="any"
-      autocomplete="off"
+      readonly={pending()}
+      onInput={() => setBudgetFailure(undefined)}
+      autofocus
+      ref={(element) => {
+        budgetField = element;
+      }}
     />
   )}
 </Field>

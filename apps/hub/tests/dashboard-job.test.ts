@@ -1,4 +1,4 @@
-import { JOB_FAILED, JOB_SUCCEEDED, type JobEvent } from "contract";
+import { JOB_FAILED, JOB_SUCCEEDED, problemDetailsSchema, type JobEvent } from "contract";
 import type { Browser, Route } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, assert, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
@@ -137,7 +137,7 @@ test("a member can correct a refused budget and resume the job to its Output", a
   const dialog = page.getByRole("dialog");
   const field = dialog.getByLabel("New model budget USD");
   const submit = dialog.getByRole("button", { name: "Resume the job" });
-  const hint = /^Cost so far .+ The new budget must exceed this cost\.$/;
+  const hint = await dialog.getByText(/^Cost so far /).innerText();
   await expectBrowser(field).toHaveAccessibleDescription(hint);
   await field.fill("0.000001");
   await submit.click();
@@ -164,12 +164,14 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await expectBrowser(dialog.getByRole("alert")).toHaveText("Invalid ID");
   await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
   await field.fill("6");
+  const refused = page.waitForResponse("**/jobs/*/resume");
   await submit.click();
+  const problem = problemDetailsSchema.parse(await (await refused).json());
+  const issue = problem.errors?.find((entry) => entry.pointer === "/modelBudgetUsd");
+  assert.isDefined(issue);
   await expectBrowser(field).toBeFocused();
   await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
-  await expectBrowser(field).toHaveAccessibleDescription(
-    /The new budget must exceed this cost\. Must be at most .+maximum/i,
-  );
+  await expectBrowser(field).toHaveAccessibleDescription(`${hint} ${issue.detail}`);
   system.model.setResponses([callTool("submit_output", { value: 17 })]);
   await field.fill("1");
   await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");

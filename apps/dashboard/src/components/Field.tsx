@@ -1,12 +1,16 @@
 import type { JSX } from "@solidjs/web";
-import { Show, createMemo, createUniqueId, flatten, omit } from "solid-js";
+import { Show, createUniqueId, omit } from "solid-js";
 
 import { FieldError } from "./FieldError.tsx";
 
 type FieldProps = {
+  /** The words of the label or legend. */
   label: JSX.Element;
+  /** The unit printed after the label, such as USD. */
   unit?: string;
+  /** One note above the control. Pass undefined when there is no hint. */
   hint?: JSX.Element;
+  /** A refusal from the hub or the page. Separate several reasons with a line break. */
   error?: string;
 };
 
@@ -18,27 +22,27 @@ type FieldControl = {
 
 function fieldParts(props: FieldProps) {
   const id = createUniqueId();
-  // Conditional JSX can be an accessor even when it renders nothing.
-  const hint = createMemo<JSX.Element[]>(() => flatten([props.hint], { skipNonRendered: true }));
   const hintId = id + "-hint";
   const errorId = id + "-error";
   return {
     control: {
       id,
       get "aria-invalid"(): "true" | undefined {
-        return props.error ? "true" : undefined;
+        return props.error !== undefined ? "true" : undefined;
       },
       get "aria-describedby"() {
         return (
-          [hint().length && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
+          [props.hint && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
         );
       },
     },
     hint: () => (
-      <Show when={hint().length}>
-        <p id={hintId} class="note">
-          {hint()}
-        </p>
+      <Show when={props.hint}>
+        {(hint) => (
+          <p id={hintId} class="note">
+            {hint()}
+          </p>
+        )}
       </Show>
     ),
     refusal: () => (
@@ -47,11 +51,24 @@ function fieldParts(props: FieldProps) {
   };
 }
 
+type FieldLayout =
+  | {
+      /** A label above its control. */
+      class?: "field";
+    }
+  | {
+      /** A label beside its control in a filters row. */
+      class: "filter-field";
+      hint?: never;
+    };
+
+/** One control under a label. */
 export function Field(
-  props: FieldProps & {
-    class?: "field" | "filter-field";
-    children: (control: FieldControl) => JSX.Element;
-  },
+  props: FieldProps &
+    FieldLayout & {
+      /** Spread these attributes on the labeled control. */
+      children: (control: FieldControl) => JSX.Element;
+    },
 ) {
   const { control, hint, refusal } = fieldParts(props);
   return (
@@ -74,9 +91,15 @@ export function Field(
   );
 }
 
+/** Several controls under a legend. Other attributes go to the focusable fieldset. */
 export function FieldGroup(
   props: Omit<FieldProps, "unit"> &
     Omit<JSX.FieldsetHTMLAttributes<HTMLFieldSetElement>, "class" | "tabindex"> & {
+      /** Derived from the presence of a refusal. */
+      "aria-invalid"?: never;
+      /** Derived from the hint and refusal. */
+      "aria-describedby"?: never;
+      /** The controls labeled by the legend. */
       children: JSX.Element;
     },
 ) {
