@@ -12,9 +12,8 @@ import { JobSubmitter } from "../../../components/JobReferences.tsx";
 import { EmptyList, ListEnd } from "../../../components/ListEnd.tsx";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { listPages } from "../../../list-pages.ts";
-import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
+import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
 import { filterCount, listInput } from "./batches.tsx";
-import { availableRunners } from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/batches/")({
   loaderDeps: ({ search }) => listInput(search),
@@ -144,14 +143,16 @@ function BatchTable(props: { batches?: ListedBatch[] }) {
               {(batch) => (
                 <tr role="row">
                   <td role="cell" class="is-id">
-                    <Link
-                      to="/batches/$id"
-                      params={{ id: batch().id }}
-                      title={batch().id}
-                      class="cut mono"
-                    >
-                      {batch().id}
-                    </Link>
+                    <div class="batch-id">
+                      <Link
+                        to="/batches/$id"
+                        params={{ id: batch().id }}
+                        title={batch().id}
+                        class="cut mono"
+                      >
+                        {batch().id}
+                      </Link>
+                    </div>
                   </td>
                   <td role="cell" data-l="Status">
                     <span class="batch-status">

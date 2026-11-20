@@ -8,6 +8,7 @@ export function RecordCrumbs(props: { to: keyof typeof listPages; batchId?: stri
     <nav class="crumbs" aria-label="Where this is">
       <ol>
         <li>
+          {/* A prefix match would mark the parent list as the current page of this record. */}
           <Link class="stands-alone" to={props.to} activeOptions={{ exact: true }}>
             {listPages[props.to].title}
           </Link>
@@ -18,7 +19,6 @@ export function RecordCrumbs(props: { to: keyof typeof listPages; batchId?: stri
               <span aria-hidden="true">/</span>
               <Link
                 class="cut mono stands-alone"
-                activeOptions={{ exact: true }}
                 title={id()}
                 to="/batches/$id"
                 params={{ id: id() }}

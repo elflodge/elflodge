@@ -20,15 +20,9 @@ import {
   formatUsd,
   timeZoneNote,
 } from "../../../format.ts";
-import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
+import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
-import {
-  type JobsSearch,
-  ClearFiltersLink,
-  availableRunners,
-  filterCount,
-  jobsSearchSchema,
-} from "./jobs.tsx";
+import { type JobsSearch, ClearFiltersLink, filterCount, jobsSearchSchema } from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/jobs/")({
   // Both reads take only the declared filters and cursor, including after a sign-in redirect.

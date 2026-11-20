@@ -18,10 +18,10 @@ const searchSchema = z.pipe(
     labelValue: z.catch(z.optional(z.string()), undefined),
     after: optionalText,
   }),
-  z.transform(({ labelKey, labelValue, ...page }) =>
+  z.transform(({ labelKey, labelValue, ...statusAndCursor }) =>
     labelKey && labelValue !== undefined
-      ? { ...page, labelKey, labelValue }
-      : { ...page, labelKey: undefined, labelValue: undefined },
+      ? { ...statusAndCursor, labelKey, labelValue }
+      : { ...statusAndCursor, labelKey: undefined, labelValue: undefined },
   ),
 );
 export type BatchesSearch = z.infer<typeof searchSchema>;

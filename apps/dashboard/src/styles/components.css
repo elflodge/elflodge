@@ -667,6 +667,7 @@ thead .unit {
   vertical-align: top;
 }
 
+/* .cut follows .stands-alone so the ellipsis keeps its inline-block box. Center its text here. */
 .cut.stands-alone {
   align-content: center;
 }
@@ -690,7 +691,7 @@ p:has(> button) + .prose {
 }
 /* The record's link is a target of its own: 24px tall, and 44px on a phone or with a coarse pointer.
    It stays a block, so its value can be cut at its end, and is padded to the height. */
-.records td.is-id > :is(a, span).cut {
+.records td.is-id :is(a, span).cut {
   display: block;
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
@@ -698,7 +699,7 @@ p:has(> button) + .prose {
   .records td.is-id {
     padding-block: 0;
   }
-  .records td.is-id > :is(a, span).cut {
+  .records td.is-id :is(a, span).cut {
     padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
 }
@@ -800,14 +801,12 @@ p:has(> button) + .prose {
 }
 @container records (width > 48rem) {
   .batch-list .records td.batch-submitter {
-    width: var(--jobs-submitter);
-    max-width: var(--jobs-submitter);
+    width: var(--submitter);
+    max-width: var(--submitter);
     white-space: normal;
     overflow-wrap: anywhere;
   }
-}
-/* The six other columns need about 36rem. Once the full ID measure fits, end the rules at Created. */
-@container records (width >= 66rem) {
+
   .batch-list .records {
     width: auto;
   }
@@ -815,7 +814,10 @@ p:has(> button) + .prose {
     width: auto;
     max-width: none;
   }
-  .batch-list .records td.is-id > .cut {
+  /* The ID contributes up to --batch-id-max to the table and can shrink below its unbroken text. */
+  .batch-list .batch-id {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     max-inline-size: var(--batch-id-max);
   }
 }
@@ -1144,7 +1146,7 @@ p mark.placeholder {
   width: var(--jobs-batch);
 }
 .job-list th.c-submitter {
-  width: var(--jobs-submitter);
+  width: var(--submitter);
 }
 .job-list th.c-labels {
   width: var(--jobs-labels);
@@ -1424,6 +1426,7 @@ p mark.placeholder {
       padding: 0;
       align-items: center;
     }
+    /* With a fine pointer in a wider window, keep the job name and ID selectable for copying. */
     .job-list .job-name::after {
       content: "";
       position: absolute;

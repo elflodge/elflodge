@@ -55,15 +55,16 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
   const unfinished = () => unfinishedJobs(props.batch.jobCounts);
   const unfinishedText = () =>
     `${formatCount(unfinished())} unfinished ${plural(unfinished(), "job", "jobs")}`;
-  const resumeNote = () => {
-    const breaker = props.batch.breaker;
-    if (props.batch.pausedBy !== "breaker" || !breaker)
-      return breaker && breaker.canary > 0
-        ? "Resume ends the pause. Its Canary may still hold jobs: one that is running, or a new one if its failure breaker tripped during the pause."
-        : "Resume releases its blocked jobs.";
-    return breaker.canary
-      ? `Resume starts a new Canary of the next ${formatCount(breaker.canary)} ${plural(breaker.canary, "job", "jobs")} and counts failures afresh.`
-      : "Resume releases its blocked jobs and counts failures afresh.";
+  const resumeExplanation = () => {
+    const { breaker, pausedBy } = props.batch;
+    const canary = breaker ? breaker.canary : 0;
+    const byBreaker = pausedBy === "breaker" && !!breaker;
+    if (byBreaker && canary)
+      return `Resume starts a new Canary of the next ${formatCount(canary)} ${plural(canary, "job", "jobs")} and counts failures afresh.`;
+    if (byBreaker) return "Resume releases its blocked jobs and counts failures afresh.";
+    if (canary)
+      return "Resume ends the pause. Its Canary may still hold jobs: one that is running, or a new one if its failure breaker tripped during the pause.";
+    return "Resume releases its blocked jobs.";
   };
   return (
     <>
@@ -171,7 +172,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
             when={props.batch.status === "active"}
             fallback={
               <p class="note" id="resume-note">
-                {resumeNote()}
+                {resumeExplanation()}
                 <Show when={props.batch.jobCounts.paused}>
                   {(n) => (
                     <>

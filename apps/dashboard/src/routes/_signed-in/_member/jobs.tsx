@@ -1,5 +1,5 @@
 import { parseFormData } from "@orpc/openapi/helpers";
-import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/solid-query";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
   Link,
   Outlet,
@@ -18,7 +18,7 @@ import * as z from "zod/mini";
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
 import { createFormAction, focusIfLost } from "../../../form.ts";
 import { formatCount } from "../../../format.ts";
-import { orpc } from "../../../query.ts";
+import { availableRunners, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 const STATUSES = jobStatusSchema.options;
@@ -76,11 +76,6 @@ export const Route = createFileRoute("/_signed-in/_member/jobs")({
   validateSearch: jobsSearchSchema,
   component: Jobs,
 });
-
-// Reading data before the first Runner answer suspends the Jobs page, even after its own list arrived.
-export function availableRunners(query: UseQueryResult<Runner[]>) {
-  return query.dataUpdatedAt ? query.data : undefined;
-}
 
 function Jobs() {
   // The form follows the filters as navigation begins. Paging changes only the list.

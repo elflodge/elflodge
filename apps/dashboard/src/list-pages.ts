@@ -1,3 +1,4 @@
+/** The names used for each list and the IDs its filter controls and skip link target. */
 export const listPages = {
   "/jobs": {
     title: "Jobs",

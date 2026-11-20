@@ -43,7 +43,7 @@ Each colour is written once, as `light-dark(light, dark)`. The page follows the 
 - A step that nothing uses is not defined, which is why the type sizes have no `--text-xl` and the spaces no `--space-5` or `--space-6`.
 - **Sizes:** `--row`, `--control`, `--control-touch`, `--target`, `--topbar`, `--strip`, `--mark` (a drawn mark), `--radius` (controls and dialogs), and the three rules `--rule`, `--rule-heavy` and `--rule-total`.
 
-In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--jobs-submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`. On two lines `--jobs-cost-narrow` holds the cost and its USD unit.
+In the Jobs list, `--line-sm` keeps mono and sans on the same working line, `--weight-mono-strong` gives the job name its weight, and `--row-day` sets the height of a creation-day heading. The fixed column widths are `--jobs-status`, `--jobs-beside`, `--jobs-batch`, `--submitter`, `--jobs-labels`, `--jobs-runner`, `--jobs-time`, `--jobs-tokens` and `--jobs-cost`. On two lines `--jobs-cost-narrow` holds the cost and its USD unit.
 
 A new token gets a comment saying what it is for. A new colour for text or for a line that must be seen is measured against every ground it will sit on, in both themes, before it is added.
 
@@ -392,7 +392,7 @@ At 640px and below a record is a block: its identifier on a line of its own, the
 
 `div.job-list-frame > table.job-list` gives each column a fixed width and the Job column the space left. Headers and cells share these classes in column order: `c-status`, `c-beside`, `c-job`, `c-batch`, `c-submitter`, `c-labels`, `c-runner`, `c-time`, `c-tokens` and `c-cost`. The last two headings give Tokens (so far) and Cost of budget (so far, USD, est.). The table, rows and cells have explicit roles because the narrow layout changes how they are displayed.
 
-Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or on a coarse pointer, each line is at least 44px tall. In this two-line layout, tapping anywhere in the row opens the job, except for the Batch link, which opens the Batch.
+Each tier allows 15.375rem for the Job column and adds the fixed widths of its visible columns. These widths include 12px of end padding except on the last column. At the rendered mono size a 24-character Batch ID takes 176px of its 188px cell, and “1,402,118” takes 66px of its 80px cell. Larger token counts wrap. The frame's width sets the tier. Below 97.375rem Submitter gives way, below 86.875rem Tokens, and below 81.875rem Labels. Below 73.625rem each job takes two lines. The first holds the status and name. The second holds what stands beside the status, the Batch, the time and the cost in USD. The Batch takes the space left and gives way below 30rem when something stands beside the status. This follows the 480px breakpoint for ruled definition lists. At a 390px viewport the condition, time, cost and gaps can already fill the second line. Cost keeps its width even when empty. At 640px and below or with a coarse pointer, both lines are at least 44px tall and tapping either line opens the job. The Batch link opens its Batch.
 
 Each job occupies a `tr.job-row`. Its name is its custom ID, set in the strong mono as `a.cut.mono.job-name`. Its title gives the whole name, and it opens the job. The Batch beside it distinguishes it on a wide list. On two lines the Batch may be cut, so a `span.sid` follows the custom ID in `span.cell-line`.
 
@@ -548,7 +548,7 @@ radio and the role name, with a `small.note` on the next line describing what it
 
 ### Batches list
 
-Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator uses the Jobs submitter measure and can wrap. At 66rem and above the table fits its contents. The Batch ID takes up to 30rem, with the whole ID in its title. This table folds when its frame is 48rem wide or narrower to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
+Inside `div.batch-list`, the Records table shows the Batch ID, status, unfinished jobs, failed jobs, all jobs, creator and creation time. The status and its condition share a cell. The creator uses the Jobs submitter measure and can wrap. In table layout the rules end at Created. A `div.batch-id` around each ID link lets the column fit the longest ID up to 30rem and shrink when the other columns need room. The whole ID is in its title. This table folds when its frame is 48rem wide or narrower to leave about 12rem for the ID beside the other six columns. The folded record keeps every value. The filters, zone note, skip link and list end follow the Jobs list.
 
 An active Batch may take jobs even when all of its jobs have ended. Its mark is the filled dot in the hood’s green. A waiting cancel or a pause’s cause appears under the status word in the list.
 
@@ -569,7 +569,7 @@ An active Batch may take jobs even when all of its jobs have ended. Its mark is 
 
 ### Parent links
 
-Above a record heading, `nav.crumbs` lists its parents in order. The heading names the current record. A Batch has one parent link, Batches. A job has Jobs and its Batch while the job read holds the Batch ID. Parent links use exact route matching. A long ID fits on one line with its whole value in the title.
+Above a record heading, `nav.crumbs` lists its parents in order. The heading names the current record. A Batch has one parent link, Batches. A job has Jobs and its Batch while the job read holds the Batch ID. The list link uses exact route matching so a record does not mark its parent as current. A long ID fits on one line with its whole value in the title.
 
 ```tsx
 <nav class="crumbs" aria-label="Where this is">
@@ -581,13 +581,7 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
     </li>
     <li>
       <span aria-hidden="true">/</span>
-      <Link
-        class="cut mono stands-alone"
-        to="/batches/$id"
-        params={{ id }}
-        activeOptions={{ exact: true }}
-        title={id}
-      >
+      <Link class="cut mono stands-alone" to="/batches/$id" params={{ id }} title={id}>
         {id}
       </Link>
     </li>
