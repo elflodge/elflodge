@@ -362,11 +362,9 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 /** The statuses of a job that has not ended. */
 export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
-/** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
-export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
-  if (ids.length === 0) return [];
+function selectJobs(db: Kysely<Database>) {
   const now = new Date();
-  const rows = await db
+  return db
     .selectFrom("job as j")
     .innerJoin("jobProgress as p", "p.jobId", "j.id")
     .select((eb) => [
@@ -389,7 +387,13 @@ export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Pro
         },
         now,
       ).as("statusUnknown"),
-    ])
+    ]);
+}
+
+/** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
+export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
+  if (ids.length === 0) return [];
+  const rows = await selectJobs(db)
     .where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])))
     .execute();
   return rows.map(toApiJob);
@@ -1533,10 +1537,9 @@ export function readJobEvents(
   return Effect.gen(function* () {
     const database = yield* Db;
     const descending = order === "desc";
-    // A final status and its last events must come from the same snapshot.
-    const job = yield* database.query((db) =>
-      db
-        .selectFrom("job as j")
+    const row = yield* database.query(async (db) => {
+      const read = db
+        .selectFrom(selectJobs(db).as("j"))
         .where("j.id", "=", jobId)
         .select((eb) => {
           const chunks = eb.selectFrom("jobEventChunk").whereRef("jobId", "=", "j.id");
@@ -1559,7 +1562,6 @@ export function readJobEvents(
             ).as("before"),
           ]);
           return [
-            "j.status",
             chunks
               .select("lastId")
               .orderBy("lastId", descending ? "asc" : "desc")
@@ -1584,18 +1586,39 @@ export function readJobEvents(
                 ).as("boundary")
               : eb.lit(null).as("boundary"),
           ];
-        })
-        .executeTakeFirst(),
-    );
-    if (!job) return yield* Effect.fail(new NotFound());
+        });
+      // An Earlier cursor rules out the job before any Events are read. Leave its columns
+      // out of the projection so Postgres need not send a large Output across Hyperdrive.
+      if (descending && after > 0) {
+        const history = await read.executeTakeFirst();
+        return history && { ...history, job: undefined };
+      }
+      const result = await read.selectAll("j").executeTakeFirst();
+      if (!result) return undefined;
+      const { chunks, boundary, endChunkId, ...job } = result;
+      return { chunks, boundary, endChunkId, job };
+    });
+    if (!row) return yield* Effect.fail(new NotFound());
+
+    const { chunks: stored, boundary, endChunkId, job } = row;
+    const events: JobEvent[] = [];
+    // A sample page of 100 Events measured 35 KB. The Events budget is 1 MiB with room
+    // for one oversized Event. A success Event can fill most of a 100 MiB Node or 32 MiB
+    // Workers WebSocket message. Activity has no smaller byte cap. The whole job has no
+    // single byte budget: its Runner and submitter names come from separate writes.
+    // Carry it only at the newest end so history pages do not repeat its Output.
+    const page = (hasMore: boolean): JobEventsPage => ({
+      events,
+      hasMore,
+      ...(job && (descending || !hasMore) && { job: toApiJob(job) }),
+    });
 
     // jsonArrayFrom aggregates the rows without an ORDER BY inside json_agg.
     const chunks = Array.sortWith(
-      job.boundary ? [job.boundary, ...job.chunks] : job.chunks,
+      boundary ? [boundary, ...stored] : stored,
       (chunk) => chunk.lastId,
       descending ? Order.flip(Order.Number) : Order.Number,
     );
-    const events: JobEvent[] = [];
     let bytes = 0;
     for (const chunk of chunks) {
       const lines = String.linesIterator(chunk.events);
@@ -1604,16 +1627,13 @@ export function readJobEvents(
         if (after > 0 && (descending ? event.id >= after : event.id <= after)) continue;
         const size = Buffer.byteLength(line) + 1;
         if (events.length === limit || (events.length > 0 && bytes + size > MAX_PAGE_BYTES)) {
-          return { events, hasMore: true, status: job.status };
+          return page(true);
         }
         events.push(event);
         bytes += size;
       }
     }
     const lastChunk = chunks.at(-1);
-    const hasMore = lastChunk !== undefined && lastChunk.lastId !== job.endChunkId;
-    // Events are stored only for a job that has not ended (`applyReports`), and its end only with
-    // its last event, so nothing follows an ascending page without more whose status is final.
-    return { events, hasMore, status: job.status } satisfies JobEventsPage;
+    return page(lastChunk !== undefined && lastChunk.lastId !== endChunkId);
   });
 }

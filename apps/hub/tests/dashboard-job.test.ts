@@ -1,4 +1,4 @@
-import { JOB_SUCCEEDED, type JobEvent } from "contract";
+import { JOB_FAILED, JOB_SUCCEEDED, type JobEvent } from "contract";
 import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, assert, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
@@ -375,7 +375,7 @@ test("a member can read from the start and request the next page in order", asyn
   await expectBrowser(numbers).toHaveCount(105);
 }, 30_000);
 
-test("a member reading earlier Events can jump to new ones, and following ends after the final Event", async () => {
+test("a member reading earlier Events can jump to new ones, and sees the Output when the job succeeds", async () => {
   const { id, report } = await jobWithHistory(25);
   const page = await openAsMember("Live Events", `jobs/${id}`);
   await page.locator("#latest").evaluate((el) => el.scrollIntoView({ block: "end" }));
@@ -387,10 +387,9 @@ test("a member reading earlier Events can jump to new ones, and following ends a
   const first = page.locator("#event-20");
   await first.evaluate((el) => el.scrollIntoView({ block: "center" }));
   const top = await first.evaluate((el) => el.getBoundingClientRect().top);
-  const eventsPath = `/jobs/${id}/events`;
-  let reads = 0;
+  let jobReads = 0;
   page.on("request", (request) => {
-    if (new URL(request.url()).pathname === eventsPath) reads++;
+    if (new URL(request.url()).pathname === `/jobs/${id}`) jobReads++;
   });
   await report([message(260), { id: 264, type: "conversation", record: { id: 264 } }]);
   const notice = page.getByRole("status").filter({ hasText: "2 new Events below" });
@@ -399,38 +398,46 @@ test("a member reading earlier Events can jump to new ones, and following ends a
   expect(await first.evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(top, 0);
   await notice.getByText("Go to them", { exact: true }).click();
   await expectBrowser(page.locator("#event-260")).toBeFocused();
-  // The Events poll can report success before the next detailed job read answers.
-  const releaseJobRead = Promise.withResolvers<void>();
-  await page.route(`**/jobs/${id}`, async (route) => {
-    await releaseJobRead.promise;
-    await route.continue();
-  });
-  try {
-    await report([
-      {
+  await report([
+    {
+      id: 267,
+      type: "entry",
+      record: {
         id: 267,
-        type: "entry",
-        record: {
-          id: 267,
-          conversationId: 1,
-          kind: JOB_SUCCEEDED,
-          data: { timestamp: Date.now(), output: 17 },
-        },
+        conversationId: 1,
+        kind: JOB_SUCCEEDED,
+        data: { timestamp: Date.now(), output: 17 },
       },
-    ]);
-    await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("267", {
-      timeout: 12_000,
-    });
-    await expectBrowser(page.locator(".status-lg")).toHaveText("Running (last recorded)");
-    await expectBrowser(page.locator("#latest, #job-activity")).toHaveCount(0);
-    await expectBrowser(page.getByText("Tokens so far", { exact: true })).toBeVisible();
-  } finally {
-    releaseJobRead.resolve();
-  }
+    },
+  ]);
+  await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("267", {
+    timeout: 12_000,
+  });
   await expectBrowser(page.locator(".status-lg")).toHaveText("Succeeded");
-  const finalReads = reads;
-  // Two job refreshes cover an entire polling interval, regardless of their phase.
-  for (let i = 0; i < 2; i++)
-    await page.waitForResponse((response) => new URL(response.url()).pathname === `/jobs/${id}`);
-  expect(reads).toBe(finalReads);
+  await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText("17");
+  await expectBrowser(page.locator("#latest, #job-activity")).toHaveCount(0);
+  expect(jobReads).toBe(0);
 }, 45_000);
+
+test("a member following an ended job sees another member resume it before its next Event", async () => {
+  const { id, report } = await jobWithHistory(1);
+  await report([
+    {
+      id: 11,
+      type: "entry",
+      record: {
+        id: 11,
+        conversationId: 1,
+        kind: JOB_FAILED,
+        data: { timestamp: Date.now(), reason: "modelFailed", message: "Interrupted" },
+      },
+    },
+  ]);
+  const page = await openAsMember("Resume from elsewhere", `jobs/${id}`);
+  await expectBrowser(page.locator(".status-lg")).toHaveText("Failed");
+  await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText("All 4 read");
+  await system.owner().jobs.resume({ id });
+  await expectBrowser(page.locator(".status-lg")).toHaveText("Queued", { timeout: 12_000 });
+  await expectBrowser(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("11");
+}, 30_000);

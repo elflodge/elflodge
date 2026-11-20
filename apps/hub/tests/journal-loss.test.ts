@@ -74,8 +74,8 @@ test("a job whose journal is restored from an earlier copy fails with journalLos
   });
   expect(system.model.state.callCount).toBe(calls);
   // Its events stay as the hub held them.
-  const { events, status } = await client.jobs.events({ id });
-  expect(status).toBe("failed");
+  const { events, job } = await client.jobs.events({ id });
+  expect(job?.status).toBe("failed");
   expect(lifecycleOf(events)).toEqual(["elflodge.job.started", "elflodge.job.recovered"]);
   await access(system.workspace(id));
 }, 60_000);

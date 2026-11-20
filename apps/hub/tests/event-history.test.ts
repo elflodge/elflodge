@@ -50,7 +50,7 @@ test("a member can walk back from the newest event and follow new reports from t
 
   const newest = await member.jobs.events({ id, order: "desc", limit: 2 });
   expect(newest.events.map((event) => event.id)).toEqual([20]);
-  expect(newest).toMatchObject({ hasMore: true, status: "running" });
+  expect(newest).toMatchObject({ hasMore: true, job: { status: "running" } });
   const [cursor] = newest.events;
   assert(cursor);
   await report(cursor.id, [26, 32].map(conversation));
@@ -62,6 +62,7 @@ test("a member can walk back from the newest event and follow new reports from t
   assert(oldestShown);
   const first = await member.jobs.events({ id, order: "desc", after: oldestShown.id, limit: 2 });
   expect(first.events.map((event) => event.id)).toEqual([4, 1]);
+  expect(first).not.toHaveProperty("job");
   expect(first.hasMore).toBe(false);
 
   const live = await member.jobs.events({ id, after: cursor.id });

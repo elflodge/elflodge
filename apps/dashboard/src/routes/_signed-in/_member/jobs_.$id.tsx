@@ -1,4 +1,4 @@
-import { skipToken, useIsFetching, useQuery } from "@tanstack/solid-query";
+import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { jobRefSchema, problemOf } from "contract";
 import {
@@ -104,35 +104,26 @@ function JobPage() {
   const params = Route.useParams();
   const session = useLoaderData({ from: "/_signed-in" });
   const [deletedHere, setDeletedHere] = createSignal(false);
+  const member = () => session().membership.status === "member";
+  const jobEvents = useJobEvents(
+    () => params().id.toLowerCase(),
+    () => member() && !deletedHere(),
+  );
   const read = useQuery(() => ({
     ...jobQuery(params().id),
-    enabled: session().membership.status === "member",
+    enabled: member() && jobEvents.needsJobRead(),
     refetchInterval: (query) =>
       problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
   }));
   const online = browserOnline();
-  // A conflicting tail answer invalidates the job. Ordinary polls keep its live indication
-  // until the age cutoff; an invalidated read uses the same stale display immediately.
-  const checkingInvalidatedJob = useIsFetching(() => ({
-    queryKey: jobQuery(params().id).queryKey,
-    exact: true,
-    predicate: (query) => query.state.isInvalidated,
-  }));
-  const fresh = readIsFresh(() => (checkingInvalidatedJob() ? 0 : read.dataUpdatedAt));
+  const fresh = readIsFresh(() => read.dataUpdatedAt);
   const waitingForRead = () => !fresh() || read.isPaused;
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
   const job = createMemo(() => latest(() => deep(read.data)));
   const lastRecorded = () => !current() || !!job().statusUnknown;
-  const running = () => job().status === "running" && !lastRecorded() && !job().deletedAt;
-  const jobEvents = useJobEvents(
-    job,
-    () =>
-      session().membership.status === "member" &&
-      !job().deletedAt &&
-      problemOf(read.error)?.status !== 404,
-    () => read.dataUpdatedAt,
-  );
+  const running = () =>
+    jobEvents.isAtLatest() && job().status === "running" && !lastRecorded() && !job().deletedAt;
   const events = mapArray(jobEvents.events, readJobEvent, { keyed: true });
   const groups = createMemo(() => groupJobEvents(events(), jobEvents.firstHeadEventId()));
   const stopped = () => {
@@ -239,7 +230,7 @@ function JobPage() {
             <JobLimits
               job={job()}
               resumeOffered={resumeOffered()}
-              countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
+              countFrom={running() ? groups().countFrom : undefined}
             />
           </Show>
           <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>

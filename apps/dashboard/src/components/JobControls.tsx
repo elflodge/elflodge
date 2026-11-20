@@ -65,7 +65,12 @@ export function JobControls(props: {
           ? await api.jobs.resume({ id, modelBudgetUsd })
           : await api.jobs[control]({ id });
       // An older poll still on the wire must not replace the control's answer.
-      await client.cancelQueries({ queryKey, exact: true });
+      await Promise.all([
+        client.cancelQueries({ queryKey, exact: true }),
+        client.cancelQueries({
+          queryKey: orpc.jobs.events.key({ type: "streamed", input: { id } }),
+        }),
+      ]);
       client.setQueryData(queryKey, job);
       if (control === "delete") props.onDeleted();
       budgetDialog?.close();
