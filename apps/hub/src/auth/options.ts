@@ -1,14 +1,18 @@
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
+import * as z from "zod/mini";
 
 import { DB_SCHEMA } from "../db/database.ts";
-import { type Database, UserId } from "../db/types.ts";
+import { type Database, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
+import { findLiveInvitationCallerCannotGrantByEmail, mayGrantRole } from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -35,6 +39,8 @@ export const SETUP_TOKEN_PREFIX = `${SETUP_LINK_VALUE}:`;
 /** The API key configurations: keys for services, and each Runner's own key. */
 export const API_KEY_CONFIG = "default";
 export const RUNNER_KEY_CONFIG = "runner";
+
+const invitationEmail = z.email();
 
 export interface AuthSettings {
   /**
@@ -91,6 +97,7 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
 
 /** Better Auth's options for the hub. */
 export function authOptions(settings: AuthSettings) {
+  const db = settings.db.withSchema(DB_SCHEMA);
   return {
     secret: settings.secret,
     baseURL: settings.baseURL,
@@ -147,6 +154,33 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/update",
       "/api-key/delete",
     ],
+    hooks: {
+      // A caller may replace a live invitation only if they could see it and grant its role.
+      // The hub checks the inviter's current authority to decide whether the invitation is live.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/organization/invite-member" || ctx.body?.resend === true) return;
+        // Match the invite request's lowercased address and its explicit or active Organization.
+        const address = ctx.body?.email;
+        if (typeof address !== "string") return;
+        const email = address.toLowerCase();
+        if (!invitationEmail.safeParse(email).success) return;
+        const session = await getSessionFromCtx(ctx);
+        if (!session) return;
+        const organizationId = ctx.body.organizationId || session.session.activeOrganizationId;
+        if (typeof organizationId !== "string") return;
+        const invitation = await findLiveInvitationCallerCannotGrantByEmail(
+          db,
+          OrganizationId(organizationId),
+          UserId(session.user.id),
+          email,
+        );
+        if (invitation)
+          throw APIError.from(
+            "FORBIDDEN",
+            ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE,
+          );
+      }),
+    },
     logger: {
       // Better Auth's lines go to the console like the hub's own, without terminal colours, so Workers
       // Logs keeps them with the request they belong to.
@@ -166,6 +200,23 @@ export function authOptions(settings: AuthSettings) {
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
         cancelPendingInvitationsOnReInvite: true,
+        organizationHooks: {
+          // Cancelling by ID requires authority to grant the role even after the invitation lapses.
+          async beforeCancelInvitation({ invitation, cancelledBy }) {
+            const member = await db
+              .selectFrom("member")
+              .where("organizationId", "=", OrganizationId(invitation.organizationId))
+              .where("userId", "=", UserId(cancelledBy.id))
+              .select((eb) => mayGrantRole(eb.ref("role"), eb.val(invitation.role)).as("mayGrant"))
+              .limit(1)
+              .executeTakeFirst();
+            if (!member?.mayGrant)
+              throw APIError.from(
+                "FORBIDDEN",
+                ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION,
+              );
+          },
+        },
       }),
       apiKey([
         {

@@ -1,46 +1,14 @@
 import { ORPCError } from "@orpc/server";
 import { InvitationUnavailable } from "contract";
 import { Effect, Predicate } from "effect";
-import { expressionBuilder, type Expression, type Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
-import { roles } from "./auth/access.ts";
+import type { roles } from "./auth/access.ts";
 import { Auth, requireRolePermission } from "./auth/auth.ts";
+import { liveInvitations, mayGrantRole } from "./auth/invitation-grants.ts";
 import { Db } from "./db/database.ts";
-import { hasOwnerRole, storedRoles } from "./db/roles.ts";
-import { type Database, type InvitationId, type OrganizationId, UserId } from "./db/types.ts";
-
-const invitationRoles = Object.entries(roles)
-  .filter(([, role]) => role.authorize({ invitation: ["create"] }).success)
-  .map(([name]) => name);
-
-/**
- * Better Auth grants at least one role, only configured roles, and only an owner can grant a role
- * containing owner.
- */
-function mayGrantRole(inviterRole: Expression<string>, grant: Expression<string | null>) {
-  const eb = expressionBuilder();
-  return eb.and([
-    eb(storedRoles(inviterRole), "&&", eb.val(invitationRoles)),
-    eb(eb.fn<number>("cardinality", [storedRoles(grant)]), ">", 0),
-    eb(storedRoles(grant), "<@", eb.val(Object.keys(roles))),
-    eb.or([hasOwnerRole(inviterRole), eb.not(hasOwnerRole(grant))]),
-  ]);
-}
-
-/** Only invitations the original inviter could issue now are visible or redeemable. */
-function liveInvitations(db: Kysely<Database>) {
-  return db
-    .selectFrom("invitation")
-    .innerJoin("member", (join) =>
-      join
-        .onRef("member.organizationId", "=", "invitation.organizationId")
-        .onRef("member.userId", "=", "invitation.inviterId"),
-    )
-    .where("invitation.status", "=", "pending")
-    .where("invitation.expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"))
-    .where((eb) => mayGrantRole(eb.ref("member.role"), eb.ref("invitation.role")));
-}
+import { storedRoles } from "./db/roles.ts";
+import { type InvitationId, type OrganizationId, UserId } from "./db/types.ts";
 
 export function previewInvitation(id: InvitationId) {
   return Db.use((database) =>
