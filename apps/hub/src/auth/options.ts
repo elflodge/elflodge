@@ -235,7 +235,7 @@ export function authOptions(settings: AuthSettings) {
           configId: API_KEY_CONFIG,
           maximumNameLength: MAX_API_KEY_NAME_LENGTH,
           references: "organization",
-          // The hub rate-limits requests separately. Better Auth still records each key's use.
+          // Better Auth still records each key's use with per-key rate limits disabled.
           rateLimit: { enabled: false },
           // Better Auth keeps an Organization's key without the member who created it, so the hub
           // records them in the key's metadata. Only the hub writes it: Better Auth's routes that
