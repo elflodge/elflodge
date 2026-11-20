@@ -30,7 +30,7 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
       await run(currentTarget);
     } finally {
       const refused = currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]');
-      if (refused) refused.focus();
+      if (refused) focusIfLost(refused);
       // Enter can submit from a field that is disabled along with the submit button.
       else if (
         focused instanceof HTMLElement &&

@@ -250,7 +250,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling the focused button or field moved focus to the body, the form returns focus to that control when the action settles, unless a field was refused or focus has moved elsewhere.
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and takes focus unless the member moved focus to something else visible while the hub answered. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling the focused button or field moved focus to the body, the form returns focus to that control when the action settles, unless a field was refused or focus has moved elsewhere.
 
 ```tsx
 <div class="field">

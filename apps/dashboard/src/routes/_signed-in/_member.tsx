@@ -2,6 +2,7 @@ import { Outlet, createFileRoute, useLoaderData } from "@tanstack/solid-router";
 import { Show, onSettled } from "solid-js";
 
 import { Notice } from "../../components/Notice.tsx";
+import { focusIfLost } from "../../form.ts";
 import { canManageKeys } from "../../permissions.ts";
 
 // The pages about the Organization. A member removed from it keeps their session, and with it their
@@ -22,7 +23,7 @@ function Member() {
       fallback={
         <>
           <div class="head">
-            <h1 tabindex="-1" ref={(heading) => onSettled(() => heading.focus())}>
+            <h1 tabindex="-1" ref={(heading) => onSettled(() => focusIfLost(heading))}>
               Organization access
             </h1>
           </div>

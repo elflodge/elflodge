@@ -23,6 +23,11 @@ export const authClient = createAuthClient({
   fetchOptions: { throw: true },
 });
 
+// The client's $ERROR_CODES is a fetch proxy at runtime. Only its type lists the codes.
+export function hasAuthCode(error: unknown, ...codes: (keyof typeof authClient.$ERROR_CODES)[]) {
+  return error instanceof BetterFetchError && codes.some((code) => code === error.error?.code);
+}
+
 /** A 401, as when the session was deleted during renewal, also means no one is signed in. */
 export function isSignedOutError(error: unknown): boolean {
   return error instanceof BetterFetchError && error.status === 401;

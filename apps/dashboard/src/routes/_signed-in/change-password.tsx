@@ -1,9 +1,8 @@
-import { BetterFetchError } from "@better-fetch/fetch";
 import { createFileRoute } from "@tanstack/solid-router";
-import { Show, createSignal, flush } from "solid-js";
+import { Show, createSignal } from "solid-js";
 
 import { hubFailureMessage } from "../../api-client.ts";
-import { authClient } from "../../auth-client.ts";
+import { authClient, hasAuthCode } from "../../auth-client.ts";
 import { FieldError } from "../../components/FieldError.tsx";
 import { Notice } from "../../components/Notice.tsx";
 import { NEW_PASSWORD, createFormAction, fieldText } from "../../form.ts";
@@ -11,13 +10,6 @@ import { NEW_PASSWORD, createFormAction, fieldText } from "../../form.ts";
 export const Route = createFileRoute("/_signed-in/change-password")({
   component: ChangePassword,
 });
-
-/**
- * Better Auth's code for a current password that is wrong. Checked against its client's types:
- * `authClient.$ERROR_CODES`, where its documentation reads the codes, has them only in its types
- * in this version of its framework-neutral client.
- */
-const INVALID_PASSWORD = "INVALID_PASSWORD" satisfies keyof typeof authClient.$ERROR_CODES;
 
 /** What the member reads at the current password's field when the hub refuses it. */
 const WRONG_CURRENT_PASSWORD = "That is not your current password.";
@@ -45,14 +37,11 @@ function ChangePassword() {
       });
     } catch (failure) {
       // Better Auth's "Invalid password" could mean any of the three. Say which field to correct.
-      if (failure instanceof BetterFetchError && failure.error?.code === INVALID_PASSWORD) {
+      if (hasAuthCode(failure, "INVALID_PASSWORD")) {
         // A refusal belongs to the submitted value. Leave a correction made meanwhile alone.
         if (currentPassword?.value !== submittedPassword) return;
         setResult(undefined);
         setCurrentRefused(true);
-        // Apply its description before focusing the field so a screen reader announces it.
-        flush();
-        currentPassword.focus();
       } else {
         setResult({ role: "alert", message: hubFailureMessage(failure) });
       }
