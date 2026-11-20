@@ -95,7 +95,7 @@ test("after skipping to the end, Apply keeps focus and reads Jobs again in place
   try {
     await Promise.all([page.waitForRequest("**/jobs"), page.keyboard.press("Enter")]);
     // A background poll also reads Jobs. Only Apply keeps the form pending through this read.
-    await expectBrowser(apply).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(apply).toBeDisabled();
     await expectBrowser(apply).toBeFocused();
   } finally {
     release.resolve();

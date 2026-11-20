@@ -102,7 +102,7 @@ function Jobs() {
   );
 }
 
-/** Clear returns focus to the form’s visible control, including from the read error page. */
+/** Apply and Clear return focus to the visible filter control, including after error recovery. */
 function filterFocusTarget() {
   const toggle = document.querySelector<HTMLButtonElement>('button[aria-controls="jobs-filters"]');
   return toggle?.checkVisibility()
@@ -144,7 +144,6 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
   const applied = () => filterCount(props.filters);
 
   const [open, setOpen] = createSignal(false);
-  let toggle!: HTMLButtonElement;
 
   function closePanel() {
     // Close in a separate flush so navigation cannot hold the panel open until its read settles.
@@ -154,7 +153,7 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
   const { pending, onSubmit } = createFormAction((element) => {
     const form = new FormData(element);
     closePanel();
-    if (toggle.checkVisibility()) toggle.focus();
+    filterFocusTarget()?.focus();
     const search = jobsFiltersSchema.parse(parseFormData(form));
     const destination = linkOptions({ to: "/jobs", search });
     const current = router.latestLocation;
@@ -207,9 +206,6 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
     <div class="filters">
       <button
         type="button"
-        ref={(element) => {
-          toggle = element;
-        }}
         class="filter-toggle"
         aria-expanded={open() ? "true" : "false"}
         aria-controls="jobs-filters"
