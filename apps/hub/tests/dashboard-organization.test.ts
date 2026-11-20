@@ -100,6 +100,27 @@ test("the email field explains why an admin cannot replace an owner invitation",
   );
 }, 30_000);
 
+test("an invite refusal keeps focus on Close when the member moved there", async () => {
+  const page = await openOrganization();
+  await page.getByRole("button", { name: "Invite a member" }).click();
+  const dialog = page.getByRole("dialog");
+  const email = dialog.getByLabel("Email");
+  await email.fill(OWNER.email);
+  const release = Promise.withResolvers<void>();
+  await page.route("**/api/auth/organization/invite-member", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  await dialog.getByRole("button", { name: "Create invitation" }).click();
+  try {
+    await dialog.getByRole("button", { name: "Close" }).focus();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(email).toHaveAccessibleDescription("This address is already a member.");
+  await expectBrowser(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+}, 30_000);
+
 test("removing a member counts their active keys and invitations and keeps their keys identifiable", async () => {
   const admin = await addAdmin("Mei Tanaka", "mei@example.com");
   await admin.client.apiKeys.create({ name: "Importer", permissions: { job: ["read"] } });
@@ -176,7 +197,7 @@ test.each(["last-owner refusal", "server error"])(
     const alert = page.getByRole("alert");
     await expectBrowser(alert).toContainText(
       response === "server error"
-        ? "The hub could not do this: Internal Server Error. The members were read again; check them before trying again."
+        ? "Check the refreshed member list before trying again (Internal Server Error)."
         : "You are now the only owner, so you cannot leave or change your own role.",
     );
     await expectBrowser(page.getByRole("button", { name: "Leave Organization" })).toHaveCount(0);

@@ -1,9 +1,9 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
-import { For, Show, createSignal, createUniqueId, onSettled } from "solid-js";
+import { For, Show, createSignal, createUniqueId, onSettled, untrack } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
-import { authClient } from "../auth-client.ts";
+import { authClient, hasAuthCode } from "../auth-client.ts";
 import { createFormAction, fieldText } from "../form.ts";
 import { isLoopback } from "../hub-address.ts";
 import { ROLE_LABEL, asRole, invitationLink, rolesOf, type MemberRole } from "../organization.ts";
@@ -20,12 +20,12 @@ function FormDialog(props: {
   answered?: boolean;
   answer?: JSX.Element;
   close: () => void;
-  submit: (form: FormData, close: () => boolean) => Promise<string | undefined | void>;
-  report: (message: string) => void;
+  submit: (form: FormData, close: () => boolean) => Promise<JSX.Element | void>;
+  report: (message: JSX.Element) => void;
 }) {
   const headingId = createUniqueId();
   let dialog!: HTMLDialogElement;
-  const [failure, setFailure] = createSignal<string>();
+  const [failure, setFailure] = createSignal<JSX.Element>();
   const { pending, onSubmit } = createFormAction(async (form) => {
     setFailure(undefined);
     let message;
@@ -40,7 +40,12 @@ function FormDialog(props: {
     }
     if (message) {
       if (dialog.isConnected && dialog.open) setFailure(message);
-      else props.report(`${props.confirm}: ${message}`);
+      else
+        props.report(
+          <>
+            {props.confirm}: {message}
+          </>,
+        );
     }
   });
   return (
@@ -129,10 +134,7 @@ function RoleChoices(props: {
   );
 }
 
-type DialogProps = { close: () => void; report: (message: string) => void };
-
-const INVITE_ROLE_REFUSED =
-  "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE" satisfies keyof typeof authClient.$ERROR_CODES;
+type DialogProps = { close: () => void; report: (message: JSX.Element) => void };
 
 export function InvitationAddressNote() {
   return (
@@ -154,7 +156,7 @@ export function InviteMember(
   },
 ) {
   const [role, setRole] = createSignal<MemberRole>("member");
-  const [emailError, setEmailError] = createSignal<JSX.Element>();
+  const [emailError, setEmailError] = createSignal<string>();
   const [created, setCreated] = createSignal<{
     link: URL;
     email: string;
@@ -181,29 +183,26 @@ export function InviteMember(
       props.refresh();
     } catch (error) {
       if (!(error instanceof BetterFetchError)) throw error;
-      const code = error.error?.code;
-      if ([401, 403].includes(error.status) || code === "MEMBER_NOT_FOUND")
+      if ([401, 403].includes(error.status) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
         await props.refreshSession();
 
-      const alreadyMember = code === "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION";
+      const alreadyMember = hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION");
       // For a Member or Admin grant, this refusal refers to the invitation already at the address.
       const ownerInvitation =
-        error.status === 403 && code === INVITE_ROLE_REFUSED && grant !== "owner";
+        error.status === 403 &&
+        hasAuthCode(error, "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE") &&
+        grant !== "owner";
       if (!alreadyMember && !ownerInvitation) throw error;
-      const ownerMessage = "This address has an invitation only an owner can replace.";
-      if (!emailField.isConnected)
-        return alreadyMember ? `${email} is already a member.` : ownerMessage;
-      if (emailField.value === email) {
-        setEmailError(
-          alreadyMember ? (
-            <>
-              <span class="mono">{email}</span> is already a member.
-            </>
-          ) : (
-            ownerMessage
-          ),
+      const reason = alreadyMember
+        ? "is already a member."
+        : "has an invitation only an owner can replace.";
+      if (!emailField.isConnected || !emailField.closest("dialog[open]"))
+        return (
+          <>
+            <span class="mono">{email}</span> {reason}
+          </>
         );
-      }
+      if (emailField.value === email) setEmailError(`This address ${reason}`);
     }
     return undefined;
   }
@@ -253,7 +252,8 @@ export function InviteMember(
     >
       <p class="note">
         The hub sends no email. You get a link to send them yourself. To replace an earlier
-        invitation, invite the address again. Only an owner can replace a live owner invitation.
+        invitation, invite the address again. Only an owner can replace an invitation that grants
+        owner.
       </p>
       <div class="field">
         <label for="invite-email">Email</label>
@@ -281,7 +281,7 @@ export function InviteMember(
 export function RenameOrganization(
   props: DialogProps & { name: string; rename: (name: string) => Promise<void> },
 ) {
-  const startingName = props.name;
+  const startingName = untrack(() => props.name);
   return (
     <FormDialog
       {...props}
