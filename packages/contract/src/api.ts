@@ -643,7 +643,7 @@ export type UsageReport = z.infer<typeof usageReportSchema>;
 /** A name a person gives, such as the Organization's or a member's. */
 const nameSchema = textSchema.check(z.trim(), z.minLength(1));
 
-const invitationInput = z.strictObject({ invitation: textSchema });
+const invitationInput = z.strictObject({ invitationId: textSchema });
 const invitationFields = z.object({ email: z.email(), role: z.string(), expiresAt: z.date() });
 export const InvitationUnavailable = error("NOT_FOUND", {
   message: "This invitation is no longer available",
@@ -762,6 +762,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       ),
   },
   invitations: {
+    // POST keeps the bearer ID in the body, away from logged URLs, as setup does.
     preview: forAnyone
       .errors({ [InvitationUnavailable.code]: InvitationUnavailable })
       .meta(
@@ -779,7 +780,6 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         [InvitationUnavailable.code]: InvitationUnavailable,
         UNAUTHORIZED: {},
         FORBIDDEN: {},
-        UNPROCESSABLE_CONTENT: {},
       })
       .meta(
         openapi({
@@ -789,6 +789,10 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
             "Joins the Organization once. A new account supplies a name and password. An existing account signs in first.",
         }),
         ...byAnyone,
+        openapi.spec((operation): typeof operation => ({
+          ...operation,
+          security: [{}, { session: [] }],
+        })),
       )
       .input(
         z.extend(invitationInput, {

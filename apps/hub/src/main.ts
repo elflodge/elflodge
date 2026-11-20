@@ -5,15 +5,14 @@ import { Config, Effect, Layer, Option, Redacted, Schedule } from "effect";
 import ensureError from "ensure-error";
 
 import { createApp, decideRunnerUpgrade } from "./app.ts";
-import { sweepUnusedBlobs } from "./blobs.ts";
 import { migrateDatabase } from "./db/migrate.ts";
-import { sweepInvitations } from "./invitations.ts";
 import { dashboardFiles } from "./node/dashboard.ts";
 import { NodeRunnerSockets, nodeServices } from "./node/layers.ts";
 import { startServer, stopServer } from "./node/server.ts";
 import type { HubServices } from "./platform.ts";
 import { type HubSettings, hubSettings, settingsProblems } from "./settings.ts";
 import { setUpOrganization } from "./setup.ts";
+import { sweepUnusedBlobsAndInvitations } from "./sweep.ts";
 
 // The hub as a Node process, which its Docker image runs (ADR 0014). It runs as a single process:
 // two would split Runners' connections between them. On start it migrates the database and, unless
@@ -98,7 +97,7 @@ function hubServer(port: number, host: string | undefined, settings: HubSettings
  */
 const sweeper = Layer.effectDiscard(
   Effect.forkScoped(
-    Effect.all([sweepUnusedBlobs, sweepInvitations]).pipe(
+    sweepUnusedBlobsAndInvitations.pipe(
       Effect.catchCause(Effect.logError),
       Effect.repeat(Schedule.cron("0 * * * *", "UTC")),
     ),

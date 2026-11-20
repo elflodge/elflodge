@@ -48,15 +48,15 @@ function authPost(path: string, body: object, cookie?: string) {
 
 test("a new account can redeem a live invitation once and sign in with the granted role", async () => {
   const email = "new@example.com";
-  const { id: invitation } = await invite(email, "admin");
+  const { id: invitationId } = await invite(email, "admin");
   const anyone = system.client().invitations;
-  expect(await anyone.preview({ invitation })).toMatchObject({
+  expect(await anyone.preview({ invitationId })).toMatchObject({
     email,
     role: "admin",
     organizationName: "Organization",
     expiresAt: expect.any(Date),
   });
-  const input = { invitation, name: "New member", password };
+  const input = { invitationId, name: "New member", password };
   await expect(anyone.accept({ ...input, password: "short" })).rejects.toMatchObject({
     code: "BAD_REQUEST",
   });
@@ -66,7 +66,7 @@ test("a new account can redeem a live invitation once and sign in with the grant
     status: "rejected",
     reason: expect.objectContaining({ code: "NOT_FOUND" }),
   });
-  await expect(anyone.preview({ invitation })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(anyone.preview({ invitationId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   const cookie = await system.signIn({ email, password });
   await system.client({ cookie }).apiKeys.list();
 });
@@ -75,34 +75,34 @@ test("only the invited account can rejoin with its existing credentials", async 
   const email = "returning@example.com";
   const person = await system.addMember({ name: "Returning member", email });
   await system.ownerAuth().organization.removeMember({ memberIdOrEmail: email, organizationId });
-  const { id: invitation } = await invite(email, "member");
+  const { id: invitationId } = await invite(email, "member");
   await expect(
-    system.client().invitations.accept({ invitation, name: "Replacement", password }),
+    system.client().invitations.accept({ invitationId, name: "Replacement", password }),
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-  await expect(system.owner().invitations.accept({ invitation })).rejects.toMatchObject({
+  await expect(system.owner().invitations.accept({ invitationId })).rejects.toMatchObject({
     code: "FORBIDDEN",
   });
-  expect(await person.client.invitations.accept({ invitation })).toEqual({ email });
+  expect(await person.client.invitations.accept({ invitationId })).toEqual({ email });
   await person.client.runners.list();
   await expect(person.client.invitations.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
 test("public sign-up and native invitation redemption stay closed", async () => {
   const email = "closed@example.com";
-  const { id: invitation } = await invite(email, "member");
+  const { id: invitationId } = await invite(email, "member");
   expect((await authPost("sign-up/email", { name: "Closed", email, password })).status).toBe(400);
   for (const action of ["accept", "reject"]) {
-    expect(
-      (await authPost(`organization/${action}-invitation`, { invitationId: invitation })).status,
-    ).toBe(404);
+    expect((await authPost(`organization/${action}-invitation`, { invitationId })).status).toBe(
+      404,
+    );
   }
-  await system.client().invitations.accept({ invitation, name: "Invited", password });
+  await system.client().invitations.accept({ invitationId, name: "Invited", password });
 });
 
-test("a role grant follows the inviter's current membership and only owners see owner grants", async () => {
+test("only owners see owner grants, and departure ends invitation authority while preserving key attribution", async () => {
   const email = "inviter@example.com";
-  const { id: invitation } = await invite(email, ["owner", "admin"]);
-  await system.client().invitations.accept({ invitation, name: "Inviter", password });
+  const { id: invitationId } = await invite(email, ["owner", "admin"]);
+  await system.client().invitations.accept({ invitationId, name: "Inviter", password });
   const cookie = await system.signIn({ email, password });
   const ownerGrant = await invite("another-owner@example.com", ["admin", "owner"], cookie);
   const memberGrant = await invite("another-member@example.com", "member", cookie);
@@ -135,9 +135,9 @@ test("a role grant follows the inviter's current membership and only owners see 
 
   async function expectDead(id: string) {
     const dead = { code: "NOT_FOUND", message: "This invitation is no longer available" };
-    await expect(client.preview({ invitation: id })).rejects.toMatchObject(dead);
+    await expect(client.preview({ invitationId: id })).rejects.toMatchObject(dead);
     await expect(
-      client.accept({ invitation: id, name: "Unclaimed", password }),
+      client.accept({ invitationId: id, name: "Unclaimed", password }),
     ).rejects.toMatchObject(dead);
     expect((await system.owner().invitations.list()).map((row) => row.id)).not.toContain(id);
   }
@@ -151,13 +151,13 @@ test("a role grant follows the inviter's current membership and only owners see 
   });
   const replacement = await invite(memberGrant.email, "member");
   expect(replacement.id).not.toBe(memberGrant.id);
-  await client.preview({ invitation: replacement.id });
+  await client.preview({ invitationId: replacement.id });
 });
 
 test("two owners leaving together leave one owner who can still register Runners", async () => {
   const email = "second-owner@example.com";
-  const { id: invitation } = await invite(email, ["admin", "owner"]);
-  await system.client().invitations.accept({ invitation, name: "Second owner", password });
+  const { id: invitationId } = await invite(email, ["admin", "owner"]);
+  await system.client().invitations.accept({ invitationId, name: "Second owner", password });
   await system.ownerAuth().organization.updateMemberRole({
     memberId: await memberId(OWNER.email),
     role: ["owner", "admin"],
@@ -185,13 +185,15 @@ test("two owners leaving together leave one owner who can still register Runners
   });
   const departures = await writes.pending;
   expect(departures.map((response) => response.status).toSorted((a, b) => a - b)).toEqual([
-    200, 409,
+    200, 400,
   ]);
-  const refused = departures.find((response) => response.status === 409);
-  expect(refused?.headers.get("content-type")).toContain("application/problem+json");
-  expect(await refused?.json()).toMatchObject({ status: 409, title: "Conflict" });
+  const refused = departures.find((response) => response.status === 400);
+  expect(refused?.headers.get("content-type")).toContain("application/json");
+  expect(await refused?.json()).toMatchObject({
+    code: "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
+  });
   await system.runnerClient({ "x-api-key": registration }).register({ name: "After handoff" });
-  const cookie = cookies[departures.findIndex((response) => response.status === 409)];
+  const cookie = cookies[departures.findIndex((response) => response.status === 400)];
   if (!cookie) throw new Error("Missing remaining owner's session");
   const { members } = await system
     .authClient(cookie)
@@ -203,7 +205,12 @@ test("two owners leaving together leave one owner who can still register Runners
     ["update-member-role", { memberId: remaining.id, role: "admin" }],
   ] as const) {
     const response = await authPost(`organization/${action}`, { organizationId, ...body }, cookie);
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ title: "Conflict", status: 409 });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      code:
+        action === "remove-member"
+          ? "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER"
+          : "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+    });
   }
 });

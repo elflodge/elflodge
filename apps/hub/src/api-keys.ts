@@ -1,7 +1,7 @@
 import { safeJSONParse } from "better-auth";
 import type { ApiKey } from "contract";
 import { Effect } from "effect";
-import { jsonBuildObject } from "kysely/helpers/postgres";
+import { jsonObjectFrom } from "kysely/helpers/postgres";
 
 import { requireRolePermission } from "./auth/auth.ts";
 import { API_KEY_CONFIG } from "./auth/options.ts";
@@ -21,48 +21,31 @@ export function listServiceKeys(organizationId: OrganizationId, role: string) {
       // The hub never disables a key, so this read needs no enabled filter.
       const keys = await db
         .selectFrom("apikey")
-        .leftJoin("user as creator", (join) =>
-          join.on((eb) =>
-            eb(
-              "creator.id",
-              "=",
-              eb.fn<UserId>("jsonb_extract_path_text", [
-                eb.cast("apikey.metadata", "jsonb"),
-                eb.val("createdBy"),
-              ]),
-            ),
-          ),
-        )
-        .select([
-          "apikey.id",
-          "apikey.name",
-          "apikey.start",
-          "apikey.permissions",
-          "apikey.createdAt",
-          "apikey.expiresAt",
-        ])
+        .select(["id", "name", "start", "permissions", "createdAt", "expiresAt"])
         .select((eb) =>
-          eb
-            .case()
-            .when("creator.id", "is", null)
-            .then(null)
-            .else(
-              jsonBuildObject({
-                id: eb.ref("creator.id").$notNull(),
-                name: eb.ref("creator.name").$notNull(),
-                isMember: eb
+          jsonObjectFrom(
+            eb
+              .selectFrom("user")
+              .where("user.id", "=", (row) =>
+                row.fn<UserId>("jsonb_extract_path_text", [
+                  row.cast("apikey.metadata", "jsonb"),
+                  row.val("createdBy"),
+                ]),
+              )
+              .select(["user.id", "user.name"])
+              .select((row) =>
+                row
                   .exists(
-                    eb
+                    row
                       .selectFrom("member")
                       .select("member.id")
-                      .whereRef("member.userId", "=", "creator.id")
+                      .whereRef("member.userId", "=", "user.id")
                       .whereRef("member.organizationId", "=", "apikey.referenceId"),
                   )
-                  .$castTo<boolean>(),
-              }),
-            )
-            .end()
-            .as("creator"),
+                  .$castTo<boolean>()
+                  .as("isMember"),
+              ),
+          ).as("creator"),
         )
         .where("referenceId", "=", organizationId)
         .where("configId", "=", API_KEY_CONFIG)

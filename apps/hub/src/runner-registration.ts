@@ -1,9 +1,10 @@
 import { NotFound } from "contract";
 import { Effect, Predicate } from "effect";
 
+import { hasOwnerRole } from "./auth/access.ts";
 import { Auth, requireRolePermission } from "./auth/auth.ts";
 import { RUNNER_KEY_CONFIG, RUNNER_KEY_ROLE } from "./auth/options.ts";
-import { Db, storedRoles } from "./db/database.ts";
+import { Db } from "./db/database.ts";
 import { ApikeyId, type OrganizationId, RunnerId } from "./db/types.ts";
 import { deleteRunnerWithItsWork } from "./jobs.ts";
 
@@ -23,7 +24,7 @@ export function registerRunner(organizationId: OrganizationId, name: string) {
         .selectFrom("member")
         .select("userId")
         .where("organizationId", "=", organizationId)
-        .where((eb) => eb(eb.val("owner"), "=", eb.fn.any(storedRoles(eb.ref("role")))))
+        .where((eb) => hasOwnerRole(eb.ref("role")))
         .limit(1)
         .executeTakeFirstOrThrow(),
     );

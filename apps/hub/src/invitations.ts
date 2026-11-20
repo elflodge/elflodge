@@ -1,17 +1,27 @@
 import { ORPCError } from "@orpc/server";
 import { InvitationUnavailable } from "contract";
 import { Effect, Predicate } from "effect";
-import type { Kysely } from "kysely";
+import { expressionBuilder, type Expression, type Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
-import { roles } from "./auth/access.ts";
+import { hasOwnerRole, roles, storedRoles } from "./auth/access.ts";
 import { Auth, requireRolePermission } from "./auth/auth.ts";
-import { Db, storedRoles } from "./db/database.ts";
+import { Db } from "./db/database.ts";
 import { type Database, type InvitationId, type OrganizationId, UserId } from "./db/types.ts";
 
 const invitationRoles = Object.entries(roles)
   .filter(([, role]) => role.authorize({ invitation: ["create"] }).success)
   .map(([name]) => name);
+
+/** Better Auth grants only configured roles, and only an owner can grant a role containing owner. */
+function mayGrantRole(inviter: Expression<string>, grant: Expression<string | null>) {
+  const eb = expressionBuilder();
+  return eb.and([
+    eb(storedRoles(inviter), "&&", eb.val(invitationRoles)),
+    eb(storedRoles(grant), "<@", eb.val(Object.keys(roles))),
+    eb.or([hasOwnerRole(inviter), eb.not(hasOwnerRole(grant))]),
+  ]);
+}
 
 /** Only invitations the original inviter could issue now are visible or redeemable. */
 function liveInvitations(db: Kysely<Database>) {
@@ -24,18 +34,7 @@ function liveInvitations(db: Kysely<Database>) {
     )
     .where("invitation.status", "=", "pending")
     .where("invitation.expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"))
-    .where((eb) => {
-      const inviter = storedRoles(eb.ref("member.role"));
-      const grant = storedRoles(eb.ref("invitation.role"));
-      return eb.and([
-        eb(inviter, "&&", eb.val(invitationRoles)),
-        eb(grant, "<@", eb.val(Object.keys(roles))),
-        eb.or([
-          eb(eb.val("owner"), "=", eb.fn.any(inviter)),
-          eb.not(eb(eb.val("owner"), "=", eb.fn.any(grant))),
-        ]),
-      ]);
-    });
+    .where((eb) => mayGrantRole(eb.ref("member.role"), eb.ref("invitation.role")));
 }
 
 export function previewInvitation(id: InvitationId) {
@@ -64,12 +63,7 @@ export function listInvitations(organizationId: OrganizationId, role: string) {
         liveInvitations(db)
           .innerJoin("user", "user.id", "invitation.inviterId")
           .where("invitation.organizationId", "=", organizationId)
-          .where((eb) =>
-            eb.or([
-              eb(eb.val("owner"), "=", eb.fn.any(storedRoles(eb.val(role)))),
-              eb.not(eb(eb.val("owner"), "=", eb.fn.any(storedRoles(eb.ref("invitation.role"))))),
-            ]),
-          )
+          .where((eb) => mayGrantRole(eb.val(role), eb.ref("invitation.role")))
           .select([
             "invitation.id",
             "invitation.email",
@@ -104,6 +98,9 @@ export function acceptInvitation(
       const grant = await db
         .deleteFrom("invitation")
         .where("id", "in", eligible)
+        // At READ COMMITTED the subquery can see a pending row while DELETE waits for a
+        // cancellation. Postgres rechecks the outer conditions against the updated target row.
+        // clock_timestamp() also checks expiry at the claim, even after waiting for a lock.
         .where("status", "=", "pending")
         .where("expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"))
         .returning((eb) => ["email", "organizationId", storedRoles(eb.ref("role")).as("roles")])
@@ -126,7 +123,11 @@ export function acceptInvitation(
         .executeTakeFirst();
       let userId;
       if (account) {
-        const session = await auth.api.getSession({ headers, method: "GET" });
+        const session = await auth.api.getSession({
+          headers,
+          method: "GET",
+          query: { disableRefresh: true },
+        });
         if (!session)
           throw new ORPCError("UNAUTHORIZED", { message: "Sign in with the invited account" });
         if (session.user.id !== account.id)
@@ -163,6 +164,7 @@ export const sweepInvitations = Db.use((database) =>
   database.query((db) =>
     db
       .deleteFrom("invitation")
+      // A fixed cutoff suffices for cleanup. Rows expiring during the sweep go in the next one.
       .where((eb) =>
         eb.or([eb("status", "!=", "pending"), eb("expiresAt", "<=", eb.fn<Date>("now"))]),
       )

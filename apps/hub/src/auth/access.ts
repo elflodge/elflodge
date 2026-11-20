@@ -6,6 +6,7 @@ import {
   ownerAc,
 } from "better-auth/plugins/organization/access";
 import { KEY_PERMISSIONS } from "contract";
+import { expressionBuilder, type Expression } from "kysely";
 
 /** What an API key or a member's role may do, in Better Auth's `{ resource: actions }` shape. */
 const statements = {
@@ -41,3 +42,17 @@ export const roles = {
   }),
   member: memberAc,
 };
+
+/** Better Auth stores role names joined by commas, including for a grant of several roles. */
+export function storedRoles(role: Expression<string | null>) {
+  const eb = expressionBuilder();
+  return eb.fn<string[]>("regexp_split_to_array", [
+    eb.fn("btrim", [role]),
+    eb.val("[[:space:]]*,[[:space:]]*"),
+  ]);
+}
+
+/** Shared with the database trigger so membership writes and authorization recognize the same owners. */
+export function hasOwnerRole(role: Expression<string | null>) {
+  return expressionBuilder().fn<boolean>("elflodge.has_owner_role", [role]);
+}

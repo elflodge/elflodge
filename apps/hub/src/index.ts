@@ -4,8 +4,6 @@ import { HTTPException } from "hono/http-exception";
 
 import { createApp } from "./app.ts";
 import { databaseAndAuthLayer } from "./auth/auth.ts";
-import { sweepUnusedBlobs } from "./blobs.ts";
-import { sweepInvitations } from "./invitations.ts";
 import { RunnerConnections } from "./platform.ts";
 import {
   authSettings,
@@ -14,6 +12,7 @@ import {
   readConfig,
   type HubSettings,
 } from "./settings.ts";
+import { sweepUnusedBlobsAndInvitations } from "./sweep.ts";
 
 export { RunnerConnection } from "./runner-connection.ts";
 
@@ -68,7 +67,7 @@ export default {
   scheduled: (_controller, env, context) => {
     context.waitUntil(
       Effect.runPromise(
-        Effect.all([sweepUnusedBlobs, sweepInvitations]).pipe(
+        sweepUnusedBlobsAndInvitations.pipe(
           Effect.tapCause(Effect.logError),
           Effect.provide(workersLayer(env)),
         ),

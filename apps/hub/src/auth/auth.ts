@@ -4,7 +4,6 @@ import { isAPIError } from "better-auth/api";
 // The server's permission evaluator needs a Better Auth endpoint context. This export checks the
 // same static roles using only the role and permissions available to the hub's guard.
 import { clientSideHasPermission } from "better-auth/client/plugins";
-import { parseRoles } from "better-auth/plugins";
 import type { RoleStatements } from "better-auth/plugins/access";
 import {
   type Access,
@@ -14,28 +13,18 @@ import {
   permissionNames,
   Unauthorized,
 } from "contract";
-import { Cause, Context, Effect, Layer, Predicate, type Types } from "effect";
+import { Cause, Context, Effect, Layer, type Types } from "effect";
 import ensureError from "ensure-error";
-import { problemDetails } from "hono-problem-details";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
-import { DatabaseError } from "pg";
 import * as z from "zod/mini";
 
 import { Db, DB_SCHEMA, openScopedDatabase } from "../db/database.ts";
 import { ApikeyId, type Database, OrganizationId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import { authOptions, type AuthSettings } from "./options.ts";
+import { authOptions, type AuthSettings, signUpAuth } from "./options.ts";
 
 /** A Better Auth instance with the hub's options. */
 export type BetterAuth = ReturnType<typeof betterAuth<ReturnType<typeof authOptions>>>;
-
-function invitationAuth(db: Kysely<Database>, settings: Omit<AuthSettings, "db">) {
-  const options = authOptions({ ...settings, db });
-  return betterAuth({
-    ...options,
-    emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
-  });
-}
 
 /** Better Auth on the hub's database. */
 export class Auth extends Context.Service<
@@ -43,7 +32,7 @@ export class Auth extends Context.Service<
   {
     /** Holds the invitation claim, account and membership in the same transaction. */
     readonly signUpTransaction: <A>(
-      run: (db: Kysely<Database>, auth: ReturnType<typeof invitationAuth>) => Promise<A>,
+      run: (db: Kysely<Database>, auth: ReturnType<typeof signUpAuth>) => Promise<A>,
     ) => Effect.Effect<A, ORPCError<ORPCErrorCode, unknown> | Cause.UnknownError>;
     /**
      * Calls Better Auth. Its refusals become oRPC's errors (`fromBetterAuth`).
@@ -63,7 +52,9 @@ export class Auth extends Context.Service<
             try: () =>
               db
                 .transaction()
-                .execute((tx) => run(tx.withSchema(DB_SCHEMA), invitationAuth(tx, settings))),
+                .execute((tx) =>
+                  run(tx.withSchema(DB_SCHEMA), signUpAuth(authOptions({ ...settings, db: tx }))),
+                ),
             catch: fromBetterAuth,
           }),
         call: (run) => Effect.tryPromise({ try: () => run(instance), catch: fromBetterAuth }),
@@ -71,58 +62,7 @@ export class Auth extends Context.Service<
     }),
 }) {}
 
-function lastOwnerConflict() {
-  return problemDetails({
-    status: 409,
-    detail: "The Organization must keep an owner",
-  }).getResponse();
-}
-
-/** Better Auth can refuse the last owner in its precheck or when the database serializes writes. */
-export async function handleAuthRequest(auth: BetterAuth, request: Request) {
-  try {
-    const response = await auth.handler(request);
-    if (response.status !== 400) return response;
-    const path = new URL(request.url).pathname;
-    if (
-      ![
-        "/api/auth/organization/leave",
-        "/api/auth/organization/remove-member",
-        "/api/auth/organization/update-member-role",
-      ].includes(path)
-    )
-      return response;
-    const refusal = await response.clone().json();
-    if (!Predicate.hasProperty(refusal, "code")) return response;
-    if (refusal.code === auth.$ERROR_CODES.YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER.code)
-      return lastOwnerConflict();
-    if (refusal.code !== auth.$ERROR_CODES.YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER.code)
-      return response;
-    // removeMember uses the same code when a non-owner tries to remove any owner.
-    if (path.endsWith("/remove-member")) {
-      const session = await auth.api.getSession({ headers: request.headers, method: "GET" });
-      if (
-        session?.membership.status !== "member" ||
-        !parseRoles(session.membership.role).split(",").includes("owner")
-      )
-        return response;
-    }
-    return lastOwnerConflict();
-  } catch (error) {
-    if (
-      error instanceof DatabaseError &&
-      error.code === "23514" &&
-      error.constraint === "member_keeps_an_owner"
-    )
-      return lastOwnerConflict();
-    throw error;
-  }
-}
-
-/**
- * Preserve a Better Auth refusal's HTTP status and message. The contract uses the status number
- * as the error code when oRPC has no name for it.
- */
+/** Keep oRPC refusals intact, translate Better Auth refusals by status and retain unexpected errors. */
 export function fromBetterAuth(caught: unknown) {
   const error = ensureError(caught);
   if (error instanceof ORPCError) return error;
@@ -170,7 +110,7 @@ function requireMember(headers: Headers) {
     const auth = yield* Auth;
     // Select the custom GET endpoint's return type, which preserves the database ID brands.
     const session = yield* auth.call((instance) =>
-      instance.api.getSession({ headers, method: "GET" }),
+      instance.api.getSession({ headers, method: "GET", query: { disableRefresh: true } }),
     );
     if (!session) return yield* Effect.fail(new Unauthorized());
     // getSession joins session and user, then reads membership once for both the guard and caller.

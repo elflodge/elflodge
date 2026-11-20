@@ -44,7 +44,6 @@ import {
   callerOrganizationId,
   findOrganization,
   fromBetterAuth,
-  handleAuthRequest,
   type KeyMetadata,
   requireKey,
 } from "./auth/auth.ts";
@@ -192,11 +191,11 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
     invitations: {
       preview: os.invitations.preview.effect(function* ({ input }) {
-        return yield* previewInvitation(InvitationId(input.invitation));
+        return yield* previewInvitation(InvitationId(input.invitationId));
       }),
       accept: os.invitations.accept.effect(function* ({ input, context }) {
         return yield* acceptInvitation(
-          InvitationId(input.invitation),
+          InvitationId(input.invitationId),
           context.headers,
           input.name,
           input.password,
@@ -640,7 +639,7 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
   app.on(["GET", "POST"], "/api/auth/*", (c) =>
     platform.run(
       c.env,
-      Auth.use((auth) => auth.call((betterAuth) => handleAuthRequest(betterAuth, c.req.raw))),
+      Auth.use((auth) => auth.call((betterAuth) => betterAuth.handler(c.req.raw))),
     ),
   );
 

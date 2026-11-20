@@ -1,10 +1,11 @@
 import { apiKey } from "@better-auth/api-key";
-import type { BetterAuthOptions } from "better-auth";
+import { APIError, betterAuth, type BetterAuthOptions } from "better-auth";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
+import { DatabaseError } from "pg";
 
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, UserId } from "../db/types.ts";
@@ -89,8 +90,28 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
   } as const;
 }
 
+function refuseOwnerLoss(error: unknown, refusal: Parameters<typeof APIError.from>[1]): never {
+  if (
+    error instanceof DatabaseError &&
+    error.code === "23514" &&
+    error.constraint === "member_keeps_an_owner"
+  ) {
+    throw APIError.from("BAD_REQUEST", refusal, { cause: error });
+  }
+  throw error;
+}
+
 /** Better Auth's options for the hub. */
 export function authOptions(settings: AuthSettings) {
+  // One Organization per deployment (ADR 0007): only the hub's setup creates it, and nothing
+  // deletes it, since a hub without it answers no member or key.
+  const org = organization({
+    ac,
+    roles,
+    allowUserToCreateOrganization: false,
+    disableOrganizationDeletion: true,
+    cancelPendingInvitationsOnReInvite: true,
+  });
   return {
     secret: settings.secret,
     baseURL: settings.baseURL,
@@ -147,8 +168,6 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/update",
       "/api-key/delete",
     ],
-    // Let the HTTP handler recognize the database constraint that protects the last owner.
-    onAPIError: { throw: true },
     logger: {
       // Better Auth's lines go to the console like the hub's own, without terminal colours, so Workers
       // Logs keeps them with the request they belong to.
@@ -160,15 +179,37 @@ export function authOptions(settings: AuthSettings) {
         const membership = await findMembership(settings.db, id);
         return { user: { ...user, id }, session, membership };
       }),
-      // One Organization per deployment (ADR 0007): only the hub's setup creates it, and nothing
-      // deletes it, since a hub without it answers no member or key.
-      organization({
-        ac,
-        roles,
-        allowUserToCreateOrganization: false,
-        disableOrganizationDeletion: true,
-        cancelPendingInvitationsOnReInvite: true,
-      }),
+      org,
+      {
+        id: "last-owner",
+        // The Organization adapter removes a member in a transaction and changes a role with
+        // update. Translate the named constraint before Better Auth renders database failures.
+        init: ({ adapter }) => ({
+          context: {
+            adapter: {
+              ...adapter,
+              transaction: (run) =>
+                adapter
+                  .transaction(run)
+                  .catch((error) =>
+                    refuseOwnerLoss(
+                      error,
+                      org.$ERROR_CODES.YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER,
+                    ),
+                  ),
+              update: <T>(input: Parameters<typeof adapter.update>[0]) =>
+                adapter
+                  .update<T>(input)
+                  .catch((error) =>
+                    refuseOwnerLoss(
+                      error,
+                      org.$ERROR_CODES.YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER,
+                    ),
+                  ),
+            } satisfies typeof adapter,
+          },
+        }),
+      },
       apiKey([
         {
           configId: API_KEY_CONFIG,
@@ -205,5 +246,13 @@ export function offlineAuthOptions(db: Kysely<Database>) {
     ipAddressHeaders: [],
     trustedProxies: [],
     rateLimit: true,
+  });
+}
+
+/** Setup and invitation redemption enable registration only inside their claim transaction. */
+export function signUpAuth(options: ReturnType<typeof authOptions>) {
+  return betterAuth({
+    ...options,
+    emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
   });
 }
