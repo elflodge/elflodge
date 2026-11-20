@@ -65,6 +65,20 @@ const permissionsSchema = z.record(z.string(), z.array(z.string()));
 
 export const MAX_API_KEY_NAME_LENGTH = 32;
 
+/** Better Auth measures passwords by JavaScript string length, in UTF-16 code units. */
+export const PASSWORD_LENGTH = { min: 8, max: 128 } as const;
+const passwordSchema = z.string().check(
+  z.refine(
+    (value) => value.length >= PASSWORD_LENGTH.min,
+    `At least ${PASSWORD_LENGTH.min} characters`,
+  ),
+  z.refine(
+    (value) => value.length <= PASSWORD_LENGTH.max,
+    `At most ${PASSWORD_LENGTH.max} characters`,
+  ),
+  z.describe(`Between ${PASSWORD_LENGTH.min} and ${PASSWORD_LENGTH.max} UTF-16 code units.`),
+);
+
 /** An API key as the hub lists it; the key itself is shown only once, when it is created. */
 export const apiKeySchema = z
   .object({
@@ -825,7 +839,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           organizationName: nameSchema,
           name: nameSchema,
           email: z.email(),
-          password: z.string(),
+          password: passwordSchema,
         }),
       ),
   },
@@ -868,7 +882,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       .input(
         z.extend(invitationInput, {
           name: z.optional(nameSchema),
-          password: z.optional(z.string()),
+          password: z.optional(passwordSchema),
         }),
       )
       .output(z.object({ email: z.email() })),

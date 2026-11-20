@@ -218,6 +218,15 @@ test("removing a Runner refuses its key and takes it off the list", async () => 
   socket.close(1000);
 });
 
+test("a name over the key limit locates the submitted name", async () => {
+  await expect(
+    system.owner().apiKeys.create({ name: "🌲".repeat(17), permissions: { job: ["read"] } }),
+  ).rejects.toMatchObject({
+    cause: { status: 400, errors: [{ pointer: "/name", detail: expect.any(String) }] },
+    data: { issues: [{ path: ["name"], message: expect.any(String) }] },
+  });
+});
+
 test("a key can be created to expire, within Better Auth's limits of a day to a year", async () => {
   const owner = system.owner();
   const day = 24 * 60 * 60;

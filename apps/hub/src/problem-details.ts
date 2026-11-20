@@ -1,15 +1,80 @@
+import { getOpenAPIMeta, getDynamicPathParams } from "@orpc/openapi";
 import { DEFAULT_ERROR_STATUS, ORPCError, ValidationError, type AnyORPCError } from "@orpc/server";
+import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn } from "@orpc/shared";
-import { errorStatusMap } from "contract";
-import { problemDetails, type ProblemDetails } from "hono-problem-details";
+import { errorStatusMap, type RequestProblem } from "contract";
+import * as JsonPointer from "effect/JsonPointer";
+import { problemDetails } from "hono-problem-details";
 import { prettifyError } from "zod/mini";
+
+import { InvalidInput } from "./invalid-input.ts";
 
 // The API's errors as RFC 9457 Problem Details (ADR 0023): oRPC's errors through the handler's
 // encoder here, and errors outside oRPC through the same library's handler in the app.
 
-/** The Problem Details document for `error`, for oRPC's handler to answer with. */
-export function toProblemDetails(error: AnyORPCError): ProblemDetails {
-  return problemDetails({ status: statusOf(error.code), detail: detailOf(error) }).problemDetails;
+// The handler's encoder receives the same error after the interceptor, without its procedure.
+const requestProblems = new WeakMap<AnyORPCError, RequestProblem[]>();
+
+export const locateRequestProblems: StandardHandlerInterceptor<object> = async (options) => {
+  try {
+    return await options.next();
+  } catch (error) {
+    if (
+      !(error instanceof ORPCError) ||
+      (error.code !== "BAD_REQUEST" && error.code !== "UNPROCESSABLE_CONTENT")
+    )
+      throw error;
+    const issues =
+      error.cause instanceof ValidationError
+        ? error.cause.issues
+        : error.cause instanceof InvalidInput
+          ? error.cause.problems
+          : undefined;
+    const route = getOpenAPIMeta(options.procedure);
+    if (!issues || !route?.path) throw error;
+    const params = getDynamicPathParams(route.path);
+    const bodyless = route.method === "GET" || route.method === "HEAD";
+    const entries = issues.map(({ message: detail, path }): RequestProblem => {
+      if (!path) return { detail };
+      const tokens = path.map((segment) => (typeof segment === "object" ? segment.key : segment));
+      if (tokens.some((token) => typeof token === "symbol")) return { detail };
+      const [first, second] = tokens;
+      if (route.inputStructure === "detailed") {
+        if (first === "headers" && typeof second === "string") return { detail, header: second };
+        if ((first === "params" || first === "query") && typeof second === "string")
+          return { detail, parameter: second };
+        if (first !== "body") return { detail };
+        tokens.shift();
+      } else {
+        if (
+          typeof first === "string" &&
+          (bodyless || params?.some(({ parameterName }) => parameterName === first))
+        )
+          return { detail, parameter: first };
+        if (bodyless || (!tokens.length && params?.length)) return { detail };
+        // Better Auth counts UTF-16 units. The key name's length refinement describes the
+        // derived number in the historical detail, but only its string is in the request.
+        if (route.path === "/api-keys" && first === "name" && second === "length") tokens.pop();
+      }
+      return {
+        detail,
+        pointer: tokens.map((token) => "/" + JsonPointer.escapeToken(String(token))).join(""),
+      };
+    });
+    if (entries.some((entry) => "pointer" in entry || "parameter" in entry || "header" in entry))
+      requestProblems.set(error, entries);
+    throw error;
+  }
+};
+
+/** Hono flattens extension members when serializing its standalone response. */
+export function toProblemDetails(error: AnyORPCError) {
+  const errors = requestProblems.get(error);
+  return problemDetails({
+    status: statusOf(error.code),
+    detail: detailOf(error),
+    extensions: errors && { errors },
+  }).getResponse().body;
 }
 
 /** The status oRPC's handler answers `code` with, including its default for codes it does not know. */

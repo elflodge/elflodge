@@ -239,6 +239,18 @@ test("a check answers which content the Organization holds, and where to upload 
   await client.jobs.cancel({ id: job.id });
 });
 
+test("a streaming upload without its byte count names the required header", async () => {
+  const request = {
+    method: "PUT",
+    headers: { "x-api-key": await system.newJobsKey(), "content-type": "application/octet-stream" },
+    body: new Blob(["file"]).stream(),
+    duplex: "half",
+  };
+  const response = await system.hub.fetch("/blobs/" + digestOf("file"), request);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ errors: [{ header: "content-length" }] });
+});
+
 test("an upload whose bytes are not those its digest names stores nothing", async () => {
   const client = await system.clientWithNewJobsKey();
   const claimed = "What the caller meant to send.";
@@ -249,7 +261,12 @@ test("an upload whose bytes are not those its digest names stores nothing", asyn
       body: new Blob(["else"]).stream(),
     }),
   ).rejects.toMatchObject({
-    cause: { status: 400, detail: expect.stringContaining(digestOf("else")) },
+    cause: {
+      status: 400,
+      detail: expect.stringContaining(digestOf("else")),
+      errors: [{ parameter: "digest" }],
+    },
+    data: { issues: [{ path: ["params", "digest"] }] },
   });
   expect(await storedOf([claimed, "else"])).toEqual([]);
   await expect(

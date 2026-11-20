@@ -61,6 +61,7 @@ test("a new account can redeem a live invitation once and sign in with the grant
   const input = { invitationId, name: "New member", password };
   await expect(anyone.accept({ ...input, password: "short" })).rejects.toMatchObject({
     code: "BAD_REQUEST",
+    cause: { errors: [{ detail: "At least 8 characters", pointer: "/password" }] },
   });
   const results = await Promise.allSettled([anyone.accept(input), anyone.accept(input)]);
   expect(results).toContainEqual({ status: "fulfilled", value: { email } });

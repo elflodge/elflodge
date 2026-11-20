@@ -253,6 +253,19 @@ test("usage by submitter tells a member's jobs from a key's", async () => {
   expect(unknownKind.status).toBe(400);
 });
 
+test("a refused query retains a request-wide issue beside a parameter issue", async () => {
+  const response = await system.hub.fetch("/usage?from=invalid&unexpected=x", {
+    headers: { cookie: system.ownerCookie() },
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    errors: expect.arrayContaining([
+      { parameter: "from", detail: expect.any(String) },
+      { detail: expect.stringContaining("unexpected") },
+    ]),
+  });
+});
+
 test("a window that ends before it starts, is longer than 400 days or starts before year 1 is refused naming the field given", async () => {
   const owner = system.owner();
   for (const [window, field] of [
@@ -264,7 +277,11 @@ test("a window that ends before it starts, is longer than 400 days or starts bef
     [{ to: "0001-01-01" }, "to"],
   ] as const) {
     await expect(owner.usage.get(window)).rejects.toMatchObject({
-      cause: { status: 400, detail: expect.stringMatching(`→ at ${field}$`) },
+      cause: {
+        status: 400,
+        errors: [{ parameter: field }],
+        detail: expect.stringMatching(`→ at ${field}$`),
+      },
     });
   }
   // 400 days, both included.
@@ -319,7 +336,11 @@ test("refused periods and future starts name the conflicting field", async () =>
     [{ from: "9999-12-31" }, "from"],
   ] as const) {
     await expect(system.owner().usage.get(input)).rejects.toMatchObject({
-      cause: { status: 400, detail: expect.stringMatching(`→ at ${field}$`) },
+      cause: {
+        status: 400,
+        errors: [{ parameter: field }],
+        detail: expect.stringMatching(`→ at ${field}$`),
+      },
     });
   }
 });

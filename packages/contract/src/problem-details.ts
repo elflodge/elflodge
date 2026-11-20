@@ -1,7 +1,8 @@
-import { COMMON_ERROR_STATUS_MAP, ORPCError, type ClientContext } from "@orpc/client";
-import type { RouterContract } from "@orpc/contract";
+import { COMMON_ERROR_STATUS_MAP, ORPCError, onError, type ClientContext } from "@orpc/client";
+import { getProcedureContractOrThrow, type RouterContract } from "@orpc/contract";
 import { ResponseValidationLinkPlugin } from "@orpc/contract/plugins";
-import { SmartCoercionLinkPlugin } from "@orpc/json-schema";
+import { decodeJsonPointerSegment, SmartCoercionLinkPlugin } from "@orpc/json-schema";
+import { getDynamicPathParams, getOpenAPIMeta } from "@orpc/openapi";
 import { OpenAPILink, type OpenAPILinkOptions } from "@orpc/openapi/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parse as parseContentType } from "content-type";
@@ -14,6 +15,25 @@ import * as z from "zod/mini";
 /** The content type of the API's errors. */
 export const PROBLEM_DETAILS_CONTENT_TYPE = "application/problem+json; charset=utf-8";
 
+const issueDetail = z.strictObject({ detail: z.string() });
+const requestProblem = z.union([
+  z.extend(issueDetail, {
+    pointer: z
+      .string()
+      .check(
+        z.describe(
+          "Plain RFC 6901 pointer into the JSON body, including a missing member. The empty string names the whole body.",
+        ),
+      ),
+  }),
+  z.extend(issueDetail, {
+    parameter: z.string().check(z.describe("OpenAPI path or query parameter name.")),
+  }),
+  z.extend(issueDetail, { header: z.string().check(z.describe("Request header name.")) }),
+  issueDetail,
+]);
+export type RequestProblem = z.infer<typeof requestProblem>;
+
 /** An error as the API answers it: a Problem Details document, which RFC 9457 lets carry more members. */
 export const problemDetailsSchema = z
   .looseObject({
@@ -24,6 +44,16 @@ export const problemDetailsSchema = z
     status: z.int(),
     /** What went wrong, when it says more than the title. */
     detail: z.optional(z.string()),
+    errors: z.optional(
+      z
+        .array(requestProblem)
+        .check(
+          z.minLength(1),
+          z.describe(
+            "All issues found at the failing check, when at least one has a request location.",
+          ),
+        ),
+    ),
   })
   .register(z.globalRegistry, { id: "ProblemDetails" });
 export type ProblemDetails = z.infer<typeof problemDetailsSchema>;
@@ -100,6 +130,40 @@ export function createProblemDetailsLink<T extends ClientContext>(
       // The document itself is kept as the cause, for a client that shows it as the hub sent it.
       return new ORPCError(errorCodeOf(status), { message: detail ?? title, cause: problem.data });
     },
+    // The body decoder has no procedure. The link interceptor knows the call path, so it can
+    // restore the input paths oRPC's form helpers read while keeping the wire document as cause.
+    interceptors: [
+      ...(options.interceptors ?? []),
+      onError((error, { path }) => {
+        if (!(error instanceof ORPCError)) return;
+        const entries = problemOf(error)?.errors;
+        if (!entries) return;
+        const route = getOpenAPIMeta(getProcedureContractOrThrow(contract, path));
+        const detailed = route?.inputStructure === "detailed";
+        const issues = entries.map((entry) => {
+          const message = entry.detail;
+          if ("pointer" in entry) {
+            const segments = entry.pointer.split("/").slice(1).map(decodeJsonPointerSegment);
+            return { message, path: detailed ? ["body", ...segments] : segments };
+          }
+          if ("parameter" in entry) {
+            const name = entry.parameter;
+            if (!detailed) return { message, path: [name] };
+            const params = route.path && getDynamicPathParams(route.path);
+            return {
+              message,
+              path: [
+                params?.some(({ parameterName }) => parameterName === name) ? "params" : "query",
+                name,
+              ],
+            };
+          }
+          if ("header" in entry && detailed) return { message, path: ["headers", entry.header] };
+          return { message };
+        });
+        error.data = { issues };
+      }),
+    ],
     plugins: [
       ...(options.plugins ?? []),
       new ResponseValidationLinkPlugin(contract),

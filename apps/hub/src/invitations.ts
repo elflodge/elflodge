@@ -9,6 +9,7 @@ import { liveInvitations, mayGrantRole } from "./auth/invitation-grants.ts";
 import { Db } from "./db/database.ts";
 import { storedRoles } from "./db/roles.ts";
 import { type InvitationId, type OrganizationId, UserId } from "./db/types.ts";
+import { InvalidInput } from "./invalid-input.ts";
 
 export function previewInvitation(id: InvitationId) {
   return Db.use((database) =>
@@ -114,6 +115,14 @@ export function acceptInvitation(
         if (!name || password === undefined)
           throw new ORPCError("BAD_REQUEST", {
             message: "A new account needs a name and password",
+            cause: new InvalidInput({
+              problems: [
+                ...(!name ? [{ message: "Required for a new account", path: ["name"] }] : []),
+                ...(password === undefined
+                  ? [{ message: "Required for a new account", path: ["password"] }]
+                  : []),
+              ],
+            }),
           });
         const { user } = await auth.api.signUpEmail({
           body: { email: grant.email, name, password },
