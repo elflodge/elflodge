@@ -71,7 +71,7 @@ export function requestProblemsFromIssues(
         return { detail, parameter: first };
       if (bodyless) return { detail };
     }
-    if (route.requestBodyHint === "octet-stream") return { detail };
+    if (route.requestBodyHint !== undefined && route.requestBodyHint !== "json") return { detail };
     return {
       detail,
       pointer: tokens.map((token) => "/" + encodeJsonPointerSegment(String(token))).join(""),
