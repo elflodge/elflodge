@@ -1,4 +1,4 @@
-import { JOB_SUCCEEDED } from "contract";
+import { JOB_FAILED, JOB_SUCCEEDED } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 import type WebSocket from "ws";
 
@@ -122,6 +122,25 @@ test("a failure the job's journal did not record fails the job with its reason a
     reason: "runFaulted" as const,
     message: "The job's journal could not be opened",
   };
+
+  // A public reader can encounter future reasons. This hub can store only its protocol's reasons.
+  const unknown = { ...failure, reason: "providerUnavailable" };
+  for (const fields of [
+    { failure: unknown, events: [] },
+    { events: [entry(JOB_FAILED, unknown)] },
+  ]) {
+    const answer = await runner.request(
+      "report",
+      {
+        held,
+        free: 0,
+        deleted: [],
+        jobs: held.map((run) => ({ ...run, intent: "run", position: 0, ...fields })),
+      },
+      10_000,
+    );
+    expect(answer.refused).toEqual([{ ...held[0], reason: expect.any(String) }]);
+  }
 
   await runner.request(
     "report",

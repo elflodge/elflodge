@@ -29,6 +29,7 @@ import {
   failureSchema,
   jobActivitySchema,
   jobEventSchema,
+  jobFailureSchema,
   runnerCapabilitiesSchema,
 } from "./runner-protocol.ts";
 
@@ -116,6 +117,51 @@ export const blockedBySchema = z.enum([
   "batchPausedByBreaker",
   "batchCanary",
 ]);
+
+export type BlockedBy = z.infer<typeof blockedBySchema>;
+
+export const statusUnknownReasonSchema = z.enum(["runnerDisconnected", "notReported"]);
+export type StatusUnknownReason = z.infer<typeof statusUnknownReasonSchema>;
+
+// For exhaustive wording, check the known schema and use a map that satisfies Record<Known, string>.
+function openEnum<E extends Record<string, string>, B extends string>(
+  known: z.ZodMiniEnum<E>,
+  _brand: B,
+) {
+  return z.union([known, z.string().brand<B, "inout">()]);
+}
+
+const openBlockedBySchema = openEnum(blockedBySchema, "UnknownBlockedBy").check(
+  z.describe(
+    "What blocks a queued job. New values may be added. Show an unfamiliar value as unknown to this client version.",
+  ),
+);
+export type OpenBlockedBy = z.infer<typeof openBlockedBySchema>;
+
+const openStatusUnknownReasonSchema = openEnum(
+  statusUnknownReasonSchema,
+  "UnknownStatusUnknownReason",
+).check(
+  z.describe(
+    "Why the hub cannot confirm the job's status. New reasons may be added. Show an unfamiliar reason as unknown to this client version.",
+  ),
+);
+export type OpenStatusUnknownReason = z.infer<typeof openStatusUnknownReasonSchema>;
+
+/** New reasons may be added. Treat an unfamiliar reason as a fault and show its value as unknown to this client version. */
+export const openFailureSchema = z.extend(failureSchema, {
+  reason: openEnum(failureSchema.shape.reason, "UnknownFailureReason").check(
+    z.describe(
+      "What failed the job: `noOutput` when its agent ended without an accepted output; `runTimedOut` when a run went past its `runTimeoutSeconds`; `modelBudgetExceeded` when its model calls' cost reached its `modelBudgetUsd`; `modelFailed` when generating the agent's next step failed, as when the model's provider refused the call; `runFaulted` when its run broke on its Runner; `runnerRemoved` when its Runner was removed before it ended; `journalLost` when its Runner's journal of it was missing or lacked the last of its events the hub holds, as after its files were lost or restored from an older backup, so it was not carried on, which would have repeated its work: resuming it carries on only once the journal is restored, and submitting it again under a new `customId` starts it over. New reasons may be added. Treat an unfamiliar reason as a fault and show its value as unknown to this client version.",
+    ),
+  ),
+});
+export type OpenFailure = z.infer<typeof openFailureSchema>;
+
+export const openJobFailureSchema = z.extend(openFailureSchema, {
+  timestamp: jobFailureSchema.shape.timestamp,
+});
+export type OpenJobFailure = z.infer<typeof openJobFailureSchema>;
 
 /** The statuses a job ends in: once a job reaches one, nothing more happens to it unless it is resumed. */
 export const finalJobStatusSchema = z.enum(["succeeded", "failed", "cancelled"]);
@@ -228,9 +274,10 @@ const jobBaseSchema = z.object({
    * present only while something does: its Batch paused by a caller (`batchPausedByCaller`) or by
    * its failure breaker (`batchPausedByBreaker`), or its Batch's Canary still running
    * (`batchCanary`). A block changes no status: the job stays `queued`, and is sent once nothing
-   * blocks it and a Runner has room. New values may be added.
+   * blocks it and a Runner has room. New values may be added. Show an unfamiliar value as unknown
+   * to this client version.
    */
-  blockedBy: z.optional(blockedBySchema),
+  blockedBy: z.optional(openBlockedBySchema),
   /**
    * The Runner the job was last sent to, as the hub knows it now: absent before the job is first
    * sent, once that Runner is removed, and once the job is deleted.
@@ -254,13 +301,12 @@ const jobBaseSchema = z.object({
    * confirm it, and a job in its Batch's Canary holds the Batch's other jobs until it ends; removing
    * the Runner ends it, with the Runner's other unfinished jobs. A Runner can stop reporting one job
    * while it reports others, as when that job's journal cannot be read. New reasons may be added.
+   * Show an unfamiliar reason as unknown to this client version.
    * `since` is when the status became unknown, two minutes after the job was last reported or
    * placed, and stays while it lasts, whatever the reason; only a report whose write took the hub
    * two minutes or more moves it.
    */
-  statusUnknown: z.optional(
-    z.object({ reason: z.enum(["runnerDisconnected", "notReported"]), since: z.date() }),
-  ),
+  statusUnknown: z.optional(z.object({ reason: openStatusUnknownReasonSchema, since: z.date() })),
 });
 
 /**
@@ -279,17 +325,11 @@ export const jobSchema = z
     z.extend(jobBaseSchema, {
       status: z.literal("failed"),
       /** Why the job failed. Its message is absent once the job is deleted, as its content is. */
-      failure: failureSchema,
+      failure: openFailureSchema,
     }),
   ])
   .register(z.globalRegistry, { id: "Job" });
 export type Job = z.infer<typeof jobSchema>;
-
-/** What keeps a queued job from being sent to a Runner (`Job["blockedBy"]`). */
-export type BlockedBy = NonNullable<Job["blockedBy"]>;
-
-/** Why the hub cannot confirm a job's status (`Job["statusUnknown"]`). */
-export type StatusUnknownReason = NonNullable<Job["statusUnknown"]>["reason"];
 
 /** A job's Runner as the job shows it (`Job["runner"]`). */
 export type JobRunner = NonNullable<Job["runner"]>;
@@ -568,7 +608,7 @@ export const listedJobSchema = z
     }),
     z.extend(listedJobBaseSchema, {
       status: z.literal("failed"),
-      failure: z.pick(failureSchema, { reason: true }),
+      failure: z.pick(openFailureSchema, { reason: true }),
     }),
   ])
   .register(z.globalRegistry, { id: "ListedJob" });

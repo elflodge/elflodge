@@ -1,12 +1,18 @@
-import type {
-  BlockedBy,
-  Failure,
-  Job,
-  JobStatus as Status,
-  ListedJob,
-  StatusUnknownReason,
+import {
+  blockedBySchema,
+  failureSchema,
+  statusUnknownReasonSchema,
+  type BlockedBy,
+  type Failure,
+  type Job,
+  type JobStatus as Status,
+  type ListedJob,
+  type OpenFailure,
+  type OpenStatusUnknownReason,
+  type StatusUnknownReason,
 } from "contract";
 import { Show } from "solid-js";
+import type { ZodMiniType } from "zod/mini";
 
 import { FULL, TIME_SECONDS } from "../format.ts";
 import { Instant } from "./Instant.tsx";
@@ -21,16 +27,20 @@ export const STATUS_WORDS: Record<Status, string> = {
   cancelled: "Cancelled",
 };
 
-const BLOCKED_WORDS: Record<BlockedBy, string> = {
+const BLOCKED_WORDS = {
   batchPausedByCaller: "Blocked: Batch paused",
   batchPausedByBreaker: "Blocked: failure breaker",
   batchCanary: "Waiting for Canary",
-};
+} satisfies Record<BlockedBy, string>;
 
-const UNKNOWN_WORDS: Record<StatusUnknownReason, string> = {
-  runnerDisconnected: "Runner not connected",
-  notReported: "not reported",
-};
+const UNKNOWN_WORDS = {
+  runnerDisconnected: { short: "Runner not connected", detail: "its Runner is not connected" },
+  notReported: { short: "not reported", detail: "its Runner has not reported it" },
+} satisfies Record<StatusUnknownReason, { short: string; detail: string }>;
+
+function statusUnknownWords(reason: OpenStatusUnknownReason, form: "short" | "detail") {
+  return renderReason(statusUnknownReasonSchema, reason, (value) => UNKNOWN_WORDS[value][form]);
+}
 
 const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> = {
   pause: "Pause asked",
@@ -55,7 +65,7 @@ export function JobStatus(props: { status: Status; lastRecorded: boolean }) {
   );
 }
 
-export const FAILURE_WORDS: Record<Failure["reason"], string> = {
+const FAILURE_WORDS = {
   modelFailed: "Generating the next step failed.",
   noOutput: "its agent ended without an accepted Output",
   runTimedOut: "a run went past its run timeout",
@@ -63,7 +73,27 @@ export const FAILURE_WORDS: Record<Failure["reason"], string> = {
   runFaulted: "its run broke on its Runner",
   runnerRemoved: "its Runner was removed before it ended",
   journalLost: "its Runner’s journal of it was lost",
-};
+} satisfies Record<Failure["reason"], string>;
+
+function renderReason<K extends string, T>(
+  schema: ZodMiniType<K>,
+  reason: string,
+  known: (value: K) => T,
+) {
+  const parsed = schema.safeParse(reason);
+  return parsed.success
+    ? known(parsed.data)
+    : `${JSON.stringify(reason)} (unknown to this dashboard version)`;
+}
+
+export function renderFailureReason<T>(
+  reason: OpenFailure["reason"],
+  known: (value: Failure["reason"], words: string) => T,
+) {
+  return renderReason(failureSchema.shape.reason, reason, (value) =>
+    known(value, FAILURE_WORDS[value]),
+  );
+}
 
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
   return (
@@ -72,20 +102,22 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
         {(unknown) => (
           <span
             class="beside is-unknown"
-            title={`${UNKNOWN_WORDS[unknown().reason]}, since ${FULL.format(unknown().since)}`}
+            title={`${statusUnknownWords(unknown().reason, "short")}, since ${FULL.format(unknown().since)}`}
           >
             <span class="mark mark-unknown" aria-hidden="true" />
             <span>
               Status unknown
               <Show
                 when={props.detailed}
-                fallback={<span class="condition-detail">{UNKNOWN_WORDS[unknown().reason]}</span>}
+                fallback={
+                  <span class="condition-detail">
+                    {statusUnknownWords(unknown().reason, "short")}
+                  </span>
+                }
               >
                 {" "}
                 since <Instant value={unknown().since} format={TIME_SECONDS} />:{" "}
-                {unknown().reason === "runnerDisconnected"
-                  ? "its Runner is not connected"
-                  : "its Runner has not reported it"}
+                {statusUnknownWords(unknown().reason, "detail")}
               </Show>
             </span>
           </span>
@@ -113,21 +145,29 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
           </span>
         )}
       </Show>
-      <Show when={props.job.blockedBy}>
+      <Show
+        when={
+          props.job.blockedBy === undefined
+            ? undefined
+            : renderReason(blockedBySchema, props.job.blockedBy, (value) => BLOCKED_WORDS[value])
+        }
+      >
         {(blockedBy) => (
           <span class="beside">
             <span class="mark mark-blocked" aria-hidden="true" />
-            {BLOCKED_WORDS[blockedBy()]}
+            {blockedBy()}
           </span>
         )}
       </Show>
-      <Show when={props.job.status === "failed" ? props.job.failure.reason : undefined}>
-        {(reason) => (
+      <Show when={props.job.status === "failed" ? props.job.failure : undefined}>
+        {(failure) => (
           <span class="beside">
-            <code>{reason()}</code>
-            <Show when={props.detailed && FAILURE_WORDS[reason()]}>
-              {(words) => <>: {words()}</>}
-            </Show>
+            {renderFailureReason(failure().reason, (reason, words) => (
+              <>
+                <code>{reason}</code>
+                <Show when={props.detailed}>: {words}</Show>
+              </>
+            ))}
           </span>
         )}
       </Show>

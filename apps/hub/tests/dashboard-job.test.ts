@@ -627,3 +627,43 @@ test("a member following an ended job sees another member resume it before its n
   await expectBrowser(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("11");
 }, 30_000);
+
+test("a member can read a failure reason added by a newer hub on the job and its Event", async () => {
+  const { id, report } = await jobWithHistory(1);
+  await report([
+    {
+      id: 11,
+      type: "entry",
+      record: {
+        id: 11,
+        conversationId: 1,
+        kind: JOB_FAILED,
+        data: { timestamp: Date.now(), reason: "modelFailed", message: "Provider unavailable." },
+      },
+    },
+  ]);
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  // Serve the seeded job and journal as a hub with one more failure reason would.
+  await page.route(
+    (url) => url.pathname === `/jobs/${id}` || url.pathname === `/jobs/${id}/events`,
+    async (route) => {
+      const { pathname, search } = new URL(route.request().url());
+      const response = await system.hub.fetch(pathname + search, {
+        headers: await route.request().allHeaders(),
+      });
+      await route.fulfill({
+        status: response.status,
+        contentType: "application/json",
+        body: (await response.text()).replaceAll('"modelFailed"', '"providerUnavailable"'),
+      });
+    },
+  );
+  await signInAt(system, page, `jobs/${id}`, await newMember(system, "Failure reader"));
+  const words = '"providerUnavailable" (unknown to this dashboard version)';
+  await expectBrowser(page.locator(".beside").filter({ hasText: words })).toBeVisible();
+  const event = page.getByRole("listitem").filter({ has: page.locator("#event-11") });
+  await expectBrowser(event.locator(".ev-line")).toContainText(words);
+  await expectBrowser(event.locator(".ev-body")).toContainText(words);
+  await expectBrowser(event.locator(".ev-body")).toContainText("Provider unavailable.");
+}, 30_000);

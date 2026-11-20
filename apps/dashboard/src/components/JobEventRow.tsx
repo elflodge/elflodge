@@ -12,7 +12,7 @@ import { For, Show } from "solid-js";
 import { TIME_SECONDS, formatCount, formatUsd, plural } from "../format.ts";
 import type { EventToolCall, ReadJobEvent } from "../job-event-record.ts";
 import { Instant } from "./Instant.tsx";
-import { FAILURE_WORDS } from "./JobStatus.tsx";
+import { renderFailureReason } from "./JobStatus.tsx";
 import { TextPreview, countLines } from "./TextPreview.tsx";
 
 interface RowProps {
@@ -139,7 +139,7 @@ function summary(row: ReadJobEvent) {
   const record = row.record;
   switch (record?.kind) {
     case JOB_FAILED:
-      return `, ${record.data.reason}`;
+      return <>, {renderFailureReason(record.data.reason, (reason) => reason)}</>;
     case "pi.user":
     case "pi.compaction":
       return `: ${firstLine(messageText(record.model[0].content))}`;
@@ -184,7 +184,11 @@ function EventBody(props: RowProps) {
       case JOB_FAILED:
         return (
           <div class="rec">
-            <code>{record.data.reason}</code> — {FAILURE_WORDS[record.data.reason]}
+            {renderFailureReason(record.data.reason, (reason, words) => (
+              <>
+                <code>{reason}</code> — {words}
+              </>
+            ))}
             {record.data.message && (
               <TextPreview
                 text={record.data.message}
