@@ -60,6 +60,7 @@ test("API errors are RFC 9457 Problem Details", async () => {
     title: "Bad Request",
     status: 400,
     detail: expect.stringContaining("name"),
+    errors: [{ pointer: "/name", detail: expect.any(String) }],
   });
 });
 

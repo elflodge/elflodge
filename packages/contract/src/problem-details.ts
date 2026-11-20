@@ -15,12 +15,20 @@ import * as z from "zod/mini";
 /** The content type of the API's errors. */
 export const PROBLEM_DETAILS_CONTENT_TYPE = "application/problem+json; charset=utf-8";
 
-const issueDetail = z.strictObject({ detail: z.string() });
+// Response objects can gain members. Exclude only the other known locators in each variant.
+const absent = z.optional(z.never());
+const issueDetail = z.looseObject({
+  detail: z.string(),
+  pointer: absent,
+  parameter: absent,
+  header: absent,
+});
 const requestProblem = z.union([
   z.extend(issueDetail, {
     pointer: z
       .string()
       .check(
+        z.regex(/^(?:\/(?:[^~/]|~[01])*)*$/u),
         z.describe(
           "Plain RFC 6901 pointer into the JSON body, including a missing member. The empty string names the whole body.",
         ),
@@ -142,11 +150,11 @@ export function createProblemDetailsLink<T extends ClientContext>(
         const detailed = route?.inputStructure === "detailed";
         const issues = entries.map((entry) => {
           const message = entry.detail;
-          if ("pointer" in entry) {
+          if (entry.pointer !== undefined) {
             const segments = entry.pointer.split("/").slice(1).map(decodeJsonPointerSegment);
             return { message, path: detailed ? ["body", ...segments] : segments };
           }
-          if ("parameter" in entry) {
+          if (entry.parameter !== undefined) {
             const name = entry.parameter;
             if (!detailed) return { message, path: [name] };
             const params = route.path && getDynamicPathParams(route.path);
@@ -158,7 +166,8 @@ export function createProblemDetailsLink<T extends ClientContext>(
               ],
             };
           }
-          if ("header" in entry && detailed) return { message, path: ["headers", entry.header] };
+          if (entry.header !== undefined && detailed)
+            return { message, path: ["headers", entry.header] };
           return { message };
         });
         error.data = { issues };

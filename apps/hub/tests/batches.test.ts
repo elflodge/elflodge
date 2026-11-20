@@ -83,6 +83,7 @@ test("an ID used again with the same content returns what it named, whoever repe
   expect(await member.batches.create(creation)).toMatchObject({ id: batch.id, submitter: byKey });
   await expect(client.batches.create({ ...creation, breaker: true })).rejects.toMatchObject({
     code: "UNPROCESSABLE_CONTENT",
+    cause: { errors: [{ pointer: "/id" }] },
   });
   // An ID differing only in case names another Batch.
   expect((await client.batches.create({ ...creation, id: "Invoices-2026-10" })).id).toBe(
@@ -100,6 +101,7 @@ test("an ID used again with the same content returns what it named, whoever repe
     headers: { "x-api-key": await system.newJobsKey() },
   });
   expect(named.status).toBe(400);
+  expect(await named.json()).toMatchObject({ errors: [{ parameter: "id" }] });
 
   const first = await client.batches.addJobs({
     id: batch.id,
@@ -136,6 +138,12 @@ test("an ID used again with the same content returns what it named, whoever repe
   expect(response.status).toBe(422);
   expect(await response.json()).toMatchObject({
     detail: expect.stringContaining("jobs[1].customId"),
+    errors: [
+      {
+        pointer: "/jobs/1/customId",
+        detail: "Already used in the Batch for a job with other content",
+      },
+    ],
   });
   expect((await client.batches.get({ id: batch.id })).jobCounts).toMatchObject({ queued: 3 });
   await client.batches.cancel({ id: batch.id });
@@ -181,6 +189,17 @@ test("an add with an invalid job adds none, and its answer names every problem w
   ]) {
     await expect(pendingFileAdd).rejects.toMatchObject({ cause: { status: 400, detail } });
   }
+
+  // The wire pointer escapes each token. The client restores even an invalid Label key verbatim.
+  await expect(
+    client.batches.addJobs({
+      id: batch.id,
+      jobs: [jobNamed("d", { labels: { "team/~name": "ok" } })],
+    }),
+  ).rejects.toMatchObject({
+    cause: { errors: [{ pointer: "/jobs/0/labels/team~1~0name" }] },
+    data: { issues: [{ path: ["jobs", "0", "labels", "team/~name"] }] },
+  });
 
   // A label value holds any text of at most 256 characters, but no NUL.
   const invalid = await post(`/batches/${batch.id}/jobs`, {

@@ -37,7 +37,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
                     type: "object",
                     properties: expect.objectContaining({ pointer: expect.anything() }),
                     required: ["detail", "pointer"],
-                    additionalProperties: false,
+                    additionalProperties: {},
                   },
                   expect.objectContaining({ required: ["detail", "parameter"] }),
                   expect.objectContaining({ required: ["detail", "header"] }),

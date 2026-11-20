@@ -1,7 +1,7 @@
 import { getOpenAPIMeta, getDynamicPathParams } from "@orpc/openapi";
 import { DEFAULT_ERROR_STATUS, ORPCError, ValidationError, type AnyORPCError } from "@orpc/server";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
-import { getOwn } from "@orpc/shared";
+import { get, getOwn } from "@orpc/shared";
 import { errorStatusMap, type RequestProblem } from "contract";
 import * as JsonPointer from "effect/JsonPointer";
 import { problemDetails } from "hono-problem-details";
@@ -38,6 +38,14 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = async (
       if (!path) return { detail };
       const tokens = path.map((segment) => (typeof segment === "object" ? segment.key : segment));
       if (tokens.some((token) => typeof token === "symbol")) return { detail };
+      // A refinement can check a property of a string, such as an API key name’s UTF-16
+      // length. Its historical detail includes that property. The JSON body holds the string.
+      if (
+        tokens.at(-1) === "length" &&
+        error.cause instanceof ValidationError &&
+        typeof get(error.cause.invalidData, tokens.slice(0, -1)) === "string"
+      )
+        tokens.pop();
       const [first, second] = tokens;
       if (route.inputStructure === "detailed") {
         if (first === "headers" && typeof second === "string") return { detail, header: second };
@@ -52,9 +60,6 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = async (
         )
           return { detail, parameter: first };
         if (bodyless || (!tokens.length && params?.length)) return { detail };
-        // Better Auth counts UTF-16 units. The key name's length refinement describes the
-        // derived number in the historical detail, but only its string is in the request.
-        if (route.path === "/api-keys" && first === "name" && second === "length") tokens.pop();
       }
       return {
         detail,
