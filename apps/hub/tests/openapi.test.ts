@@ -22,6 +22,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       // Clients can look up shared schemas by name.
       schemas: {
         Job: {},
+        CreatedBatch: { properties: { jobs: { type: "array", default: [] } } },
         ProblemDetails: {
           properties: {
             type: {},
@@ -66,6 +67,17 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       },
     },
     paths: {
+      "/batches": {
+        post: {
+          responses: {
+            200: {
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/CreatedBatch" } },
+              },
+            },
+          },
+        },
+      },
       "/jobs/{id}/cancel": {
         post: {
           responses: {

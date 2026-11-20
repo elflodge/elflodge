@@ -30,6 +30,7 @@ import {
   type ExpressionBuilder,
   expressionBuilder,
   type Kysely,
+  type ShallowDehydrateObject,
   type Nullable,
   type QueryCreator,
   type SqlBool,
@@ -363,8 +364,7 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 /** The statuses of a job that has not ended. */
 export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
-function selectJobs(db: Kysely<Database>) {
-  const now = new Date();
+function selectJobs(db: Kysely<Database>, now = new Date()) {
   return db
     .selectFrom("job as j")
     .innerJoin("jobProgress as p", "p.jobId", "j.id")
@@ -391,13 +391,21 @@ function selectJobs(db: Kysely<Database>) {
     ]);
 }
 
-/** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
-export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
-  if (ids.length === 0) return [];
-  const rows = await selectJobs(db)
-    .where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])))
-    .execute();
-  return rows.map(toApiJob);
+export function jobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
+  return selectJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
+}
+
+/** Postgres returns timestamps inside a JSON array as strings. */
+export function jobFromJson(row: ShallowDehydrateObject<SelectedJob>) {
+  return toApiJob({
+    ...row,
+    createdAt: new Date(row.createdAt),
+    startedAt: row.startedAt === null ? null : new Date(row.startedAt),
+    endedAt: row.endedAt === null ? null : new Date(row.endedAt),
+    lastReportedAt: row.lastReportedAt === null ? null : new Date(row.lastReportedAt),
+    pendingControlRequestedAt:
+      row.pendingControlRequestedAt === null ? null : new Date(row.pendingControlRequestedAt),
+  });
 }
 
 /** What every job reports whatever its status. */
@@ -561,8 +569,8 @@ export function contentHashOf(content: object) {
 export function getJob(jobId: JobId) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const [job] = yield* database.query((db) => readJobs(db, [jobId]));
-    if (job) return job;
+    const job = yield* database.query((db) => jobsById(db, [jobId], new Date()).executeTakeFirst());
+    if (job) return toApiJob(job);
     const deleted = yield* database.query((db) => readDeletedJob(db, jobId));
     if (!deleted) return yield* Effect.fail(new NotFound());
     return deleted;

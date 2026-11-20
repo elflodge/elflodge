@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
+import { MAX_BODY_BYTES } from "contract";
+import { Struct } from "effect";
 import { expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -102,6 +104,7 @@ function fakeHub(
   const held = new Set(stored);
   const uploads: { digest: string; bytes: Uint8Array }[] = [];
   const adds: AddedJob[][] = [];
+  const requestSizes: number[] = [];
   const ids = new Map<string, string>();
   const { promise: batchRead, resolve: readBatch } = Promise.withResolvers<void>();
   let batchReads = 0;
@@ -149,6 +152,7 @@ function fakeHub(
           }),
         );
       }
+      requestSizes.push(body.length);
       adds.push(jobs);
       const batch = batchOf(batchId, { queued: ids.size + jobs.length });
       return answer(response, {
@@ -184,7 +188,7 @@ function fakeHub(
     }
     response.writeHead(404).end();
   };
-  return { listener, uploads, adds, batchIds, batchRead };
+  return { listener, uploads, adds, requestSizes, batchIds, batchRead };
 }
 
 /** A new folder holding `files`, by path, and an Output schema. */
@@ -317,6 +321,78 @@ test("batches submit adds the jobs of a JSONL file in its order, at most 100 at 
   expect(hub.adds.flat().map((job) => job.customId)).toEqual(
     lines.map((_, index) => `posting-${index}`),
   );
+});
+
+test.each([0, 1])(
+  "batches submit splits only when the encoded create exceeds 16 MiB (extra bytes: %i)",
+  async (extra) => {
+    const id = "byte-limit";
+    const agent = { outputContract: { schema: {} } };
+    const jobs = [
+      { customId: "one", input: '界"'.repeat(1_000_000), labels: {}, files: [] },
+      { customId: "two", input: "", labels: {}, files: [] },
+    ];
+    const remaining = MAX_BODY_BYTES - Buffer.byteLength(JSON.stringify({ id, agent, jobs }));
+    const lines = jobs.map((job) =>
+      JSON.stringify({ ...job, input: job.input || "a".repeat(remaining + extra) }),
+    );
+    const cwd = await folderWith({ "jobs.jsonl": lines.join("\n") });
+    const hub = fakeHub(() => ({ status: "succeeded", output: {} }));
+
+    const result = await submit(hub.listener, cwd, ["jobs.jsonl", "--id", id]);
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(hub.adds.map((group) => group.map((job) => job.customId))).toEqual(
+      extra === 0 ? [["one", "two"]] : [["one"], ["two"]],
+    );
+    if (extra === 0) expect(hub.requestSizes).toEqual([MAX_BODY_BYTES]);
+    else expect(Math.max(...hub.requestSizes)).toBeLessThanOrEqual(MAX_BODY_BYTES);
+  },
+);
+
+test("batches create reads the Batch a 0.10.0 hub returned without jobs or later progress and submitter fields", async () => {
+  const released = Struct.omit(batchOf("count"), [
+    "submitter",
+    "blockedJobCounts",
+    "statusUnknownJobs",
+  ]);
+  const result = await runCli(
+    [
+      "batches",
+      "create",
+      "--id",
+      "count",
+      "--agent",
+      JSON.stringify({ outputContract: { schema: {} } }),
+    ],
+    { hub: (_request, response) => answer(response, released) },
+  );
+  expect(result.exitCode, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({ ...released, jobs: [] });
+});
+
+test("jobs submit reports a missing requested job and the generated ID for recovery", async () => {
+  const result = await runCli(
+    [
+      "jobs",
+      "submit",
+      "--json",
+      JSON.stringify({ agent: { outputContract: { schema: {} } }, input: "Count." }),
+    ],
+    {
+      hub: async (request, response) => {
+        const { id } = z.parse(
+          z.object({ id: z.string() }),
+          JSON.parse((await buffer(request)).toString()),
+        );
+        answer(response, batchOf(id));
+      },
+    },
+  );
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("The hub did not return the requested job");
+  expect(result.stderr).toContain("The job's custom ID is");
 });
 
 // Root reads any folder, so the refusal shows only for another user.

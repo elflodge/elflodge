@@ -534,22 +534,18 @@ export const batchesPageSchema = z
   .register(z.globalRegistry, { id: "BatchesPage" });
 export type BatchesPage = z.infer<typeof batchesPageSchema>;
 
+/** A requested job, with whether this call inserted it. A retry may find it already held. */
+export const addedJobSchema = z.object({ created: z.boolean(), job: jobSchema });
+
+/** The Batch and its first jobs. Earlier hubs returned the Batch alone. */
+export const createdBatchSchema = z
+  .extend(batchSchema, { jobs: z._default(z.array(addedJobSchema), []) })
+  .register(z.globalRegistry, { id: "CreatedBatch" });
+export type CreatedBatch = z.infer<typeof createdBatchSchema>;
+
 /** The jobs an add asked for, in its order, each with whether the add created it, and their Batch. */
 export const addedJobsSchema = z
-  .object({
-    batch: batchSchema,
-    jobs: z.array(
-      z.object({
-        /**
-         * Whether this add created the job: `false` for a job the Batch already had under its
-         * `customId`, as when an add whose answer was lost is retried, so work that must happen once
-         * per job is not to depend on `true`.
-         */
-        created: z.boolean(),
-        job: jobSchema,
-      }),
-    ),
-  })
+  .object({ batch: batchSchema, jobs: z.array(addedJobSchema) })
   .register(z.globalRegistry, { id: "AddedJobs" });
 export type AddedJobs = z.infer<typeof addedJobsSchema>;
 
@@ -1069,12 +1065,12 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch with its optional first jobs in one transaction. The answer is the Batch with each requested job in order and whether it was created. The hub checks the agent and jobs, including the Output contract's schema. Retrying the same ID, agent, labels and breaker returns the existing Batch. Each custom ID follows the same rule as an add: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
+            "Creates a Batch and its optional first jobs, all or nothing. The answer is the Batch with each requested job in order and whether it was created. The hub checks the request shape first. A malformed job is refused before the agent's Output schema is checked, so a malformed job and an array Output schema take two attempts to diagnose. Once the shape is valid, the hub reports job input problems together with Output schemas that are invalid, describe a list or refer outside themselves. A new Batch must meet the current limits. Retrying the same ID, agent, labels and breaker returns the existing Batch even after a maximum is lowered (0.10.0 refused that repeat with 400). Different Batch content under the same ID is refused with 422. Each custom ID follows the add's rule: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
       .input(batchCreationSchema)
-      .output(z.extend(batchSchema, { jobs: addedJobsSchema.shape.jobs })),
+      .output(createdBatchSchema),
     addJobs: forMembers
       .errors({
         [NotFound.code]: NotFound,

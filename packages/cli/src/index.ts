@@ -10,18 +10,21 @@ import {
   type AnyProcedureContract,
   type ContractRouterClient,
   type RouterContract,
+  ValidationError,
 } from "@orpc/contract";
 import { getOpenAPIMeta } from "@orpc/openapi";
 import { walkProcedureContractsSync } from "@orpc/server";
 import { set } from "@orpc/shared";
 import { getDotPath } from "@standard-schema/utils";
 import {
+  type Agent,
   agentSchema,
   apiContract,
   asError,
   type Batch,
   batchCreationSchema,
   batchIdSchema,
+  batchSchema,
   createProblemDetailsLink,
   FINAL_JOB_STATUSES,
   getAccess,
@@ -405,22 +408,37 @@ function submitCommand() {
         Effect.gen(function* () {
           const client = yield* apiClient;
           const hint = `The job's custom ID is ${id}: to find out whether the job was accepted, submit it again with this ID, as customId in its JSON.`;
-          const batch = yield* hintMadeIdOnStop(
+          const answer = yield* hintMadeIdOnStop(
             hubCall((signal) =>
               client.batches.create(
                 { id, agent, breaker: false, jobs: [{ ...given, customId: id }] },
                 { signal },
               ),
-            ).pipe(Effect.retry(retryTransient)),
+            ).pipe(
+              Effect.retry(retryTransient),
+              Effect.flatMap((batch) => {
+                const job = batch.jobs[0]?.job;
+                return job?.customId === id && job.batchId === id
+                  ? Effect.succeed({ batch, job })
+                  : Effect.fail(new Error(`The hub did not return the requested job ${id}`));
+              }),
+            ),
             runId,
             hint,
           );
-          yield* printStep(batch.jobs[0]?.job);
-          if (batchWasCancelled(batch)) yield* Effect.fail(new Error("The Batch was cancelled"));
+          yield* printStep(answer.job);
+          if (batchWasCancelled(answer.batch))
+            yield* Effect.fail(new Error("The Batch was cancelled"));
         }).pipe(Effect.mapError(commandError)),
       );
     });
 }
+
+// The 0.10.0 hub returned this Batch on create. It predates submitter and both progress
+// counts. Preserve the fields it reported when a caller creates without jobs.
+const releasedBatchSchema = z.strictObject(
+  z.omit(batchSchema, { submitter: true, blockedJobCounts: true, statusUnknownJobs: true }).shape,
+);
 
 /**
  * `batches create`: the contract's call, retried on a transient failure under one ID, so a retry
@@ -447,6 +465,17 @@ function createBatchCommand() {
             const created = yield* hintMadeIdOnStop(
               hubCall((signal) => client.batches.create({ ...input, id }, { signal })).pipe(
                 Effect.retry(retryTransient),
+                Effect.catch((error) => {
+                  if (
+                    input.jobs === undefined &&
+                    error instanceof ORPCError &&
+                    error.cause instanceof ValidationError
+                  ) {
+                    const released = z.safeParse(releasedBatchSchema, error.cause.invalidData);
+                    if (released.success) return Effect.succeed({ ...released.data, jobs: [] });
+                  }
+                  return Effect.fail(error);
+                }),
               ),
               runId,
               `The Batch's ID is ${id}: to find out whether it was created, run this command again with ${CommandLine.display(["--id", id])}.`,
@@ -622,7 +651,8 @@ function jobsFromPaths(paths: readonly string[]) {
         return { given, customId, files };
       }),
     );
-    if (jobs.length === 0) return yield* Effect.fail(new Error("--each leaves no jobs to submit"));
+    if (!Array.isArrayNonEmpty(jobs))
+      return yield* Effect.fail(new Error("--each leaves no jobs to submit"));
     const firstWithId = new Map<string, string>();
     for (const { given, customId } of jobs) {
       const first = firstWithId.get(customId);
@@ -663,7 +693,7 @@ type HashedFile = LocalFile & { digest: string };
  * hub checks it, so that a bad path refuses the command before any job is added, rather than part
  * of the way through. Answers the files too, to upload.
  */
-function hashJobs(pathJobs: readonly PathJob[]) {
+function hashJobs(pathJobs: Array.NonEmptyReadonlyArray<PathJob>) {
   return Effect.gen(function* () {
     // Every file once, across jobs, as with --each over files each job has one.
     const diskPaths = [...new Set(pathJobs.flatMap(({ files }) => files.map((f) => f.diskPath)))];
@@ -674,7 +704,7 @@ function hashJobs(pathJobs: readonly PathJob[]) {
         { concurrency: AT_ONCE },
       ),
     );
-    const hashed = pathJobs.map(({ files }) =>
+    const hashed = Array.map(pathJobs, ({ files }) =>
       files.map((file): HashedFile => ({ ...file, digest: digests.get(file.diskPath) ?? "" })),
     );
     const jobs = yield* Effect.forEach(
@@ -820,8 +850,48 @@ function jobsFromJsonl(file: string) {
         );
       }),
     );
-    if (jobs.length === 0) return yield* Effect.fail(new Error(`${file} has no jobs`));
+    if (!Array.isArrayNonEmpty(jobs)) return yield* Effect.fail(new Error(`${file} has no jobs`));
     return jobs;
+  });
+}
+
+function encodedBytes(value: unknown) {
+  return Buffer.byteLength(JSON.stringify(value));
+}
+
+/** The first request carries the ID and agent. Later requests carry the Batch ID in the URL. */
+function submissionGroups(
+  creation: { id: string; agent: Agent },
+  jobs: Array.NonEmptyReadonlyArray<JobSubmission>,
+) {
+  return Effect.gen(function* () {
+    const groups: Array.NonEmptyArray<{ jobs: JobSubmission[]; offset: number }> = [
+      { jobs: [], offset: 0 },
+    ];
+    let current = groups[0];
+    const createBytes = encodedBytes(creation);
+    if (createBytes > MAX_BODY_BYTES)
+      return yield* Effect.fail(new Error("The Batch's agent exceeds the request size limit"));
+    const addBytes = encodedBytes({ jobs: [] });
+    let bytes = encodedBytes({ ...creation, jobs: [] });
+    for (const [index, job] of jobs.entries()) {
+      const jobBytes = encodedBytes(job);
+      if (addBytes + jobBytes > MAX_BODY_BYTES) {
+        return yield* Effect.fail(new Error(`job ${index + 1} exceeds the request size limit`));
+      }
+      if (
+        current.jobs.length === MAX_JOBS_PER_ADD ||
+        bytes + Number(current.jobs.length > 0) + jobBytes > MAX_BODY_BYTES
+      ) {
+        // A first job too large to share the creation can still fit in an add on its own.
+        current = { jobs: [], offset: index };
+        groups.push(current);
+        bytes = addBytes;
+      }
+      bytes += Number(current.jobs.length > 0) + jobBytes;
+      current.jobs.push(job);
+    }
+    return groups;
   });
 }
 
@@ -868,6 +938,7 @@ function progressOf(batch: Batch) {
 /** Whether waiting for `batch` is over: no job is unfinished, or its failure breaker paused it. */
 function settled(batch: Batch) {
   const { queued, running, paused } = batch.jobCounts;
+  if (batch.pendingControl?.type === "cancel") return false;
   return batch.pausedBy === "breaker" || queued + running + paused === 0;
 }
 
@@ -983,12 +1054,14 @@ function waitAndSave(
     const { again, idGiven, timeout, outputDir } = options;
     // Where a person watches, in openai-cli's words; the Batch's ID only when the person gave it, as
     // an ID the command made is shown only if it stops early.
-    if (onTerminal && !batchWasCancelled(submitted)) {
+    if (onTerminal && submitted.status !== "cancelled") {
       yield* Effect.sync(() =>
         process.stderr.write(
-          idGiven
-            ? `Batch created: "${batchId}". Waiting for completion.\n`
-            : "Waiting for completion.\n",
+          submitted.pendingControl?.type === "cancel"
+            ? "Waiting for the Batch’s jobs to finish cancelling.\n"
+            : idGiven
+              ? `Batch created: "${batchId}". Waiting for completion.\n`
+              : "Waiting for completion.\n",
         ),
       );
     }
@@ -996,9 +1069,15 @@ function waitAndSave(
     // no person watches, as it is a warning, not progress; the wait goes on, as those jobs may
     // still be running and carry on once their Runner reports again. It names no number, as it is
     // not said again when the number changes.
+    let cancellationKnown = batchWasCancelled(submitted);
+    const stoppedWaiting = (when: string) =>
+      cancellationKnown
+        ? `${when}. To wait again, ${again}. The Batch was cancelled`
+        : `${when}; the Batch carries on. To wait again, ${again}.`;
     let unknownShown = false;
     const noticeUnknown = (read: Batch) =>
       Effect.gen(function* () {
+        cancellationKnown ||= batchWasCancelled(read);
         const unknown = read.statusUnknownJobs > 0;
         if (unknown === unknownShown) return;
         unknownShown = unknown;
@@ -1012,24 +1091,21 @@ function waitAndSave(
         );
       });
     const waitThenSave = Effect.gen(function* () {
-      const batch = batchWasCancelled(submitted)
-        ? submitted
-        : yield* hubCall((signal) => client.batches.get({ id: batchId }, { signal })).pipe(
-            Effect.retry(retryTransient),
-            Effect.tap(noticeUnknown),
-            Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
-            Effect.repeat({ schedule: pollSchedule, until: settled }),
-            Effect.ensuring(endProgress),
-            // A read that fails ends the wait, which says how to wait again, the ID with it; not on an
-            // interrupt, whose own message says so.
-            Effect.tapError(() =>
-              Effect.sync(() =>
-                process.stderr.write(
-                  `Stopped waiting; the Batch carries on. To wait again, ${again}.\n`,
-                ),
+      const batch =
+        submitted.status === "cancelled"
+          ? submitted
+          : yield* hubCall((signal) => client.batches.get({ id: batchId }, { signal })).pipe(
+              Effect.retry(retryTransient),
+              Effect.tap(noticeUnknown),
+              Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
+              Effect.repeat({ schedule: pollSchedule, until: settled }),
+              Effect.ensuring(endProgress),
+              // A read that fails ends the wait, which says how to wait again, the ID with it; not on an
+              // interrupt, whose own message says so.
+              Effect.tapError(() =>
+                Effect.sync(() => process.stderr.write(stoppedWaiting("Stopped waiting") + "\n")),
               ),
-            ),
-          );
+            );
       // Saving's failure is kept, so the Batch is printed, its ID with it, whatever saving did,
       // as openai-cli prints it.
       const saved =
@@ -1049,15 +1125,13 @@ function waitAndSave(
             orElse: () =>
               Effect.fail(
                 new WaitTimedOut(
-                  `Stopped waiting after ${Duration.format(timeout)}; the Batch carries on. To wait again, ${again}.`,
+                  stoppedWaiting(`Stopped waiting after ${Duration.format(timeout)}`),
                 ),
               ),
           })
     ).pipe(
       Effect.onInterrupt(() =>
-        Effect.sync(() =>
-          process.stderr.write(`Stopped waiting; the Batch carries on. To wait again, ${again}.\n`),
-        ),
+        Effect.sync(() => process.stderr.write(stoppedWaiting("Stopped waiting") + "\n")),
       ),
     );
     // On a terminal, the Batch is printed for a person, as `gh pr view` prints a curated view there
@@ -1074,7 +1148,15 @@ function waitAndSave(
     } else {
       yield* printStep(batch);
     }
-    if (Exit.isFailure(saved)) yield* Effect.failCause(saved.cause);
+    if (Exit.isFailure(saved)) {
+      yield* Effect.failCause(saved.cause).pipe(
+        Effect.mapError((error) => {
+          if (!batchWasCancelled(batch)) return error;
+          const cause = commandError(error);
+          return new Error(`${cause.message}\nThe Batch was cancelled`, { cause });
+        }),
+      );
+    }
     const { succeeded, ...others } = batch.jobCounts;
     const unsucceeded = sumAll(Object.values(others));
     const failure =
@@ -1149,7 +1231,7 @@ function submitBatchCommand() {
               .boolean()
               .check(
                 z.describe(
-                  "Wait until no job is queued, running or paused, then print the Batch. Exits 0 when every job succeeded, 1 otherwise or when the failure breaker paused the Batch, 124 when --wait-timeout passes. Ctrl-C stops waiting and leaves the Batch running.",
+                  "Wait until no job is queued, running or paused, including while Runners finish cancelling jobs. Print the Batch (usage on a terminal). Exit 1 if the Batch was cancelled, even if all jobs succeeded, if any job did not succeed, or if the failure breaker paused the Batch. Otherwise exit 0. A wait timeout exits 124. Ctrl-C stops waiting.",
                 ),
               ),
           ),
@@ -1252,49 +1334,46 @@ function submitBatchCommand() {
           // Once every job is added, the hints that follow say how to run the command again, the
           // ID with them.
           const hint = `The Batch's ID is ${id}: to add the jobs it lacks, ${again}.`;
+          const creation = { id, agent: parsedAgent.data };
+          const groups = yield* submissionGroups(creation, local.jobs);
           yield* hintMadeIdOnStop(uploadMissing(client, local.files), runId, hint);
-          const adds = yield* Effect.forEach(
-            Array.chunksOf(local.jobs, MAX_JOBS_PER_ADD),
-            (jobs, group) => {
-              const submit =
-                group === 0
-                  ? hubCall(async (signal) => {
-                      const { jobs: added, ...batch } = await client.batches.create(
-                        { id, agent: parsedAgent.data, jobs },
-                        { signal },
-                      );
-                      return { batch, jobs: added };
-                    })
-                  : hubCall((signal) => client.batches.addJobs({ id, jobs }, { signal }));
-              return hintMadeIdOnStop(submit.pipe(Effect.retry(retryTransient)), runId, hint, {
-                exists: group > 0,
-              }).pipe(
-                Effect.mapError((error) => {
-                  if (!personWatches()) return error;
-                  const lines: string[] = [];
-                  for (const entry of problemOf(error)?.errors ?? []) {
-                    if (entry.pointer === undefined) continue;
-                    const match = /^\/jobs\/(0|[1-9]\d*)(\/.*)?$/s.exec(entry.pointer);
-                    if (!match || Number(match[1]) >= jobs.length) continue;
-                    const number = group * MAX_JOBS_PER_ADD + Number(match[1]) + 1;
-                    lines.push(
-                      [`job ${number}`, match[2], entry.detail]
-                        .filter((part) => part !== undefined)
-                        .join(": "),
+          const adds = yield* Effect.forEach(groups, ({ jobs, offset }, group) => {
+            const submit =
+              group === 0
+                ? hubCall(async (signal) => {
+                    const { jobs: added, ...batch } = await client.batches.create(
+                      { ...creation, jobs: jobs.length ? jobs : undefined },
+                      { signal },
                     );
-                  }
-                  if (!lines.length) return error;
-                  const cause = commandError(error);
-                  return new Error([cause.message, ...lines].join("\n"), { cause });
-                }),
-              );
-            },
-          );
-          // Both input forms require at least one job.
-          const batch = adds.at(-1)?.batch;
-          if (!batch) return yield* Effect.die(new Error("No jobs were submitted"));
+                    return { batch, jobs: added };
+                  })
+                : hubCall((signal) => client.batches.addJobs({ id, jobs }, { signal }));
+            return hintMadeIdOnStop(submit.pipe(Effect.retry(retryTransient)), runId, hint, {
+              exists: group > 0,
+            }).pipe(
+              Effect.mapError((error) => {
+                if (!personWatches()) return error;
+                const lines: string[] = [];
+                for (const entry of problemOf(error)?.errors ?? []) {
+                  if (entry.pointer === undefined) continue;
+                  const match = /^\/jobs\/(0|[1-9]\d*)(\/.*)?$/s.exec(entry.pointer);
+                  if (!match || Number(match[1]) >= jobs.length) continue;
+                  const number = offset + Number(match[1]) + 1;
+                  lines.push(
+                    [`job ${number}`, match[2], entry.detail]
+                      .filter((part) => part !== undefined)
+                      .join(": "),
+                  );
+                }
+                if (!lines.length) return error;
+                const cause = commandError(error);
+                return new Error([cause.message, ...lines].join("\n"), { cause });
+              }),
+            );
+          });
+          const batch = Array.lastNonEmpty(adds).batch;
           const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
-          const submitted = Effect.gen(function* () {
+          const printBatchAndWaitHint = Effect.gen(function* () {
             yield* printStep(batch);
             if (batchWasCancelled(batch)) yield* Effect.fail(new Error("The Batch was cancelled"));
             if (personWatches()) {
@@ -1325,7 +1404,7 @@ function submitBatchCommand() {
                   outputDir: flags.outputDir,
                 },
               )
-            : submitted;
+            : printBatchAndWaitHint;
         }).pipe(Effect.mapError(commandError)),
       ),
     );
