@@ -951,15 +951,15 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       .input(
         z.strictObject({
           // Better Auth and the form count UTF-16 code units, while Zod's maxLength and JSON Schema
-          // count code points. maxLength puts the limit in the document, the length check refuses
-          // what the hub would, and abort keeps a long plain name to one refusal.
-          name: z
-            .string()
-            .check(
-              z.maxLength(MAX_API_KEY_NAME_LENGTH, { abort: true }),
-              z.property("length", z.number().check(z.lte(MAX_API_KEY_NAME_LENGTH))),
-              z.describe(`At most ${MAX_API_KEY_NAME_LENGTH} UTF-16 code units.`),
-            ),
+          // count code points. Refuse the name once by the hub's measure and publish maxLength.
+          name: z.string().check(
+            z.refine((value) => value.length <= MAX_API_KEY_NAME_LENGTH, {
+              error: `At most ${MAX_API_KEY_NAME_LENGTH} characters`,
+              abort: true,
+            }),
+            z.maxLength(MAX_API_KEY_NAME_LENGTH),
+            z.describe(`At most ${MAX_API_KEY_NAME_LENGTH} UTF-16 code units.`),
+          ),
           permissions: permissionsSchema,
           expiresIn: z.optional(
             z
