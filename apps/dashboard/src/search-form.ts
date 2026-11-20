@@ -30,7 +30,8 @@ export function createSearchForm<T extends Record<string, unknown>>(options: {
       !deepEqual(options.schema.parse(current.search), search)
     ) {
       const navigation = router.navigate(destination);
-      // The router pushes the history entry before its loaders finish.
+      // The router pushes the history entry synchronously, before its loaders finish, while no
+      // navigation blocker is registered; with one, the push waits and the form resets as before.
       submittedEntry = router.history.location;
       return navigation;
     }
