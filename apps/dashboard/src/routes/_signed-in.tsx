@@ -25,9 +25,9 @@ export const Route = createFileRoute("/_signed-in")({
     if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     return { user: session.user, membership: session.membership };
   },
-  // A retry rebuilds route context while beforeLoad checks the session. Keep showing the last
-  // completed session in the shell until that check and its loader finish.
-  // A navigation within the shell can observe changed membership for the same user.
+  // Pending routes lose beforeLoad context (TanStack/router#8115). Keep the last completed
+  // session visible and publish each check because membership can change for the same user.
+  // Remove this loader when Solid Start builds with the context fix (TanStack/router#8964).
   shouldReload: true,
   loader: {
     staleReloadMode: "blocking",
