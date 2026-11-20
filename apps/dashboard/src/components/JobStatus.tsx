@@ -3,6 +3,7 @@ import {
   failureSchema,
   statusUnknownReasonSchema,
   type BlockedBy,
+  type OpenBlockedBy,
   type Failure,
   type Job,
   type JobStatus as Status,
@@ -39,7 +40,13 @@ const UNKNOWN_WORDS = {
 } satisfies Record<StatusUnknownReason, { short: string; detail: string }>;
 
 function statusUnknownWords(reason: OpenStatusUnknownReason, form: "short" | "detail") {
-  return renderReason(statusUnknownReasonSchema, reason, (value) => UNKNOWN_WORDS[value][form]);
+  return (
+    knownWords(statusUnknownReasonSchema, reason, UNKNOWN_WORDS)?.[form] ?? unknownWord(reason)
+  );
+}
+
+function blockedWords(reason: OpenBlockedBy) {
+  return knownWords(blockedBySchema, reason, BLOCKED_WORDS) ?? `Blocked: ${unknownWord(reason)}`;
 }
 
 const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> = {
@@ -75,23 +82,32 @@ const FAILURE_WORDS = {
   journalLost: "its Runner’s journal of it was lost",
 } satisfies Record<Failure["reason"], string>;
 
-function renderReason<K extends string, T>(
+function knownWords<K extends string, T>(
   schema: ZodMiniType<K>,
   reason: string,
-  known: (value: K) => T,
+  words: Record<K, T>,
 ) {
   const parsed = schema.safeParse(reason);
-  return parsed.success
-    ? known(parsed.data)
-    : `${JSON.stringify(reason)} (unknown to this dashboard version)`;
+  return parsed.success ? words[parsed.data] : undefined;
 }
 
-export function renderFailureReason<T>(
-  reason: OpenFailure["reason"],
-  known: (value: Failure["reason"], words: string) => T,
-) {
-  return renderReason(failureSchema.shape.reason, reason, (value) =>
-    known(value, FAILURE_WORDS[value]),
+const UNKNOWN_TO_DASHBOARD = "(unknown to this dashboard version)";
+
+export function unknownWord(value: string) {
+  return `${JSON.stringify(value)} ${UNKNOWN_TO_DASHBOARD}`;
+}
+
+export function FailureReason(props: { reason: OpenFailure["reason"]; separator?: string }) {
+  const words = () => knownWords(failureSchema.shape.reason, props.reason, FAILURE_WORDS);
+  return (
+    <span>
+      <code class="failure-reason">
+        {words() === undefined ? JSON.stringify(props.reason) : props.reason}
+      </code>
+      <Show when={words()} fallback={` ${UNKNOWN_TO_DASHBOARD}`}>
+        {(known) => props.separator && props.separator + known()}
+      </Show>
+    </span>
   );
 }
 
@@ -146,11 +162,7 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
         )}
       </Show>
       <Show
-        when={
-          props.job.blockedBy === undefined
-            ? undefined
-            : renderReason(blockedBySchema, props.job.blockedBy, (value) => BLOCKED_WORDS[value])
-        }
+        when={props.job.blockedBy === undefined ? undefined : blockedWords(props.job.blockedBy)}
       >
         {(blockedBy) => (
           <span class="beside">
@@ -162,12 +174,10 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
       <Show when={props.job.status === "failed" ? props.job.failure : undefined}>
         {(failure) => (
           <span class="beside">
-            {renderFailureReason(failure().reason, (reason, words) => (
-              <>
-                <code>{reason}</code>
-                <Show when={props.detailed}>: {words}</Show>
-              </>
-            ))}
+            <FailureReason
+              reason={failure().reason}
+              separator={props.detailed ? ": " : undefined}
+            />
           </span>
         )}
       </Show>

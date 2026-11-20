@@ -10,11 +10,18 @@ A typed map still constrains each value. For example, a new Label must have a st
 
 We start on the newest major line of each dependency even before it is stable, pinning exact versions while pre-release: oRPC 2 changed its wire format, so clients on version 1 could not talk to a version 2 hub, and starting on the line going forward avoids a coordinated migration later.
 
-On public reads, `Job.blockedBy`, `Job.statusUnknown.reason` and `failure.reason` explain what happened. A newer hub can give a reason an older client has no words for. The client shows the hub's word and marks it as unknown to that version. An unfamiliar failure reason still describes a fault. The contract's `openEnum` helper pairs the known enum with a string branded on input and output. Producers can type-check the values they send, and readers can distinguish the known vocabulary before looking up its words. The OpenAPI document expresses this as `anyOf` with the known string enum and a string. Runner reports use the known failure reasons the hub can store.
+On public reads, `Job.blockedBy`, `Job.statusUnknown.reason` and `failure.reason` explain what happened. A newer hub can give a reason an older client has no words for. The client shows the hub's word and marks it as unknown to that version. An unfamiliar failure reason still describes a fault. The contract's `openEnum` helper pairs the known enum with a string branded on input and output. Producers can type-check the values they send, and readers can distinguish the known vocabulary before looking up its words. The OpenAPI document follows the extensible enum recipe in [OAI/OpenAPI-Specification#1552](https://github.com/OAI/OpenAPI-Specification/issues/1552#issuecomment-382640465). It uses `anyOf` with the known enum and a string. A known value matches both branches, so `oneOf` would reject it. Runner reports use the known failure reasons the hub can store.
 
 Job and Batch statuses, controls and `Submitter.kind` stay closed because callers use them to decide what they may do.
 
+Reconsider this representation if OpenAPI standardizes an extensible enum with generator support, or if a caller needs to decide what action is safe from one of these reasons.
+
 ## Considered options
+
+- The `x-extensible-enum` vendor extension depends on each generator recognizing it. Standard JSON Schema keywords describe both branches to any validator.
+- A plain `string` accepts new reasons but omits the known vocabulary from the document and gives producers no check on its spelling.
+- Closing these enums and dropping their promise of new values would let an additional explanation hide an otherwise readable job during an upgrade.
+- Making the existing schema names open would silently widen the Runner protocol and the vocabulary used for counts and word maps. Explicit open schemas put that choice at public reads.
 
 - One contract, each tool filtering out the Runner's calls: oRPC's `generate(router, { filter })` reaches only the OpenAPI document, OpenAPI tags and an `x-internal` extension only label operations for tools that read them, trpc-cli has no option to leave a procedure out, and the TypeScript client would still carry the calls. The CLI filtered by the permissions a call needs, which a future person's key holding a `runner` permission would break.
 - Hono alone, with its validators and typed client: the client is tied to the server's route types, and OpenAPI needs another package.

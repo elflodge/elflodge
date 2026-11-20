@@ -12,7 +12,7 @@ import { For, Show } from "solid-js";
 import { TIME_SECONDS, formatCount, formatUsd, plural } from "../format.ts";
 import type { EventToolCall, ReadJobEvent } from "../job-event-record.ts";
 import { Instant } from "./Instant.tsx";
-import { renderFailureReason } from "./JobStatus.tsx";
+import { FailureReason, unknownWord } from "./JobStatus.tsx";
 import { TextPreview, countLines } from "./TextPreview.tsx";
 
 interface RowProps {
@@ -127,7 +127,7 @@ function eventLabel({ row }: RowProps) {
     default:
       return row.unreadable
         ? `The Event’s record could not be read: ${row.kind}`
-        : `An Event of a kind this dashboard does not know: ${row.kind}`;
+        : `Event kind: ${unknownWord(row.kind)}`;
   }
 }
 
@@ -139,7 +139,11 @@ function summary(row: ReadJobEvent) {
   const record = row.record;
   switch (record?.kind) {
     case JOB_FAILED:
-      return <>, {renderFailureReason(record.data.reason, (reason) => reason)}</>;
+      return (
+        <>
+          , <FailureReason reason={record.data.reason} />
+        </>
+      );
     case "pi.user":
     case "pi.compaction":
       return `: ${firstLine(messageText(record.model[0].content))}`;
@@ -184,11 +188,7 @@ function EventBody(props: RowProps) {
       case JOB_FAILED:
         return (
           <div class="rec">
-            {renderFailureReason(record.data.reason, (reason, words) => (
-              <>
-                <code>{reason}</code> — {words}
-              </>
-            ))}
+            <FailureReason reason={record.data.reason} separator=" — " />
             {record.data.message && (
               <TextPreview
                 text={record.data.message}

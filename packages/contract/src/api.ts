@@ -126,14 +126,14 @@ export type StatusUnknownReason = z.infer<typeof statusUnknownReasonSchema>;
 // For exhaustive wording, check the known schema and use a map that satisfies Record<Known, string>.
 function openEnum<E extends Record<string, string>, B extends string>(
   known: z.ZodMiniEnum<E>,
-  _brand: B,
+  brand: B,
 ) {
-  return z.union([known, z.string().brand<B, "inout">()]);
+  return z.union([known, z.string().brand<B, "inout">(brand)]);
 }
 
 const openBlockedBySchema = openEnum(blockedBySchema, "UnknownBlockedBy").check(
   z.describe(
-    "What blocks a queued job. New values may be added. Show an unfamiliar value as unknown to this client version.",
+    "What blocks a queued job. `batchPausedByCaller` means a caller paused its Batch, `batchPausedByBreaker` means the failure breaker paused its Batch, and `batchCanary` means its Batch’s Canary is still running. New values may be added. Show an unfamiliar value as unknown to this client version.",
   ),
 );
 export type OpenBlockedBy = z.infer<typeof openBlockedBySchema>;
@@ -143,7 +143,7 @@ const openStatusUnknownReasonSchema = openEnum(
   "UnknownStatusUnknownReason",
 ).check(
   z.describe(
-    "Why the hub cannot confirm the job's status. New reasons may be added. Show an unfamiliar reason as unknown to this client version.",
+    "Why the hub cannot confirm the job's status. With `runnerDisconnected`, the hub has not heard from its Runner. With `notReported`, the hub has heard from the Runner but the Runner has not reported this job. New reasons may be added. Show an unfamiliar reason as unknown to this client version.",
   ),
 );
 export type OpenStatusUnknownReason = z.infer<typeof openStatusUnknownReasonSchema>;
@@ -158,8 +158,8 @@ export const openFailureSchema = z.extend(failureSchema, {
 });
 export type OpenFailure = z.infer<typeof openFailureSchema>;
 
-export const openJobFailureSchema = z.extend(openFailureSchema, {
-  timestamp: jobFailureSchema.shape.timestamp,
+export const openJobFailureSchema = z.extend(jobFailureSchema, {
+  reason: openFailureSchema.shape.reason,
 });
 export type OpenJobFailure = z.infer<typeof openJobFailureSchema>;
 

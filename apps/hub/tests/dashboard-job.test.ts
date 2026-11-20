@@ -649,21 +649,39 @@ test("a member can read a failure reason added by a newer hub on the job and its
     (url) => url.pathname === `/jobs/${id}` || url.pathname === `/jobs/${id}/events`,
     async (route) => {
       const { pathname, search } = new URL(route.request().url());
-      const response = await system.hub.fetch(pathname + search, {
+      // Only Chromium resolves the member-facing origin to the test hub's loopback port.
+      const response = await route.fetch({
+        url: new URL(pathname + search, system.url()).href,
         headers: await route.request().allHeaders(),
       });
-      await route.fulfill({
-        status: response.status,
-        contentType: "application/json",
-        body: (await response.text()).replaceAll('"modelFailed"', '"providerUnavailable"'),
-      });
+      const json = await response.json();
+      if (pathname.endsWith("/events")) {
+        if (json.job) json.job.failure.reason = "providerUnavailable";
+        for (const event of json.events) {
+          if (event.record.kind === JOB_FAILED) event.record.data.reason = "providerUnavailable";
+        }
+      } else {
+        json.failure.reason = "providerUnavailable";
+      }
+      await route.fulfill({ response, json });
     },
   );
   await signInAt(system, page, `jobs/${id}`, await newMember(system, "Failure reader"));
   const words = '"providerUnavailable" (unknown to this dashboard version)';
-  await expectBrowser(page.locator(".beside").filter({ hasText: words })).toBeVisible();
+  const beside = page.locator(".beside").filter({ hasText: words });
+  await expectBrowser(beside.locator("code")).toHaveText('"providerUnavailable"');
+  await expectBrowser(beside).toBeVisible();
   const event = page.getByRole("listitem").filter({ has: page.locator("#event-11") });
-  await expectBrowser(event.locator(".ev-line")).toContainText(words);
-  await expectBrowser(event.locator(".ev-body")).toContainText(words);
-  await expectBrowser(event.locator(".ev-body")).toContainText("Provider unavailable.");
+  const full = event.locator(".ev-body");
+  await expectBrowser(full).toBeVisible();
+  await expectBrowser(full).toContainText(words);
+  await expectBrowser(
+    full.locator("code").filter({ hasText: '"providerUnavailable"' }),
+  ).toBeVisible();
+  await expectBrowser(full).toContainText("Provider unavailable.");
+  await page.getByText("One line each", { exact: true }).click();
+  const summary = event.locator(".ev-line");
+  await expectBrowser(summary).toBeVisible();
+  await expectBrowser(summary).toContainText(words);
+  await expectBrowser(summary.locator("code")).toHaveText('"providerUnavailable"');
 }, 30_000);
