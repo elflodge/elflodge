@@ -443,7 +443,8 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
   });
 
 // A query string's values arrive as text; this turns them into what the input's schema expects,
-// such as `after=42` into a number.
+// such as `after=42` into a number. Inputs convert the same with the open-output converter, so the
+// contract keeps one converter.
 const coercion = new SmartCoercionHandlerPlugin({ converters: [openOutputSchemaConverter] });
 const bracketNotation = new BracketNotationSerializer();
 
