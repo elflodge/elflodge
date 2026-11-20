@@ -107,7 +107,7 @@ export function acceptInvitation(
         // At READ COMMITTED the subquery can see a pending row while DELETE waits for another
         // claim or a cancellation. Postgres rechecks the outer conditions if that transaction
         // commits a change to the row. If it rolls back, the waiting claim keeps its first check,
-        // so it can succeed after expiry by as long as that transaction ran, password hashing
+        // so it can succeed after expiry by up to as long as that transaction ran, password hashing
         // included.
         .where("status", "=", "pending")
         .where("expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"))
