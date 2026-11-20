@@ -510,6 +510,9 @@ importers:
       contract:
         specifier: workspace:*
         version: link:../../packages/contract
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.4
       solid-js:
         specifier: 'catalog:'
         version: 2.0.0

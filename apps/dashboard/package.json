@@ -21,6 +21,7 @@
     "@tanstack/solid-start": "catalog:",
     "better-auth": "catalog:",
     "contract": "workspace:*",
+    "effect": "catalog:",
     "solid-js": "catalog:",
     "ufo": "catalog:",
     "zod": "catalog:"

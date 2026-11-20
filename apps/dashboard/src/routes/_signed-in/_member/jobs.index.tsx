@@ -3,7 +3,7 @@ import { Link, createFileRoute } from "@tanstack/solid-router";
 import type { JobsPage, ListedJob, Runner } from "contract";
 import { For, Match, Repeat, Show, Switch, createMemo } from "solid-js";
 
-import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "../../../components/JobReferences.tsx";
@@ -69,7 +69,7 @@ function Jobs() {
       <Show when={jobs.isError}>
         <FailedReadNotice
           what="The jobs"
-          detail={hubFailureMessage(jobs.error)}
+          detail={hubFailureDetail(jobs.error)}
           failedAt={jobs.errorUpdatedAt}
           readAt={jobs.dataUpdatedAt}
         />
@@ -203,7 +203,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
   return (
     <tr role="row" class="job-row">
       <td role="cell" class="c-status">
-        <JobStatus job={props.job} />
+        <JobStatus status={props.job.status} lastRecorded={!!props.job.statusUnknown} />
       </td>
       <td role="cell" class="c-beside">
         <BesideStatus job={props.job} />

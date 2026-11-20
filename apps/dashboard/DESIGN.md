@@ -179,7 +179,7 @@ A page's controls, such as the one action it exists for, go at the heading's end
 </div>
 ```
 
-Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line that explains the part it stands under; `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
+Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line that explains the part it stands under. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
 
 `ul.plain` lists items one under another, without bullets, as several values of one fact.
 
@@ -341,7 +341,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 - **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An invitation shows its expiry date and zoned time with `DATE_TIME_ZONED`, for example "22 Nov, 15:42 UTC". The year is omitted because the invitation lasts 48 hours. An instant alone on a page that has the note carries none.
 - **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
-- **An amount in US dollars** is written with `formatUsd`, to four decimals or two significant digits, whichever gives more precision. Its budget uses `USD_BUDGET` with the same rounding and a minimum of two decimal places.
+- **An amount in US dollars** is written with `formatUsd`, to four decimal places or at most two significant digits, whichever gives more precision. Its budget uses `USD_BUDGET` with the same rounding and a minimum of two decimal places.
 
 ```tsx
 <p class="note">{timeZoneNote()}</p>
@@ -418,11 +418,67 @@ Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scop
 
 `div.job-status[role=status][tabindex="-1"]` holds the large status word (`.status-lg`), every condition in full, and the reason a failed or cancelled job cannot resume. Only applicable controls show. The buttons share a row in `.job-controls`. Below the row, each `p.note` names its control, flush left in button order. The button names its note through `aria-describedby`. A pending request disables the visible buttons and the status says “Working…”. A successful control focuses the status or the deletion notice. A spent budget opens a dialog for the new amount in USD. The budget field is read-only during its request. It describes a refused amount and receives focus if submission lost it. A member who moved focus to Close keeps it there. A conflict appears in the dialog notice. Resume’s note explains a spent budget or a lost journal. A Batch that is cancelled or being cancelled hides Resume. The status explains why, using the last successful Batch read. Polling can withdraw a trigger while its dialog is open. The dialog keeps the entered value, explains whether the action is still available, and returns focus to the status if the trigger is gone. A confirmed deletion shows the bare record until the hub gives 404.
 
-`section.activity` on the lamp wash belongs only to a running job whose status is known. Group its model call, tools and compactions by conversation. A paused, failed or expired read cannot establish that the job is still running. The job record uses the hub strip’s freshness cutoff. The Runner dates each observed change on its own clock. Show the latest activity the hub recorded. An unchanged report can leave the last recorded report time in place, and a report can omit activity. Give the report’s age as of the last recorded Runner contact when that contact is at or after the report. Both instants use the hub’s clock. Otherwise show only the report time.
+`section.activity` on the lamp wash belongs only to a running job whose status is known. Group its model call, tools and compactions by conversation. A paused, failed or expired read cannot establish that the job is still running. The job read supplies the status, usage and available controls together. A different status in a tail answer asks the hub for the whole job again. An ascending history page that reaches the end counts as a tail answer, even when the follower is already finished. A change in tail status during that job read starts a replacement read because the pending one can already hold an older snapshot. Until the job read answers, the status is last recorded and the lamp, live line and activity panel are withdrawn, as when the job read expires. The heading is “Latest activity”. Each activity line gives the time the Runner observed its change. A report can omit activity, so the last recorded report time and the Runner’s last contact belong in the job facts.
 
-`.limits` sets each `.limit` beside the other or stacks them on a phone. A `.limit-value` gives the limit with its unit. A native, named `meter` in `.scale` measures cost against the lifetime budget. Its accessible value text carries the full cost even above budget. `.is-over` strikes the end tick when the limit is reached. Only a timed-out run has a full timeout scale. The record uses the same amount formats as the Jobs list. The Resume dialog gives the exact cost a new budget must exceed. Cost, tokens and meters appear only after the job starts. “So far” applies while the job is unfinished or Resume is offered. Before the job starts, the heading is “Limits”. Deleting it then removes the section. A job deleted after it starts keeps its cost and tokens under “Usage”.
+`.limits` sets each `.limit` beside the other or stacks them on a phone. A `.limit-value` gives the limit with its unit. A native, named `meter` in `.scale` measures cost against the lifetime budget. Its accessible value text carries the full cost even above budget. `.is-over` strikes the end tick when the limit is reached. For a running job with known status, the timeout meter estimates the seconds from the latest start, resume or Recovery through the last report. Mark both the count and the deadline as approximate. Show them only when the arrival read or a live arrival establishes when the current timeout began. A job that failed for exceeding its timeout keeps a full scale. The record uses the same amount formats as the Jobs list. The Resume dialog gives the exact cost a new budget must exceed. Cost, tokens and meters appear only after the job starts. “So far” applies while the job is unfinished or Resume is offered. Before the job starts, the heading is “Limits”. Deleting it then removes the section. A job deleted after it starts keeps its cost and tokens under “Usage”.
 
-`section.output-or-failure` shows Output as indented JSON, or a wrapping failure message. Its `.output-or-failure-head` holds the heading and Output’s copy button. The complete text stays in one `pre.code.text-preview`. When the rendered text exceeds `--job-preview-lines` (eight lines), a button with `aria-expanded` and `aria-controls="output-or-failure-text"` switches between the preview and full height. The button stands under the text in both states, where a reader reaches the end of what is shown. After it shortens the text, the page keeps the button in view.
+`section.output-or-failure` shows Output as indented JSON, or a wrapping failure message. Its `.output-or-failure-head` holds the heading and Output’s copy button. A `div.preview` holds the complete text in one `pre.code.text-preview` with its disclosure button. When the rendered text exceeds `--job-preview-lines` (eight lines), a button with `aria-expanded` and `aria-controls="output-or-failure-text"` switches between the preview and full height. Limit the text inside its padding to eight whole lines. The button says “Show all N lines” when there are more logical lines than the preview holds. Text that wraps past the limit uses “Show the whole text”, or “Show the whole message” for a failure. The button stands under the text in both states, where a reader reaches the end of what is shown. After it shortens the text, the page keeps the button in view.
+
+### A job’s Events
+
+The member reads from top to bottom. The first page holds up to the latest hundred Events. Earlier and later pages add to the loaded Events without gaps. Place `section.tl` below the working record in its column. On a narrow screen the facts precede it. The section stays on the page if its read fails and keeps the Events read successfully.
+
+- In `.tl-head`, place the “Events” heading, the count in `span.read[role=status]`, and `.tl-choices`. Each `fieldset.seg` has a visually hidden legend and two labelled native radios with one initially checked. The checked `.view-line` shows summaries. The checked `.view-records` shows Runner records and errors. Both choices work together and stay set when paging or jumping.
+- The `.events-edge-note` for earlier Events follows `.tl-head`; `nav.jump-row` follows it and stands directly above `ol.timeline`. A walk back changes nothing above its button: the head sentence and the timeout count use the Events of the arrival read and live arrivals only.
+- Each edge box says whether earlier or later Events are missing. The hub pages by journal number. Event timestamps can fall out of order. Align the button to the top so a wrapping refusal grows downward. Show a paging or jump failure in a Notice at the edge it tried to read. Name the failed command and let the member retry it there. End the notice with a full stop when the hub gives no words. Keep paging and jump buttons disabled during a requested read and available during background polls. At the first Event the box keeps its height, says “There are no earlier Events.” and takes focus only if its button had it. The lower box also keeps its space when its button goes.
+- The timeline reads forwards. The visible edge box anchors paging so “Show earlier Events” keeps its place and focus as earlier Events open below it. The labelled jump row reaches Start and Latest, plus moments and numbered Events on the loaded pages. Its `.jump-content` groups follow the kind filter. On touch screens the jump links and buttons have a 44px target in both directions and the wrapped lines have no extra row gap.
+- Focus stays at the place on the screen where the reader pressed. If “Show later Events” had focus, it goes to the first added item the selected view shows. A date line, gap line or run heading takes focus itself. An Event takes focus on its number. If the view hides every addition, restore focus to the button, or to the list when the button goes. Paging leaves scrolling to the browser. The count says how many Events were added until the Events next change. Only a successful read can confirm the end. If following fails, the count describes the Events held and Latest retries from the last held Event. Keep Latest beside the failure when the journal is empty.
+- In `ol.timeline`, each opening gets a `li.run-h` with its heading, recorded time, run ID and known models. A `li.run-gap` between a closing and a resume gives the previous recorded ending and the resume, each with its date and time. The hub can cancel a paused job without a Runner Event. A `li.day-line` separates local days.
+- Each `li.ev` carries a linked journal number (`.ev-id`), time when recorded (`.ev-time`), summary (`.ev-line`) and full content (`.ev-body`). For example, `<a class="ev-id stands-alone" id="event-27" href="#event-27" aria-label="Event 27">27</a>`. Use `.rec` for Runner details, `.say` for message text, `.call` for tool arguments and `.result` for their answers. On phones the number and time share a line with a 44px hit target extended around the number. In the compact view on a phone, the number, time and summary occupy one 44px line. The agent step’s `.ev-rail` gives its USD cost, tokens and model. Use the job’s amount formatter. A provider-billed cost says “USD”, and other step costs say “USD, est.”. The rail moves below the body on a phone. Long Event bodies use the Output preview. Messages keep the wrapping sans and code keeps the mono. Thinking and write contents show in full when their native disclosures open.
+- Mark a Runner record `.is-runner` and a failed Event `.is-error`, with words and the cross mark. Indent a known sub-agent conversation with `.conv-sub` and name it in both views.
+- Only `li.ev.is-live#latest` takes the lamp in the timeline. When the activity panel is shown and the loaded stretch reaches the live end, a single “Still running” line links back to the “Latest activity” heading. Both view filters keep this line. A router link lets Back restore the reader’s place at the end. Keep `div.new-events[role=status]` mounted. While the timeline is in view, the notice sticks to its lower edge as a ground-coloured band across its column, with a rule above. A focusable marker named “End of Events” immediately after the list provides a destination when the live line is absent. Its visibility confirms that the reader has reached the end before arrivals are marked seen. Give the count and, when it carries a timestamp, the last arriving Event’s number and recorded time. The button reaches the first visible new number or the end when the filter hides every arrival.
+- Above the record, `p.head-sentence` dates the current run and any Recovery seen since arrival. A Recovery can establish when the timeout restarted even if the run opening predates the arrival read.
+
+The two view choices share the same fieldset structure. Within the jump row, anchors reach loaded Events and buttons can request another page.
+
+```html
+<fieldset class="seg">
+  <legend class="vh">Show each Event</legend>
+  <label><input class="vh" type="radio" name="event-view" checked />In full</label>
+  <label><input class="vh view-line" type="radio" name="event-view" />One line each</label>
+</fieldset>
+<div class="events-edge-note">
+  <div>
+    <p>Earlier Events are not shown.</p>
+    <button type="button">Show earlier Events</button>
+  </div>
+</div>
+<nav class="jump-row" aria-label="Go to a moment of the job">
+  <span>Go to</span>
+  <button type="button">Start</button>
+  <a class="stands-alone" href="#event-27"
+    >Paused <time datetime="2026-11-19T12:30:00Z">12:30:00</time></a
+  >
+  <button type="button">Latest</button>
+</nav>
+```
+
+The run heading is a list item. The arrivals band follows the list inside the section.
+
+```html
+<ol class="timeline">
+  <li class="run-h" tabindex="-1">
+    <h3>Run resumed <time datetime="2026-11-19T13:15:00Z">19 Nov 2026, 13:15:00</time></h3>
+    <span>still running</span>
+    <span class="sid">run 6a2e0371</span>
+  </li>
+</ol>
+<div class="timeline-end" role="group" aria-label="End of Events" tabindex="-1"></div>
+<div class="new-events" role="status" aria-atomic="true">
+  <span><strong>3 new Events</strong> below.</span>
+  <button type="button">Go to them</button>
+</div>
+```
 
 ### A job's status
 
@@ -536,8 +592,10 @@ The part, its tokens and its description arrive in the change that builds the pa
 
 ## Browser floor
 
-Chromium 123, Firefox 125 and Safari 17.5, the first versions with both `light-dark()` and the `popover` attribute. Only Chromium has been run.
+Chromium 123, Firefox 125 and Safari 17.5, the first versions with both `light-dark()` and the `popover` attribute. Only Chromium has been run across the dashboard.
 
 Firefox 125–127 shows the folded cell label using `content: attr(data-l)`. These versions may also read the label with the cell value. From Firefox 128 the empty text alternative suppresses the repeated label.
+
+Playwright’s WebKit 27.2 kept the reader’s place when earlier Events arrived. Earlier Safari versions were not run.
 
 Safari on iOS and iPadOS before 18.3 does not close a popover on a tap elsewhere (WebKit bug 267688). The account menu still closes there from the member's name, which opened it, and when one of its links is followed.

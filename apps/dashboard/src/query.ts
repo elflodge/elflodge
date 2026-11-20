@@ -35,7 +35,7 @@ export function createQueryClient() {
  * status, or one oRPC itself turned down, such as one the contract does not allow. A 5xx failure or
  * a call that got no answer may go through when tried again, as Query does by default.
  */
-function refused(error: Error) {
+export function refused(error: Error) {
   if (error instanceof BetterFetchError) return error.status >= 400 && error.status < 500;
   if (!(error instanceof ORPCError)) return false;
   const status = problemOf(error)?.status;

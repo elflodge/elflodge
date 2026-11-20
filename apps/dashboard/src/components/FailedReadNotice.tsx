@@ -2,7 +2,7 @@ import type { JSX } from "@solidjs/web";
 import { useRouter, type ErrorComponentProps } from "@tanstack/solid-router";
 import { Show } from "solid-js";
 
-import { HubReadError } from "../api-client.ts";
+import { failureDetailSuffix, HubReadError } from "../api-client.ts";
 import { TIME_SECONDS, timeZoneNote } from "../format.ts";
 import { DefaultCatchBoundary } from "./DefaultCatchBoundary.tsx";
 import { FallbackPage } from "./FallbackPage.tsx";
@@ -18,7 +18,8 @@ export function FailedReadNotice(props: {
   return (
     <Notice role="alert">
       {props.what} could not be read at{" "}
-      <Instant value={new Date(props.failedAt)} format={TIME_SECONDS} />: {props.detail}
+      <Instant value={new Date(props.failedAt)} format={TIME_SECONDS} />
+      {failureDetailSuffix(props.detail)}
       <Show when={props.readAt}>
         {(readAt) => (
           <>

@@ -194,12 +194,18 @@ test.each([
       route.fulfill({
         status: 400,
         contentType: "application/problem+json",
-        body: JSON.stringify({ type: "about:blank", title: "Bad Request", status: 400 }),
+        body: JSON.stringify({
+          type: "about:blank",
+          title: "Bad Request",
+          status: 400,
+          detail: "",
+        }),
       }),
     );
     await signInAt(system, page, path, OWNER);
     const retry = page.getByRole("button", { name: "Try again" });
     await retry.waitFor();
+    await expectBrowser(page.getByRole("alert")).toHaveText(/could not be read at .+\.$/);
     await page.unroute(list);
 
     const release = Promise.withResolvers<void>();

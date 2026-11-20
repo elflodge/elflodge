@@ -4,7 +4,7 @@ import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
 import { For, Show, createSignal, flush, onSettled } from "solid-js";
 
-import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -159,7 +159,7 @@ function KeyList() {
       <Show when={keys.isError}>
         <FailedReadNotice
           what="The API keys"
-          detail={hubFailureMessage(keys.error)}
+          detail={hubFailureDetail(keys.error)}
           failedAt={keys.errorUpdatedAt}
           readAt={keys.dataUpdatedAt}
         />

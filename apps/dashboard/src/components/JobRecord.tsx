@@ -1,14 +1,29 @@
 import { useQuery } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
-import { FAILURE_MESSAGE_MAX_LENGTH, FINAL_JOB_STATUSES, type Job } from "contract";
-import { For, Show, createMemo, createSignal, flush, onSettled } from "solid-js";
+import {
+  FAILURE_MESSAGE_MAX_LENGTH,
+  FINAL_JOB_STATUSES,
+  JOB_RESUMED,
+  JOB_STARTED,
+  type Job,
+} from "contract";
+import { For, Show, createMemo } from "solid-js";
 
-import { DATE_TIME_SECONDS, USD_BUDGET, duration, formatCount, formatUsd } from "../format.ts";
+import {
+  DATE_TIME_SECONDS,
+  TIME_SECONDS,
+  USD_BUDGET,
+  duration,
+  formatCount,
+  formatUsd,
+} from "../format.ts";
+import type { TimedEvent } from "../job-runs.ts";
 import { orpc } from "../query.ts";
 import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Instant, LastContact } from "./Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "./JobReferences.tsx";
+import { TextPreview } from "./TextPreview.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
@@ -143,10 +158,17 @@ export function JobFacts(props: { job: Job; readAt: number }) {
   );
 }
 
-export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
+export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?: TimedEvent }) {
   const cost = () => props.job.usage.cost.totalUsd;
   const suffix = () =>
     !FINAL_JOB_STATUSES.includes(props.job.status) || props.resumeOffered ? " so far" : "";
+  const measured = createMemo(() => {
+    const start = props.countFrom;
+    const report = props.job.lastReportedAt;
+    if (!start || props.job.status !== "running" || !report) return undefined;
+    // The Runner timestamps the opening Event. The hub timestamps receipt of the report.
+    return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
+  });
   return (
     <section aria-labelledby="job-limits">
       <h2 id="job-limits">
@@ -195,6 +217,40 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
                 Run timeout <span class="unit">each run</span>
               </h3>
               <p class="limit-value">{duration(limit())}</p>
+              <Show when={measured()}>
+                {(count) => (
+                  <>
+                    <div class="scale">
+                      <meter
+                        aria-label="Run timeout counted so far"
+                        min={0}
+                        max={limit()}
+                        value={Math.min(count().seconds, limit())}
+                        aria-valuetext={`about ${duration(count().seconds)} of ${duration(limit())} at the report`}
+                      />
+                    </div>
+                    <dl>
+                      <dt>Counted so far</dt>
+                      <dd>about {duration(count().seconds)} at the report</dd>
+                      <dt>Times out at about</dt>
+                      <dd>
+                        <Instant
+                          value={new Date(count().start.at.getTime() + limit() * 1000)}
+                          format={TIME_SECONDS}
+                        />
+                      </dd>
+                    </dl>
+                    <Show when={count().start.kind !== JOB_STARTED}>
+                      <p class="note">
+                        Counted from <Instant value={count().start.at} format={TIME_SECONDS} />
+                        {count().start.kind === JOB_RESUMED
+                          ? ", its resume."
+                          : ", its Runner’s restart."}
+                      </p>
+                    </Show>
+                  </>
+                )}
+              </Show>
               <Show
                 when={
                   props.job.startedAt &&
@@ -221,23 +277,7 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean }) {
 }
 
 export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
-  const lines = createMemo(() => props.text.split("\n").length);
-  const [long, setLong] = createSignal(false);
-  const [expanded, setExpanded] = createSignal(false);
   const title = () => (props.failure ? "Failure message" : "Output");
-  let code: HTMLElement | undefined;
-  // A single line of a failure can wrap beyond the preview when the page narrows.
-  onSettled(() => {
-    const element = code;
-    if (!element) return undefined;
-    const observer = new ResizeObserver(() => {
-      const style = getComputedStyle(element);
-      const previewLines = Number(style.getPropertyValue("--job-preview-lines"));
-      setLong(element.offsetHeight > previewLines * parseFloat(style.lineHeight) + 1);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  });
   return (
     <section class="output-or-failure" aria-labelledby="output-or-failure">
       <div class="output-or-failure-head">
@@ -249,41 +289,13 @@ export function JobOutputOrFailure(props: { text: string; failure?: boolean }) {
       <Show when={props.failure && props.text.length === FAILURE_MESSAGE_MAX_LENGTH}>
         <p class="note">This message reached the maximum stored length.</p>
       </Show>
-      <pre
+      <TextPreview
         id="output-or-failure-text"
-        class={["code", "text-preview", { wraps: !!props.failure }]}
-        tabindex="0"
-        aria-label={title()}
-      >
-        <code
-          ref={(element) => {
-            code = element;
-          }}
-        >
-          {props.text}
-        </code>
-      </pre>
-      <Show when={long()}>
-        <button
-          type="button"
-          aria-controls="output-or-failure-text"
-          aria-expanded={expanded() ? "true" : "false"}
-          onClick={(event) => {
-            const shortening = expanded();
-            setExpanded(!shortening);
-            if (shortening) {
-              flush();
-              event.currentTarget.scrollIntoView({ block: "nearest" });
-            }
-          }}
-        >
-          {expanded()
-            ? "Show the first lines only"
-            : props.failure
-              ? "Show the whole message"
-              : `Show all ${formatCount(lines())} lines`}
-        </button>
-      </Show>
+        text={props.text}
+        label={title()}
+        wraps={props.failure}
+        wholeTextLabel={props.failure ? "Show the whole message" : undefined}
+      />
     </section>
   );
 }

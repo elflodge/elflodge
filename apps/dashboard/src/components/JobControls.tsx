@@ -119,7 +119,8 @@ export function JobControls(props: {
   const waiting = () => props.job.pendingControl?.type;
 
   const cancelAvailable = () => !props.job.deletedAt && canCancel() && waiting() !== "cancel";
-  const confirmCancel = () => cancelAvailable() && !props.job.startedAt;
+  const confirmCancel = () =>
+    cancelAvailable() && props.job.status !== "running" && !props.job.startedAt;
   const deleteAvailable = () => !props.job.deletedAt && !canCancel();
   const focusStatusIfLost = () => focusIfLost(deletionNotice ?? status);
 
@@ -138,7 +139,7 @@ export function JobControls(props: {
         }}
       >
         <div class="status-lg">
-          <JobStatus job={props.job} lastRecorded={props.lastRecorded} />
+          <JobStatus status={props.job.status} lastRecorded={props.lastRecorded} />
         </div>
         <BesideStatus job={props.job} detailed />
         <Show when={props.job.statusUnknown}>

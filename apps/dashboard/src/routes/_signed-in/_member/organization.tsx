@@ -4,7 +4,7 @@ import { focusManager, noop, useQuery, useQueryClient } from "@tanstack/solid-qu
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
 
-import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { authClient } from "../../../auth-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
@@ -339,7 +339,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         <Show when={keepKeys && keys.isError}>
           <FailedReadNotice
             what="The API keys"
-            detail={hubFailureMessage(keys.error)}
+            detail={hubFailureDetail(keys.error)}
             failedAt={keys.errorUpdatedAt}
           />
         </Show>
@@ -409,7 +409,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
           <Show when={query.isError}>
             <FailedReadNotice
               what={what}
-              detail={hubFailureMessage(query.error)}
+              detail={hubFailureDetail(query.error)}
               failedAt={query.errorUpdatedAt}
               readAt={query.dataUpdatedAt}
             />
