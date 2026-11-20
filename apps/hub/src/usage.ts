@@ -409,8 +409,10 @@ function groupingOf(groupBy: UsageGroupBy, records: ReturnType<typeof recordsOf>
         keys: ["labelValue"] as const,
         recordFields: [
           record
-            .ref("usageRecord.labels", "->>")
-            .key(groupBy.slice("label:".length))
+            .fn<string | null>("jsonb_extract_path_text", [
+              record.ref("usageRecord.labels"),
+              record.val(groupBy.slice("label:".length)),
+            ])
             .as("labelValue"),
         ],
         publicField: top.ref("g.labelValue").as("labelValue"),
