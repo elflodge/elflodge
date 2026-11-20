@@ -8,7 +8,6 @@ import { implement, ValidationError } from "@orpc/server";
 import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn, isPlainObject, matchesHttpPath, setOwn } from "@orpc/shared";
-import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parseStandardUrl } from "@standard-server/core";
 import {
   apiContract,
@@ -17,6 +16,7 @@ import {
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
   NotFound,
+  openOutputSchemaConverter,
   PROTOCOL_UNSUPPORTED,
   RUNNER_CONNECT_PATH,
   RUNNER_NOT_FOUND,
@@ -443,8 +443,9 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
   });
 
 // A query string's values arrive as text; this turns them into what the input's schema expects,
-// such as `after=42` into a number.
-const coercion = new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] });
+// such as `after=42` into a number. Inputs convert the same with the open-output converter, so the
+// contract keeps one converter.
+const coercion = new SmartCoercionHandlerPlugin({ converters: [openOutputSchemaConverter] });
 const bracketNotation = new BracketNotationSerializer();
 
 // oRPC's array query style reads only bare keys, so one `status=failed` decodes as a one-element

@@ -16,6 +16,7 @@ export {
   jobRefSchema,
 } from "./job.ts";
 export * from "./json-rpc.ts";
+export { openOutputSchemaConverter } from "./json-schema.ts";
 export { asError } from "./error.ts";
 export * from "./problem-details.ts";
 export {

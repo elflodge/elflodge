@@ -1,11 +1,13 @@
+import { createORPCClient } from "@orpc/client";
 import { resolveJsonSchemaLocalPointer, type JsonSchema } from "@orpc/json-schema";
 import type { OpenAPIV3_2 } from "@orpc/openapi";
+import { apiContract, createProblemDetailsLink } from "contract";
 import { compileSchema } from "json-schema-library";
 import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
-import { startSystem } from "./harness.ts";
+import { type ApiClient, startSystem } from "./harness.ts";
 
-// The hub's OpenAPI document, as callers in other languages read it.
+// The public API as described by the OpenAPI document and read by the TypeScript client.
 
 const system = startSystem();
 
@@ -164,7 +166,8 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       ...added,
     }).errors,
   ).toEqual([]);
-  // And no answer closes any object it holds, shared schemas included.
+  // The TypeScript client link shares the document's converter. Check every response object,
+  // including shared schemas and error responses.
   const schemas = new Map<JsonSchema, string>();
   for (const operation of operations) {
     expect(operation.responses, operation.operationId).toHaveProperty("400");
@@ -196,4 +199,56 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       }
     }
   }
+});
+
+/** Read the JSON a newer hub would send through the CLI and dashboard's validating link. */
+function clientWithFixedResponse(answer: unknown): ApiClient {
+  return createORPCClient(
+    createProblemDetailsLink(apiContract, {
+      origin: system.url().origin,
+      fetch: async () => Response.json(answer),
+    }),
+  );
+}
+
+test("the client converts dates when job, list, Batch and Events answers gain members", async () => {
+  const owner = system.owner();
+  const batch = await owner.batches.create({
+    agent: { outputContract: { schema: { type: "integer" } } },
+  });
+  const added = await owner.batches.addJobs({
+    id: batch.id,
+    jobs: [{ customId: "one", input: "Count." }],
+  });
+  const { job } = added.jobs[0];
+  const id = { id: job.id };
+  const page = await owner.jobs.list({ batchId: batch.id });
+  const events = await owner.jobs.events(id);
+  const extra = { addedLater: true };
+
+  await expect(
+    clientWithFixedResponse({
+      ...batch,
+      ...extra,
+      jobCounts: { ...batch.jobCounts, ...extra },
+    }).batches.get({
+      id: batch.id,
+    }),
+  ).resolves.toMatchObject(batch);
+  const futureJob = { ...job, ...extra, usage: { ...job.usage, ...extra } };
+  await expect(clientWithFixedResponse(futureJob).jobs.get(id)).resolves.toMatchObject(job);
+  await expect(
+    clientWithFixedResponse({
+      ...page,
+      ...extra,
+      jobs: page.jobs.map((listed) => ({
+        ...listed,
+        ...extra,
+        usage: { ...listed.usage, ...extra },
+      })),
+    }).jobs.list({}),
+  ).resolves.toMatchObject(page);
+  await expect(
+    clientWithFixedResponse({ ...events, ...extra, job: futureJob }).jobs.events(id),
+  ).resolves.toMatchObject(events);
 });
