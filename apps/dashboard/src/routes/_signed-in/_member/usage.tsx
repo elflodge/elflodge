@@ -20,7 +20,7 @@ import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
-import { FieldError } from "../../../components/FieldError.tsx";
+import { Field } from "../../../components/Field.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText, formRefusal } from "../../../form.ts";
 import { UTC_MONTH } from "../../../format.ts";
@@ -274,85 +274,73 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
       }}
     >
       <div class="filters-row">
-        <div class="filter-field">
-          <label for="usage-range">Range</label>
-          {/* Desktop Firefox 125 and Safari 17.5 have no month picker. */}
-          <select
-            id="usage-range"
-            aria-invalid={field("range") ? "true" : undefined}
-            aria-describedby={field("range") ? "usage-range-error" : undefined}
-            name="period"
-            onChange={({ currentTarget }) => setRange(currentTarget.value)}
-          >
-            <For each={["7d", "30d", ...months(), "custom"]}>
-              {(value) => (
-                <option value={value} defaultSelected={value === range()}>
-                  {rangeName(value)}
-                </option>
-              )}
-            </For>
-          </select>
-          <Show when={field("range")}>
-            {(message) => <FieldError id="usage-range-error">{message()}</FieldError>}
-          </Show>
-        </div>
+        {/* Desktop Firefox 125 and Safari 17.5 have no month picker. */}
+        <Field class="filter-field" label="Range" error={field("range")}>
+          {(control) => (
+            <select
+              {...control}
+              name="period"
+              onChange={({ currentTarget }) => setRange(currentTarget.value)}
+            >
+              <For each={["7d", "30d", ...months(), "custom"]}>
+                {(value) => (
+                  <option value={value} defaultSelected={value === range()}>
+                    {rangeName(value)}
+                  </option>
+                )}
+              </For>
+            </select>
+          )}
+        </Field>
         <Show when={custom()}>
           <For each={["from", "to"] as const}>
             {(name) => (
-              <div class="filter-field">
-                <label for={`usage-${name}`}>{name === "from" ? "From" : "To"}</label>
-                <input
-                  type="date"
-                  name={name}
-                  id={`usage-${name}`}
-                  aria-invalid={field(name) ? "true" : undefined}
-                  aria-describedby={field(name) ? `usage-${name}-error` : undefined}
-                  required={name === "from"}
-                  defaultValue={dateValue(name)}
-                />
-                <Show when={field(name)}>
-                  {(message) => <FieldError id={`usage-${name}-error`}>{message()}</FieldError>}
-                </Show>
-              </div>
+              <Field
+                class="filter-field"
+                label={name === "from" ? "From" : "To"}
+                error={field(name)}
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    type="date"
+                    name={name}
+                    required={name === "from"}
+                    defaultValue={dateValue(name)}
+                  />
+                )}
+              </Field>
             )}
           </For>
         </Show>
-        <div class="filter-field">
-          <label for="usage-group">Grouped by</label>
-          <select
-            id="usage-group"
-            aria-invalid={field("group") ? "true" : undefined}
-            aria-describedby={field("group") ? "usage-group-error" : undefined}
-            name="groupBy"
-            onChange={({ currentTarget }) => setGroup(currentTarget.value)}
-          >
-            {Object.entries(groupings).map(([value, words]) => (
-              <option value={value} defaultSelected={grouping().by === value}>
-                {words.option}
-              </option>
-            ))}
-          </select>
-          <Show when={field("group")}>
-            {(message) => <FieldError id="usage-group-error">{message()}</FieldError>}
-          </Show>
-        </div>
+        <Field class="filter-field" label="Grouped by" error={field("group")}>
+          {(control) => (
+            <select
+              {...control}
+              name="groupBy"
+              onChange={({ currentTarget }) => setGroup(currentTarget.value)}
+            >
+              {Object.entries(groupings).map(([value, words]) => (
+                <option value={value} defaultSelected={grouping().by === value}>
+                  {words.option}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
         <Show when={label()}>
-          <div class="filter-field">
-            <label for="usage-label">Label key</label>
-            <input
-              id="usage-label"
-              aria-invalid={field("label") ? "true" : undefined}
-              aria-describedby={field("label") ? "usage-label-error" : undefined}
-              name="labelKey"
-              pattern={LABEL_KEY_PATTERN.source}
-              title="A Label name, optionally after a DNS prefix and /"
-              required
-              defaultValue={grouping().labelKey ?? ""}
-            />
-            <Show when={field("label")}>
-              {(message) => <FieldError id="usage-label-error">{message()}</FieldError>}
-            </Show>
-          </div>
+          <Field class="filter-field" label="Label key" error={field("label")}>
+            {(control) => (
+              <input
+                {...control}
+                name="labelKey"
+                pattern={LABEL_KEY_PATTERN.source}
+                title="A Label name, optionally after a DNS prefix and /"
+                required
+                defaultValue={grouping().labelKey ?? ""}
+              />
+            )}
+          </Field>
         </Show>
         <span class="filter-act">
           <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>

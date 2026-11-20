@@ -14,7 +14,7 @@ import {
 import { authClient, getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { FailedReadNotice } from "../components/FailedReadNotice.tsx";
-import { FieldError } from "../components/FieldError.tsx";
+import { Field } from "../components/Field.tsx";
 import { Instant } from "../components/Instant.tsx";
 import { Notice } from "../components/Notice.tsx";
 import {
@@ -364,57 +364,50 @@ function AcceptInvitation(props: {
           </p>
           <form class="fields" onSubmit={onSubmit}>
             <Show when={!session()}>
-              <div class="field">
-                <label for="join-email">Email</label>
-                <input
-                  id="join-email"
-                  name="email"
-                  type="email"
-                  autocomplete="username"
-                  class="mono"
-                  readonly
-                  value={props.invitation.email}
-                />
-              </div>
-              <div class="field">
-                <label for="join-name">Your name</label>
-                <input
-                  id="join-name"
-                  name="name"
-                  autocomplete="name"
-                  required
-                  {...GIVEN_NAME}
-                  ref={(field) => {
-                    nameField = field;
-                  }}
-                  aria-invalid={nameError() ? "true" : undefined}
-                  aria-describedby={nameError() ? "join-name-error" : undefined}
-                  onInput={() => setNameError(undefined)}
-                />
-                <Show when={nameError()}>
-                  {(message) => <FieldError id="join-name-error">{message()}</FieldError>}
-                </Show>
-              </div>
-              <div class="field">
-                <label for="join-password">Password</label>
-                <input
-                  id="join-password"
-                  name="password"
-                  type="password"
-                  autocomplete="new-password"
-                  required
-                  {...NEW_PASSWORD}
-                  aria-invalid={passwordError() ? "true" : undefined}
-                  aria-describedby={passwordError() ? "join-password-error" : undefined}
-                  onInput={() => setPasswordError(undefined)}
-                  ref={(input) => {
-                    password = input;
-                  }}
-                />
-                <Show when={passwordError()}>
-                  {(message) => <FieldError id="join-password-error">{message()}</FieldError>}
-                </Show>
-              </div>
+              <Field label="Email">
+                {(control) => (
+                  <input
+                    {...control}
+                    name="email"
+                    type="email"
+                    autocomplete="username"
+                    class="mono"
+                    readonly
+                    defaultValue={props.invitation.email}
+                  />
+                )}
+              </Field>
+              <Field label="Your name" error={nameError()}>
+                {(control) => (
+                  <input
+                    {...control}
+                    name="name"
+                    autocomplete="name"
+                    required
+                    {...GIVEN_NAME}
+                    ref={(field) => {
+                      nameField = field;
+                    }}
+                    onInput={() => setNameError(undefined)}
+                  />
+                )}
+              </Field>
+              <Field label="Password" error={passwordError()}>
+                {(control) => (
+                  <input
+                    {...control}
+                    name="password"
+                    type="password"
+                    autocomplete="new-password"
+                    required
+                    {...NEW_PASSWORD}
+                    onInput={() => setPasswordError(undefined)}
+                    ref={(input) => {
+                      password = input;
+                    }}
+                  />
+                )}
+              </Field>
             </Show>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
             <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>

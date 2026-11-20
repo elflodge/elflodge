@@ -3,7 +3,7 @@ import { Show, createSignal } from "solid-js";
 
 import { hubFailureMessage } from "../../api-client.ts";
 import { authClient, hasAuthCode } from "../../auth-client.ts";
-import { FieldError } from "../../components/FieldError.tsx";
+import { Field } from "../../components/Field.tsx";
 import { Notice } from "../../components/Notice.tsx";
 import { NEW_PASSWORD, createFormAction, fieldText } from "../../form.ts";
 
@@ -62,46 +62,47 @@ function ChangePassword() {
         <h1>Change password</h1>
       </div>
       <form class="fields" onSubmit={onSubmit}>
-        <div class="field">
-          <label for="current-password">Current password</label>
-          <input
-            id="current-password"
-            name="current-password"
-            type="password"
-            autocomplete="current-password"
-            required
-            aria-invalid={currentRefused() ? "true" : undefined}
-            aria-describedby={currentRefused() ? "current-password-error" : undefined}
-            onInput={() => setCurrentRefused(false)}
-            ref={(element) => {
-              currentPassword = element;
-            }}
-          />
-          <Show when={currentRefused()}>
-            <FieldError id="current-password-error">{WRONG_CURRENT_PASSWORD}</FieldError>
-          </Show>
-        </div>
-        <div class="field">
-          <label for="new-password">New password</label>
-          <input
-            id="new-password"
-            name="new-password"
-            type="password"
-            autocomplete="new-password"
-            required
-            {...NEW_PASSWORD}
-          />
-        </div>
-        <div class="field">
-          <label for="confirm-password">Confirm new password</label>
-          <input
-            id="confirm-password"
-            name="confirm-password"
-            type="password"
-            autocomplete="new-password"
-            required
-          />
-        </div>
+        <Field
+          label="Current password"
+          error={currentRefused() ? WRONG_CURRENT_PASSWORD : undefined}
+        >
+          {(control) => (
+            <input
+              {...control}
+              name="current-password"
+              type="password"
+              autocomplete="current-password"
+              required
+              onInput={() => setCurrentRefused(false)}
+              ref={(element) => {
+                currentPassword = element;
+              }}
+            />
+          )}
+        </Field>
+        <Field label="New password">
+          {(control) => (
+            <input
+              {...control}
+              name="new-password"
+              type="password"
+              autocomplete="new-password"
+              required
+              {...NEW_PASSWORD}
+            />
+          )}
+        </Field>
+        <Field label="Confirm new password">
+          {(control) => (
+            <input
+              {...control}
+              name="confirm-password"
+              type="password"
+              autocomplete="new-password"
+              required
+            />
+          )}
+        </Field>
         <label class="check">
           {/* Checked by default: a changed password may mean the old one leaked, and the other
               sessions were signed in with it. */}

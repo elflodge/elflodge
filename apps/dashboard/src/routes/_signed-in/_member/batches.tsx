@@ -4,6 +4,7 @@ import { createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { BATCH_STATUS_WORDS } from "../../../batch.ts";
+import { Field } from "../../../components/Field.tsx";
 import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
 import { orpc } from "../../../query.ts";
 import { optionalText } from "../../../search-form.ts";
@@ -74,26 +75,28 @@ function Batches() {
             />
           }
         >
-          <div class="filter-field">
-            <label for="batch-label-key">Label key</label>
-            <input
-              id="batch-label-key"
-              name="labelKey"
-              pattern={LABEL_KEY_PATTERN.source}
-              title="Use a name of up to 63 letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash."
-              defaultValue={appliedFilters().labelKey ?? ""}
-              required={!!(draftValue() ?? appliedFilters().labelValue)}
-            />
-          </div>
-          <div class="filter-field">
-            <label for="batch-label-value">Label value</label>
-            <input
-              id="batch-label-value"
-              name="labelValue"
-              defaultValue={appliedFilters().labelValue ?? ""}
-              onInput={({ currentTarget }) => setDraftValue(currentTarget.value)}
-            />
-          </div>
+          <Field class="filter-field" label="Label key">
+            {(control) => (
+              <input
+                {...control}
+                name="labelKey"
+                pattern={LABEL_KEY_PATTERN.source}
+                title="Use a name of up to 63 letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash."
+                defaultValue={appliedFilters().labelKey ?? ""}
+                required={!!(draftValue() ?? appliedFilters().labelValue)}
+              />
+            )}
+          </Field>
+          <Field class="filter-field" label="Label value">
+            {(control) => (
+              <input
+                {...control}
+                name="labelValue"
+                defaultValue={appliedFilters().labelValue ?? ""}
+                onInput={({ currentTarget }) => setDraftValue(currentTarget.value)}
+              />
+            )}
+          </Field>
         </ListFilters>
       </div>
       <Outlet />

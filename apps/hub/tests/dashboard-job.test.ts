@@ -1,4 +1,4 @@
-import { JOB_FAILED, JOB_SUCCEEDED, type JobEvent } from "contract";
+import { JOB_FAILED, JOB_SUCCEEDED, problemDetailsSchema, type JobEvent } from "contract";
 import type { Browser, Route } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, assert, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
@@ -135,8 +135,10 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await page.getByText("Resume asks for a larger model budget.").waitFor();
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  const field = dialog.getByLabel("New model budget (USD)");
+  const field = dialog.getByLabel("New model budget USD");
   const submit = dialog.getByRole("button", { name: "Resume the job" });
+  const hint = await dialog.getByText(/^Cost so far /).innerText();
+  await expectBrowser(field).toHaveAccessibleDescription(hint);
   await field.fill("0.000001");
   await submit.click();
   await expectBrowser(dialog.getByRole("alert")).toContainText(
@@ -162,12 +164,18 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await expectBrowser(dialog.getByRole("alert")).toHaveText("Invalid ID");
   await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
   await field.fill("6");
+  const refused = page.waitForResponse("**/jobs/*/resume");
   await submit.click();
+  const problem = problemDetailsSchema.parse(await (await refused).json());
+  const issue = problem.errors?.find((entry) => entry.pointer === "/modelBudgetUsd");
+  assert.isDefined(issue);
   await expectBrowser(field).toBeFocused();
   await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
-  await expectBrowser(field).toHaveAccessibleDescription(/maximum/i);
+  await expectBrowser(field).toHaveAccessibleDescription(`${hint} ${issue.detail}`);
   system.model.setResponses([callTool("submit_output", { value: 17 })]);
   await field.fill("1");
+  await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(field).toHaveAccessibleDescription(hint);
   await submit.click();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText("17", {

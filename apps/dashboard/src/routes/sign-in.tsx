@@ -5,6 +5,7 @@ import * as z from "zod/mini";
 import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
+import { Field } from "../components/Field.tsx";
 import { Notice } from "../components/Notice.tsx";
 import { createFormAction, fieldText } from "../form.ts";
 
@@ -72,20 +73,22 @@ function SignIn() {
       <BrandMark alt="" />
       <h1>Sign in to Elflodge</h1>
       <form class="fields" onSubmit={onSubmit}>
-        <div class="field">
-          <label for="sign-in-email">Email</label>
-          <input id="sign-in-email" name="email" type="email" autocomplete="username" required />
-        </div>
-        <div class="field">
-          <label for="sign-in-password">Password</label>
-          <input
-            id="sign-in-password"
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            required
-          />
-        </div>
+        <Field label="Email">
+          {(control) => (
+            <input {...control} name="email" type="email" autocomplete="username" required />
+          )}
+        </Field>
+        <Field label="Password">
+          {(control) => (
+            <input
+              {...control}
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          )}
+        </Field>
         <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
         <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
           Sign in

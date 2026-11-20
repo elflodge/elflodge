@@ -5,7 +5,7 @@ import { Show, createSignal, onSettled } from "solid-js";
 import { api, failureDetailSuffix, hubFailureDetail, readFromHub } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
-import { FieldError } from "../components/FieldError.tsx";
+import { Field } from "../components/Field.tsx";
 import { Notice } from "../components/Notice.tsx";
 import {
   GIVEN_NAME,
@@ -120,69 +120,39 @@ function Setup() {
               }
             }}
           >
-            <div class="field">
-              <label for="setup-organization">Organization name</label>
-              <input
-                id="setup-organization"
-                name="organizationName"
-                autocomplete="organization"
-                required
-                {...GIVEN_NAME}
-                aria-invalid={field("organizationName") ? "true" : undefined}
-                aria-describedby={
-                  field("organizationName") ? "setup-organization-error" : undefined
-                }
-              />
-              <Show when={field("organizationName")}>
-                {(message) => <FieldError id="setup-organization-error">{message()}</FieldError>}
-              </Show>
-            </div>
-            <div class="field">
-              <label for="setup-name">Your name</label>
-              <input
-                id="setup-name"
-                name="name"
-                autocomplete="name"
-                required
-                {...GIVEN_NAME}
-                aria-invalid={field("name") ? "true" : undefined}
-                aria-describedby={field("name") ? "setup-name-error" : undefined}
-              />
-              <Show when={field("name")}>
-                {(message) => <FieldError id="setup-name-error">{message()}</FieldError>}
-              </Show>
-            </div>
-            <div class="field">
-              <label for="setup-email">Email</label>
-              <input
-                id="setup-email"
-                name="email"
-                type="email"
-                autocomplete="username"
-                required
-                aria-invalid={field("email") ? "true" : undefined}
-                aria-describedby={field("email") ? "setup-email-error" : undefined}
-              />
-              <Show when={field("email")}>
-                {(message) => <FieldError id="setup-email-error">{message()}</FieldError>}
-              </Show>
-            </div>
-            <div class="field">
-              <label for="setup-password">Password</label>
-              <input
-                id="setup-password"
-                name="password"
-                type="password"
-                autocomplete="new-password"
-                required
-                {...NEW_PASSWORD}
-                aria-invalid={field("password") ? "true" : undefined}
-                aria-describedby={field("password") ? "setup-password-error" : undefined}
-              />
-              <Show when={field("password")}>
-                {(message) => <FieldError id="setup-password-error">{message()}</FieldError>}
-              </Show>
-            </div>
+            <Field label="Organization name" error={field("organizationName")}>
+              {(control) => (
+                <input
+                  {...control}
+                  name="organizationName"
+                  autocomplete="organization"
+                  required
+                  {...GIVEN_NAME}
+                />
+              )}
+            </Field>
+            <Field label="Your name" error={field("name")}>
+              {(control) => (
+                <input {...control} name="name" autocomplete="name" required {...GIVEN_NAME} />
+              )}
+            </Field>
+            <Field label="Email" error={field("email")}>
+              {(control) => (
+                <input {...control} name="email" type="email" autocomplete="username" required />
+              )}
+            </Field>
+            <Field label="Password" error={field("password")}>
+              {(control) => (
+                <input
+                  {...control}
+                  name="password"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  {...NEW_PASSWORD}
+                />
+              )}
+            </Field>
             <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
             <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
               Create owner

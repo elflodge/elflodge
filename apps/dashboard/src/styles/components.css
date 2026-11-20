@@ -440,6 +440,7 @@
 /* Why the hub refused what a field holds, under the field, which names it with aria-describedby. */
 .field-error {
   color: var(--c-failed);
+  white-space: pre-line;
 }
 .note.is-unknown {
   color: var(--c-unknown);

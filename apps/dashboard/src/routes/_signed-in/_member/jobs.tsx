@@ -4,6 +4,7 @@ import { BATCH_ID_PATTERN, jobIdSchema, jobStatusSchema, type Runner } from "con
 import { For, createMemo, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
+import { Field } from "../../../components/Field.tsx";
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
 import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
 import { availableRunners, orpc } from "../../../query.ts";
@@ -103,52 +104,58 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
             words={STATUS_WORDS}
             selected={props.filters.status}
           />
-          <div class="filter-field">
-            <label for="jobs-status-unknown">Status unknown</label>
-            <select id="jobs-status-unknown" name="statusUnknown">
-              <option value="" defaultSelected={props.filters.statusUnknown === undefined}>
-                Any
-              </option>
-              <option value="true" defaultSelected={props.filters.statusUnknown === true}>
-                Only status unknown
-              </option>
-              <option value="false" defaultSelected={props.filters.statusUnknown === false}>
-                Only status known
-              </option>
-            </select>
-          </div>
+          <Field class="filter-field" label="Status unknown">
+            {(control) => (
+              <select {...control} name="statusUnknown">
+                <option value="" defaultSelected={props.filters.statusUnknown === undefined}>
+                  Any
+                </option>
+                <option value="true" defaultSelected={props.filters.statusUnknown === true}>
+                  Only status unknown
+                </option>
+                <option value="false" defaultSelected={props.filters.statusUnknown === false}>
+                  Only status known
+                </option>
+              </select>
+            )}
+          </Field>
         </>
       }
     >
-      <div class="filter-field">
-        <label for="jobs-batch">Batch</label>
-        <input
-          id="jobs-batch"
-          name="batchId"
-          pattern={BATCH_ID_PATTERN.source}
-          title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
-          defaultValue={props.filters.batchId ?? ""}
-        />
-      </div>
-      <div class="filter-field">
-        <label for="jobs-runner">Runner</label>
-        <select
-          id="jobs-runner"
-          name="runnerId"
-          onChange={(event) => setDraftRunner(event.currentTarget.value)}
-        >
-          <option value="" defaultSelected={props.filters.runnerId === undefined}>
-            Any
-          </option>
-          <For each={runnerOptions()} keyed={(option) => option.id}>
-            {(option) => (
-              <option value={option().id} defaultSelected={props.filters.runnerId === option().id}>
-                {option().label}
-              </option>
-            )}
-          </For>
-        </select>
-      </div>
+      <Field class="filter-field" label="Batch">
+        {(control) => (
+          <input
+            {...control}
+            name="batchId"
+            pattern={BATCH_ID_PATTERN.source}
+            title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
+            defaultValue={props.filters.batchId ?? ""}
+          />
+        )}
+      </Field>
+      <Field class="filter-field" label="Runner">
+        {(control) => (
+          <select
+            {...control}
+            name="runnerId"
+            onChange={(event) => setDraftRunner(event.currentTarget.value)}
+          >
+            <option value="" defaultSelected={props.filters.runnerId === undefined}>
+              Any
+            </option>
+            <For each={runnerOptions()} keyed={(option) => option.id}>
+              {(option) => (
+                <option
+                  value={option().id}
+                  defaultSelected={props.filters.runnerId === option().id}
+                >
+                  {option().label}
+                </option>
+              )}
+            </For>
+          </select>
+        )}
+      </Field>
     </ListFilters>
   );
 }

@@ -39,7 +39,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
   errorComponent: (props) => {
     const search = Route.useSearch();
     const error = props.error;
-    const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));
+    const focusRange = focusAfterLinkDrops(rangeField);
     if (refusedReport(error)) return null;
     return (
       <ReadErrorPage {...props} heading="Usage">
@@ -66,6 +66,10 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
   component: Report,
 });
 
+function rangeField() {
+  return document.querySelector<HTMLSelectElement>('select[name="period"]');
+}
+
 function Report() {
   const search = Route.useSearch();
   const grouping = () => usageGrouping(search().groupBy);
@@ -81,7 +85,7 @@ function Report() {
     );
   const range = () => rangeOf(search());
   const soFar = () => query.data.to === query.data.today;
-  const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));
+  const focusRange = focusAfterLinkDrops(rangeField);
   const empty = () => {
     if (range() === "custom") return "No job ended in this range";
     if (parseUsagePeriod(range())?.kind === "days")

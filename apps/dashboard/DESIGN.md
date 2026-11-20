@@ -179,7 +179,7 @@ A page's controls, such as the one action it exists for, go at the heading's end
 </div>
 ```
 
-Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line that explains the part it stands under. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
+Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line of supporting text. In a field, the note gives a hint above the control. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
 
 `ul.plain` lists items one under another, without bullets, as several values of one fact.
 
@@ -232,40 +232,41 @@ What failed is said in an alert notice above "Try again". A read that fails says
 
 ### Fields
 
-A plain form is `form.fields`: fields one under another, at most 24rem wide, the button at the start of the last line. Each field is a `div.field` holding its `label` and its control, tied by `for` and `id`. A checkbox with its words is one `label.check`.
+A plain form uses `form.fields` to stack fields up to 24rem wide, with the button at the start of the last line. A checkbox with its words is one `label.check`.
+
+Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field` it draws the label, an optional hint as `p.note` (pass `undefined` when absent), the control and, when refused, the reason as `p.field-error`. The error mark and words are small and in the failed colour. Several reasons appear on separate lines.
+
+Spread the attributes from `Field` on the control. Its ID connects it to the label. Its `aria-describedby` names the hint first and the refusal second, when each has words. It carries `aria-invalid="true"` while refused. A control that takes the part’s attributes must not bind `value`. Use `defaultValue` for a starting value. When a spread attribute changes, Solid 2 can write a bound `value` back to the DOM and overwrite the member's edit. Select options use `defaultSelected`.
+
+A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in the hint. Required fields carry no mark. For several controls under one legend, `FieldGroup` draws a `fieldset.field` that takes the refusal and focus itself. In a filters row, pass `class="filter-field"` to put the label beside the control. Filter fields take no hint.
 
 ```tsx
-<form class="fields">
-  <div class="field">
-    <label for="sign-in-email">Email</label>
-    <input id="sign-in-email" name="email" type="email" autocomplete="username" required />
-  </div>
-  <label class="check">
-    <input name="revoke-other-sessions" type="checkbox" checked />
-    Sign out of other sessions
-  </label>
-  <button type="submit" class="primary">
-    Sign in
-  </button>
-</form>
+<Field
+  label="New model budget"
+  unit="USD"
+  hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
+  error={budgetFailure()?.fields.get("budget")}
+>
+  {(control) => (
+    <input
+      {...control}
+      name="modelBudgetUsd"
+      type="number"
+      required
+      min="0"
+      step="any"
+      readonly={pending()}
+      onInput={() => setBudgetFailure(undefined)}
+      autofocus
+      ref={(element) => {
+        budgetField = element;
+      }}
+    />
+  )}
+</Field>
 ```
 
-Place refusals by the hub's locator. Never match the hub's words or guess the field from the HTTP status. When a refusal locates an input that a control edits, show the hub’s words under the control as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and takes focus unless the member moved focus to something else visible while the hub answered. The form alert shows any issues outside its controls. For a refusal without locations it shows the hub’s detail. When every issue has a field, the fields carry the whole answer. Keep the values entered. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
-
-```tsx
-<div class="field">
-  <label for="current-password">Current password</label>
-  <input
-    id="current-password"
-    type="password"
-    aria-invalid="true"
-    aria-describedby="current-password-error"
-  />
-  <FieldError id="current-password-error">That is not your current password.</FieldError>
-</div>
-```
-
-which draws `p.field-error`: the error mark and the words, small, in the failed colour.
+Place refusals by the hub's locator. Never match the hub's words or guess the field from the HTTP status. When a refusal locates an input that a control edits, pass the hub’s words to `Field` or `FieldGroup` as its `error`. The refused field takes focus unless the member moved focus to something else visible while the hub answered. The form alert shows any issues outside its controls. For a refusal without locations it shows the hub’s detail. When every issue has a field, the fields carry the whole answer. Keep the values entered. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
 
 Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
 
