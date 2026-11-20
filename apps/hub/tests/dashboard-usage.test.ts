@@ -1,5 +1,5 @@
 import { JOB_SUCCEEDED } from "contract";
-import type { Browser } from "playwright";
+import type { Browser, Route } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
@@ -224,9 +224,18 @@ test("a member can correct a refused range and leave the end open through today"
   );
   await expectBrowser(page.getByRole("alert")).toHaveCount(0);
   await from.fill("2099-01-01");
+  const pending = Promise.withResolvers<Route>();
+  await page.route(
+    (url) => url.pathname === "/usage" && url.searchParams.get("from") === "2099-01-01",
+    (route) => pending.resolve(route),
+    { times: 1 },
+  );
   await show.click();
+  const request = await pending.promise;
+  await from.fill(first);
+  await request.continue();
   await expectBrowser(from).toHaveAccessibleDescription("Must not be after today");
-  await expectBrowser(from).toHaveValue("2099-01-01");
+  await expectBrowser(from).toHaveValue(first);
   await expectBrowser(from).toBeFocused();
   await expectBrowser(page.getByRole("alert")).toHaveCount(0);
   const range = page.getByLabel("Range");
@@ -246,4 +255,8 @@ test("a member can correct a refused range and leave the end open through today"
   await expectBrowser(days.last()).toHaveAttribute("datetime", answer.today);
   await expectBrowser(page.locator(".report-range")).toContainText("(UTC) so far.");
   expect(new URL(page.url()).searchParams.has("to")).toBe(false);
+  await page.goBack();
+  await expectBrowser(from).toHaveValue("2099-01-01");
+  await page.goForward();
+  await expectBrowser(from).toHaveValue(first);
 }, 30_000);

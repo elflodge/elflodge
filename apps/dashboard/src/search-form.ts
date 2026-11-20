@@ -16,7 +16,8 @@ export function createSearchForm<T extends Record<string, unknown>>(options: {
 }) {
   const router = useRouter();
   const client = useQueryClient();
-  return createFormAction((element) => {
+  let submittedEntry: typeof router.history.location | undefined;
+  const action = createFormAction((element) => {
     const form = new FormData(element);
     options.beforeSubmit?.(form);
     const search = options.schema.parse(parseFormData(form));
@@ -28,9 +29,20 @@ export function createSearchForm<T extends Record<string, unknown>>(options: {
       trimPathRight(current.pathname) !== trimPathRight(next.pathname) ||
       !deepEqual(options.schema.parse(current.search), search)
     ) {
-      return router.navigate(destination);
+      const navigation = router.navigate(destination);
+      // The router pushes the history entry before its loaders finish.
+      submittedEntry = router.history.location;
+      return navigation;
     }
     // An unchanged navigation inside the Solid action can wait on its own commit.
     return client.invalidateQueries({ queryKey: options.queryKey(search), exact: true });
   });
+
+  function resetForNavigation(form: HTMLFormElement) {
+    // The submitting form already shows its values, possibly edited again while the read ran.
+    // A link or a history traversal restores the filters from the address.
+    if (router.history.location !== submittedEntry) form.reset();
+    submittedEntry = undefined;
+  }
+  return { ...action, resetForNavigation };
 }

@@ -199,7 +199,7 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
     if (!["7d", "30d", "custom", ...recent].includes(selected)) recent.push(selected);
     return recent;
   };
-  const { pending, onSubmit } = createSearchForm({
+  const { pending, onSubmit, resetForNavigation } = createSearchForm({
     to: "/usage",
     schema: searchSchema,
     beforeSubmit(form) {
@@ -222,7 +222,7 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
     search,
     () => {
       if (form) {
-        form.reset();
+        resetForNavigation(form);
         // Reset restores field values, but the browser keeps a custom validation message.
         checkWindow(form);
       }
