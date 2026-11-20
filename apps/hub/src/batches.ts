@@ -440,11 +440,20 @@ export function createBatch(
 ) {
   return Effect.gen(function* () {
     const { agent, jobs = [] } = creation;
-    const problems = [
-      ...outputContractProblems(agent.outputContract.schema).map((message) => ({
+    const agentLimitProblems = () =>
+      limitProblems(agent, settings).map(({ message, path }) => ({
         message,
-        path: ["agent", "outputContract", "schema"],
-      })),
+        path: ["agent", ...path],
+      }));
+    const schemaProblems = outputContractProblems(agent.outputContract.schema).map((message) => ({
+      message,
+      path: ["agent", "outputContract", "schema"],
+    }));
+    // An invalid schema cannot match an accepted agent. A bad job can still name a Batch
+    // whose agent was accepted before a maximum fell.
+    const problems = [
+      ...schemaProblems,
+      ...(schemaProblems.length ? agentLimitProblems() : []),
       ...jobProblems(jobs, creation.labels),
     ];
     if (problems.length) return yield* Effect.fail(new InvalidInput({ problems }));
@@ -490,10 +499,7 @@ export function createBatch(
       // Current maxima govern only a new Batch. A repeat after a maximum falls still uses
       // the accepted agent and its stored limits, including for new jobs.
       if (inserted) {
-        const maximumProblems = limitProblems(agent, settings).map(({ message, path }) => ({
-          message,
-          path: ["agent", ...path],
-        }));
+        const maximumProblems = agentLimitProblems();
         if (maximumProblems.length) throw new InvalidInput({ problems: maximumProblems });
         return addJobsAndReadBatch(trx, inserted.uid, jobs, submitter);
       }

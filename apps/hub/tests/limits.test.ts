@@ -54,9 +54,17 @@ test("the hub applies the defaults and accepts limits up to the maxima it report
     cause: { status: 400, detail: expect.stringContaining("runTimeoutSeconds") },
   });
   await expect(
-    client.batches.create({ agent: { ...agent, modelBudgetUsd: modelBudgetUsd.max + 0.01 } }),
+    client.batches.create({
+      agent: {
+        outputContract: { schema: { type: "array" } },
+        modelBudgetUsd: modelBudgetUsd.max + 0.01,
+      },
+    }),
   ).rejects.toMatchObject({
-    cause: { status: 400, detail: expect.stringContaining("modelBudgetUsd") },
+    cause: {
+      status: 400,
+      errors: [{ pointer: "/agent/outputContract/schema" }, { pointer: "/agent/modelBudgetUsd" }],
+    },
   });
 });
 
@@ -75,6 +83,16 @@ test("a repeat keeps the limits accepted for a Batch before the maximum was lowe
     const client = lowered.owner();
     await expect(client.batches.create({ agent })).rejects.toMatchObject({
       cause: { status: 400 },
+    });
+    await expect(
+      client.batches.create({ id: created.id, agent, jobs: [{ customId: "no-input" }] }),
+    ).rejects.toMatchObject({
+      cause: { status: 400, errors: [{ pointer: "/jobs/0/input" }] },
+    });
+    await expect(
+      client.batches.create({ id: created.id, agent: { ...agent, modelBudgetUsd: 6 } }),
+    ).rejects.toMatchObject({
+      cause: { status: 422, errors: [{ pointer: "/id" }] },
     });
     expect(await client.batches.create({ id: created.id, agent })).toMatchObject({
       id: created.id,
