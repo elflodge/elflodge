@@ -192,27 +192,13 @@ interface BatchForBlock {
   unfinishedCanary: Expression<SqlBool>;
 }
 
-/** Why an unsent queued job is blocked, given its Batch's pause and whether its Canary is unfinished. */
-export function blockedByForUnsentQueuedJob(
+/** Whether a job is outside its Batch's still unfinished Canary. */
+export function isOutsideUnfinishedCanary(
   inCanary: Expression<JobRow["inCanary"]>,
-  batch: BatchForBlock,
+  unfinishedCanary: Expression<SqlBool>,
 ) {
   const eb = expressionBuilder();
-  return eb
-    .case(batch.pausedBy)
-    .when("caller")
-    .then(eb.val<BlockedBy>("batchPausedByCaller"))
-    .when("breaker")
-    .then(eb.val<BlockedBy>("batchPausedByBreaker"))
-    .else(
-      eb
-        .case()
-        .when(eb.and([eb(inCanary, "=", false), batch.unfinishedCanary]))
-        .then(eb.val<BlockedBy>("batchCanary"))
-        .else(eb.lit(null))
-        .end(),
-    )
-    .end();
+  return eb.and([eb(inCanary, "=", false), unfinishedCanary]);
 }
 
 /**
@@ -220,8 +206,8 @@ export function blockedByForUnsentQueuedJob(
  * pause and whether its Canary is unfinished. Only a queued job not yet sent is blocked, by its
  * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
  * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
- * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
- * by reason use the same rule.
+ * a Batch is one write; placement sends only the jobs this finds nothing for. Batch reads count
+ * jobs waiting for a Canary by the same rule.
  */
 export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
   const eb = expressionBuilder();
@@ -229,7 +215,24 @@ export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
     .case()
     .when(eb.or([eb(job.status, "!=", "queued"), eb(job.placedAt, "is not", null)]))
     .then(eb.lit(null))
-    .else(blockedByForUnsentQueuedJob(job.inCanary, batch))
+    .else(
+      // A job read looks up the pause in its Batch. A simple CASE looks it up once.
+      eb
+        .case(batch.pausedBy)
+        .when("caller")
+        .then(eb.val<BlockedBy>("batchPausedByCaller"))
+        .when("breaker")
+        .then(eb.val<BlockedBy>("batchPausedByBreaker"))
+        .else(
+          eb
+            .case()
+            .when(isOutsideUnfinishedCanary(job.inCanary, batch.unfinishedCanary))
+            .then(eb.val<BlockedBy>("batchCanary"))
+            .else(eb.lit(null))
+            .end(),
+        )
+        .end(),
+    )
     .end();
 }
 

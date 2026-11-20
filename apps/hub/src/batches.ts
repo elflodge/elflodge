@@ -9,7 +9,6 @@ import {
   type Labels,
   type ListedBatch,
   BREAKER_DEFAULTS,
-  blockedBySchema,
   ControlRefused,
   IdReused,
   type JobSubmission,
@@ -49,9 +48,9 @@ import { InvalidInput } from "./invalid-input.ts";
 import {
   apiSubmitterOf,
   contentHashOf,
-  blockedByForUnsentQueuedJob,
   blockedByFrom,
   hasUnfinishedCanary,
+  isOutsideUnfinishedCanary,
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
@@ -163,20 +162,24 @@ export async function readBatch(
           .whereRef("j.batchUid", "=", "b.uid")
           .select((agg) => [
             ...jobCountsBy(agg.ref("j.status"), jobStatusSchema.options),
-            ...jobCountsBy(
-              blockedByFrom(
-                {
-                  status: agg.ref("j.status"),
-                  placedAt: agg.ref("j.placedAt"),
-                  inCanary: agg.ref("j.inCanary"),
-                },
-                {
-                  pausedBy: agg.ref("b.pausedBy"),
-                  unfinishedCanary: agg.ref("b.unfinishedCanary"),
-                },
-              ),
-              blockedBySchema.options,
-            ),
+            agg.fn
+              .countAll<number>()
+              .filterWhere(
+                blockedByFrom(
+                  {
+                    status: agg.ref("j.status"),
+                    placedAt: agg.ref("j.placedAt"),
+                    inCanary: agg.ref("j.inCanary"),
+                  },
+                  {
+                    pausedBy: agg.ref("b.pausedBy"),
+                    unfinishedCanary: agg.ref("b.unfinishedCanary"),
+                  },
+                ),
+                "=",
+                "batchCanary",
+              )
+              .as("jobsWaitingForCanary"),
             agg.fn
               .countAll<number>()
               .filterWhere(
@@ -220,7 +223,7 @@ export async function readBatch(
 /** What `listedBatchOf` reads of a Batch: its row, and its jobs' counts. */
 type ListedBatchRow = Pick<BatchRow, (typeof BATCH_COLUMNS)[number]> &
   Batch["jobCounts"] &
-  Batch["blockedJobCounts"] & { status: BatchStatus; statusUnknown: number };
+  Pick<Batch, "jobsWaitingForCanary"> & { status: BatchStatus; statusUnknown: number };
 
 /** A Batch as a list shows it, from its row and its jobs' counts. */
 function listedBatchOf(row: ListedBatchRow): ListedBatch {
@@ -236,7 +239,7 @@ function listedBatchOf(row: ListedBatchRow): ListedBatch {
     labels: row.labels,
     breaker: apiBreakerOf(row),
     jobCounts: Struct.pick(row, jobStatusSchema.options),
-    blockedJobCounts: Struct.pick(row, blockedBySchema.options),
+    jobsWaitingForCanary: row.jobsWaitingForCanary,
     statusUnknownJobs: row.statusUnknown,
   };
 }
@@ -335,23 +338,19 @@ export function listBatches(query: BatchListQuery) {
               ...jobCountsBy(agg.ref("j.status"), jobStatusSchema.options),
             ]),
         )
-        .with("blocked", (qb) =>
+        .with("canaryWait", (qb) =>
           qb
             .selectFrom("job as j")
             .innerJoin("shown", "shown.uid", "j.batchUid")
             .where("j.status", "=", "queued")
             .where("j.placedAt", "is", null)
+            // A Batch pause takes precedence over waiting for its Canary.
+            .where("shown.pausedBy", "is", null)
+            .where((eb) =>
+              isOutsideUnfinishedCanary(eb.ref("j.inCanary"), eb.ref("shown.unfinishedCanary")),
+            )
             .groupBy("j.batchUid")
-            .select((agg) => [
-              "j.batchUid",
-              ...jobCountsBy(
-                blockedByForUnsentQueuedJob(agg.ref("j.inCanary"), {
-                  pausedBy: agg.ref("shown.pausedBy"),
-                  unfinishedCanary: agg.ref("shown.unfinishedCanary"),
-                }),
-                blockedBySchema.options,
-              ),
-            ]),
+            .select((agg) => ["j.batchUid", agg.fn.countAll<number>().as("jobsWaitingForCanary")]),
         )
         .with("unknown", (qb) =>
           qb
@@ -374,7 +373,7 @@ export function listBatches(query: BatchListQuery) {
         )
         .selectFrom("page")
         .leftJoin("counts", "counts.batchUid", "page.uid")
-        .leftJoin("blocked", "blocked.batchUid", "page.uid")
+        .leftJoin("canaryWait", "canaryWait.batchUid", "page.uid")
         .leftJoin("unknown", "unknown.batchUid", "page.uid")
         .selectAll("page")
         .select((eb) => {
@@ -387,9 +386,7 @@ export function listBatches(query: BatchListQuery) {
               hasUnfinishedJobs(countOrZero),
             ).as("status"),
             ...jobStatusSchema.options.map((status) => countOrZero(status).as(status)),
-            ...blockedBySchema.options.map((reason) =>
-              eb.fn.coalesce(`blocked.${reason}` as const, eb.lit(0)).as(reason),
-            ),
+            eb.fn.coalesce("canaryWait.jobsWaitingForCanary", eb.lit(0)).as("jobsWaitingForCanary"),
             eb.fn.coalesce("unknown.statusUnknown", eb.lit(0)).as("statusUnknown"),
           ];
         })
