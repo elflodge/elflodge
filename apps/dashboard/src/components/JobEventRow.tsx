@@ -332,8 +332,8 @@ export function JobEventRow(props: RowProps) {
         >
           {(failure) => (
             <span title={unknownWord(failure().reason)}>
-              <span>Unknown failure reason</span>
-              {props.subAgent && " (sub-agent)"}:{" "}
+              {props.subAgent && "Sub-agent: "}
+              <span>Unknown failure reason</span>:{" "}
               <code class="failure-reason">{JSON.stringify(failure().reason)}</code>
             </span>
           )}
