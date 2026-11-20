@@ -74,6 +74,10 @@ const zonedTime = {
 
 /** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
 export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, zonedTime);
+export const TIME_SECONDS_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
+  ...zonedTime,
+  second: "2-digit",
+});
 
 /** An invitation can expire on another day, so its lone instant includes the date as well. */
 export const DATE_TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, {

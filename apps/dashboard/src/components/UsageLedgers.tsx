@@ -43,7 +43,7 @@ function groupName(
     return group.runner === null ? (
       "No Runner: ended before one started them"
     ) : (
-      <>
+      <span class="runner-ref">
         {group.runner.name === undefined ? (
           "A Runner since removed"
         ) : (
@@ -55,11 +55,11 @@ function groupName(
           >
             {group.runner.name}
           </Link>
-        )}{" "}
+        )}
         <span class="sid" title={group.runner.id}>
           {ids.get(group.runner.id)}
         </span>
-      </>
+      </span>
     );
   const submitter = group.submitter;
   return (
@@ -210,7 +210,9 @@ export function UsageLedgers(props: {
         <For each={groups()}>
           {(group) => (
             <tr>
-              <th scope="row">{groupName(group, groups(), ids(), label())}</th>
+              <th scope="row" class="is-name">
+                {groupName(group, groups(), ids(), label())}
+              </th>
               <FigureCells figures={group} largest={groups()[0]?.usage.cost.totalUsd} />
             </tr>
           )}

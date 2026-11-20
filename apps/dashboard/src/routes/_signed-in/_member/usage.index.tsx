@@ -8,7 +8,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { Instant } from "../../../components/Instant.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { focusAfterLinkDrops } from "../../../form.ts";
-import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
+import { TIME_SECONDS_ZONED, TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
 import { usageGrouping } from "../../../usage-grouping.ts";
 import { rangeOf, rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
 
@@ -86,7 +86,11 @@ function Report() {
   return (
     <>
       <p class="report-range">
-        {rangeName(range())}, {period()} (UTC){soFar() ? " so far" : ""}.
+        <Show when={range() !== "custom"}>
+          {rangeName(range())}
+          {soFar() ? " so far" : ""},{" "}
+        </Show>
+        {period()} (UTC).
       </p>
       <p class="note">
         Each job end counts on the day the hub recorded it, deleted jobs included. A job resumed
@@ -99,7 +103,7 @@ function Report() {
           detail={hubFailureMessage(query.error)}
           failedAt={query.errorUpdatedAt}
           readAt={query.data.readAt.getTime()}
-          format={TIME_ZONED}
+          format={TIME_SECONDS_ZONED}
         />
       </Show>
       <Show

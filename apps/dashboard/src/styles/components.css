@@ -684,7 +684,8 @@ p:has(> button) + .prose {
 .records.is-narrow {
   max-width: 64rem;
 }
-.records td.is-id {
+.records td.is-id,
+.ledger th.is-name {
   padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
   width: 100%;
   max-width: 0;
@@ -696,7 +697,8 @@ p:has(> button) + .prose {
   padding-block: max(0px, (var(--target) - 1lh) / 2);
 }
 @media (max-width: 640px), (pointer: coarse) {
-  .records td.is-id {
+  .records td.is-id,
+  .ledger th.is-name {
     padding-block: 0;
   }
   .records td.is-id :is(a, span).cut {
@@ -2248,13 +2250,13 @@ p mark.placeholder {
 }
 .ledger-layout .bar-cell {
   width: var(--ledger-bar);
+  min-width: var(--ledger-bar);
 }
 .ledger.by-cost th:has(time) {
   white-space: nowrap;
 }
-.ledger.by-cost th:has(> a.cut) {
-  /* Let the other cells size to their figures and cut the link in the space left. */
-  max-width: 0;
+.ledger .runner-ref {
+  white-space: normal;
 }
 .report-range {
   color: var(--c-ink);
