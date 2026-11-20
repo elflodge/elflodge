@@ -9,7 +9,7 @@ import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
-import { FieldError } from "../../../components/FieldError.tsx";
+import { Field, FieldGroup } from "../../../components/Field.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { formRefusal, createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
@@ -249,49 +249,35 @@ function CreateKey(props: { onClose: () => void }) {
               Create an API key
             </h2>
             <div class="dialog-b">
-              <div class="field">
-                <label for="key-name">Name</label>
-                <input
-                  id="key-name"
-                  name="name"
-                  autocomplete="off"
-                  aria-invalid={field("name") ? "true" : undefined}
-                  aria-describedby={
-                    field("name") ? "key-name-hint key-name-error" : "key-name-hint"
-                  }
-                  onInput={({ currentTarget }) =>
-                    currentTarget.setCustomValidity(
-                      currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
-                        ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
-                        : "",
-                    )
-                  }
-                />
-                <Show when={field("name")}>
-                  {(message) => <FieldError id="key-name-error">{message()}</FieldError>}
-                </Show>
-                <p class="note" id="key-name-hint">
-                  Optional, up to {MAX_API_KEY_NAME_LENGTH} characters.
-                </p>
-              </div>
-              <fieldset
-                class="field"
-                tabindex="-1"
-                aria-invalid={field("permissions") ? "true" : undefined}
-                aria-describedby={
-                  field("permissions")
-                    ? "key-permissions-hint key-permissions-error"
-                    : "key-permissions-hint"
-                }
+              <Field
+                label="Name"
+                hint={`Optional, up to ${MAX_API_KEY_NAME_LENGTH} characters.`}
+                error={field("name")}
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    name="name"
+                    autocomplete="off"
+                    onInput={({ currentTarget }) =>
+                      currentTarget.setCustomValidity(
+                        currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
+                          ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
+                          : "",
+                      )
+                    }
+                  />
+                )}
+              </Field>
+              <FieldGroup
+                label="Permissions"
+                hint="Choose at least one action."
+                error={field("permissions")}
                 ref={(group) => {
                   onSettled(() => validatePermissions(group));
                 }}
                 onChange={(event) => validatePermissions(event.currentTarget)}
               >
-                <legend>Permissions</legend>
-                <p class="note" id="key-permissions-hint">
-                  Choose at least one action.
-                </p>
                 <For each={GRANTABLE}>
                   {([resource, group]) => (
                     <fieldset class="check-group">
@@ -311,26 +297,16 @@ function CreateKey(props: { onClose: () => void }) {
                     </fieldset>
                   )}
                 </For>
-                <Show when={field("permissions")}>
-                  {(message) => <FieldError id="key-permissions-error">{message()}</FieldError>}
-                </Show>
-              </fieldset>
-              <div class="field">
-                <label for="key-expires">Expires</label>
-                <select
-                  id="key-expires"
-                  name="expiresIn"
-                  aria-invalid={field("expiresIn") ? "true" : undefined}
-                  aria-describedby={field("expiresIn") ? "key-expires-error" : undefined}
-                >
-                  <For each={EXPIRIES}>
-                    {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
-                  </For>
-                </select>
-                <Show when={field("expiresIn")}>
-                  {(message) => <FieldError id="key-expires-error">{message()}</FieldError>}
-                </Show>
-              </div>
+              </FieldGroup>
+              <Field label="Expires" error={field("expiresIn")}>
+                {(control) => (
+                  <select {...control} name="expiresIn">
+                    <For each={EXPIRIES}>
+                      {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
+                    </For>
+                  </select>
+                )}
+              </Field>
               <Show when={failure()?.alert}>
                 {(message) => <Notice role="alert">{message()}</Notice>}
               </Show>

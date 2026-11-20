@@ -135,8 +135,10 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await page.getByText("Resume asks for a larger model budget.").waitFor();
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  const field = dialog.getByLabel("New model budget (USD)");
+  const field = dialog.getByLabel("New model budget USD");
   const submit = dialog.getByRole("button", { name: "Resume the job" });
+  const hint = /^Cost so far .+ The new budget must exceed this cost\.$/;
+  await expectBrowser(field).toHaveAccessibleDescription(hint);
   await field.fill("0.000001");
   await submit.click();
   await expectBrowser(dialog.getByRole("alert")).toContainText(
@@ -165,9 +167,13 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await submit.click();
   await expectBrowser(field).toBeFocused();
   await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
-  await expectBrowser(field).toHaveAccessibleDescription(/maximum/i);
+  await expectBrowser(field).toHaveAccessibleDescription(
+    /The new budget must exceed this cost\. Must be at most .+maximum/i,
+  );
   system.model.setResponses([callTool("submit_output", { value: 17 })]);
   await field.fill("1");
+  await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(field).toHaveAccessibleDescription(hint);
   await submit.click();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText("17", {

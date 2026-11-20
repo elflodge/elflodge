@@ -7,7 +7,7 @@ import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
-import { FieldError } from "./FieldError.tsx";
+import { Field } from "./Field.tsx";
 import { BesideStatus, JobStatus } from "./JobStatus.tsx";
 import { Notice } from "./Notice.tsx";
 
@@ -233,36 +233,29 @@ export function JobControls(props: {
               Resume the job
             </h2>
             <div class="dialog-b">
-              <div class="field">
-                <label for="job-budget">New model budget (USD)</label>
-                <input
-                  name="modelBudgetUsd"
-                  id="job-budget"
-                  type="number"
-                  required
-                  min="0"
-                  step="any"
-                  readonly={pending()}
-                  aria-invalid={budgetFailure()?.fields.has("budget") ? "true" : undefined}
-                  aria-describedby={
-                    budgetFailure()?.fields.has("budget")
-                      ? "spent-budget budget-error"
-                      : "spent-budget"
-                  }
-                  onInput={() => setBudgetFailure(undefined)}
-                  autofocus
-                  ref={(element) => {
-                    budgetField = element;
-                  }}
-                />
-                <Show when={budgetFailure()?.fields.get("budget")}>
-                  {(message) => <FieldError id="budget-error">{message()}</FieldError>}
-                </Show>
-                <p id="spent-budget" class="note">
-                  Cost so far {USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The
-                  new budget must exceed this cost.
-                </p>
-              </div>
+              <Field
+                label="New model budget"
+                unit="USD"
+                hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
+                error={budgetFailure()?.fields.get("budget")}
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    name="modelBudgetUsd"
+                    type="number"
+                    required
+                    min="0"
+                    step="any"
+                    readonly={pending()}
+                    onInput={() => setBudgetFailure(undefined)}
+                    autofocus
+                    ref={(element) => {
+                      budgetField = element;
+                    }}
+                  />
+                )}
+              </Field>
               <Show when={!props.resumeOffered}>
                 <p role="status">{props.cannotResume ?? "This job can no longer be resumed."}</p>
               </Show>

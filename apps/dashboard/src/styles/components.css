@@ -444,6 +444,9 @@
 .note.is-unknown {
   color: var(--c-unknown);
 }
+.field-error > span:last-child {
+  white-space: pre-line;
+}
 .note > .mark,
 .field-error > .mark {
   align-self: center;

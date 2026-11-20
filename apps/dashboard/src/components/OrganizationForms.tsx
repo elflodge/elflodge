@@ -8,7 +8,7 @@ import { createFormAction, fieldText } from "../form.ts";
 import { isLoopback } from "../hub-address.ts";
 import { ROLE_LABEL, asRole, invitationLink, rolesOf, type MemberRole } from "../organization.ts";
 import { CopyButton } from "./CopyButton.tsx";
-import { FieldError } from "./FieldError.tsx";
+import { Field } from "./Field.tsx";
 import { Instant } from "./Instant.tsx";
 import { Notice } from "./Notice.tsx";
 
@@ -263,24 +263,20 @@ export function InviteMember(
         invitation, invite the address again. Only an owner can replace an invitation that grants
         owner.
       </p>
-      <div class="field">
-        <label for="invite-email">Email</label>
-        <input
-          id="invite-email"
-          name="email"
-          type="email"
-          required
-          ref={(element) => {
-            emailField = element;
-          }}
-          aria-invalid={emailError() ? "true" : undefined}
-          aria-describedby={emailError() ? "invite-email-error" : undefined}
-          onInput={() => setEmailError(undefined)}
-        />
-        <Show when={emailError()}>
-          {(message) => <FieldError id="invite-email-error">{message()}</FieldError>}
-        </Show>
-      </div>
+      <Field label="Email" error={emailError()}>
+        {(control) => (
+          <input
+            {...control}
+            name="email"
+            type="email"
+            required
+            ref={(element) => {
+              emailField = element;
+            }}
+            onInput={() => setEmailError(undefined)}
+          />
+        )}
+      </Field>
       <RoleChoices owner={props.owner} value={role()} choose={setRole} />
     </FormDialog>
   );
@@ -300,10 +296,9 @@ export function RenameOrganization(
         close();
       }}
     >
-      <div class="field">
-        <label for="organization-name">Name</label>
-        <input id="organization-name" name="name" defaultValue={startingName} required />
-      </div>
+      <Field label="Name">
+        {(control) => <input {...control} name="name" defaultValue={startingName} required />}
+      </Field>
     </FormDialog>
   );
 }
