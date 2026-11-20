@@ -1,12 +1,13 @@
 import { parseFormData } from "@orpc/openapi/helpers";
-import { useQuery, type UseQueryResult } from "@tanstack/solid-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/solid-query";
 import {
   Link,
   Outlet,
   createFileRoute,
+  linkOptions,
   useChildMatches,
   useLocation,
-  useNavigate,
+  useRouter,
 } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, jobIdSchema, jobStatusSchema, type Runner } from "contract";
 import { For, Show, createEffect, createMemo, createSignal, onFlush, onSettled } from "solid-js";
@@ -52,7 +53,14 @@ export const jobsSearchSchema = z.object({
   runnerId: optionalText,
   after: z.catch(z.optional(jobIdSchema), undefined),
 });
-const jobsFiltersSchema = z.omit(jobsSearchSchema, { after: true });
+// The checkboxes and the hub both treat statuses as a set. Back can restore a different URL order.
+const jobsFiltersSchema = z.pipe(
+  z.omit(jobsSearchSchema, { after: true }),
+  z.transform(({ status, ...filters }) => ({
+    status: status && STATUSES.filter((value) => status.includes(value)),
+    ...filters,
+  })),
+);
 export type JobsSearch = z.infer<typeof jobsSearchSchema>;
 
 /** How many of the filters `search` applies; the page it reads from is not one. */
@@ -110,7 +118,7 @@ export function ClearFiltersLink(props: { children: string; closePanel?: () => v
       return;
     props.closePanel?.();
     const target = filterFocusTarget();
-    if (target?.checkVisibility()) target.focus();
+    if (target?.checkVisibility()) (target.disabled ? target.form : target)?.focus();
     else focusWhenVisible = true;
   }
   // A refused read hides the form. Its recovery link disappears when the form is visible again.
@@ -132,7 +140,8 @@ export function ClearFiltersLink(props: { children: string; closePanel?: () => v
 
 /** The filters, as one form that applies them all at once. */
 function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: Runner[] }) {
-  const navigate = useNavigate();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const applied = () => filterCount(props.filters);
 
   const [open, setOpen] = createSignal(false);
@@ -146,8 +155,22 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
     const form = new FormData(element);
     closePanel();
     filterFocusTarget()?.focus();
-    const search = jobsSearchSchema.parse(parseFormData(form));
-    return navigate({ to: "/jobs", search });
+    const search = jobsFiltersSchema.parse(parseFormData(form));
+    const destination = linkOptions({ to: "/jobs", search });
+    const current = router.latestLocation;
+    if (
+      current.pathname === destination.to &&
+      !current.hash &&
+      current.searchStr === router.buildLocation(destination).searchStr
+    ) {
+      // The router loads an unchanged location inside the Solid action, which can hold the commit
+      // navigation is waiting for. Apply here only needs to refresh the displayed list.
+      return queryClient.refetchQueries({
+        queryKey: orpc.jobs.list.queryKey({ input: search }),
+        exact: true,
+      });
+    }
+    return router.navigate(destination);
   });
 
   // Key options by ID so that resolving a Runner name updates the reader's existing option.
@@ -191,12 +214,16 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
           form = element;
         }}
         id="jobs-filters"
+        tabindex="-1"
         class="filters-form"
         aria-label="Filter the jobs"
         onSubmit={async (event) => {
+          const submittedForm = event.currentTarget;
           await onSubmit(event);
-          // Clear can replace a pending read while Apply is still disabled.
-          focusIfLost(filterFocusTarget());
+          // Clear can put focus on the form while Apply is disabled. Preserve a move to another field.
+          const target = filterFocusTarget();
+          if (document.activeElement === submittedForm) target?.focus();
+          else focusIfLost(target);
         }}
       >
         <div class="filters-row">
