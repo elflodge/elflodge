@@ -120,6 +120,56 @@ async function expectUnavailable(invitationId: string) {
   );
 }
 
+test("an admin's re-invite preserves a live owner invitation and its grant", async () => {
+  const cookie = await joinAsInviter("inviting-admin@example.com", "admin");
+  const email = "invited-owner@example.com";
+  const { id: invitationId } = await invite(email, "owner");
+  const response = await authPost(
+    "organization/invite-member",
+    { email: email.toUpperCase(), role: "member", organizationId },
+    cookie,
+  );
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({
+    code: "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE",
+  });
+
+  const invitations = system.client().invitations;
+  expect(await invitations.preview({ invitationId })).toMatchObject({ email, role: "owner" });
+  await invitations.accept({ invitationId, name: "Invited owner", password });
+  const { members } = await system
+    .ownerAuth()
+    .organization.listMembers({ query: { organizationId } });
+  expect(members.find((member) => member.user.email === email)?.role).toBe("owner");
+});
+
+test("only an owner can cancel an invitation granting owner by ID", async () => {
+  const cookie = await joinAsInviter("canceling-admin@example.com", "admin");
+  const { id: invitationId } = await invite("cancel-owner@example.com", ["admin", "owner"]);
+  const response = await authPost("organization/cancel-invitation", { invitationId }, cookie);
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({
+    code: "YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION",
+  });
+  await system.client().invitations.preview({ invitationId });
+  await system.ownerAuth().organization.cancelInvitation({ invitationId });
+  await expectUnavailable(invitationId);
+});
+
+test("an owner can replace an admin's member invitation in one call", async () => {
+  const cookie = await joinAsInviter("replaced-inviter@example.com", "admin");
+  const email = "replacement@example.com";
+  const original = await invite(email, "member", cookie);
+  const replacement = await invite(email, "admin");
+  await expectUnavailable(original.id);
+  const invitations = system.client().invitations;
+  expect(await invitations.preview({ invitationId: replacement.id })).toMatchObject({
+    email,
+    role: "admin",
+  });
+  await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
+});
+
 test("demotion to admin voids owner grants, hides owner invitations and prevents removing an owner", async () => {
   const email = "inviter@example.com";
   const cookie = await joinAsInviter(email, ["owner", "admin"]);

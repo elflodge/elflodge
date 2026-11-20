@@ -1,5 +1,7 @@
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
@@ -7,8 +9,9 @@ import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
 import { DB_SCHEMA } from "../db/database.ts";
-import { type Database, UserId } from "../db/types.ts";
+import { type Database, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
+import { findProtectedInvitation, mayGrantRole } from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -91,6 +94,7 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
 
 /** Better Auth's options for the hub. */
 export function authOptions(settings: AuthSettings) {
+  const db = settings.db.withSchema(DB_SCHEMA);
   return {
     secret: settings.secret,
     baseURL: settings.baseURL,
@@ -147,6 +151,32 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/update",
       "/api-key/delete",
     ],
+    hooks: {
+      // Who may replace an invitation follows who may see it and grant its role. Inviting an address
+      // again replaces its pending invitation, so a request hook decides before anything is
+      // replaced. Remove it when the library enforces the same rule itself (ADR 0015).
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/organization/invite-member" || ctx.body?.resend === true) return;
+        const email = ctx.body?.email;
+        if (typeof email !== "string") return;
+        const session = await getSessionFromCtx(ctx);
+        if (!session)
+          throw APIError.from("UNAUTHORIZED", { code: "UNAUTHORIZED", message: "Unauthorized" });
+        const organizationId = ctx.body.organizationId || session.session.activeOrganizationId;
+        if (typeof organizationId !== "string") return;
+        const protectedInvitation = await findProtectedInvitation(
+          db,
+          OrganizationId(organizationId),
+          UserId(session.user.id),
+          email,
+        );
+        if (protectedInvitation)
+          throw APIError.from(
+            "FORBIDDEN",
+            ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE,
+          );
+      }),
+    },
     logger: {
       // Better Auth's lines go to the console like the hub's own, without terminal colours, so Workers
       // Logs keeps them with the request they belong to.
@@ -166,6 +196,23 @@ export function authOptions(settings: AuthSettings) {
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
         cancelPendingInvitationsOnReInvite: true,
+        organizationHooks: {
+          // Only a member who could grant an invitation's role may cancel it. Remove this when the
+          // library enforces the same rule itself (ADR 0015).
+          async beforeCancelInvitation({ invitation, cancelledBy }) {
+            const member = await db
+              .selectFrom("member")
+              .where("organizationId", "=", OrganizationId(invitation.organizationId))
+              .where("userId", "=", UserId(cancelledBy.id))
+              .select((eb) => mayGrantRole(eb.ref("role"), eb.val(invitation.role)).as("mayGrant"))
+              .executeTakeFirst();
+            if (!member?.mayGrant)
+              throw APIError.from(
+                "FORBIDDEN",
+                ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION,
+              );
+          },
+        },
       }),
       apiKey([
         {
