@@ -19,7 +19,6 @@ import { For, Show, createSignal, createEffect } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
-import { FieldError } from "../../../components/FieldError.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText } from "../../../form.ts";
 import { UTC_MONTH } from "../../../format.ts";
@@ -71,13 +70,6 @@ export function reportOptions(search: UsageSearch) {
 
 export function refusedReport(error: unknown): error is HubReadError {
   return error instanceof HubReadError && problemOf(error.cause)?.status === 400;
-}
-
-// The hub sends validation paths in Zod’s printed detail, including for a refused window.
-export function refusedField(detail: string | undefined, name: string) {
-  const lines = detail?.split("\n");
-  const path = lines?.indexOf(`  → at ${name}`) ?? -1;
-  return path > 0 ? lines?.[path - 1]?.replace(/^✖ /, "") : undefined;
 }
 
 function Usage() {
@@ -140,17 +132,18 @@ function GrantedUsage() {
         <div class="head">
           <h1>Usage</h1>
         </div>
-        <ReportForm
-          report={report.dataUpdatedAt ? report.data : undefined}
-          detail={problem()?.status === 400 ? problem()?.detail : undefined}
-        />
+        <ReportForm report={report.dataUpdatedAt ? report.data : undefined} />
+        {/* Problem Details gives the reason in words and has no structured field location. */}
+        <Show when={problem()?.status === 400}>
+          <Notice role="alert">{hubFailureMessage(report.error)}</Notice>
+        </Show>
       </div>
       <Outlet />
     </Show>
   );
 }
 
-function ReportForm(props: { report?: UsageReport; detail?: string }) {
+function ReportForm(props: { report?: UsageReport }) {
   const search = Route.useSearch();
   const range = () => rangeOf(search());
   const grouping = () => usageGrouping(search().groupBy);
@@ -181,16 +174,6 @@ function ReportForm(props: { report?: UsageReport; detail?: string }) {
   });
   let form: HTMLFormElement | undefined;
   createEffect(search, () => form?.reset(), { defer: true });
-  const error = (name: string) => refusedField(props.detail, name);
-  const fieldAttrs = (name: string) => ({
-    "aria-invalid": error(name) ? ("true" as const) : undefined,
-    "aria-describedby": error(name) ? `usage-${name}-error` : undefined,
-  });
-  const fieldError = (name: string) => (
-    <Show when={error(name)}>
-      {(message) => <FieldError id={`usage-${name}-error`}>{message()}</FieldError>}
-    </Show>
-  );
   return (
     <form
       ref={(el) => {
@@ -211,7 +194,6 @@ function ReportForm(props: { report?: UsageReport; detail?: string }) {
           <select
             id="usage-range"
             name="period"
-            {...fieldAttrs("period")}
             onChange={({ currentTarget }) => setRange(currentTarget.value)}
           >
             <For each={["7d", "30d", ...months(), "custom"]}>
@@ -222,7 +204,6 @@ function ReportForm(props: { report?: UsageReport; detail?: string }) {
               )}
             </For>
           </select>
-          {fieldError("period")}
         </div>
         <Show when={(draftRange() ?? range()) === "custom"}>
           <For each={["from", "to"] as const}>
@@ -239,9 +220,7 @@ function ReportForm(props: { report?: UsageReport; detail?: string }) {
                       ? (props.report?.[name] ?? search()[name])
                       : search()[name]) ?? ""
                   }
-                  {...fieldAttrs(name)}
                 />
-                {fieldError(name)}
               </div>
             )}
           </For>
@@ -270,9 +249,7 @@ function ReportForm(props: { report?: UsageReport; detail?: string }) {
               title="A Label name, optionally after a DNS prefix and /"
               required
               defaultValue={grouping().labelKey ?? ""}
-              {...fieldAttrs("groupBy")}
             />
-            {fieldError("groupBy")}
           </div>
         </Show>
         <span class="filter-act">

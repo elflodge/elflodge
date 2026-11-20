@@ -1,4 +1,11 @@
-import { type Labels, MAX_USAGE_DAYS, usageGroupsSchema, type UsageGroupBy } from "contract";
+import type { DistributiveOmit } from "@orpc/shared";
+import {
+  type Labels,
+  MAX_USAGE_DAYS,
+  usageGroupsSchema,
+  type UsageGroupBy,
+  type UsageReport,
+} from "contract";
 import { DateTime, Duration, Effect } from "effect";
 import {
   type AbortableQueryOptions,
@@ -55,7 +62,7 @@ const FIRST_DAY = DateTime.makeUnsafe("0001-01-01");
 export function readUsage(role: string, query: UsageQuery) {
   return Effect.gen(function* () {
     yield* requireRolePermission(role, { usage: ["read"] });
-    // recordedAt is the database clock (ADR 0044). The read and its window share the process clock.
+    // The database’s clock dates recordedAt (ADR 0044). The hub’s clock dates the read and its window.
     const now = yield* DateTime.now;
     const today = DateTime.startOf(now, "day");
     const window = yield* windowOf(query, today);
@@ -76,7 +83,12 @@ function refused(path: "period" | "from" | "to", message: string) {
   return Effect.fail(new InvalidInput({ problems: [{ message, path: [path] }] }));
 }
 
-/** Resolve the requested period, or the inclusive dates, against the same UTC day as the answer. */
+/**
+ * Resolve a rolling period, a calendar month or explicit dates. Both ends are included,
+ * and a requested end after `today` stops at `today`.
+ * With no period or start date, take `DEFAULT_DAYS` ending on the effective last day.
+ * A refusal names the input that put the window outside its bounds.
+ */
 function windowOf({ period, from, to }: UsageQuery, today: DateTime.Utc) {
   const last = to === undefined ? today : DateTime.min(DateTime.makeUnsafe(to), today);
   let count = DEFAULT_DAYS;
@@ -97,11 +109,15 @@ function windowOf({ period, from, to }: UsageQuery, today: DateTime.Utc) {
   }
   const first =
     from === undefined ? DateTime.subtract(last, { days: count - 1 }) : DateTime.makeUnsafe(from);
-  if (DateTime.isLessThan(last, FIRST_DAY)) return refused("to", "Must be 0001-01-01 or later");
+  const tooEarly = `Must be ${DateTime.formatIsoDateUtc(FIRST_DAY)} or later`;
+  if (DateTime.isLessThan(last, FIRST_DAY)) return refused("to", tooEarly);
   if (DateTime.isLessThan(first, FIRST_DAY)) {
-    return from === undefined
-      ? refused("to", "Must be 0001-01-30 or later without `from`")
-      : refused("from", "Must be 0001-01-01 or later");
+    if (from !== undefined) return refused("from", tooEarly);
+    const earliestEnd = DateTime.add(FIRST_DAY, { days: DEFAULT_DAYS - 1 });
+    return refused(
+      "to",
+      `Must be ${DateTime.formatIsoDateUtc(earliestEnd)} or later without \`from\`, which is then ${DEFAULT_DAYS - 1} days before \`to\``,
+    );
   }
   if (DateTime.isGreaterThan(first, today)) return refused("from", "Must not be after today");
   if (DateTime.isGreaterThan(first, last)) return refused("from", "Must not be after `to`");
@@ -210,7 +226,7 @@ async function selectUsage(
   window: Window,
   query: UsageQuery,
   options: AbortableQueryOptions,
-) {
+): Promise<DistributiveOmit<UsageReport, "today" | "readAt">> {
   const records = recordsOf(db, window, query);
   const grouping = query.groupBy === undefined ? undefined : groupingOf(query.groupBy, records);
   const report = db

@@ -660,11 +660,12 @@ export const usageGroupsSchema = z.array(usageGroupSchema);
 const usageWindowSchema = z.extend(usageCountSchema, {
   /** The window's first day, a UTC day. */
   from: dateSchema,
-  to: dateSchema.check(z.describe("The effective last UTC day, included, at most today.")),
-  today: dateSchema.check(
-    z.describe("The hub’s UTC day when it read the figures, still being recorded."),
-  ),
-  readAt: z.date().check(z.describe("The instant the hub read the figures, by its process clock.")),
+  /** The window's last UTC day, included, capped at today. */
+  to: dateSchema,
+  /** The hub's UTC day at the read, still being recorded. */
+  today: dateSchema,
+  /** When the figures were read, by the hub's clock. */
+  readAt: z.date(),
   /** Every UTC day of the window, oldest first, including days without job ends. */
   days: z.array(z.extend(usageCountSchema, { date: dateSchema })),
 });

@@ -166,7 +166,7 @@ test("west of UTC a job end keeps its UTC calendar day and weekday", async () =>
   ).toHaveText(String(day.jobEnds));
 }, 30_000);
 
-test("a member can correct the refused date and leave the end open through today", async () => {
+test("a member can correct a refused range and leave the end open through today", async () => {
   const page = await newPage();
   await signInAt(system, page, "usage?period=7d", OWNER);
   const report = await system.owner().usage.get({ period: "7d" });
@@ -179,11 +179,18 @@ test("a member can correct the refused date and leave the end open through today
   await to.fill("");
   const show = page.getByRole("button", { name: "Show", exact: true });
   await show.click();
-  await expectBrowser(from).toBeFocused();
-  await expectBrowser(from).toHaveAccessibleDescription(/400 days/);
-  // Showing the same refused question retries the loader and returns focus to the date again.
+  const refusal = page.getByRole("alert");
+  await expectBrowser(refusal).toContainText("400 days");
+  await expectBrowser(from).toHaveValue("2000-01-01");
+  await expectBrowser(to).toHaveValue("");
+  await expectBrowser(show).toBeFocused();
+  const retry = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/usage" && response.status() === 400,
+  );
   await show.click();
-  await expectBrowser(from).toBeFocused();
+  await retry;
+  await expectBrowser(refusal).toContainText("400 days");
+  await expectBrowser(show).toBeFocused();
   await expectBrowser(show).not.toHaveAttribute("aria-disabled", "true");
   await from.fill(report.today);
   await show.click();

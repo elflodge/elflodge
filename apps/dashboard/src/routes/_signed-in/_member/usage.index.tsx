@@ -1,23 +1,16 @@
 import { useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute } from "@tanstack/solid-router";
+import { problemOf } from "contract";
 import { Show } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
-import { Notice } from "../../../components/Notice.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { focusAfterLinkDrops } from "../../../form.ts";
 import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
 import { usageGrouping } from "../../../usage-grouping.ts";
-import {
-  rangeOf,
-  rangeName,
-  refusedField,
-  reportDefaults,
-  reportOptions,
-  refusedReport,
-} from "./usage.tsx";
+import { rangeOf, rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/usage/")({
   // Read on activation, on Show and when a stale report becomes visible. A 30-day report by
@@ -47,11 +40,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
     const search = Route.useSearch();
     const error = props.error;
     const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));
-    if (refusedReport(error)) {
-      if (["from", "to", "period", "groupBy"].some((name) => refusedField(error.detail, name)))
-        return null;
-      return <Notice role="alert">{error.detail}</Notice>;
-    }
+    if (refusedReport(error)) return null;
     return (
       <ReadErrorPage {...props} heading="Usage">
         <Show
@@ -104,7 +93,7 @@ function Report() {
         after it ended counts again. Read at{" "}
         <Instant value={query.data.readAt} format={TIME_ZONED} />.
       </p>
-      <Show when={query.isError}>
+      <Show when={query.isError && problemOf(query.error)?.status !== 400}>
         <FailedReadNotice
           what="Usage"
           detail={hubFailureMessage(query.error)}

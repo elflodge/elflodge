@@ -2262,9 +2262,6 @@ p mark.placeholder {
 .report-range + .note {
   max-width: var(--measure);
 }
-.filter-field > .field-error {
-  flex-basis: 100%;
-}
 .ledger.by-cost .label-value {
   white-space: pre-wrap;
 }
