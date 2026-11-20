@@ -529,10 +529,12 @@ function signIn(state: State) {
         {
           signal,
           onSuccess: setCookieToHeader(headers),
-          onError: ({ error, response }) => {
-            throw new Error(
-              `The hub refused the owner's sign-in (HTTP ${response.status}): ${error.message ?? response.statusText}`,
-            );
+          onResponse: async ({ response }) => {
+            if (!response.ok) {
+              throw new Error(
+                `The hub refused the owner's sign-in (HTTP ${response.status}): ${await response.text()}`,
+              );
+            }
           },
         },
       );
