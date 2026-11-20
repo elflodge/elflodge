@@ -17,7 +17,7 @@ export default interface JobEventChunkTable {
 
   events: ColumnType<string, string, string>;
 
-  storedAt: ColumnType<Date, Date | string, Date | string>;
+  recordedAt: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 
 export type JobEventChunk = Selectable<JobEventChunkTable>;

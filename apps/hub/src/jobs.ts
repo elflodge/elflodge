@@ -39,7 +39,7 @@ import {
 import { jsonArrayFrom, jsonBuildObject, jsonObjectFrom } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
-import { type Caller, keyMetadataSchema } from "./auth/auth.ts";
+import type { Caller } from "./auth/auth.ts";
 import { deleteUnusedBlobs } from "./blobs.ts";
 import { Db, DB_SCHEMA, greatest, plusDuration } from "./db/database.ts";
 import {
@@ -58,7 +58,7 @@ import {
   type NewJob,
   type RunnerId,
   type UsageRecordId,
-  UserId,
+  type UserId,
 } from "./db/types.ts";
 import { lockInputFileBlobs } from "./input-files.ts";
 import { connectedOf, GONE_AFTER_MS } from "./runners.ts";
@@ -75,7 +75,11 @@ const MAX_PAGE_BYTES = 1024 * 1024;
 /** The columns a submitter is read from, on a Batch, a job or a Usage record. */
 export const SUBMITTER_COLUMNS = ["submitterKind", "submitterId", "submitterName"] as const;
 
-/** What a job's Usage record copies from the job's row at its end, beside the job's ID. */
+/**
+ * What a job's Usage record copies from the job's row at its end, beside the job's ID.
+ * `startedAt` is the job's first start, kept so a deleted job still shows its lifecycle times.
+ * Usage counts what the job used since its previous end, which can include several runs.
+ */
 export const USAGE_COPIED_COLUMNS = [
   "organizationId",
   "batchUid",
@@ -84,7 +88,6 @@ export const USAGE_COPIED_COLUMNS = [
   "failureReason",
   "runnerId",
   ...SUBMITTER_COLUMNS,
-  "keyCreatorUserId",
   "createdAt",
   "startedAt",
   "endedAt",
@@ -189,27 +192,13 @@ interface BatchForBlock {
   unfinishedCanary: Expression<SqlBool>;
 }
 
-/** Why an unsent queued job is blocked, given its Batch's pause and whether its Canary is unfinished. */
-export function blockedByForUnsentQueuedJob(
+/** Whether a job is outside its Batch's still unfinished Canary. */
+export function isOutsideUnfinishedCanary(
   inCanary: Expression<JobRow["inCanary"]>,
-  batch: BatchForBlock,
+  unfinishedCanary: Expression<SqlBool>,
 ) {
   const eb = expressionBuilder();
-  return eb
-    .case(batch.pausedBy)
-    .when("caller")
-    .then(eb.val<BlockedBy>("batchPausedByCaller"))
-    .when("breaker")
-    .then(eb.val<BlockedBy>("batchPausedByBreaker"))
-    .else(
-      eb
-        .case()
-        .when(eb.and([eb(inCanary, "=", false), batch.unfinishedCanary]))
-        .then(eb.val<BlockedBy>("batchCanary"))
-        .else(eb.lit(null))
-        .end(),
-    )
-    .end();
+  return eb.and([eb(inCanary, "=", false), unfinishedCanary]);
 }
 
 /**
@@ -217,8 +206,8 @@ export function blockedByForUnsentQueuedJob(
  * pause and whether its Canary is unfinished. Only a queued job not yet sent is blocked, by its
  * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
  * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
- * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
- * by reason use the same rule.
+ * a Batch is one write; placement sends only the jobs this finds nothing for. Batch reads count
+ * jobs waiting for a Canary by the same rule.
  */
 export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
   const eb = expressionBuilder();
@@ -226,7 +215,24 @@ export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
     .case()
     .when(eb.or([eb(job.status, "!=", "queued"), eb(job.placedAt, "is not", null)]))
     .then(eb.lit(null))
-    .else(blockedByForUnsentQueuedJob(job.inCanary, batch))
+    .else(
+      // A job read looks up the pause in its Batch. A simple CASE looks it up once.
+      eb
+        .case(batch.pausedBy)
+        .when("caller")
+        .then(eb.val<BlockedBy>("batchPausedByCaller"))
+        .when("breaker")
+        .then(eb.val<BlockedBy>("batchPausedByBreaker"))
+        .else(
+          eb
+            .case()
+            .when(isOutsideUnfinishedCanary(job.inCanary, batch.unfinishedCanary))
+            .then(eb.val<BlockedBy>("batchCanary"))
+            .else(eb.lit(null))
+            .end(),
+        )
+        .end(),
+    )
     .end();
 }
 
@@ -490,11 +496,11 @@ export function limitProblems(given: GivenLimits, settings: JobLimits) {
 }
 
 /**
- * Who submitted a Batch or a job, copied as it was then: the API key it was sent with, with the user
- * who created the key, or the member whose session sent it.
+ * Who submitted a Batch or a job, copied as it was then: the API key it was sent with or the
+ * member whose session sent it.
  */
 export type Submitter =
-  | { kind: typeof KEY_SUBMITTER; id: ApikeyId; name: string | null; keyCreatorUserId: UserId }
+  | { kind: typeof KEY_SUBMITTER; id: ApikeyId; name: string | null }
   | { kind: typeof MEMBER_SUBMITTER; id: UserId; name: string };
 
 /**
@@ -504,12 +510,10 @@ export type Submitter =
 export function submitterOf(caller: Caller): Effect.Effect<Submitter> {
   if (caller.kind === "key") {
     const { key } = caller;
-    const { createdBy } = keyMetadataSchema.parse(key.metadata);
     return Effect.succeed({
       kind: KEY_SUBMITTER,
       id: key.id,
       name: key.name,
-      keyCreatorUserId: UserId(createdBy),
     });
   }
   if (caller.kind === "member") {
@@ -525,12 +529,11 @@ export function submitterOf(caller: Caller): Effect.Effect<Submitter> {
 /** The columns that record `submitter` on a Batch, a job or a Usage record. */
 export function submitterColumns(
   submitter: Submitter,
-): Pick<NewJob, (typeof SUBMITTER_COLUMNS)[number] | "keyCreatorUserId"> {
+): Pick<NewJob, (typeof SUBMITTER_COLUMNS)[number]> {
   return {
     submitterKind: submitter.kind,
     submitterId: submitter.id,
     submitterName: submitter.name,
-    keyCreatorUserId: submitter.kind === KEY_SUBMITTER ? submitter.keyCreatorUserId : null,
   };
 }
 
@@ -1381,6 +1384,18 @@ function listedJobOf(
 }
 
 /**
+ * Read progress only for candidate jobs, without joining the whole progress table. A job and its
+ * progress row are created together, so this reads the same timestamp as an inner join.
+ */
+function lastReportedAtOf(jobId: Expression<JobId>) {
+  return expressionBuilder<Database>()
+    .selectFrom("jobProgress")
+    .select("jobProgress.lastReportedAt")
+    .whereRef("jobProgress.jobId", "=", jobId)
+    .$asScalar();
+}
+
+/**
  * A page of jobs matching `query`, newest first, after the job `query.after`: at most
  * `query.limit` of them, without their content, and whether more follow.
  */
@@ -1389,32 +1404,7 @@ export function listJobs(query: JobListQuery) {
     database.query(async (db) => {
       const { statuses, labels, batchId, customId, runnerId, statusUnknown, after, limit } = query;
       const now = new Date();
-      let selection = db
-        .selectFrom("job as j")
-        .innerJoin("jobProgress as p", "p.jobId", "j.id")
-        // Without the content a list leaves out.
-        .select((eb) => [
-          ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
-            (column) => `p.${column}` as const,
-          ),
-          blockedByOf({
-            status: eb.ref("j.status"),
-            placedAt: eb.ref("j.placedAt"),
-            batchUid: eb.ref("j.batchUid"),
-            inCanary: eb.ref("j.inCanary"),
-          }).as("blockedBy"),
-          batchIdOf(eb.ref("j.batchUid")).as("batchId"),
-          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
-          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
-        ]);
-      if (statusUnknown !== undefined) {
-        selection = selection.where((eb) =>
-          statusUnknown
-            ? isStatusUnknown(listedJobOf(eb), now)
-            : eb.not(isStatusUnknown(listedJobOf(eb), now)),
-        );
-      }
+      let selection = db.selectFrom("job as j").select("j.id");
       if (statuses.length > 0) {
         selection = selection.where("j.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
       }
@@ -1429,10 +1419,49 @@ export function listJobs(query: JobListQuery) {
       if (customId !== undefined) selection = selection.where("j.customId", "=", customId);
       if (runnerId !== undefined) selection = selection.where("j.runnerId", "=", runnerId);
       if (after !== undefined) selection = selection.where("j.id", "<", after);
-      const rows = await selection
+      // Read just IDs for the page so e.g. the index on (runnerId, id) can supply it without
+      // visiting a job's row. Load the displayed fields and progress for that page afterwards.
+      const pageIds = selection
         .orderBy("j.id", "desc")
         // One more than the page, to learn whether more follow.
-        .limit(limit + 1)
+        .limit(limit + 1);
+      const page =
+        statusUnknown === undefined
+          ? pageIds
+          : pageIds.where((eb) => {
+              const unknown = isStatusUnknown(
+                {
+                  status: eb.ref("j.status"),
+                  placedAt: eb.ref("j.placedAt"),
+                  runnerId: eb.ref("j.runnerId"),
+                  // Keep the ordered scan of placed jobs from reading unrelated progress rows.
+                  lastReportedAt: lastReportedAtOf(eb.ref("j.id")),
+                },
+                now,
+              );
+              return statusUnknown ? unknown : eb.not(unknown);
+            });
+      const rows = await db
+        .with("page", () => page)
+        .selectFrom("page")
+        .innerJoin("job as j", "j.id", "page.id")
+        .innerJoin("jobProgress as p", "p.jobId", "j.id")
+        .select((eb) => [
+          ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
+          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
+            (column) => `p.${column}` as const,
+          ),
+          blockedByOf({
+            status: eb.ref("j.status"),
+            placedAt: eb.ref("j.placedAt"),
+            batchUid: eb.ref("j.batchUid"),
+            inCanary: eb.ref("j.inCanary"),
+          }).as("blockedBy"),
+          batchIdOf(eb.ref("j.batchUid")).as("batchId"),
+          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
+          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
+        ])
+        .orderBy("page.id", "desc")
         .execute();
       return {
         // Read without their content, which the contract's `ListedJob` leaves out of the answer.
@@ -1499,14 +1528,7 @@ export function countJobs() {
               status: where.ref("job.status"),
               placedAt: where.ref("job.placedAt"),
               runnerId: where.ref("job.runnerId"),
-              // Looked up only for the candidates the other conditions leave: joined instead,
-              // the planner may read every job's row or every progress row. It differs from a
-              // join only for a job without a progress row, which the hub never leaves.
-              lastReportedAt: where
-                .selectFrom("jobProgress")
-                .select("jobProgress.lastReportedAt")
-                .whereRef("jobProgress.jobId", "=", "job.id")
-                .$asScalar(),
+              lastReportedAt: lastReportedAtOf(where.ref("job.id")),
             },
             now,
           ),

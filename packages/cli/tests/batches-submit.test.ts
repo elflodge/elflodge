@@ -55,7 +55,7 @@ function batchOf(id: string, jobCounts: Partial<Record<string, number>> = {}) {
       cancelled: 0,
       ...jobCounts,
     },
-    blockedJobCounts: { batchPausedByCaller: 0, batchPausedByBreaker: 0, batchCanary: 0 },
+    jobsWaitingForCanary: 0,
     statusUnknownJobs: 0,
     usage: { totalTokens: 0, cost: { totalUsd: 0 } },
   };

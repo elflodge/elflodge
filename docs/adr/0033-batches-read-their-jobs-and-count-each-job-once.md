@@ -23,4 +23,4 @@ Locks follow one order: a Runner before its jobs, as its removal takes them and 
 
 ## Consequences
 
-Reading a Batch counts its jobs, which costs a scan of its jobs' rows; reconsider at hundreds of thousands of jobs per Batch. Placement checks each queued job's Batch and Canary, so a large blocked Batch is read on every placement. A deleted job's custom ID is free again, so adding it again creates it anew. A host that kills jobs when it runs out of memory makes them fail, which the breaker counts like any other failure.
+Reading a Batch counts its jobs, which costs a scan of its jobs' rows; reconsider at hundreds of thousands of jobs per Batch. Placement checks the Batch's pause and Canary before taking a job. A large block of older, ineligible jobs can still require reading many queue entries to find enough work. A deleted job's custom ID is free again, so adding it again creates it anew. A host that kills jobs when it runs out of memory makes them fail, which the breaker counts like any other failure.

@@ -37,7 +37,7 @@ export function BatchConditions(props: { batch: ListedBatch; detailed?: boolean 
           </span>
         )}
       </Show>
-      <Show when={props.batch.blockedJobCounts.batchCanary}>
+      <Show when={props.batch.jobsWaitingForCanary}>
         {(count) => (
           <span class="beside">
             <span class="mark mark-blocked" aria-hidden="true" />

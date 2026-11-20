@@ -30,7 +30,7 @@ test("jobs submit retries an add whose connection dropped with the ID it created
           labels: {},
           breaker: false,
           jobCounts: { queued: 0, running: 0, paused: 0, succeeded: 0, failed: 0, cancelled: 0 },
-          blockedJobCounts: { batchPausedByCaller: 0, batchPausedByBreaker: 0, batchCanary: 0 },
+          jobsWaitingForCanary: 0,
           statusUnknownJobs: 0,
           usage: { totalTokens: 0, cost: { totalUsd: 0 } },
         }),

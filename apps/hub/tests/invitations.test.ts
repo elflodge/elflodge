@@ -170,17 +170,32 @@ test("an owner can replace an admin's member invitation in one call", async () =
   await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
 });
 
-test("an admin can replace an owner invitation after its inviter is demoted", async () => {
+test("renewal works while the inviter can grant the role and replacement works after demotion", async () => {
   const inviterEmail = "demoted-owner@example.com";
   const inviter = await joinAsInviter(inviterEmail, ["owner"]);
   const admin = await joinAsInviter("replacement-admin@example.com", "admin");
   const email = "reinvited-member@example.com";
   const original = await invite(email, "owner", inviter);
+  const resend = () =>
+    authPost(
+      "organization/invite-member",
+      { email, role: "owner", organizationId, resend: true },
+      system.ownerCookie(),
+    );
+  const renewed = await resend();
+  expect(renewed.status).toBe(200);
+  expect(await renewed.json()).toMatchObject({ id: original.id });
   const inviterMemberId = await memberId(inviterEmail);
   await system.ownerAuth().organization.updateMemberRole({
     memberId: inviterMemberId,
     role: "admin",
     organizationId,
+  });
+
+  const refused = await resend();
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({
+    message: "This invitation can no longer be renewed. Create a new invitation.",
   });
 
   const replacement = await invite(email, "member", admin);

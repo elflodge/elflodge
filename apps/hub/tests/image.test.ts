@@ -108,6 +108,8 @@ describe.skipIf(inject("hub") !== "node")("the Docker images", () => {
       .withNetworkAliases("hub")
       .withEnvironment({
         DATABASE_URL: `postgres://${database.getUsername()}:${database.getPassword()}@database:5432/${database.getDatabase()}`,
+        // The probe must reach the hub when it listens only on its container network address.
+        HOST: "hub",
         BETTER_AUTH_SECRET: "a-secret-only-for-tests-0123456789abcdef",
         HUB_URL: HUB_ORIGIN,
         ADMIN_EMAIL: OWNER.email,

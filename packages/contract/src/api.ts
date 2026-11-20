@@ -439,17 +439,8 @@ export const batchSchema = z
       failed: z.int(),
       cancelled: z.int(),
     }),
-    /**
-     * How many of its jobs show each `blockedBy` reason. Each is also counted in
-     * `jobCounts.queued`. New reasons may be added.
-     */
-    // An object, not a record keyed by the enum, so an older client drops a reason a newer hub
-    // adds instead of refusing the Batch; `satisfies` keeps a key for every reason.
-    blockedJobCounts: z.object({
-      batchPausedByCaller: z.int(),
-      batchPausedByBreaker: z.int(),
-      batchCanary: z.int(),
-    } satisfies Record<z.infer<typeof blockedBySchema>, unknown>),
+    /** How many of its queued jobs show `blockedBy: "batchCanary"`. */
+    jobsWaitingForCanary: z.int(),
     /**
      * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
      * recorded status.
@@ -608,8 +599,8 @@ const dateSchema = z.iso.date();
 
 /**
  * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner
- * they last ran on, the status they ended in, or the value of one of their labels, as
- * `label:customer`.
+ * they were last sent to as recorded at each end, the status they ended in, or the value of one
+ * of their labels, as `label:customer`.
  */
 export const usageGroupBySchema = z.union(
   [
@@ -630,9 +621,10 @@ const usageCountSchema = z.object({
 /**
  * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
  * ID; `submitter`, who submitted the jobs, with the name its latest record in the window holds,
- * the one recorded last, by `recordedAt` and then by order of writing; `runner`, the Runner the jobs last ran on, with its name while the Runner
- * exists, as a job shows it, or null for jobs that ended before a Runner started them; `status`, the
- * status the jobs ended in; or `labelValue`, the label's value, null for jobs without that label.
+ * the one recorded last, by `recordedAt` and then by order of writing. `runner` is the Runner the
+ * jobs were last sent to as recorded at their ends, with its name while the Runner exists, or
+ * null when the end records no Runner. `status` is the status the jobs ended in. `labelValue` is
+ * the label's value, or null for jobs without that label.
  */
 export const usageGroupSchema = z
   .union([
@@ -1375,7 +1367,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, `runner` for the Runner the jobs were last sent to as recorded at each end, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),
@@ -1407,7 +1399,9 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
               ),
           ),
           runnerId: z.optional(
-            textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
+            textSchema.check(
+              z.describe("The ID of the Runner the job was last sent to, as recorded at its end."),
+            ),
           ),
           status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
           labels: labelFilterSchema,

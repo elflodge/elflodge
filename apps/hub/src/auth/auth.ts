@@ -16,7 +16,6 @@ import {
 import { Cause, Context, Effect, Layer, type Types } from "effect";
 import ensureError from "ensure-error";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
-import * as z from "zod/mini";
 
 import { Db, DB_SCHEMA, openScopedDatabase } from "../db/database.ts";
 import { ApikeyId, type Database, OrganizationId } from "../db/types.ts";
@@ -67,7 +66,7 @@ export function fromBetterAuth(caught: unknown) {
   const error = ensureError(caught);
   if (error instanceof ORPCError) return error;
   return isAPIError(error)
-    ? new ORPCError(errorCodeOf(error.statusCode), { message: error.body?.message })
+    ? new ORPCError(errorCodeOf(error.statusCode), { message: error.body?.message, cause: error })
     : new Cause.UnknownError(error);
 }
 
@@ -110,7 +109,12 @@ function requireMember(headers: Headers) {
     const auth = yield* Auth;
     // Select the custom GET endpoint's return type, which preserves the database ID brands.
     const session = yield* auth.call((instance) =>
-      instance.api.getSession({ headers, method: "GET" }),
+      instance.api.getSession({
+        headers,
+        method: "GET",
+        // This guard does not forward renewal cookies. The dashboard renews through get-session.
+        query: { disableRefresh: true },
+      }),
     );
     if (!session) return yield* Effect.fail(new Unauthorized());
     // getSession joins session and user, then reads membership once for both the guard and caller.
@@ -172,12 +176,8 @@ export function requireRolePermission(role: string, permissions: RolePermissions
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
 type RolePermissions = Types.DeepMutable<RoleStatements<typeof ac.statements>>;
 
-/**
- * What the hub records in the metadata of a key a member creates: the member, whom Better Auth does
- * not keep for an Organization's key. Better Auth types metadata as any object, so the hub checks it.
- */
-export const keyMetadataSchema = z.object({ createdBy: z.string() });
-export type KeyMetadata = z.infer<typeof keyMetadataSchema>;
+/** A key's creator for the Organization's key list. Better Auth records the Organization itself. */
+export type KeyMetadata = { createdBy: string };
 
 /**
  * Who made a call: the API key it was sent with, as Better Auth verified it, the member, or anyone,

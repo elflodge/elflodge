@@ -20,12 +20,12 @@ import { Auth } from "./auth/auth.ts";
 // says who may make each call; the hub describes its errors as Problem Details (ADR 0023) and adds
 // what depends on its deployment.
 
-// Answers are open to fields the hub adds later (ADR 0010), so a client generated from the document
-// must not refuse one it does not know. Zod closes a plain `z.object` with `additionalProperties:
-// false` when it converts an output, as it strips unknown keys there; removing that in `override` is
-// the way Zod's maintainer gives (colinhacks/zod#4564), as `toJSONSchema` has no option for it. Inputs
-// keep their schema: a plain object has no such keyword as input, and a strict object keeps its
-// `additionalProperties: false`.
+// Keep `z.object()` so response parsing strips undeclared fields. Zod describes that parsed shape
+// with `additionalProperties: false`. `toJSONSchema` has no setting to omit it in output mode, so
+// use its `override` hook as Zod's maintainer suggests (colinhacks/zod#4564). Older clients can then
+// accept fields a newer hub declares (ADR 0010).
+// Inputs keep their schema: a plain object omits the keyword in input mode, and a strict object
+// keeps `additionalProperties: false`.
 const converter = new ZodToJsonSchemaConverter({
   override: ({ zodSchema, jsonSchema }) => {
     if (zodSchema instanceof z.core.$ZodObject && zodSchema._zod.def.catchall === undefined) {
