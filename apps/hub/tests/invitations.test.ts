@@ -170,6 +170,28 @@ test("an owner can replace an admin's member invitation in one call", async () =
   await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
 });
 
+test("an admin can replace an owner invitation after its inviter is demoted", async () => {
+  const inviterEmail = "demoted-owner@example.com";
+  const inviter = await joinAsInviter(inviterEmail, ["owner"]);
+  const admin = await joinAsInviter("replacement-admin@example.com", "admin");
+  const email = "reinvited-member@example.com";
+  const original = await invite(email, "owner", inviter);
+  await system.ownerAuth().organization.updateMemberRole({
+    memberId: await memberId(inviterEmail),
+    role: "admin",
+    organizationId,
+  });
+
+  const replacement = await invite(email, "member", admin);
+  await expectUnavailable(original.id);
+  expect(await system.client().invitations.preview({ invitationId: replacement.id })).toMatchObject(
+    {
+      email,
+      role: "member",
+    },
+  );
+});
+
 test("demotion to admin voids owner grants, hides owner invitations and prevents removing an owner", async () => {
   const email = "inviter@example.com";
   const cookie = await joinAsInviter(email, ["owner", "admin"]);

@@ -7,11 +7,12 @@ import { customSession, organization } from "better-auth/plugins";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
+import * as z from "zod/mini";
 
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import { findProtectedInvitation, mayGrantRole } from "./invitation-grants.ts";
+import { findLiveInvitationCallerCannotGrantByEmail, mayGrantRole } from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -38,6 +39,8 @@ export const SETUP_TOKEN_PREFIX = `${SETUP_LINK_VALUE}:`;
 /** The API key configurations: keys for services, and each Runner's own key. */
 export const API_KEY_CONFIG = "default";
 export const RUNNER_KEY_CONFIG = "runner";
+
+const invitationEmail = z.email();
 
 export interface AuthSettings {
   /**
@@ -157,20 +160,23 @@ export function authOptions(settings: AuthSettings) {
       // replaced. Remove it when the library enforces the same rule itself (ADR 0015).
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path !== "/organization/invite-member" || ctx.body?.resend === true) return;
-        const email = ctx.body?.email;
-        if (typeof email !== "string") return;
+        // As the route does, lowercase the email and use the body's organizationId or the
+        // active Organization.
+        const address = ctx.body?.email;
+        if (typeof address !== "string") return;
+        const email = address.toLowerCase();
+        if (!invitationEmail.safeParse(email).success) return;
         const session = await getSessionFromCtx(ctx);
-        if (!session)
-          throw APIError.from("UNAUTHORIZED", { code: "UNAUTHORIZED", message: "Unauthorized" });
+        if (!session) return;
         const organizationId = ctx.body.organizationId || session.session.activeOrganizationId;
         if (typeof organizationId !== "string") return;
-        const protectedInvitation = await findProtectedInvitation(
+        const invitation = await findLiveInvitationCallerCannotGrantByEmail(
           db,
           OrganizationId(organizationId),
           UserId(session.user.id),
           email,
         );
-        if (protectedInvitation)
+        if (invitation)
           throw APIError.from(
             "FORBIDDEN",
             ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE,
@@ -205,6 +211,7 @@ export function authOptions(settings: AuthSettings) {
               .where("organizationId", "=", OrganizationId(invitation.organizationId))
               .where("userId", "=", UserId(cancelledBy.id))
               .select((eb) => mayGrantRole(eb.ref("role"), eb.val(invitation.role)).as("mayGrant"))
+              .limit(1)
               .executeTakeFirst();
             if (!member?.mayGrant)
               throw APIError.from(

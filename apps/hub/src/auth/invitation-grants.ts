@@ -41,7 +41,7 @@ export function liveInvitations(db: Kysely<Database>) {
     .where((eb) => mayGrantRole(eb.ref("member.role"), eb.ref("invitation.role")));
 }
 
-export function findProtectedInvitation(
+export function findLiveInvitationCallerCannotGrantByEmail(
   db: Kysely<Database>,
   organizationId: OrganizationId,
   userId: UserId,
@@ -55,7 +55,7 @@ export function findProtectedInvitation(
           .on("caller.userId", "=", userId),
       )
       .where("invitation.organizationId", "=", organizationId)
-      .where("invitation.email", "=", email.toLowerCase())
+      .where("invitation.email", "=", email)
       // Let Better Auth return its ordinary permission error for members who cannot invite anyone.
       .where((eb) => mayInvite(eb.ref("caller.role")))
       .where((eb) => eb.not(mayGrantRole(eb.ref("caller.role"), eb.ref("invitation.role"))))
