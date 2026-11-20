@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { createRouter } from "@tanstack/solid-router";
+import { parseQuery, stringifyQuery } from "ufo";
 
 import { DefaultCatchBoundary } from "./components/DefaultCatchBoundary.tsx";
 import { NotFound } from "./components/NotFound.tsx";
@@ -12,27 +13,10 @@ export function getRouter() {
     routeTree,
     search: { strict: true },
     // Match the hub's query spelling: every value is text, and a repeated key is an ordered list.
-    // The router's JSON default converts 2026, 1e3 and true. Its parseSearchWith helper runs
-    // after qss converts primitives, and stringifySearchWith encodes one value per key.
-    // Effect UrlParams adds 5.6 kB gzipped to a client that otherwise loads no Effect modules.
-    // query-string adds 3.7 kB gzipped and a null case for a bare key, which here is empty text.
-    parseSearch: (search) => {
-      const params = new URLSearchParams(search);
-      return Object.fromEntries(
-        Array.from(new Set(params.keys()), (key) => {
-          const values = params.getAll(key);
-          return [key, values.length === 1 ? values[0] : values];
-        }),
-      );
-    },
+    parseSearch: parseQuery,
     stringifySearch: (search) => {
-      const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(search)) {
-        for (const item of Array.isArray(value) ? value : [value]) {
-          if (item !== undefined) params.append(key, String(item));
-        }
-      }
-      return params.size ? `?${params}` : "";
+      const query = stringifyQuery(search);
+      return query ? `?${query}` : "";
     },
     context: { queryClient },
     // Every page, and every route's component, has the client.
