@@ -50,6 +50,21 @@ async function post(path: string, body: unknown) {
   });
 }
 
+test("a Batch refuses NUL in an Output contract's schema", async () => {
+  for (const schema of [{ description: "a\0b" }, { properties: { "a\0b": {} } }]) {
+    const response = await post("/batches", { agent: { outputContract: { schema } } });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      errors: [
+        {
+          pointer: "/agent/outputContract/schema",
+          detail: "The schema's text must not contain NUL",
+        },
+      ],
+    });
+  }
+});
+
 test("an ID used again with the same content returns what it named, whoever repeats it, and with other content is refused", async () => {
   const { id: keyId, client } = await system.createApiKey({
     name: "invoices",

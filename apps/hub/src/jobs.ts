@@ -441,12 +441,12 @@ function withOutcome<T extends JobBase>(
  * json-schema-library's own checks of the schema, then the hub's rules for an output.
  */
 export function outputContractProblems(schema: Record.ReadonlyRecord<string, unknown>): string[] {
-  // Parsed JSON holds no NaN, Infinity or cycles, so canonical JSON refuses it only for a lone
-  // surrogate, as RFC 8785 requires; the contract checks the submission's other text itself. NUL in
-  // the schema is left to Postgres, which refuses it in `jsonb`: no schema needs one, and finding it
-  // would take a walk over every string.
+  // Canonical JSON rejects lone surrogates. Every NUL in a key or value serializes as
+  // \u0000. Discard escaped backslashes first so a literal six-character escape stays valid.
   try {
-    canonicalize(schema);
+    if (canonicalize(schema)?.replaceAll("\\\\", "").includes("\\u0000")) {
+      return ["The schema's text must not contain NUL"];
+    }
   } catch {
     return ["The schema's text must be Unicode text, without lone surrogates"];
   }
