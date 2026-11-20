@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { Show, createMemo, createUniqueId, omit } from "solid-js";
+import { Show, createMemo, createUniqueId, flatten, omit } from "solid-js";
 
 import { FieldError } from "./FieldError.tsx";
 
@@ -18,7 +18,8 @@ type FieldControl = {
 
 function fieldParts(props: FieldProps) {
   const id = createUniqueId();
-  const hint = createMemo(() => props.hint);
+  // Conditional JSX can be an accessor even when it renders nothing.
+  const hint = createMemo<JSX.Element[]>(() => flatten([props.hint], { skipNonRendered: true }));
   const hintId = id + "-hint";
   const errorId = id + "-error";
   return {
@@ -28,16 +29,16 @@ function fieldParts(props: FieldProps) {
         return props.error ? "true" : undefined;
       },
       get "aria-describedby"() {
-        return [hint() && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined;
+        return (
+          [hint().length && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
+        );
       },
     },
     hint: () => (
-      <Show when={hint()}>
-        {(note) => (
-          <p id={hintId} class="note">
-            {note()}
-          </p>
-        )}
+      <Show when={hint().length}>
+        <p id={hintId} class="note">
+          {hint()}
+        </p>
       </Show>
     ),
     refusal: () => (
