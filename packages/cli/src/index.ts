@@ -1270,13 +1270,18 @@ function submitBatchCommand() {
               ).pipe(
                 Effect.retry(retryTransient),
                 Effect.mapError((error) => {
+                  if (!personWatches()) return error;
                   const lines: string[] = [];
                   for (const entry of problemOf(error)?.errors ?? []) {
                     if (entry.pointer === undefined) continue;
                     const match = /^\/jobs\/(0|[1-9]\d*)(\/.*)?$/s.exec(entry.pointer);
                     if (!match || Number(match[1]) >= jobs.length) continue;
                     const number = group * MAX_JOBS_PER_ADD + Number(match[1]) + 1;
-                    lines.push(`job ${number}: ${match[2] ?? ""}: ${entry.detail}`);
+                    lines.push(
+                      [`job ${number}`, match[2], entry.detail]
+                        .filter((part) => part !== undefined)
+                        .join(": "),
+                    );
                   }
                   if (!lines.length) return error;
                   const cause = commandError(error);
@@ -1286,7 +1291,8 @@ function submitBatchCommand() {
             ),
             runId,
             hint,
-            { exists: true },
+            // A piped refusal is one Problem Details document, including when the ID was generated.
+            { exists: personWatches() },
           );
           const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
           const submitted = Effect.gen(function* () {

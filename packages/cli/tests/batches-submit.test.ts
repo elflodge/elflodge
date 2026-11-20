@@ -142,7 +142,10 @@ function fakeHub(
             type: "about:blank",
             title: "Unprocessable Content",
             status: 422,
-            errors: [{ pointer: "/jobs/0/customId", detail: "Already used" }],
+            errors: [
+              { pointer: "/jobs/0/customId", detail: "Already used" },
+              { pointer: "/jobs/0", detail: "Job refused" },
+            ],
           }),
         );
       }
@@ -268,20 +271,35 @@ test("batches submit --each makes a job of each file and folder, named by its pa
 
 // The jobs added before the refusal are queued under the made ID, which a rerun needs to carry on
 // rather than make a second Batch.
-test("batches submit prints the ID it made when the hub refuses an add after the Batch exists", async () => {
-  const lines = Array.from({ length: 101 }, (_, index) =>
-    JSON.stringify({ customId: `posting-${index}`, input: `Posting ${index}.` }),
-  );
-  const cwd = await folderWith({ "jobs.jsonl": `${lines.join("\n")}\n` });
-  const hub = fakeHub(() => ({ status: "succeeded", output: {} }), { refusedAdd: 2 });
+test.each([true, false])(
+  "a refused add prints a whole-manifest job number and recovery ID only on a terminal (isTTY %s)",
+  async (isTTY) => {
+    const tty = process.stderr.isTTY;
+    process.stderr.isTTY = isTTY;
+    onTestFinished(() => {
+      process.stderr.isTTY = tty;
+    });
+    const lines = Array.from({ length: 101 }, (_, index) =>
+      JSON.stringify({ customId: `posting-${index}`, input: `Posting ${index}.` }),
+    );
+    const cwd = await folderWith({ "jobs.jsonl": `${lines.join("\n")}\n` });
+    const hub = fakeHub(() => ({ status: "succeeded", output: {} }), { refusedAdd: 2 });
 
-  const { exitCode, stderr } = await submit(hub.listener, cwd, ["jobs.jsonl"]);
+    const { exitCode, stderr } = await submit(hub.listener, cwd, ["jobs.jsonl"]);
 
-  expect(exitCode).toBe(1);
-  expect(hub.adds.map((jobs) => jobs.length)).toEqual([100]);
-  expect(stderr).toContain("job 101: /customId: Already used");
-  expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
-});
+    expect(exitCode).toBe(1);
+    expect(hub.adds.map((jobs) => jobs.length)).toEqual([100]);
+    if (isTTY) {
+      expect(stderr).toContain("job 101: /customId: Already used\njob 101: Job refused");
+      expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
+    } else {
+      expect(JSON.parse(stderr)).toMatchObject({
+        status: 422,
+        errors: [{ pointer: "/jobs/0/customId" }, { pointer: "/jobs/0" }],
+      });
+    }
+  },
+);
 
 test("batches submit adds the jobs of a JSONL file in its order, at most 100 at a time", async () => {
   const lines = Array.from({ length: 101 }, (_, index) =>
