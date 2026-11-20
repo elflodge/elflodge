@@ -49,6 +49,7 @@ import { InvalidInput } from "./invalid-input.ts";
 import {
   apiSubmitterOf,
   contentHashOf,
+  blockedByForUnsentQueuedJob,
   blockedByFrom,
   hasUnfinishedCanary,
   jobCountsBy,
@@ -137,7 +138,7 @@ export async function readBatch(
 ): Promise<Batch | undefined> {
   const now = new Date();
   const row = await db
-    // Materialize the Canary check before counting, so each filtered aggregate reads one fact.
+    // Materializing the Batch runs its Canary check once for the whole Batch, outside the per-job scan.
     .with(
       (cte) => cte("b").materialized(),
       (qb) =>
@@ -343,19 +344,11 @@ export function listBatches(query: BatchListQuery) {
             .groupBy("j.batchUid")
             .select((agg) => [
               "j.batchUid",
-              // The filters supply these two facts for every row counted here.
               ...jobCountsBy(
-                blockedByFrom(
-                  {
-                    status: agg.val<JobStatus>("queued"),
-                    placedAt: agg.lit(null),
-                    inCanary: agg.ref("j.inCanary"),
-                  },
-                  {
-                    pausedBy: agg.ref("shown.pausedBy"),
-                    unfinishedCanary: agg.ref("shown.unfinishedCanary"),
-                  },
-                ),
+                blockedByForUnsentQueuedJob(agg.ref("j.inCanary"), {
+                  pausedBy: agg.ref("shown.pausedBy"),
+                  unfinishedCanary: agg.ref("shown.unfinishedCanary"),
+                }),
                 blockedBySchema.options,
               ),
             ]),
@@ -1154,16 +1147,7 @@ export async function countEndsAndPauseTrippedBatches(
       // not run.
       const canaryOver = eb.and([
         eb("b.canaryPlacesLeft", "=", eb.lit(0)),
-        eb.not(
-          eb.exists(
-            eb
-              .selectFrom("job as canary")
-              .select("canary.id")
-              .whereRef("canary.batchUid", "=", "b.uid")
-              .where("canary.inCanary", "=", true)
-              .where("canary.status", "in", UNFINISHED),
-          ),
-        ),
+        eb.not(hasUnfinishedCanary(eb.ref("b.uid"))),
       ]);
       const trips = eb.and([
         eb("b.cancelledAt", "is", null),

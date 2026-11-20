@@ -1,5 +1,5 @@
 import { PROBLEM_DETAILS_CONTENT_TYPE } from "contract";
-import { afterAll, beforeAll, expect, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
 import {
@@ -438,6 +438,9 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
     labels,
     breaker: { canary: 2, maxFailurePercent: 100 },
   });
+  onTestFinished(async () => {
+    await client.batches.cancel({ id });
+  });
   const { jobs } = await client.batches.addJobs({
     id,
     jobs: ["first", "second", "older", "next", "newest"].map((name) => jobNamed(name)),
@@ -466,6 +469,10 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
   // Placement alone leaves both Canary jobs queued. Neither counts under the caller's pause,
   // and the second still does not count when the first job's failure trips the breaker.
   const { socket, runnerId } = await system.connectRunner();
+  onTestFinished(async () => {
+    socket.close(1000);
+    await system.owner().runners.delete({ id: runnerId });
+  });
   const runner = protocolClient(socket);
   const { runs } = await runner.request("sync", { held: [], free: 2 }, 10_000);
   const held = runs.map(({ jobId, runId }) => ({ jobId, runId }));
@@ -505,6 +512,7 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
   expect(await client.jobs.resume({ id: older })).toMatchObject({ blockedBy: "batchCanary" });
   const [latest] = (await client.jobs.list({ batchId: id, status: ["queued"], limit: 1 })).jobs;
   expect(latest?.id).toBe(newest);
+  // The newest queued job is free while the older resumed job is blocked.
   expect(latest).not.toHaveProperty("blockedBy");
   await counts({ batchCanary: 1 });
 
@@ -512,9 +520,6 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
   await client.jobs.cancel({ id: newest });
   await counts({});
   expect(await client.jobs.get({ id: older })).not.toHaveProperty("blockedBy");
-  await client.batches.cancel({ id });
-  await system.owner().runners.delete({ id: runnerId });
-  socket.close(1000);
 });
 
 test("a failure in the Canary pauses the Batch, and resuming it runs a new Canary of the next jobs first, those added later included", async () => {

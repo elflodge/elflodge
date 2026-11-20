@@ -183,6 +183,11 @@ interface JobForBlock {
   inCanary: Expression<JobRow["inCanary"]>;
 }
 
+interface BatchForBlock {
+  pausedBy: Expression<BatchRow["pausedBy"]>;
+  unfinishedCanary: Expression<SqlBool>;
+}
+
 /**
  * What keeps the job from being sent to a Runner, or null, given its Batch's pause and whether any
  * job of its Batch's Canary is unfinished: only a queued job not yet sent to one is blocked, by its
@@ -191,35 +196,36 @@ interface JobForBlock {
  * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
  * by reason use the same rule.
  */
-export function blockedByFrom(
-  job: JobForBlock,
-  batch: {
-    pausedBy: Expression<BatchRow["pausedBy"]>;
-    unfinishedCanary: Expression<SqlBool>;
-  },
+export function blockedByForUnsentQueuedJob(
+  inCanary: Expression<JobRow["inCanary"]>,
+  batch: BatchForBlock,
 ) {
+  const eb = expressionBuilder();
+  return eb
+    .case(batch.pausedBy)
+    .when("caller")
+    .then(eb.val<BlockedBy>("batchPausedByCaller"))
+    .when("breaker")
+    .then(eb.val<BlockedBy>("batchPausedByBreaker"))
+    .else(
+      eb
+        .case()
+        .when(eb.and([eb(inCanary, "=", false), batch.unfinishedCanary]))
+        .then(eb.val<BlockedBy>("batchCanary"))
+        .else(eb.lit(null))
+        .end(),
+    )
+    .end();
+}
+
+/** Only an unsent queued job can be blocked. */
+export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
   const eb = expressionBuilder();
   return eb
     .case()
     .when(eb.or([eb(job.status, "!=", "queued"), eb(job.placedAt, "is not", null)]))
     .then(eb.lit(null))
-    .else(
-      eb
-        .case(batch.pausedBy)
-        .when("caller")
-        .then(eb.val<BlockedBy>("batchPausedByCaller"))
-        .when("breaker")
-        .then(eb.val<BlockedBy>("batchPausedByBreaker"))
-        .else(
-          eb
-            .case()
-            .when(eb.and([eb(job.inCanary, "=", false), batch.unfinishedCanary]))
-            .then(eb.val<BlockedBy>("batchCanary"))
-            .else(eb.lit(null))
-            .end(),
-        )
-        .end(),
-    )
+    .else(blockedByForUnsentQueuedJob(job.inCanary, batch))
     .end();
 }
 
@@ -1457,6 +1463,7 @@ export function jobCountsBy<Value extends string, Counted extends Value>(
   values: readonly Counted[],
 ) {
   const eb = expressionBuilder();
+  // Counted restricts the values, but Kysely needs a concrete column type to infer the filter operand.
   const text: Expression<string | null> = column;
   return values.map((value) => eb.fn.countAll<number>().filterWhere(text, "=", value).as(value));
 }
