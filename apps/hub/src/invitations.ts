@@ -14,11 +14,15 @@ const invitationRoles = Object.entries(roles)
   .filter(([, role]) => role.authorize({ invitation: ["create"] }).success)
   .map(([name]) => name);
 
-/** Better Auth grants only configured roles, and only an owner can grant a role containing owner. */
+/**
+ * Better Auth grants at least one role, only configured roles, and only an owner can grant a role
+ * containing owner.
+ */
 function mayGrantRole(inviterRole: Expression<string>, grant: Expression<string | null>) {
   const eb = expressionBuilder();
   return eb.and([
     eb(storedRoles(inviterRole), "&&", eb.val(invitationRoles)),
+    eb(eb.fn<number>("cardinality", [storedRoles(grant)]), ">", 0),
     eb(storedRoles(grant), "<@", eb.val(Object.keys(roles))),
     eb.or([hasOwnerRole(inviterRole), eb.not(hasOwnerRole(grant))]),
   ]);
@@ -99,14 +103,16 @@ export function acceptInvitation(
       const grant = await db
         .deleteFrom("invitation")
         .where("id", "in", eligible)
-        // At READ COMMITTED the subquery can see a pending row while DELETE waits for a
-        // cancellation. Postgres rechecks the outer conditions against the updated target row.
-        // If a competing claim rolls back, the row is unchanged and expiry is not rechecked.
-        // On Postgres 18 a waiting claim has deleted such a row about a second after expiry.
+        // clock_timestamp() checks expiry when the claim runs, not when the transaction began.
+        // At READ COMMITTED the subquery can see a pending row while DELETE waits for another
+        // claim or a cancellation. Postgres rechecks the outer conditions if that transaction
+        // commits a change to the row. If it rolls back, the waiting claim keeps its first check,
+        // so it can succeed after expiry by as long as that transaction ran, password hashing
+        // included.
         .where("status", "=", "pending")
         .where("expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"))
         .returning((eb) => ["email", "organizationId", storedRoles(eb.ref("role")).as("roles")])
-        // liveInvitations requires every granted role to belong to the configured static roles.
+        // liveInvitations requires a granted role, each one among the configured static roles.
         .$narrowType<{ roles: (keyof typeof roles)[] }>()
         .executeTakeFirst();
       if (!grant) throw new InvitationUnavailable();

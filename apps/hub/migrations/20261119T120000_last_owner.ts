@@ -4,8 +4,8 @@ import { type Kysely, sql } from "kysely";
 // pass its check. The Organization lock makes the writes take turns and the following read sees
 // the winner at READ COMMITTED, Postgres's default, which neither the hub nor Better Auth's
 // adapter overrides. At REPEATABLE READ that read would still see the earlier snapshot.
-// The loser receives HTTP 500 from Better Auth because translating the constraint violation
-// would require wrapping its adapter for a race the database already makes safe.
+// The loser receives HTTP 500 from Better Auth because translating the violation would require
+// wrapping its adapter or rewriting its responses, for a race the database already makes safe.
 // During the Workers maintenance window (ADR 0047), the previous Worker can still admit a
 // signed-in recipient under its native invitation rules, even if the inviter has lost authority.
 // That version can already grant this membership. The new hub accepts existing memberships and
@@ -31,7 +31,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         and elflodge.has_owner_role(role)
       ) then
         raise exception 'The Organization must keep an owner'
-          using errcode = '23514', constraint = 'member_keeps_an_owner';
+          using errcode = '23514';
       end if;
       return null;
     end $$`.execute(db);

@@ -1,5 +1,5 @@
 import { sql } from "kysely";
-import { afterEach, beforeEach, expect, inject, test } from "vite-plus/test";
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, test } from "vite-plus/test";
 
 import { openDatabase } from "../src/db/database.ts";
 import { OWNER, startSystem } from "./harness.ts";
@@ -7,13 +7,15 @@ import { OWNER, startSystem } from "./harness.ts";
 const system = startSystem();
 let organizationId: string;
 
-beforeEach(async () => {
+async function start() {
   await system.start();
   const [organization] = await system.ownerAuth().organization.list();
   if (!organization) throw new Error("The hub has no Organization");
   organizationId = organization.id;
-});
-afterEach(() => system.stop());
+}
+
+beforeAll(start);
+afterAll(() => system.stop());
 
 const password = "the invited person's password";
 
@@ -99,6 +101,7 @@ test("public sign-up and native invitation redemption stay closed", async () => 
   await system.client().invitations.accept({ invitationId, name: "Invited", password });
 });
 
+/** Invites and admits an account with the role, and returns that account's signed-in cookie. */
 async function joinAsInviter(email: string, role: "admin" | ("owner" | "admin")[]) {
   const { id: invitationId } = await invite(email, role);
   await system.client().invitations.accept({ invitationId, name: "Inviter", password });
@@ -167,73 +170,82 @@ test("removal voids an inviter's outstanding grants and preserves key attributio
   await system.client().invitations.preview({ invitationId: replacement.id });
 });
 
-test.each(["leave", "self-demotion"] as const)(
-  "an owner's %s racing another owner's departure leaves one owner who can register Runners",
-  async (firstAction) => {
-    const email = "second-owner@example.com";
-    const { id: invitationId } = await invite(email, ["admin", "owner"]);
-    await system.client().invitations.accept({ invitationId, name: "Second owner", password });
-    const firstOwner = await memberId(OWNER.email);
-    await system.ownerAuth().organization.updateMemberRole({
-      memberId: firstOwner,
-      role: ["owner", "admin"],
-      organizationId,
-    });
-    const registration = await system.createRegistrationKey();
-    const firstCookie = system.ownerCookie();
-    const secondCookie = await system.signIn({ email, password });
-    await using database = openDatabase(inject("databaseUrl"));
-    const writes = await database.transaction().execute(async (tx) => {
-      // Let both requests finish Better Auth's owner count before either can change a membership.
-      await sql`lock table elflodge.member in share mode`.execute(tx);
-      const pending = Promise.all([
-        firstAction === "leave"
-          ? authPost("organization/leave", { organizationId }, firstCookie)
-          : authPost(
-              "organization/update-member-role",
-              { memberId: firstOwner, role: "admin", organizationId },
-              firstCookie,
-            ),
-        authPost("organization/leave", { organizationId }, secondCookie),
-      ]);
-      await expect
-        .poll(async () => {
-          const waiting = await sql<{ count: number }>`select count(*) from pg_locks
-        where relation = 'elflodge.member'::regclass and mode = 'RowExclusiveLock' and not granted`.execute(
-            tx,
-          );
-          return waiting.rows[0]?.count;
-        })
-        .toBe(2);
-      return { pending };
-    });
-    const [first, second] = await writes.pending;
-    expect(first.ok).not.toBe(second.ok);
-    await system.runnerClient({ "x-api-key": registration }).register({ name: "After handoff" });
-    const cookie = first.ok ? secondCookie : firstCookie;
-    const { members } = await system
-      .authClient(cookie)
-      .organization.listMembers({ query: { organizationId } });
-    const owners = members.filter((member) => member.role.split(",").includes("owner"));
-    expect(owners).toHaveLength(1);
-    const [remaining] = owners;
-    if (!remaining) throw new Error("The Organization has no owner");
-    for (const [action, body] of [
-      ["remove-member", { memberIdOrEmail: remaining.id }],
-      ["update-member-role", { memberId: remaining.id, role: "admin" }],
-    ] as const) {
-      const response = await authPost(
-        `organization/${action}`,
-        { organizationId, ...body },
-        cookie,
-      );
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({
-        code:
-          action === "remove-member"
-            ? "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER"
-            : "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+describe("owner races", () => {
+  // Each race needs exactly two owners and may remove the hub's first owner, so it starts on a
+  // fresh database.
+  beforeEach(async () => {
+    await system.stop();
+    await start();
+  });
+
+  test.each(["leave", "self-demotion"] as const)(
+    "an owner's %s racing another owner's departure leaves one owner who can register Runners",
+    async (firstAction) => {
+      const email = "second-owner@example.com";
+      const { id: invitationId } = await invite(email, ["admin", "owner"]);
+      await system.client().invitations.accept({ invitationId, name: "Second owner", password });
+      const firstOwner = await memberId(OWNER.email);
+      await system.ownerAuth().organization.updateMemberRole({
+        memberId: firstOwner,
+        role: ["owner", "admin"],
+        organizationId,
       });
-    }
-  },
-);
+      const registration = await system.createRegistrationKey();
+      const firstCookie = system.ownerCookie();
+      const secondCookie = await system.signIn({ email, password });
+      await using database = openDatabase(inject("databaseUrl"));
+      const writes = await database.transaction().execute(async (tx) => {
+        // Let both requests finish Better Auth's owner count before either can change a membership.
+        await sql`lock table elflodge.member in share mode`.execute(tx);
+        const pending = Promise.all([
+          firstAction === "leave"
+            ? authPost("organization/leave", { organizationId }, firstCookie)
+            : authPost(
+                "organization/update-member-role",
+                { memberId: firstOwner, role: "admin", organizationId },
+                firstCookie,
+              ),
+          authPost("organization/leave", { organizationId }, secondCookie),
+        ]);
+        await expect
+          .poll(async () => {
+            const waiting = await sql<{ count: number }>`select count(*) from pg_locks
+        where relation = 'elflodge.member'::regclass and mode = 'RowExclusiveLock' and not granted`.execute(
+              tx,
+            );
+            return waiting.rows[0]?.count;
+          })
+          .toBe(2);
+        return { pending };
+      });
+      const [first, second] = await writes.pending;
+      expect(first.ok).not.toBe(second.ok);
+      await system.runnerClient({ "x-api-key": registration }).register({ name: "After handoff" });
+      const cookie = first.ok ? secondCookie : firstCookie;
+      const { members } = await system
+        .authClient(cookie)
+        .organization.listMembers({ query: { organizationId } });
+      const owners = members.filter((member) => member.role.split(",").includes("owner"));
+      expect(owners).toHaveLength(1);
+      const [remaining] = owners;
+      if (!remaining) throw new Error("The Organization has no owner");
+      for (const [action, body] of [
+        ["remove-member", { memberIdOrEmail: remaining.id }],
+        ["update-member-role", { memberId: remaining.id, role: "admin" }],
+      ] as const) {
+        const response = await authPost(
+          `organization/${action}`,
+          { organizationId, ...body },
+          cookie,
+        );
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+          code:
+            action === "remove-member"
+              ? "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER"
+              : "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+        });
+      }
+    },
+  );
+});
