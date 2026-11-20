@@ -2,8 +2,9 @@ import { Link } from "@tanstack/solid-router";
 import type { Runner } from "contract";
 import { Match, Show, Switch } from "solid-js";
 
+import { focusAfterLinkDrops } from "../form.ts";
 import { formatCount } from "../format.ts";
-import { focusAfterLinkDrops, listPages } from "../list-pages.ts";
+import { listPages } from "../list-pages.ts";
 import { ClearFiltersLink } from "./ListFilters.tsx";
 
 type ListAddressState = {

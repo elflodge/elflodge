@@ -1,3 +1,4 @@
+import { useRouter } from "@tanstack/solid-router";
 import { action, createEffect, createOptimistic } from "solid-js";
 
 /** Restore keyboard focus when it is lost or the focused element is hidden. */
@@ -12,6 +13,22 @@ export function focusAfterRowDrops(target: HTMLElement, isListed: () => boolean)
   createEffect(isListed, (listed) => {
     if (!listed) focusIfLost(target);
   });
+}
+
+/** Restore lost focus after navigation has rendered the link's replacement. */
+export function focusAfterLinkDrops(target: () => HTMLElement | null, onPress?: () => void) {
+  const router = useRouter();
+  return (event: MouseEvent & { currentTarget: HTMLAnchorElement }) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+      return;
+    const link = event.currentTarget;
+    const destination = link.href;
+    onPress?.();
+    const unsubscribe = router.subscribe("onResolved", () => {
+      unsubscribe();
+      if (!link.isConnected && location.href === destination) focusIfLost(target());
+    });
+  };
 }
 
 /** Returns true when a field was refused, even if the member moved focus while waiting. */

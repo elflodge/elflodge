@@ -5,9 +5,9 @@ import { Link, deepEqual, linkOptions, trimPathRight, useRouter } from "@tanstac
 import { For, Show, createEffect, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
-import { createFormAction, focusIfLost } from "../form.ts";
+import { createFormAction, focusIfLost, focusAfterLinkDrops } from "../form.ts";
 import { formatCount } from "../format.ts";
-import { focusAfterLinkDrops, listPages } from "../list-pages.ts";
+import { listPages } from "../list-pages.ts";
 
 export const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undefined);
 
