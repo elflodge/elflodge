@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute } from "@tanstack/solid-router";
-import type { JobsPage, ListedJob, Runner } from "contract";
-import { For, Match, Repeat, Show, Switch, createMemo } from "solid-js";
+import type { ListedJob, Runner } from "contract";
+import { For, Repeat, Show, createMemo } from "solid-js";
 
 import { hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter, RunnerOfJob } from "../../../components/JobReferences.tsx";
 import { BesideStatus, JobStatus } from "../../../components/JobStatus.tsx";
+import { EmptyList, ListEnd } from "../../../components/ListEnd.tsx";
+import { ClearFiltersLink } from "../../../components/ListFilters.tsx";
 import {
   DAY,
   DAY_YEAR,
@@ -20,9 +22,10 @@ import {
   formatUsd,
   timeZoneNote,
 } from "../../../format.ts";
+import { listPages } from "../../../list-pages.ts";
 import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
-import { type JobsSearch, ClearFiltersLink, filterCount, jobsSearchSchema } from "./jobs.tsx";
+import { filterCount, jobsSearchSchema } from "./jobs.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/jobs/")({
   // Both reads take only the declared filters and cursor, including after a sign-in redirect.
@@ -40,7 +43,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs/")({
       <ReadErrorPage {...props} heading="Jobs">
         <Show when={filterCount(search()) > 0}>
           <p>
-            <ClearFiltersLink>Clear the filters</ClearFiltersLink>
+            <ClearFiltersLink to="/jobs">Clear the filters</ClearFiltersLink>
           </p>
         </Show>
       </ReadErrorPage>
@@ -71,13 +74,15 @@ function Jobs() {
       <Show
         when={jobs.data.jobs.length}
         fallback={
-          <NoJobs
-            search={search()}
+          <EmptyList
+            to="/jobs"
+            after={search().after}
+            filtered={filterCount(search()) > 0}
             runners={runners.isError ? undefined : availableRunners(runners)}
           />
         }
       >
-        <a class="vh skip-list" href="#jobs-end">
+        <a class="vh skip-list" href={`#${listPages["/jobs"].end}`}>
           Skip to the end of the list
         </a>
         <JobsTable
@@ -85,7 +90,13 @@ function Jobs() {
           runners={availableRunners(runners) ?? []}
           readAt={jobs.dataUpdatedAt}
         />
-        <Paging search={search()} page={jobs.data} />
+        <ListEnd
+          to="/jobs"
+          after={search().after}
+          filtered={filterCount(search()) > 0}
+          length={jobs.data.jobs.length}
+          older={jobs.data.hasMore ? jobs.data.jobs.at(-1)?.id : undefined}
+        />
       </Show>
     </>
   );
@@ -308,92 +319,5 @@ function JobTime(props: { job: ListedJob; readAt: number }) {
         <span class="age">, {elapsedSince(moment()[1], props.readAt)}</span>
       </Show>
     </>
-  );
-}
-
-/** The way to newer and older pages, where there are any. */
-function Paging(props: { search: JobsSearch; page: JobsPage }) {
-  const last = () => props.page.jobs.at(-1)?.id;
-  return (
-    <p class="list-end" id="jobs-end" tabindex="-1">
-      <span>
-        {formatCount(props.page.jobs.length)} read;{" "}
-        {props.page.hasMore
-          ? "the hub gives no total."
-          : filterCount(props.search)
-            ? "no more match."
-            : "there are no older jobs."}
-      </span>
-      <Show when={props.search.after !== undefined}>
-        <Link
-          activeOptions={{ exact: true }}
-          to="/jobs"
-          search={{ ...props.search, after: undefined }}
-          class="stands-alone"
-        >
-          Newest jobs
-        </Link>
-      </Show>
-      <Show when={props.page.hasMore ? last() : undefined}>
-        {(after) => (
-          <Link
-            activeOptions={{ exact: true }}
-            to="/jobs"
-            search={{ ...props.search, after: after() }}
-            class="stands-alone"
-          >
-            Older jobs
-          </Link>
-        )}
-      </Show>
-    </p>
-  );
-}
-
-/**
- * What an empty list means, and what to do next: clear the filters that match nothing, or, on an
- * empty hub, connect a Runner first, then submit a Batch.
- */
-function NoJobs(props: { search: JobsSearch; runners: Runner[] | undefined }) {
-  const noneConnected = () => props.runners?.every((runner) => !runner.connected);
-  return (
-    <div class="empty">
-      <Switch>
-        <Match when={props.search.after !== undefined}>
-          <h2>No older jobs</h2>
-          <p class="empty-act">
-            <Link
-              activeOptions={{ exact: true }}
-              to="/jobs"
-              search={{ ...props.search, after: undefined }}
-              class="stands-alone"
-            >
-              Newest jobs
-            </Link>
-          </p>
-        </Match>
-        <Match when={filterCount(props.search) > 0}>
-          <h2>No job matches these filters</h2>
-          <p class="empty-act">
-            <ClearFiltersLink>Clear the filters</ClearFiltersLink>
-          </p>
-        </Match>
-        <Match when={noneConnected()}>
-          <h2>No jobs yet</h2>
-          <p>Jobs run on Runners, and no Runner is connected to this hub.</p>
-          <p class="empty-act">
-            <Link to="/runners" class="stands-alone">
-              Add Runner
-            </Link>
-          </p>
-        </Match>
-        <Match when={true}>
-          <h2>No jobs yet</h2>
-          <p>
-            Submit a Batch of jobs with the CLI: <code>elflodge batches submit</code>
-          </p>
-        </Match>
-      </Switch>
-    </div>
   );
 }

@@ -3,7 +3,7 @@ import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-
 import { batchRefSchema, jobStatusSchema, problemOf, type Batch } from "contract";
 import { For, Show } from "solid-js";
 
-import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
+import { HubReadError, hubFailureDetail } from "../../../api-client.ts";
 import { totalJobs } from "../../../batch.ts";
 import { BatchControls } from "../../../components/BatchControls.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -124,7 +124,7 @@ function BatchPage() {
       <Show when={read.isError}>
         <FailedReadNotice
           what="The Batch"
-          detail={hubFailureMessage(read.error)}
+          detail={hubFailureDetail(read.error)}
           failedAt={read.errorUpdatedAt}
           readAt={read.dataUpdatedAt}
         />
@@ -143,7 +143,7 @@ function BatchPage() {
             <Show when={queued.isError}>
               <FailedReadNotice
                 what="The Canary condition"
-                detail={hubFailureMessage(queued.error)}
+                detail={hubFailureDetail(queued.error)}
                 failedAt={queued.errorUpdatedAt}
                 readAt={queued.dataUpdatedAt}
               />

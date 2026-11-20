@@ -3,13 +3,14 @@ import { Link, createFileRoute } from "@tanstack/solid-router";
 import type { ListedBatch } from "contract";
 import { For, Repeat, Show } from "solid-js";
 
-import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { totalJobs, unfinishedJobs } from "../../../batch.ts";
 import { BatchStatus, BatchConditions } from "../../../components/BatchStatus.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
 import { EmptyList, ListEnd } from "../../../components/ListEnd.tsx";
+import { ClearFiltersLink } from "../../../components/ListFilters.tsx";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { listPages } from "../../../list-pages.ts";
 import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
@@ -39,14 +40,17 @@ export const Route = createFileRoute("/_signed-in/_member/batches/")({
       <ReadErrorPage {...props} heading="Batches">
         <Show when={filterCount(search())}>
           <p>
-            <Link class="stands-alone" to="/batches" search={{}}>
-              Clear the filters
-            </Link>
+            <ClearFiltersLink to="/batches">Clear the filters</ClearFiltersLink>
           </p>
         </Show>
         <Show when={search().after}>
           <p>
-            <Link class="stands-alone" to="/batches" search={{ ...search(), after: undefined }}>
+            <Link
+              activeOptions={{ exact: true }}
+              class="stands-alone"
+              to="/batches"
+              search={{ ...search(), after: undefined }}
+            >
               Newest Batches
             </Link>
           </p>
@@ -75,7 +79,7 @@ function BatchList() {
       <Show when={list.isError}>
         <FailedReadNotice
           what="The Batches"
-          detail={hubFailureMessage(list.error)}
+          detail={hubFailureDetail(list.error)}
           failedAt={list.errorUpdatedAt}
           readAt={list.dataUpdatedAt}
         />

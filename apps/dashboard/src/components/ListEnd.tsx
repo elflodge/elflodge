@@ -4,6 +4,7 @@ import { Match, Show, Switch } from "solid-js";
 
 import { formatCount } from "../format.ts";
 import { listPages } from "../list-pages.ts";
+import { ClearFiltersLink } from "./ListFilters.tsx";
 
 type ListAddressState = {
   to: keyof typeof listPages;
@@ -26,6 +27,7 @@ export function ListEnd(props: ListAddressState & { length: number; older?: stri
       </span>
       <Show when={props.after}>
         <Link
+          activeOptions={{ exact: true }}
           from={props.to}
           to="."
           search={(previous) => ({ ...previous, after: undefined })}
@@ -37,6 +39,7 @@ export function ListEnd(props: ListAddressState & { length: number; older?: stri
       <Show when={props.older}>
         {(after) => (
           <Link
+            activeOptions={{ exact: true }}
             from={props.to}
             to="."
             search={(previous) => ({ ...previous, after: after() })}
@@ -63,6 +66,7 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
           <h2>No older {list().plural}</h2>
           <p class="empty-act">
             <Link
+              activeOptions={{ exact: true }}
               from={props.to}
               to="."
               search={(previous) => ({ ...previous, after: undefined })}
@@ -75,9 +79,7 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
         <Match when={props.filtered}>
           <h2>No {list().singular} matches these filters</h2>
           <p class="empty-act">
-            <Link to={props.to} search={{}} class="stands-alone">
-              Clear the filters
-            </Link>
+            <ClearFiltersLink to={props.to}>Clear the filters</ClearFiltersLink>
           </p>
         </Match>
         <Match when={true}>

@@ -1,4 +1,4 @@
-import { Outlet, createFileRoute, useChildMatches, useNavigate } from "@tanstack/solid-router";
+import { Outlet, createFileRoute, useChildMatches, useLocation } from "@tanstack/solid-router";
 import { batchStatusSchema } from "contract";
 import { createSignal } from "solid-js";
 import * as z from "zod/mini";
@@ -10,6 +10,7 @@ import {
   optionalText,
   statusFilter,
 } from "../../../components/ListFilters.tsx";
+import { orpc } from "../../../query.ts";
 
 const searchSchema = z.pipe(
   z.object({
@@ -44,10 +45,13 @@ export const Route = createFileRoute("/_signed-in/_member/batches")({
 });
 
 function Batches() {
-  const search = Route.useSearch();
-  const navigate = useNavigate();
-  const [labelKey, setLabelKey] = createSignal(() => search().labelKey ?? "");
-  const [labelValue, setLabelValue] = createSignal(() => search().labelValue ?? "");
+  const appliedFilters = useLocation({
+    select: ({ search }) => {
+      const { after: _after, ...filters } = searchSchema.parse(search);
+      return filters;
+    },
+  });
+  const [draftValue, setDraftValue] = createSignal<string>();
   const failed = useChildMatches({
     select: (matches) => matches.some((match) => match.status === "error"),
   });
@@ -61,13 +65,16 @@ function Batches() {
         <ListFilters
           to="/batches"
           label="Filter the Batches"
-          submit={(values) => navigate({ to: "/batches", search: searchSchema.parse(values) })}
-          applied={filterCount(search())}
+          schema={searchSchema}
+          filters={appliedFilters()}
+          queryKey={(filters) => orpc.batches.list.queryKey({ input: listInput(filters) })}
+          onReset={() => setDraftValue(undefined)}
+          applied={filterCount(appliedFilters())}
           firstRow={
             <StatusFilters
               words={BATCH_STATUS_WORDS}
               statuses={batchStatusSchema.options}
-              selected={search().status}
+              selected={appliedFilters().status}
             />
           }
         >
@@ -76,9 +83,8 @@ function Batches() {
             <input
               id="batch-label-key"
               name="labelKey"
-              value={labelKey()}
-              onInput={({ currentTarget }) => setLabelKey(currentTarget.value)}
-              required={!!labelValue()}
+              defaultValue={appliedFilters().labelKey ?? ""}
+              required={!!(draftValue() ?? appliedFilters().labelValue)}
             />
           </div>
           <div class="filter-field">
@@ -86,8 +92,8 @@ function Batches() {
             <input
               id="batch-label-value"
               name="labelValue"
-              value={labelValue()}
-              onInput={({ currentTarget }) => setLabelValue(currentTarget.value)}
+              defaultValue={appliedFilters().labelValue ?? ""}
+              onInput={({ currentTarget }) => setDraftValue(currentTarget.value)}
             />
           </div>
         </ListFilters>

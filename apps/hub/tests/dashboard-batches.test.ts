@@ -58,6 +58,23 @@ test("a member pages through Batches matching a status and a Label, including af
   await expectBrowser(links).toHaveText(["other-team"]);
 }, 60_000);
 
+test("clearing a drafted Label lets a member filter by status alone", async () => {
+  const { id } = await system.owner().batches.create({ id: "draft-label", agent });
+  const page = await open("Label editor", "batches?status=paused");
+  await page.getByRole("button", { name: "Filters (1 applied)" }).click();
+  await page.getByLabel("Label value").fill("unapplied");
+  await expectBrowser(page.getByLabel("Label key")).toHaveJSProperty("required", true);
+  await page.getByRole("link", { name: "Clear", exact: true }).click();
+  const filters = page.getByRole("button", { name: "Filters", exact: true });
+  await expectBrowser(filters).toBeFocused();
+  await filters.click();
+  await expectBrowser(page.getByLabel("Label value")).toHaveValue("");
+  await page.getByRole("checkbox", { name: "Active" }).check();
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expectBrowser(page.getByRole("button", { name: "Filters (1 applied)" })).toBeFocused();
+  await expectBrowser(page.getByRole("link", { name: id, exact: true })).toBeVisible();
+}, 30_000);
+
 test("a member sees a Batch control in flight and its result on the record and list", async () => {
   const { id } = await system.owner().batches.create({ id: "november-control", agent });
   const page = await open("Batch operator", "batches");
