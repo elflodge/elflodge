@@ -148,7 +148,7 @@ function BatchTable(props: { batches?: ListedBatch[] }) {
                         to="/batches/$id"
                         params={{ id: batch().id }}
                         title={batch().id}
-                        class="cut mono"
+                        class="cut mono stands-alone"
                       >
                         {batch().id}
                       </Link>
