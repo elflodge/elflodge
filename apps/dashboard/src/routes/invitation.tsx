@@ -183,12 +183,12 @@ function UnavailableInvitation() {
           <Show
             when={context().session}
             fallback={
-              <Link class="stands-alone" to="/sign-in">
+              <Link class="stands-alone" to="/sign-in" ref={focusSignIn}>
                 Sign in
               </Link>
             }
           >
-            <Link class="stands-alone" to="/">
+            <Link class="stands-alone" to="/" ref={focusSignIn}>
               Go to the dashboard
             </Link>
           </Show>
