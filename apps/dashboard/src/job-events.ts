@@ -57,7 +57,12 @@ function historyOptions(id: string, direction: PagingDirection) {
   });
 }
 
-/** The member extends one end on request. The other follows the journal once caught up. */
+/**
+ * History and the live follower use separate queries. In @tanstack/query-core 5.107.1,
+ * query.ts runs one fetch per query: paging can cancel an active poll or reuse its promise.
+ * infiniteQueryBehavior.ts refetches every kept page, and infiniteQueryObserver.ts classifies a
+ * paging failure only by direction. A forward poll and a requested forward page need separate errors.
+ */
 export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: () => number) {
   const client = useQueryClient();
   const ownerLifetime = new AbortController();
