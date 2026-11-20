@@ -1,7 +1,8 @@
-import { Link } from "@tanstack/solid-router";
+import { Link, useRouter, useSearch } from "@tanstack/solid-router";
 import type { Runner } from "contract";
 import { Match, Show, Switch } from "solid-js";
 
+import { focusIfLost } from "../form.ts";
 import { formatCount } from "../format.ts";
 import { listPages } from "../list-pages.ts";
 import { ClearFiltersLink } from "./ListFilters.tsx";
@@ -11,6 +12,36 @@ type ListAddressState = {
   filtered: boolean;
   after?: string;
 };
+
+/** If paging removes the link the reader used, keep their place at the new list end. */
+export function PagingLink(props: { to: keyof typeof listPages; after?: string }) {
+  const router = useRouter();
+  const search = useSearch({ strict: false });
+  function follow(event: MouseEvent & { currentTarget: HTMLAnchorElement }) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return;
+    const link = event.currentTarget;
+    const destination = link.href;
+    const end = listPages[props.to].end;
+    const unsubscribe = router.subscribe("onResolved", () => {
+      unsubscribe();
+      if (!link.isConnected && location.href === destination)
+        focusIfLost(document.getElementById(end));
+    });
+  }
+  return (
+    <Link
+      activeOptions={{ exact: true }}
+      from={props.to}
+      to="."
+      search={{ ...search(), after: props.after }}
+      class="stands-alone"
+      onClick={follow}
+    >
+      {props.after ? "Older" : "Newest"} {listPages[props.to].plural}
+    </Link>
+  );
+}
 
 /** The way to newer and older pages, where there are any. */
 export function ListEnd(props: ListAddressState & { length: number; older?: string }) {
@@ -26,29 +57,9 @@ export function ListEnd(props: ListAddressState & { length: number; older?: stri
             : `there are no older ${list().plural}.`}
       </span>
       <Show when={props.after}>
-        <Link
-          activeOptions={{ exact: true }}
-          from={props.to}
-          to="."
-          search={(previous) => ({ ...previous, after: undefined })}
-          class="stands-alone"
-        >
-          Newest {list().plural}
-        </Link>
+        <PagingLink to={props.to} />
       </Show>
-      <Show when={props.older}>
-        {(after) => (
-          <Link
-            activeOptions={{ exact: true }}
-            from={props.to}
-            to="."
-            search={(previous) => ({ ...previous, after: after() })}
-            class="stands-alone"
-          >
-            Older {list().plural}
-          </Link>
-        )}
-      </Show>
+      <Show when={props.older}>{(after) => <PagingLink to={props.to} after={after()} />}</Show>
     </p>
   );
 }
@@ -65,15 +76,7 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
         <Match when={props.after}>
           <h2>No older {list().plural}</h2>
           <p class="empty-act">
-            <Link
-              activeOptions={{ exact: true }}
-              from={props.to}
-              to="."
-              search={(previous) => ({ ...previous, after: undefined })}
-              class="stands-alone"
-            >
-              Newest {list().plural}
-            </Link>
+            <PagingLink to={props.to} />
           </p>
         </Match>
         <Match when={props.filtered}>

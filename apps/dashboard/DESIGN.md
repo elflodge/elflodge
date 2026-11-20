@@ -530,11 +530,11 @@ The disclosure starts at 760px to leave room for the six Jobs status checks on o
 </form>
 ```
 
-The time-zone note sits below the filters when the list has records or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the column heads and eight skeleton rows. On Jobs, the eight rows fit within a phone screen (296px at 390px wide). On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the list’s error page with a way to clear any filters in the address.
+The time-zone note sits below the filters when the list has records or a read failed. On navigation within the dashboard a slow read keeps the heading and the address's filter values over the loading table. Both lists show eight skeleton rows in table layout. On Jobs, eight compact rows fit within a phone screen (296px at 390px wide). The folded Batches table shows two records. On a direct visit the shell waits for its first read, as on Runners. A failed refresh puts the failed-read notice under the note and keeps the earlier list. A failed first read shows the list’s error page with a way to clear any filters in the address. When Try again recovers a page, its heading receives focus if the member has not moved on.
 
 ### The end of a list
 
-Before a populated list, `a.vh.skip-list` leads to the list’s `p.list-end` (`jobs-end` or `batches-end`). The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest and Older links name the list and appear where available. Clearing filters from an empty result returns focus to the visible filter control.
+Before a populated list, `a.vh.skip-list` leads to the list’s `p.list-end` (`jobs-end` or `batches-end`). The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest and Older links name the list and appear where available. If paging removes the link the member pressed, focus moves to the list end. Clearing filters from an empty result returns focus to the visible filter control.
 
 ```html
 <a class="vh skip-list" href="#jobs-end">Skip to the end of the list</a>
@@ -597,7 +597,7 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
 
 ### Ledger
 
-A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights only when the number running exceeds the number with unknown status. The total goes under the double rule in `tfoot`.
+A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
 
 ```tsx
 <table class="ledger">
@@ -617,7 +617,7 @@ A `table.ledger` compares parts of the same total. Give each row a header, an en
   <tbody>
     <tr>
       <th scope="row">
-        <JobStatus job={queuedJob} />
+        <JobStatus status="queued" lastRecorded={false} />
       </th>
       <td class="num">3</td>
       <td>
@@ -652,7 +652,7 @@ A `table.ledger` compares parts of the same total. Give each row a header, an en
 
 ### Batch page
 
-The subject, zone, status, control row and facts use the job page’s parts. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
+The subject, zone, status, control row and facts use the job page’s parts. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A running job that ends before its Runner stops it keeps its status and output. If another caller cancels while the confirmation is open, it explains the new state and disables confirmation. Closing it returns focus to the status when its trigger has gone. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
 
 Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens. Its cost and tokens come from its present jobs. Facts give the full ID, creation time, creator, Labels and the failure breaker settings.
 

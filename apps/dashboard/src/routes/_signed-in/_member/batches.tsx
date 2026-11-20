@@ -1,5 +1,5 @@
 import { Outlet, createFileRoute, useChildMatches, useLocation } from "@tanstack/solid-router";
-import { batchStatusSchema } from "contract";
+import { batchStatusSchema, LABEL_KEY_PATTERN } from "contract";
 import { createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -12,7 +12,7 @@ import {
 } from "../../../components/ListFilters.tsx";
 import { orpc } from "../../../query.ts";
 
-const searchSchema = z.pipe(
+export const batchesSearchSchema = z.pipe(
   z.object({
     status: statusFilter(batchStatusSchema),
     labelKey: optionalText,
@@ -25,7 +25,7 @@ const searchSchema = z.pipe(
       : { ...statusAndCursor, labelKey: undefined, labelValue: undefined },
   ),
 );
-export type BatchesSearch = z.infer<typeof searchSchema>;
+export type BatchesSearch = z.infer<typeof batchesSearchSchema>;
 
 export function listInput(search: BatchesSearch) {
   return {
@@ -40,14 +40,14 @@ export function filterCount(search: BatchesSearch) {
 }
 
 export const Route = createFileRoute("/_signed-in/_member/batches")({
-  validateSearch: searchSchema,
+  validateSearch: batchesSearchSchema,
   component: Batches,
 });
 
 function Batches() {
   const appliedFilters = useLocation({
     select: ({ search }) => {
-      const { after: _after, ...filters } = searchSchema.parse(search);
+      const { after: _after, ...filters } = batchesSearchSchema.parse(search);
       return filters;
     },
   });
@@ -65,7 +65,7 @@ function Batches() {
         <ListFilters
           to="/batches"
           label="Filter the Batches"
-          schema={searchSchema}
+          schema={batchesSearchSchema}
           filters={appliedFilters()}
           queryKey={(filters) => orpc.batches.list.queryKey({ input: listInput(filters) })}
           onReset={() => setDraftValue(undefined)}
@@ -83,6 +83,8 @@ function Batches() {
             <input
               id="batch-label-key"
               name="labelKey"
+              pattern={LABEL_KEY_PATTERN.source}
+              title="Use a name of up to 63 letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash."
               defaultValue={appliedFilters().labelKey ?? ""}
               required={!!(draftValue() ?? appliedFilters().labelValue)}
             />

@@ -1,7 +1,7 @@
 import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
 import { batchRefSchema, jobStatusSchema, problemOf, type Batch } from "contract";
-import { For, Show } from "solid-js";
+import { For, Show, createMemo, deep, latest } from "solid-js";
 
 import { HubReadError, hubFailureDetail } from "../../../api-client.ts";
 import { totalJobs } from "../../../batch.ts";
@@ -10,7 +10,7 @@ import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadN
 import { FallbackPage } from "../../../components/FallbackPage.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
-import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
+import { JobStatus } from "../../../components/JobStatus.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import {
   DATE_TIME_SECONDS,
@@ -20,6 +20,7 @@ import {
   timeZoneNote,
 } from "../../../format.ts";
 import { orpc, REFRESH_INTERVAL_MS } from "../../../query.ts";
+import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
   loader: async ({ context, params }) => {
@@ -84,12 +85,14 @@ function BatchPage() {
     orpc.batches.get.queryOptions({
       input: { id: params().id },
       enabled: session().membership.status === "member",
-      refetchInterval: (query) =>
-        problemOf(query.state.error)?.status === 404 ? false : REFRESH_INTERVAL_MS,
+      refetchInterval: REFRESH_INTERVAL_MS,
     }),
   );
-  const batch = () => read.data;
-  const missing = () => problemOf(read.error)?.status === 404;
+  // Keep the ledger readable and let its live indication expire while a poll is held.
+  const batch = createMemo(() => latest(() => deep(read.data)));
+  const online = browserOnline();
+  const fresh = readIsFresh(() => read.dataUpdatedAt);
+  const current = () => online() && fresh() && !read.isPaused && !read.isRefetchError;
   const canShowCanary = () => {
     const { status, pendingControl, breaker, jobCounts } = batch();
     return (
@@ -105,14 +108,15 @@ function BatchPage() {
   const queued = useQuery(() =>
     orpc.jobs.list.queryOptions({
       input:
-        session().membership.status === "member" && !missing() && canShowCanary()
+        session().membership.status === "member" && canShowCanary()
           ? { batchId: batch().id, status: ["queued"], limit: 1 }
           : skipToken,
+      placeholderData: { jobs: [], hasMore: false },
       refetchInterval: REFRESH_INTERVAL_MS,
     }),
   );
   return (
-    <Show when={!missing()} fallback={<MissingBatch id={params().id} />}>
+    <>
       <RecordCrumbs to="/batches" />
       <div class="head">
         <h1 class="subject">
@@ -136,7 +140,7 @@ function BatchPage() {
               batch={batch()}
               canary={
                 canShowCanary() &&
-                !!queued.dataUpdatedAt &&
+                !queued.isLoadingError &&
                 queued.data.jobs[0]?.blockedBy === "batchCanary"
               }
             />
@@ -149,7 +153,7 @@ function BatchPage() {
               />
             </Show>
           </div>
-          <BatchJobs batch={batch()} />
+          <BatchJobs batch={batch()} current={current()} />
           <Show when={batch().usage.totalTokens > 0}>
             <section aria-labelledby="batch-usage">
               <h2 id="batch-usage">Usage</h2>
@@ -167,14 +171,15 @@ function BatchPage() {
         </div>
         <BatchFacts batch={batch()} />
       </div>
-    </Show>
+    </>
   );
 }
 
-function BatchJobs(props: { batch: Batch }) {
+function BatchJobs(props: { batch: Batch; current: boolean }) {
   const total = () => totalJobs(props.batch.jobCounts);
   // Unknown jobs keep their last recorded status. The Batch gives one unknown count across statuses.
-  const knownRunning = () => props.batch.jobCounts.running > props.batch.statusUnknownJobs;
+  const liveRunning = () =>
+    props.current && props.batch.jobCounts.running > 0 && !props.batch.statusUnknownJobs;
   return (
     <section aria-labelledby="batch-jobs">
       <h2 id="batch-jobs">Its jobs</h2>
@@ -197,15 +202,10 @@ function BatchJobs(props: { batch: Batch }) {
             {jobStatusSchema.options.map((status) => (
               <tr>
                 <th scope="row">
-                  <span
-                    class={[
-                      "status-word",
-                      (status !== "running" || knownRunning()) && `s-${status}`,
-                    ]}
-                  >
-                    <span class={["mark", `mark-${status}`]} aria-hidden="true" />
-                    {STATUS_WORDS[status]}
-                  </span>
+                  <JobStatus
+                    status={status}
+                    lastRecorded={status === "running" && !liveRunning()}
+                  />
                 </th>
                 <td class="num">{formatCount(props.batch.jobCounts[status])}</td>
                 <td>

@@ -9,20 +9,20 @@ import { BatchStatus, BatchConditions } from "../../../components/BatchStatus.ts
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
-import { EmptyList, ListEnd } from "../../../components/ListEnd.tsx";
+import { EmptyList, ListEnd, PagingLink } from "../../../components/ListEnd.tsx";
 import { ClearFiltersLink } from "../../../components/ListFilters.tsx";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { listPages } from "../../../list-pages.ts";
 import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
-import { filterCount, listInput } from "./batches.tsx";
+import { filterCount, listInput, batchesSearchSchema } from "./batches.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/batches/")({
-  loaderDeps: ({ search }) => listInput(search),
+  loaderDeps: ({ search }) => batchesSearchSchema.parse(search),
   loader: async ({ context, deps }) => {
     if (!context.member) return;
     await readFromHub("The Batches", () =>
       context.queryClient.query(
-        orpc.batches.list.queryOptions({ input: deps, staleTime: "static" }),
+        orpc.batches.list.queryOptions({ input: listInput(deps), staleTime: "static" }),
       ),
     );
   },
@@ -35,7 +35,7 @@ export const Route = createFileRoute("/_signed-in/_member/batches/")({
     </>
   ),
   errorComponent: (props) => {
-    const search = Route.useSearch();
+    const search = Route.useLoaderDeps();
     return (
       <ReadErrorPage {...props} heading="Batches">
         <Show when={filterCount(search())}>
@@ -45,14 +45,7 @@ export const Route = createFileRoute("/_signed-in/_member/batches/")({
         </Show>
         <Show when={search().after}>
           <p>
-            <Link
-              activeOptions={{ exact: true }}
-              class="stands-alone"
-              to="/batches"
-              search={{ ...search(), after: undefined }}
-            >
-              Newest Batches
-            </Link>
+            <PagingLink to="/batches" />
           </p>
         </Show>
       </ReadErrorPage>
@@ -62,7 +55,7 @@ export const Route = createFileRoute("/_signed-in/_member/batches/")({
 });
 
 function BatchList() {
-  const search = Route.useSearch();
+  const search = Route.useLoaderDeps();
   const list = useQuery(() =>
     orpc.batches.list.queryOptions({
       input: listInput(search()),
@@ -111,7 +104,15 @@ function BatchList() {
   );
 }
 
-const columns = ["Batch", "Status", "Unfinished", "Failed", "Jobs", "Created by", "Created"];
+const COLUMNS = [
+  { heading: "Batch", cell: "is-id" },
+  { heading: "Status" },
+  { heading: "Unfinished", cell: "num" },
+  { heading: "Failed", cell: "num" },
+  { heading: "Jobs", cell: "num" },
+  { heading: "Created by", cell: "batch-submitter" },
+  { heading: "Created" },
+];
 function BatchTable(props: { batches?: ListedBatch[] }) {
   return (
     <div class="batch-list" aria-busy={props.batches ? undefined : "true"}>
@@ -119,9 +120,9 @@ function BatchTable(props: { batches?: ListedBatch[] }) {
         <caption class="vh">Batches</caption>
         <thead role="rowgroup">
           <tr role="row">
-            {columns.map((column, i) => (
-              <th role="columnheader" scope="col" class={{ num: i >= 2 && i <= 4 }}>
-                {column}
+            {COLUMNS.map(({ cell, heading }) => (
+              <th role="columnheader" scope="col" class={cell}>
+                {heading}
               </th>
             ))}
           </tr>
@@ -130,11 +131,12 @@ function BatchTable(props: { batches?: ListedBatch[] }) {
           <Show
             when={props.batches}
             fallback={
+              // Eight rows match the Jobs loading table. Folded records show two.
               <Repeat count={8}>
                 {() => (
                   <tr>
-                    {columns.map((column, i) => (
-                      <td class={{ "is-id": !i }} data-l={i ? column : undefined}>
+                    {COLUMNS.map(({ cell, heading }) => (
+                      <td class={cell} data-l={cell === "is-id" ? undefined : heading}>
                         <span class="sk" />
                       </td>
                     ))}

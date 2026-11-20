@@ -739,6 +739,10 @@ p:has(> button) + .prose {
   container: records / inline-size;
 }
 @container records (width <= 48rem) {
+  /* At 390 × 844 two 205px folded placeholders fit the 571px below the filters. */
+  .records[aria-hidden="true"] tbody tr:nth-child(n + 3) {
+    display: none;
+  }
   /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
   .records thead {
     position: absolute;
@@ -1197,7 +1201,7 @@ p mark.placeholder {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.job-list td.c-job {
+.job-list td:is(.c-job, .c-batch) {
   padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
 }
 .job-name {
@@ -2183,6 +2187,19 @@ p mark.placeholder {
   white-space: nowrap;
 }
 
+/* A count crossing zero must not move the next row when its link appears or disappears. */
+.ledger tbody tr {
+  height: var(--row);
+}
+.ledger tbody :is(th, td) {
+  padding-block: 0;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .ledger tbody tr {
+    /* A 44px link plus the collapsed borders beside the total. */
+    height: calc(var(--control-touch) + var(--rule-heavy));
+  }
+}
 .ledger + .note {
   display: block;
 }

@@ -50,8 +50,10 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
   }
   async function press(control: "pause" | "resume") {
     const message = await act(control);
-    if (message) showFailure(message);
+    if (message) showFailure(`${control === "pause" ? "Pause" : "Resume"} the Batch: ${message}`);
   }
+  const canCancel = () => props.batch.status !== "cancelled" && !props.batch.pendingControl;
+  const cancelLabel = () => `Cancel the Batch ${props.batch.id}`;
   const unfinished = () => unfinishedJobs(props.batch.jobCounts);
   const unfinishedText = () =>
     `${formatCount(unfinished())} unfinished ${plural(unfinished(), "job", "jobs")}`;
@@ -100,101 +102,112 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
           </Notice>
         )}
       </Show>
-      <Show when={props.batch.status !== "cancelled"}>
-        <div class="controls job-controls">
-          <Show when={!props.batch.pendingControl && props.batch.status === "active"}>
-            <button
-              type="button"
-              aria-describedby="pause-note"
-              disabled={pending()}
-              onClick={() => void press("pause")}
-            >
-              Pause
-            </button>
-          </Show>
-          <Show when={props.batch.status === "paused"}>
-            <button
-              type="button"
-              aria-describedby="resume-note"
-              disabled={pending()}
-              onClick={() => void press("resume")}
-            >
-              Resume
-            </button>
-          </Show>
+      <div class="controls job-controls">
+        <Show when={!props.batch.pendingControl && props.batch.status === "active"}>
+          <button
+            type="button"
+            aria-describedby="pause-note"
+            disabled={pending()}
+            onClick={() => void press("pause")}
+          >
+            Pause
+          </button>
+        </Show>
+        <Show when={canCancel() && props.batch.status === "paused"}>
+          <button
+            type="button"
+            aria-describedby="resume-note"
+            disabled={pending()}
+            onClick={() => void press("resume")}
+          >
+            Resume
+          </button>
+        </Show>
+        <Show when={props.batch.pendingControl}>
+          <button
+            type="button"
+            class="danger"
+            disabled
+            aria-label={cancelLabel()}
+            aria-describedby="batch-status"
+          >
+            Cancel
+          </button>
+        </Show>
+        <ConfirmAction
+          trigger="Cancel"
+          triggerLabel={cancelLabel()}
+          showTrigger={canCancel()}
+          canConfirm={canCancel()}
+          onClose={() => focusIfLost(status)}
+          confirm="Cancel the Batch"
+          heading={
+            <>
+              Cancel the Batch <code class="job-address">{props.batch.id}</code>?
+            </>
+          }
+          describedBy="cancel-note"
+          disabled={pending()}
+          act={(close) => act("cancel", close)}
+          reportPageFailure={(message) => showFailure(`Cancel the Batch: ${message}`)}
+        >
           <Show
-            when={!props.batch.pendingControl}
+            when={canCancel()}
             fallback={
-              <button type="button" class="danger" disabled aria-describedby="batch-status">
-                Cancel
-              </button>
+              <p>
+                {props.batch.status === "cancelled"
+                  ? "The Batch is already cancelled."
+                  : "Cancel has already been asked."}
+              </p>
             }
           >
-            <ConfirmAction
-              trigger="Cancel"
-              triggerLabel={`Cancel the Batch ${props.batch.id}`}
-              confirm="Cancel the Batch"
-              heading={
-                <>
-                  Cancel the Batch <code class="job-address">{props.batch.id}</code>?
-                </>
-              }
-              describedBy="cancel-note"
-              disabled={pending()}
-              act={(close) => act("cancel", close)}
-              reportPageFailure={(message) => showFailure(`Cancel the Batch: ${message}`)}
-            >
-              <p>
-                <Show when={unfinished()}>
-                  Its {unfinishedText()} {plural(unfinished(), "is", "are")} cancelled:{" "}
-                  {unfinished() === 1
-                    ? "at once if no Runner may be running it, otherwise once its Runner stops it"
-                    : "those no Runner may be running at once, the others once their Runners stop them"}
-                  .{" "}
-                </Show>
-                {finality}
-              </p>
-              <Show when={props.batch.statusUnknownJobs}>
+            <p>
+              <Show when={unfinished()}>
+                {unfinished() === 1
+                  ? "Its one unfinished job is cancelled at once if it is unsent or paused. Otherwise its Runner is asked to stop it. If it ends first, it keeps its status and output."
+                  : `It has ${unfinishedText()}. Unsent and paused jobs are cancelled at once. Runners are asked to stop the others. Jobs that end first keep their status and output.`}{" "}
+              </Show>
+              {finality}
+            </p>
+            <Show when={props.batch.statusUnknownJobs}>
+              {(n) => (
+                <p>
+                  {formatCount(n())} of its jobs {plural(n(), "has", "have")} status unknown: the
+                  cancel waits until{" "}
+                  {n() === 1 ? "its Runner reports or is" : "their Runners report or are"} removed.
+                </p>
+              )}
+            </Show>
+          </Show>
+        </ConfirmAction>
+      </div>
+      <Show when={canCancel()}>
+        <Show
+          when={props.batch.status === "active"}
+          fallback={
+            <p class="note" id="resume-note">
+              {resumeExplanation()}
+              <Show when={props.batch.jobCounts.paused}>
                 {(n) => (
-                  <p>
-                    {formatCount(n())} of its jobs {plural(n(), "has", "have")} status unknown: the
-                    cancel waits until{" "}
-                    {n() === 1 ? "its Runner reports or is" : "their Runners report or are"}{" "}
-                    removed.
-                  </p>
+                  <>
+                    {" "}
+                    Its {formatCount(n())} paused {plural(n(), "job", "jobs")}{" "}
+                    {plural(n(), "stays", "stay")} paused.
+                  </>
                 )}
               </Show>
-            </ConfirmAction>
-          </Show>
-        </div>
-        <Show when={!props.batch.pendingControl}>
-          <Show
-            when={props.batch.status === "active"}
-            fallback={
-              <p class="note" id="resume-note">
-                {resumeExplanation()}
-                <Show when={props.batch.jobCounts.paused}>
-                  {(n) => (
-                    <>
-                      {" "}
-                      Its {formatCount(n())} paused {plural(n(), "job", "jobs")}{" "}
-                      {plural(n(), "stays", "stay")} paused.
-                    </>
-                  )}
-                </Show>
-              </p>
-            }
-          >
-            <p class="note" id="pause-note">
-              Pause blocks its jobs not yet sent to a Runner, and any added later: they stay queued.
-              Jobs already sent or running carry on.
             </p>
-          </Show>
-          <p class="note" id="cancel-note">
-            {unfinished() ? `Cancel ends its ${unfinishedText()}. Final` : "Cancel is final"}: it
-            takes no new jobs, and none of its jobs can be resumed.
+          }
+        >
+          <p class="note" id="pause-note">
+            Pause blocks its jobs not yet sent to a Runner, and any added later: they stay queued.
+            Jobs already sent or running carry on.
           </p>
         </Show>
+        <p class="note" id="cancel-note">
+          <Show when={unfinished()}>This Batch has {unfinishedText()}. </Show>Cancel is final.{" "}
+          {finality}
+        </p>
       </Show>
     </>
   );

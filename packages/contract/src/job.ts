@@ -213,6 +213,10 @@ export const batchIdSchema = z
     z.regex(BATCH_ID_PATTERN, "Must be letters, digits, `_` and `-`, not beginning with `-`"),
   );
 
+// Shared with the dashboard input, whose HTML pattern uses Unicode sets.
+export const LABEL_KEY_PATTERN =
+  /^(?:(?=.{1,253}\/)[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[\-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$/v;
+
 /**
  * A label's key, in Kubernetes's syntax, so it reads as one parameter of a list's
  * `labels[key]=value` filter: a name of at most 63 characters, beginning and ending with a letter or
@@ -223,7 +227,7 @@ export const labelKeySchema = z
   .string()
   .check(
     z.regex(
-      /^(?:(?=.{1,253}\/)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$/,
+      LABEL_KEY_PATTERN,
       "Must be a name of at most 63 letters, digits, `-`, `_` and `.`, beginning and ending with a letter or digit, optionally behind a DNS subdomain and `/`",
     ),
   );

@@ -132,13 +132,15 @@ test("a Batch ledger opens the jobs it counts and a job links back to the Batch"
       { customId: "stop", input: "Read." },
     ],
   });
+  const other = await client.batches.create({ id: "other-ledger", agent });
+  await client.batches.addJobs({ id: other.id, jobs: [{ customId: "elsewhere", input: "Read." }] });
   const stopped = jobs.find(({ job }) => job.customId === "stop");
   if (!stopped) throw new Error("The Batch has no stop job");
   await client.jobs.cancel({ id: stopped.job.id });
   const page = await open("Ledger reader", `batches/${id}`);
   await page.getByRole("link", { name: /See them.*its queued jobs/ }).click();
   const table = page.getByRole("table", { name: "Jobs" });
-  await expectBrowser(table.getByRole("link", { name: "stop" })).toHaveCount(0);
+  await expectBrowser(table.locator(".job-name")).toHaveText(["keep"]);
   await expectBrowser(table.getByRole("link", { name: id })).toHaveAttribute(
     "href",
     `/dashboard/batches/${id}`,
