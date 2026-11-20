@@ -534,7 +534,7 @@ The time-zone note sits below the filters when the list has records or a read fa
 
 ### The end of a list
 
-Before a populated list, `a.vh.skip-list` leads to the list’s `p.list-end` (`jobs-end` or `batches-end`). The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest and Older links name the list and appear where available. If paging removes the link the member pressed, focus moves to the list end. Clearing filters from an empty result returns focus to the visible filter control.
+Before a populated list, `a.vh.skip-list` leads to the list’s `p.list-end` (`jobs-end` or `batches-end`). The end gives the count on this page. When more follow it reads "50 read; the hub gives no total." The last page reads "11 read; there are no older jobs.", or "2 read; no more match." with filters. Newest and Older links name the list and appear where available. If paging removes the link the member pressed, focus moves to the list end or, on an empty page, its empty-state heading. Clearing filters from an empty result returns focus to the visible filter control.
 
 ```html
 <a class="vh skip-list" href="#jobs-end">Skip to the end of the list</a>
@@ -597,7 +597,7 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
 
 ### Ledger
 
-A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
+A `table.ledger` compares parts of the same total. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. A current, known zero has an unlit mark and is announced as “Running” and its count. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
 
 ```tsx
 <table class="ledger">

@@ -52,7 +52,8 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
     const message = await act(control);
     if (message) showFailure(`${control === "pause" ? "Pause" : "Resume"} the Batch: ${message}`);
   }
-  const canCancel = () => props.batch.status !== "cancelled" && !props.batch.pendingControl;
+  const cancellationStarted = () =>
+    !!props.batch.pendingControl || props.batch.status === "cancelled";
   const cancelLabel = () => `Cancel the Batch ${props.batch.id}`;
   const unfinished = () => unfinishedJobs(props.batch.jobCounts);
   const unfinishedText = () =>
@@ -83,7 +84,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
           <BatchStatus batch={props.batch} />
         </div>
         <BatchConditions batch={props.batch} detailed canary={props.canary} />
-        <Show when={props.batch.pendingControl || props.batch.status === "cancelled"}>
+        <Show when={cancellationStarted()}>
           <p class="note">{finality}</p>
         </Show>
         <Show when={pending()}>
@@ -113,7 +114,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
             Pause
           </button>
         </Show>
-        <Show when={canCancel() && props.batch.status === "paused"}>
+        <Show when={!cancellationStarted() && props.batch.status === "paused"}>
           <button
             type="button"
             aria-describedby="resume-note"
@@ -137,8 +138,8 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
         <ConfirmAction
           trigger="Cancel"
           triggerLabel={cancelLabel()}
-          showTrigger={canCancel()}
-          canConfirm={canCancel()}
+          showTrigger={!cancellationStarted()}
+          canConfirm={!cancellationStarted()}
           onClose={() => focusIfLost(status)}
           confirm="Cancel the Batch"
           heading={
@@ -152,7 +153,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
           reportPageFailure={(message) => showFailure(`Cancel the Batch: ${message}`)}
         >
           <Show
-            when={canCancel()}
+            when={!cancellationStarted()}
             fallback={
               <p>
                 {props.batch.status === "cancelled"
@@ -181,7 +182,7 @@ export function BatchControls(props: { batch: Batch; canary: boolean }) {
           </Show>
         </ConfirmAction>
       </div>
-      <Show when={canCancel()}>
+      <Show when={!cancellationStarted()}>
         <Show
           when={props.batch.status === "active"}
           fallback={

@@ -740,7 +740,7 @@ p:has(> button) + .prose {
 }
 @container records (width <= 48rem) {
   /* At 390 × 844 two 205px folded placeholders fit the 571px below the filters. */
-  .records[aria-hidden="true"] tbody tr:nth-child(n + 3) {
+  .batch-list-loading tbody tr:nth-child(n + 3) {
     display: none;
   }
   /* The column heads are hidden but read: .vh's declarations, as a class cannot apply at one width only. */
@@ -2181,6 +2181,12 @@ p mark.placeholder {
   color: var(--c-ink-2);
   font-size: var(--text-xs);
 }
+/* A current count of zero has no running lamp. */
+.ledger .is-zero .s-running,
+.ledger .is-zero .mark-running {
+  color: var(--c-ink-2);
+}
+
 /* A ledger measures each row against the same total. */
 .ledger td:last-child {
   text-align: end;

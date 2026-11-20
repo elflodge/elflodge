@@ -178,8 +178,7 @@ function BatchPage() {
 function BatchJobs(props: { batch: Batch; current: boolean }) {
   const total = () => totalJobs(props.batch.jobCounts);
   // Unknown jobs keep their last recorded status. The Batch gives one unknown count across statuses.
-  const liveRunning = () =>
-    props.current && props.batch.jobCounts.running > 0 && !props.batch.statusUnknownJobs;
+  const runningLastRecorded = () => !props.current || props.batch.statusUnknownJobs > 0;
   return (
     <section aria-labelledby="batch-jobs">
       <h2 id="batch-jobs">Its jobs</h2>
@@ -200,11 +199,11 @@ function BatchJobs(props: { batch: Batch; current: boolean }) {
           </thead>
           <tbody>
             {jobStatusSchema.options.map((status) => (
-              <tr>
+              <tr class={{ "is-zero": props.batch.jobCounts[status] === 0 }}>
                 <th scope="row">
                   <JobStatus
                     status={status}
-                    lastRecorded={status === "running" && !liveRunning()}
+                    lastRecorded={status === "running" && runningLastRecorded()}
                   />
                 </th>
                 <td class="num">{formatCount(props.batch.jobCounts[status])}</td>

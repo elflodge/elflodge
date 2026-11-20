@@ -116,7 +116,11 @@ const COLUMNS = [
 function BatchTable(props: { batches?: ListedBatch[] }) {
   return (
     <div class="batch-list" aria-busy={props.batches ? undefined : "true"}>
-      <table class="records" role="table" aria-hidden={props.batches ? undefined : "true"}>
+      <table
+        class={["records", { "batch-list-loading": !props.batches }]}
+        role="table"
+        aria-hidden={props.batches ? undefined : "true"}
+      >
         <caption class="vh">Batches</caption>
         <thead role="rowgroup">
           <tr role="row">

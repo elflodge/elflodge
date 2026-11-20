@@ -2,12 +2,12 @@ import { parseFormData } from "@orpc/openapi/helpers";
 import type { JSX } from "@solidjs/web";
 import { useQueryClient, type QueryKey } from "@tanstack/solid-query";
 import { Link, deepEqual, linkOptions, trimPathRight, useRouter } from "@tanstack/solid-router";
-import { For, Show, createEffect, createSignal, onFlush, onSettled } from "solid-js";
+import { For, Show, createEffect, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
 import { createFormAction, focusIfLost } from "../form.ts";
 import { formatCount } from "../format.ts";
-import { listPages } from "../list-pages.ts";
+import { focusAfterLinkDrops, listPages } from "../list-pages.ts";
 
 export const optionalText = z.catch(z.optional(z.string().check(z.minLength(1))), undefined);
 
@@ -70,18 +70,11 @@ export function ClearFiltersLink(props: {
   children: string;
   closePanel?: () => void;
 }) {
-  let focusWhenVisible = false;
-  function returnToFilters(event: MouseEvent) {
-    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
-      return;
+  const target = () => filterFocusTarget(props.to);
+  const returnToFilters = focusAfterLinkDrops(target, () => {
     props.closePanel?.();
-    const target = filterFocusTarget(props.to);
-    if (target?.checkVisibility()) target.focus();
-    else focusWhenVisible = true;
-  }
-  // A refused read hides the form. Its recovery link disappears when the form is visible again.
-  onSettled(() => () => {
-    if (focusWhenVisible) onFlush(() => focusIfLost(filterFocusTarget(props.to)));
+    const control = target();
+    if (control?.checkVisibility()) control.focus();
   });
   return (
     <Link
