@@ -13,7 +13,7 @@ import {
   onSettled,
 } from "solid-js";
 
-import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
+import { HubReadError, hubFailureDetail } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { FallbackPage } from "../../../components/FallbackPage.tsx";
 import { Instant } from "../../../components/Instant.tsx";
@@ -199,7 +199,7 @@ function JobPage() {
         <Match when={read.isRefetchError}>
           <FailedReadNotice
             what="The job"
-            detail={hubFailureMessage(read.error)}
+            detail={hubFailureDetail(read.error)}
             failedAt={read.errorUpdatedAt}
             readAt={read.dataUpdatedAt}
           />

@@ -4,7 +4,13 @@ import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tan
 import { problemOf } from "contract";
 import { Match, Show, Switch, createEffect, createSignal, flush, onSettled } from "solid-js";
 
-import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
+import {
+  api,
+  failureDetailSuffix,
+  hubFailureDetail,
+  hubFailureMessage,
+  readFromHub,
+} from "../api-client.ts";
 import { authClient, getSession } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { FailedReadNotice } from "../components/FailedReadNotice.tsx";
@@ -130,7 +136,7 @@ function ReadInvitation(props: { invitationId: string }) {
       <Match when={preview.isLoadingError}>
         <InvitationPage heading="Invitation">
           <Notice role="alert">
-            The invitation could not be read: {hubFailureMessage(preview.error)}
+            The invitation could not be read{failureDetailSuffix(hubFailureDetail(preview.error))}
           </Notice>
           <p>
             <button type="button" class="primary" onClick={() => void preview.refetch()}>
@@ -153,7 +159,7 @@ function ReadInvitation(props: { invitationId: string }) {
           <Show when={preview.isRefetchError}>
             <FailedReadNotice
               what="The invitation"
-              detail={hubFailureMessage(preview.error)}
+              detail={hubFailureDetail(preview.error)}
               failedAt={preview.errorUpdatedAt}
               readAt={preview.dataUpdatedAt}
             />
@@ -282,7 +288,7 @@ function AcceptInvitation(props: {
       } catch (failure) {
         props.joined({
           organization,
-          message: `You have joined ${organization}, but your session could not be read: ${hubFailureMessage(failure)}`,
+          message: `You have joined ${organization}, but your session could not be read${failureDetailSuffix(hubFailureDetail(failure))}`,
         });
         return;
       }
@@ -292,7 +298,7 @@ function AcceptInvitation(props: {
       } catch (failure) {
         props.joined({
           organization,
-          message: `You have joined ${organization}, but signing in failed: ${hubFailureMessage(failure)}`,
+          message: `You have joined ${organization}, but signing in failed${failureDetailSuffix(hubFailureDetail(failure))}`,
         });
         return;
       }

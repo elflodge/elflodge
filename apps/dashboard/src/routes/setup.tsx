@@ -2,7 +2,13 @@ import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
 import { Show, createSignal, onSettled } from "solid-js";
 
-import { api, failureDetailSuffix, hubFailureMessage, readFromHub } from "../api-client.ts";
+import {
+  api,
+  failureDetailSuffix,
+  hubFailureDetail,
+  hubFailureMessage,
+  readFromHub,
+} from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Notice } from "../components/Notice.tsx";
@@ -42,7 +48,7 @@ function Setup() {
     } catch (failure) {
       // The owner exists, so the form is done with. The sign-in page can try again.
       setError(
-        `The owner was created, but signing in failed${failureDetailSuffix(hubFailureMessage(failure))}`,
+        `The owner was created, but signing in failed${failureDetailSuffix(hubFailureDetail(failure))}`,
       );
       setAlreadySetUp(true);
       return;

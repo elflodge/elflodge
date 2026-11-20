@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/solid-router";
 import { type Runner, type RunnerCapabilities, problemOf } from "contract";
 import { For, Show, createMemo, createSignal, flush } from "solid-js";
 
-import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -106,7 +106,7 @@ function Runners() {
       <Show when={runners.isError}>
         <FailedReadNotice
           what="The Runners"
-          detail={hubFailureMessage(runners.error)}
+          detail={hubFailureDetail(runners.error)}
           failedAt={runners.errorUpdatedAt}
           readAt={runners.dataUpdatedAt}
         />

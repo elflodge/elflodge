@@ -11,19 +11,25 @@ export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
   createProblemDetailsLink(apiContract, {}),
 );
 
-/** What went wrong with a call to the hub, in words for the member. */
-export function hubFailureMessage(caught: unknown): string {
+/** The hub may refuse a call without providing a detail. */
+export function hubFailureDetail(caught: unknown): string {
   const error = asError(caught);
   if (error instanceof ORPCError) return error.message;
   if (error instanceof BetterFetchError) {
     const message: unknown = error.error?.message;
-    if (typeof message === "string" && message) return message;
+    if (typeof message === "string" && message.trim()) return message;
     // A proxy can answer without a body, and HTTP/2 has no status text.
     return error.statusText || `The hub answered with HTTP status ${error.status}.`;
   }
   // A call that got no answer, or a mistake in the dashboard, which the console keeps.
   console.error(error);
   return "The connection to the hub failed. Please try again.";
+}
+
+/** Standalone action alerts need a message even when the hub supplied no detail. */
+export function hubFailureMessage(caught: unknown): string {
+  const detail = hubFailureDetail(caught);
+  return detail.trim() ? detail : "The hub could not complete the request.";
 }
 
 /** Finish a failure notice with the hub's words when it supplied any. */
@@ -39,7 +45,7 @@ export class HubReadError extends Error {
   readonly detail: string;
 
   constructor(what: string, cause: unknown) {
-    const detail = hubFailureMessage(cause);
+    const detail = hubFailureDetail(cause);
     super(`${what} could not be read${failureDetailSuffix(detail)}`, { cause });
     this.what = what;
     this.detail = detail;
