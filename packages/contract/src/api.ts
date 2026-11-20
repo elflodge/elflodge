@@ -571,7 +571,7 @@ const jobEventOrderSchema = z
   .check(z.describe("Event ID order, oldest first (asc, the default) or newest first (desc)."));
 export type JobEventOrder = z.infer<typeof jobEventOrderSchema>;
 
-/** Follow a job in ascending order until a page with a final status has no more events. */
+/** Follow a job in ascending order until a page with a final `status` has no more events. */
 export const jobEventsPageSchema = z
   .object({
     events: z
@@ -586,9 +586,16 @@ export const jobEventsPageSchema = z
       ),
     status: jobStatusSchema.check(
       z.describe(
-        "The job's status when this page was read. A final status means the hub has stored events through the end of this run. Events lost with a host may be missing.",
+        "The job's status when this page was read. It equals `job.status` on a page that carries the job.",
       ),
     ),
+    job: z
+      .optional(jobSchema)
+      .check(
+        z.describe(
+          "The job when this page was read, in the same snapshot as its Events. Present on ascending pages with `hasMore: false` and descending pages read from the newest end (`after: 0`). Other pages omit the job because its Output can make it far larger than a page of Events.",
+        ),
+      ),
   })
   .register(z.globalRegistry, { id: "JobEventsPage" });
 export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
@@ -1213,7 +1220,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/jobs/{id}/events",
           description:
-            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. `hasMore` says whether more events are stored in that order, and `status` is the job's status when the page was read. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `status` and `hasMore` is false. A page stops at about 1 MiB, but always holds one event if any are past the cursor.",
+            "Reads a job's events, oldest first unless `order` is desc. With `order` desc and `limit` 2 returning IDs 98 and 93, pass `after` 93 in the same order for older events, and `after` 98 in ascending order to follow new ones, or `after` 0 if the first page was empty. `hasMore` says whether more events are stored in that order. When following, read again at once while `hasMore` is true, or after a few seconds otherwise, and stop when an ascending page has a final `status` and `hasMore` is false. The Events have a 1 MiB budget. The first eligible event is always included, even if it alone exceeds the budget. Events lost with a host may be missing.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )

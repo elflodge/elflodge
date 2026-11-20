@@ -64,8 +64,17 @@ export function JobControls(props: {
         control === "resume"
           ? await api.jobs.resume({ id, modelBudgetUsd })
           : await api.jobs[control]({ id });
-      // An older poll still on the wire must not replace the control's answer.
-      await client.cancelQueries({ queryKey, exact: true });
+      // The job read and any Events read that can reach the newest end can replace the record.
+      await Promise.all([
+        client.cancelQueries({ queryKey, exact: true }),
+        client.cancelQueries({
+          queryKey: orpc.jobs.events.key({ type: "infinite", input: { id, order: "desc" } }),
+          predicate: (query) => !query.state.fetchMeta?.fetchMore,
+        }),
+        client.cancelQueries({
+          queryKey: orpc.jobs.events.key({ input: { id, order: "asc" } }),
+        }),
+      ]);
       client.setQueryData(queryKey, job);
       if (control === "delete") props.onDeleted();
       budgetDialog?.close();

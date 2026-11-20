@@ -30,6 +30,7 @@ import {
   type ExpressionBuilder,
   expressionBuilder,
   type Kysely,
+  type Nullable,
   type QueryCreator,
   type SqlBool,
   sql,
@@ -109,21 +110,21 @@ const JOB_COLUMNS = [
 ] as const;
 const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
 
+type SelectedJob = Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
+  Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
+    batchId: string;
+    blockedBy: BlockedBy | null;
+    statusUnknown: StatusUnknownOfJob | null;
+    runner: RunnerOfJob | null;
+  };
+
 /**
  * A job as the API reports it: its output only once it has succeeded and its failure once it has
  * failed, its activity only while it runs, and a control only while it waits for the job's Runner.
  * The report of a run's start carries its first activity, so a job running again never shows the
  * last run's.
  */
-function toApiJob(
-  job: Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
-    Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
-      batchId: string;
-      blockedBy: BlockedBy | null;
-      statusUnknown: StatusUnknownOfJob | null;
-      runner: RunnerOfJob | null;
-    },
-) {
+function toApiJob(job: SelectedJob) {
   const {
     status,
     output,
@@ -362,11 +363,9 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 /** The statuses of a job that has not ended. */
 export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
-/** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
-export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
-  if (ids.length === 0) return [];
+function selectJobs(db: Kysely<Database>) {
   const now = new Date();
-  const rows = await db
+  return db
     .selectFrom("job as j")
     .innerJoin("jobProgress as p", "p.jobId", "j.id")
     .select((eb) => [
@@ -389,7 +388,13 @@ export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Pro
         },
         now,
       ).as("statusUnknown"),
-    ])
+    ]);
+}
+
+/** The jobs `ids` as the API reports them, in no particular order, each with what blocks it. */
+export async function readJobs(db: Kysely<Database>, ids: readonly JobId[]): Promise<Job[]> {
+  if (ids.length === 0) return [];
+  const rows = await selectJobs(db)
     .where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])))
     .execute();
   return rows.map(toApiJob);
@@ -1519,6 +1524,11 @@ export function countJobs() {
   );
 }
 
+/** A matching job in the Events page's left join has all the columns of a job read. */
+function hasJob(row: Nullable<SelectedJob>): row is SelectedJob {
+  return row.id !== null;
+}
+
 /**
  * A page of a job's events, or a 404 if the job is missing. Each stored row holds one report.
  * Split the selected rows into events and skip those at or before the cursor in the requested
@@ -1533,45 +1543,61 @@ export function readJobEvents(
   return Effect.gen(function* () {
     const database = yield* Db;
     const descending = order === "desc";
-    // A final status and its last events must come from the same snapshot.
-    const job = yield* database.query((db) =>
-      db
-        .selectFrom("job as j")
-        .where("j.id", "=", jobId)
-        .select((eb) => {
-          const chunks = eb.selectFrom("jobEventChunk").whereRef("jobId", "=", "j.id");
-          const next = chunks
-            .select((size) => [
-              "lastId",
-              "events",
-              size.fn<number>("octet_length", ["events"]).as("size"),
-            ])
-            .$if(after > 0, (qb) => qb.where("lastId", descending ? "<" : ">", after))
-            .orderBy("lastId", order)
-            .limit(limit);
-          const sized = eb.selectFrom(next.as("next")).select((sum) => [
-            "next.lastId",
-            "next.events",
-            sum(
-              sum.fn.sum<number>("next.size").over((over) => over.orderBy("next.lastId", order)),
-              "-",
-              sum.ref("next.size"),
-            ).as("before"),
-          ]);
-          return [
-            "j.status",
-            chunks
-              .select("lastId")
-              .orderBy("lastId", descending ? "asc" : "desc")
-              .limit(1)
-              .as("endChunkId"),
-            jsonArrayFrom(
-              eb
-                .selectFrom(sized.as("sized"))
-                .select(["sized.lastId", "sized.events"])
-                // Include the first row even when one event alone exceeds the budget.
-                .where("sized.before", "<", MAX_PAGE_BYTES),
-            ).as("chunks"),
+    const row = yield* database.query((db) => {
+      const chunks = db.selectFrom("jobEventChunk").where("jobId", "=", jobId);
+      const next = chunks
+        .select((eb) => ["lastId", "events", eb.fn<number>("octet_length", ["events"]).as("size")])
+        .$if(after > 0, (qb) => qb.where("lastId", descending ? "<" : ">", after))
+        .orderBy("lastId", order)
+        .limit(limit);
+      const sized = db.selectFrom(next.as("next")).select((eb) => [
+        "next.lastId",
+        "next.events",
+        eb(
+          eb.fn.sum<number>("next.size").over((over) => over.orderBy("next.lastId", order)),
+          "-",
+          eb.ref("next.size"),
+        ).as("before"),
+      ]);
+      const journal = db
+        .selectFrom("job")
+        .where("id", "=", jobId)
+        .select([
+          "id",
+          "status",
+          chunks
+            .select("lastId")
+            .orderBy("lastId", descending ? "asc" : "desc")
+            .limit(1)
+            .as("endChunkId"),
+        ]);
+      return (
+        db
+          .with("pageChunks", (qb) =>
+            qb
+              .selectFrom(sized.as("sized"))
+              .select(["sized.lastId", "sized.events"])
+              // Include the first row even when one Event alone exceeds the budget.
+              .where("sized.before", "<", MAX_PAGE_BYTES),
+          )
+          .selectFrom(journal.as("journal"))
+          // A sample page of 100 Events measured 35 KB. The Events budget is 1 MiB with room
+          // for one oversized Event. A success Event can fill most of a 100 MiB Node or 32 MiB
+          // Workers WebSocket message. Activity has no smaller byte cap, and names come from
+          // separate writes. Read the job only when the page can reach the newest end. Splitting
+          // its chunks into Events below can still exhaust the page's count or byte budget.
+          .leftJoin(selectJobs(db).as("shown"), (join) =>
+            join.onRef("shown.id", "=", "journal.id").on((eb) => {
+              if (descending) return eb.lit(after === 0);
+              const ids = eb.selectFrom("pageChunks").select("lastId");
+              // An empty forward read is already caught up, including before the first Event.
+              return eb.or([eb.not(eb.exists(ids)), eb("journal.endChunkId", "in", ids)]);
+            }),
+          )
+          .selectAll("shown")
+          .select(["journal.endChunkId", "journal.status as pageStatus"])
+          .select((eb) => [
+            jsonArrayFrom(eb.selectFrom("pageChunks").selectAll()).as("chunks"),
             // The cursor's report may hold earlier events. Read it outside the older rows' byte
             // budget because even a very large report might have no lines below the cursor.
             descending && after > 0
@@ -1583,19 +1609,27 @@ export function readJobEvents(
                     .limit(1),
                 ).as("boundary")
               : eb.lit(null).as("boundary"),
-          ];
-        })
-        .executeTakeFirst(),
-    );
-    if (!job) return yield* Effect.fail(new NotFound());
+          ])
+          .executeTakeFirst()
+      );
+    });
+    if (!row) return yield* Effect.fail(new NotFound());
+
+    const { chunks: stored, boundary, endChunkId, pageStatus, ...job } = row;
+    const events: JobEvent[] = [];
+    const page = (hasMore: boolean): JobEventsPage => ({
+      events,
+      hasMore,
+      status: pageStatus,
+      ...(hasJob(job) && (descending || !hasMore) && { job: toApiJob(job) }),
+    });
 
     // jsonArrayFrom aggregates the rows without an ORDER BY inside json_agg.
     const chunks = Array.sortWith(
-      job.boundary ? [job.boundary, ...job.chunks] : job.chunks,
+      boundary ? [boundary, ...stored] : stored,
       (chunk) => chunk.lastId,
       descending ? Order.flip(Order.Number) : Order.Number,
     );
-    const events: JobEvent[] = [];
     let bytes = 0;
     for (const chunk of chunks) {
       const lines = String.linesIterator(chunk.events);
@@ -1604,16 +1638,16 @@ export function readJobEvents(
         if (after > 0 && (descending ? event.id >= after : event.id <= after)) continue;
         const size = Buffer.byteLength(line) + 1;
         if (events.length === limit || (events.length > 0 && bytes + size > MAX_PAGE_BYTES)) {
-          return { events, hasMore: true, status: job.status };
+          return page(true);
         }
         events.push(event);
         bytes += size;
       }
     }
     const lastChunk = chunks.at(-1);
-    const hasMore = lastChunk !== undefined && lastChunk.lastId !== job.endChunkId;
-    // Events are stored only for a job that has not ended (`applyReports`), and its end only with
-    // its last event, so nothing follows an ascending page without more whose status is final.
-    return { events, hasMore, status: job.status } satisfies JobEventsPage;
+    // Reports add Events only to an unfinished run and record a journalled end with its last
+    // Event. Even when the end has no Event of its own, an ascending page with no more Events
+    // and a final job status has reached the end of that run.
+    return page(lastChunk !== undefined && lastChunk.lastId !== endChunkId);
   });
 }

@@ -1,25 +1,24 @@
 import {
+  CancelledError,
+  QueryObserver,
+  type QueryObserverResult,
   experimental_streamedQuery,
   useInfiniteQuery,
-  useQuery,
   useQueryClient,
-  type QueryFunctionContext,
 } from "@tanstack/solid-query";
-import { FINAL_JOB_STATUSES, asError, type Job, type JobEventsPage } from "contract";
+import { asError, problemOf, type Job, type JobEventsPage } from "contract";
 import {
-  createEffect,
   createMemo,
   createSignal,
   deep,
   flush,
+  from,
   latest,
   onCleanup,
   resolve,
   until,
 } from "solid-js";
 
-import { readJobEvent } from "./job-event-record.ts";
-import { JOB_LIFECYCLE } from "./job-lifecycle.ts";
 import { REFRESH_INTERVAL_MS, orpc, refused } from "./query.ts";
 
 // The contract allows at most 100 Events per read.
@@ -27,63 +26,7 @@ const PAGE_SIZE = 100;
 
 export type PagingDirection = "earlier" | "later";
 
-type FollowedPage = JobEventsPage & { endedAt?: number };
-
-function isFinalPage(page: JobEventsPage) {
-  return !page.hasMore && FINAL_JOB_STATUSES.includes(page.status);
-}
-
-function closingTime(page: JobEventsPage) {
-  if (!isFinalPage(page)) return undefined;
-  const last = page.events.findLast(
-    (event) => event.type === "entry" && JOB_LIFECYCLE.has(event.record.kind),
-  );
-  const closing = last && readJobEvent(last);
-  return closing?.lifecycle?.finalStatus === page.status ? closing.at?.getTime() : undefined;
-}
-
-function refetchJobForTail(
-  { client, signal }: QueryFunctionContext,
-  id: string,
-  status: Job["status"],
-  previousTailStatus?: Job["status"],
-) {
-  const queryKey = orpc.jobs.get.queryKey({ input: { id } });
-  const record = client.getQueryState(queryKey);
-  if (signal.aborted || !record?.data) return;
-  // A pending confirmation covers repeats of the same tail status. A change can
-  // postdate its snapshot, so let Query cancel that fetch and start another.
-  const confirming = record.isInvalidated && record.fetchStatus !== "idle";
-  if (status !== (confirming ? previousTailStatus : record.data.status))
-    void client.invalidateQueries({ queryKey, exact: true });
-}
-
-function historyOptions(id: string, direction: PagingDirection) {
-  const options = orpc.jobs.events.infiniteOptions({
-    input: (after: number) => ({
-      id,
-      order: direction === "earlier" ? "desc" : "asc",
-      after,
-      limit: PAGE_SIZE,
-    }),
-    initialPageParam: 0,
-    getNextPageParam: (last) => (last.hasMore ? last.events.at(-1)?.id : undefined),
-    // These Events are immutable. A refresh of an infinite query rereads every page from
-    // the first cursor, which would move the first Event shown as new Events arrive.
-    staleTime: "static",
-    gcTime: 0,
-  });
-  if (direction === "earlier") return options;
-  return {
-    ...options,
-    async queryFn(context: Parameters<typeof options.queryFn>[0]) {
-      const page = await options.queryFn(context);
-      // This page can seed a finished follower, which will make no request of its own.
-      if (!page.hasMore) refetchJobForTail(context, id, page.status);
-      return page;
-    },
-  };
-}
+type FollowedPage = Pick<JobEventsPage, "events" | "hasMore"> & { hasJob: boolean };
 
 /**
  * History and the live follower use separate queries. In @tanstack/query-core 5.107.1,
@@ -91,14 +34,46 @@ function historyOptions(id: string, direction: PagingDirection) {
  * infiniteQueryBehavior.ts refetches every kept page, and infiniteQueryObserver.ts classifies a
  * paging failure only by direction. A forward poll and a requested forward page need separate errors.
  */
-export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: () => number) {
+export function useJobEvents(id: () => string, enabled: () => boolean) {
   const client = useQueryClient();
   const ownerLifetime = new AbortController();
   onCleanup(() => ownerLifetime.abort());
   const [direction, setDirection] = createSignal<PagingDirection>("earlier");
   const [isReadingPage, setReadingPage] = createSignal(false);
+  const [replacingHistory, setReplacingHistory] = createSignal(false);
   const [jumpFailure, setJumpFailure] = createSignal<{ side: PagingDirection; error: Error }>();
-  const historyRequest = createMemo(() => historyOptions(job().id, direction()));
+  async function writeJob(job: Job, signal: AbortSignal) {
+    const queryKey = orpc.jobs.get.queryKey({ input: { id: job.id } });
+    // Disabling the job observer stops its polls, but leaves an active fetch on the wire.
+    await client.cancelQueries({ queryKey, exact: true });
+    if (!signal.aborted && !ownerLifetime.signal.aborted) client.setQueryData(queryKey, job);
+  }
+  function historyOptions(jobId: string, side: PagingDirection) {
+    const order = side === "earlier" ? "desc" : "asc";
+    const input = (after: number) => ({ id: jobId, order, after, limit: PAGE_SIZE }) as const;
+    return orpc.jobs.events.infiniteOptions({
+      input,
+      initialPageParam: 0,
+      async queryFn({ pageParam, signal }) {
+        // A history read that can carry the job takes over from the follower. A jump keeps
+        // it stopped until the replacement history supplies the cursor for the next poll.
+        if (order === "asc" || pageParam === 0) {
+          await client.cancelQueries({
+            queryKey: orpc.jobs.events.key({ type: "streamed", input: { id: jobId } }),
+          });
+        }
+        const page = await orpc.jobs.events.call(input(pageParam), { signal });
+        if (page.job) await writeJob(page.job, signal);
+        return page;
+      },
+      getNextPageParam: (last) => (last.hasMore ? last.events.at(-1)?.id : undefined),
+      // These Events are immutable. Rereading every page from the first cursor would move
+      // the first Event shown as new Events arrive.
+      staleTime: "static",
+      gcTime: 0,
+    });
+  }
+  const historyRequest = createMemo(() => historyOptions(id(), direction()));
   const history = useInfiniteQuery(() => ({
     ...historyRequest(),
     enabled: enabled(),
@@ -116,48 +91,36 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     return direction() === "earlier" ? events.toReversed() : events;
   });
   const hasPage = (side: PagingDirection) => direction() === side && history.hasNextPage;
-  const tailCursor = () =>
-    pages().length && !hasPage("later") ? (historyEvents().at(-1)?.id ?? 0) : undefined;
-
-  const followInput = createMemo(() => ({
-    id: job().id,
-    order: "asc" as const,
-    after: tailCursor(),
-    limit: PAGE_SIZE,
-  }));
-  const followKey = createMemo(() =>
-    orpc.jobs.events.key({ type: "streamed", input: followInput() }),
+  const tailCursor = createMemo(() =>
+    pages().length && !hasPage("later") ? (historyEvents().at(-1)?.id ?? 0) : undefined,
   );
-  const follow = useQuery(() => {
+
+  const historyMissing = () =>
+    problemOf(history.error)?.status === 404 || problemOf(jumpFailure()?.error)?.status === 404;
+  const canFollow = createMemo(() => enabled() && tailCursor() !== undefined && !historyMissing());
+  const tailHasJob = createMemo(
+    () => !!(direction() === "earlier" ? pages()[0] : pages().at(-1))?.job,
+  );
+  // @tanstack/solid-query 6.0.0-rc.6 useBaseQuery.ts returns the fetch promise during a
+  // refetch, holding the previous data until the whole stream settles. Observe each reduced
+  // page with QueryObserver. Move back to useQuery when its data publishes in-flight chunks.
+  const follow = createMemo(() => {
     const cursor = tailCursor();
-    const input = followInput();
-    const mayFollow = enabled() && cursor !== undefined;
-    const last = direction() === "later" && cursor !== undefined ? pages().at(-1) : undefined;
-    const endedAt = last && closingTime(last);
-    const initial: FollowedPage = {
-      events: [],
-      hasMore: false,
-      status: last?.status ?? job().status,
-    };
-    return {
-      queryKey: followKey(),
-      enabled: ({ state }) =>
-        mayFollow &&
-        (state.error ? !refused(state.error) : !state.data || !isFinalPage(state.data)),
-      // Keep history readable before the first forward answer, including while retrying
-      // a refusal or after Start removes the cursor. Only a hub answer dates the data.
-      placeholderData: initial,
-      // An old page can arrive after another run has ended. Only its own closing Event
-      // identifies which ending it shows. Without one, read forward to confirm its cursor.
-      initialData:
-        last && (!isFinalPage(last) || endedAt !== undefined) ? { ...initial, endedAt } : undefined,
-      initialDataUpdatedAt: history.dataUpdatedAt,
+    const input = { id: id(), order: "asc" as const, after: cursor, limit: PAGE_SIZE };
+    const mayFollow = canFollow() && !replacingHistory();
+    const initial: FollowedPage = { events: [], hasMore: false, hasJob: false };
+    const hasJob = tailHasJob();
+    const observer = new QueryObserver<FollowedPage>(client, {
+      queryKey: orpc.jobs.events.key({ type: "streamed", input }),
+      enabled: ({ state }) => mayFollow && !(state.error && refused(state.error)),
+      initialData: cursor !== undefined ? { ...initial, hasJob } : undefined,
       gcTime: 0,
-      queryFn: experimental_streamedQuery<FollowedPage, FollowedPage>({
+      queryFn: experimental_streamedQuery<JobEventsPage, FollowedPage>({
         refetchMode: "append",
         initialValue: initial,
         reducer: (previous, page) => ({
-          ...page,
+          hasMore: page.hasMore,
+          hasJob: !!page.job,
           events: page.events.length ? previous.events.concat(page.events) : previous.events,
         }),
         async *streamFn(context) {
@@ -166,51 +129,27 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
             cursor ??
             0;
           for (;;) {
-            const status = job().status;
-            const jobEndBeforeRead = job().endedAt?.getTime();
             const page = await orpc.jobs.events.call(
               { ...input, after },
               { signal: context.signal },
             );
-            const previous = context.client.getQueryData<FollowedPage>(context.queryKey);
-            refetchJobForTail(context, input.id, page.status, previous?.status);
+            if (page.job) await writeJob(page.job, context.signal);
+            yield page;
             const newest = page.events.at(-1);
-            const end = closingTime(page);
-            yield {
-              ...page,
-              endedAt: end ?? (!newest && status === page.status ? jobEndBeforeRead : undefined),
-            };
-            // Drain the backlog now. A nonempty final page without its closing Event
-            // needs another read at its newest cursor to confirm which ending it saw.
-            if (!newest || (!page.hasMore && (!isFinalPage(page) || end !== undefined))) return;
+            if (!newest || !page.hasMore) return;
             after = newest.id;
           }
         },
       }),
       refetchInterval: REFRESH_INTERVAL_MS,
-    };
+    });
+    return from<QueryObserverResult<FollowedPage>>((next) => {
+      const unsubscribe = observer.subscribe(next);
+      next(observer.getCurrentResult());
+      return unsubscribe;
+    });
   });
-  const followed = createMemo(() =>
-    follow.dataUpdatedAt ? latest(() => deep(follow.data)) : undefined,
-  );
-  // A job can end and resume between two job reads, even ending again with the same status.
-  createEffect(jobReadAt, (readAt) => {
-    if (
-      !enabled() ||
-      tailCursor() === undefined ||
-      follow.isFetching ||
-      follow.isError ||
-      !follow.dataUpdatedAt ||
-      readAt <= follow.dataUpdatedAt
-    )
-      return;
-    const last = follow.data;
-    if (
-      isFinalPage(last) &&
-      (last.status !== job().status || job().endedAt?.getTime() !== last.endedAt)
-    )
-      void follow.refetch();
-  });
+  const followed = () => follow().data;
   const liveEvents = createMemo(() =>
     tailCursor() !== undefined ? (followed()?.events ?? []) : [],
   );
@@ -238,18 +177,18 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     try {
       // A refused follower stops polling. Resume at its last Event on an explicit
       // Latest so the journal the member already read stays on screen.
-      if (side === "later" && tailCursor() !== undefined && (!followed() || follow.isError)) {
-        const result = await follow.refetch({ cancelRefetch: false });
+      if (side === "later" && tailCursor() !== undefined && (!followed() || follow().isError)) {
+        const result = await follow().refetch({ cancelRefetch: false });
         if (!result.isSuccess) throw result.error;
         if (ownerLifetime.signal.aborted) return false;
-        await resolve(() => follow.data);
         setJumpFailure(undefined);
         return enabled();
       }
       const previousHistoryError = history.error;
-      const previousFollowError = follow.error;
+      const previousFollowError = follow().error;
+      setReplacingHistory(true);
       const answer = await client.infiniteQuery({
-        ...historyOptions(job().id, next),
+        ...historyOptions(id(), next),
         staleTime: 0,
         pages: 1,
       });
@@ -267,8 +206,8 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         historyRereadFailed() ||
         (cursor !== undefined &&
           tailCursor() === cursor &&
-          follow.isError &&
-          follow.error !== previousFollowError);
+          follow().isError &&
+          follow().error !== previousFollowError);
       await until(
         () => {
           if (!enabled() || rereadFailed() || target === undefined) return true;
@@ -282,9 +221,11 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       setJumpFailure(undefined);
       return enabled() && !rereadFailed();
     } catch (error) {
-      if (!ownerLifetime.signal.aborted) setJumpFailure({ side, error: asError(error) });
+      if (error instanceof CancelledError) setJumpFailure(undefined);
+      else if (!ownerLifetime.signal.aborted) setJumpFailure({ side, error: asError(error) });
       return false;
     } finally {
+      setReplacingHistory(false);
       setReadingPage(false);
     }
   }
@@ -293,9 +234,16 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     setReadingPage(true);
     // Disable the button and clear its refusal before a retry suspends the history read.
     flush();
+    const pageCount = pages().length;
     try {
       const result = await history.fetchNextPage();
-      if (!result.isSuccess || ownerLifetime.signal.aborted) return undefined;
+      // Cancelling a fetch with cached pages resolves with those pages (query-core query.ts).
+      if (
+        !result.isSuccess ||
+        result.data.pages.length === pageCount ||
+        ownerLifetime.signal.aborted
+      )
+        return undefined;
       // Query's response can arrive before Solid has committed the replacement for the button.
       await resolve(() => history.data);
       return result.data.pages.at(-1);
@@ -305,7 +253,7 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
     }
   }
   function failure() {
-    const readAt = Math.max(follow.dataUpdatedAt, history.dataUpdatedAt);
+    const readAt = Math.max(follow().dataUpdatedAt, history.dataUpdatedAt);
     // A failed Latest can also be the history query currently on screen. The edge
     // reports that request; an independent failure to follow still belongs here.
     const read =
@@ -314,13 +262,13 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
       !history.isFetchNextPageError &&
       history.error !== jumpFailure()?.error
         ? history
-        : follow;
+        : follow();
     return read.isError && read.error !== jumpFailure()?.error
       ? {
           error: read.error,
           failedAt: read.errorUpdatedAt,
           readAt,
-          follower: read === follow && tailCursor() !== undefined,
+          follower: read === follow() && tailCursor() !== undefined,
         }
       : undefined;
   }
@@ -339,8 +287,15 @@ export function useJobEvents(job: () => Job, enabled: () => boolean, jobReadAt: 
         ? { error: history.error, jump: false }
         : undefined;
     },
-    isAtLatest: () =>
-      !!pages().length && !hasPage("later") && !follow.isError && followed()?.hasMore === false,
+    // An older hub can serve a tail without the job during a rollout. Keep following its
+    // Events while jobs.get supplies the record until an Events answer carries it again.
+    needsJobRead: () => {
+      const { error, data } = follow();
+      return (
+        !canFollow() || (!!error && refused(error)) || (data?.hasMore === false && !data.hasJob)
+      );
+    },
+    isAtLatest: () => canFollow() && !follow().isError && followed()?.hasMore === false,
     isLoading: () => history.isPending,
     isReadingPage,
     failure,

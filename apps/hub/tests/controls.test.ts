@@ -48,6 +48,7 @@ test("cancelling a job no Runner was sent ends it at once, and deleting it then 
     events: [],
     hasMore: false,
     status: "cancelled",
+    job,
   });
 
   const deleted = await client.jobs.delete({ id });
@@ -90,7 +91,7 @@ describe("with a Runner", () => {
     await untilStatus(client, id, "cancelled");
     expect(await client.jobs.get({ id })).not.toHaveProperty("pendingControl");
     const page = await client.jobs.events({ id });
-    expect(page.status).toBe("cancelled");
+    expect(page.job?.status).toBe("cancelled");
     expect(lifecycleOf(page.events)).toEqual(["elflodge.job.started", "elflodge.job.cancelled"]);
     // The command the cancel cut off has its result recorded before the job's end.
     expect(entryKinds(page.events).slice(-2)).toEqual(["pi.tool-result", "elflodge.job.cancelled"]);
