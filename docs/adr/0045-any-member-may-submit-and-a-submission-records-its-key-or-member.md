@@ -6,13 +6,12 @@ A Batch, a job and a Usage record each record their submitter as the API shows i
 
 ## Considered options
 
-- Refusing every add to a cancelled Batch before comparing content would stop new runnable jobs, but an exact retry creates none. A caller retrying a lost answer cannot foresee an intervening cancel. Returning the held jobs with 200 also tells the caller the Batch’s current status.
-
 - Letting only some roles submit: a role permission would guard little while every member can stop and delete any job, and the dashboard would need a key, or a role setting, before a plain member could submit from it.
 - Keeping `submitterKeyId` for keys only, with a nullable member column beside it: the column holding a user, the key's creator today, would hold the key's creator for a key's submission and the submitter for a member's, one column with two meanings, which a reader tells apart only by checking another column.
 - Two nullable ID columns, one per kind, with a CHECK keeping exactly one set: such columns pay off when each is a foreign key, which ADR 0020 rules out for these copied IDs, so a column per kind gives nothing back for the conversions between kind and column it needs, and a later kind would add a column to three tables.
 - An `include` parameter for the submitter: it is three small columns of the row each read already reads, so leaving it out saves the hub nothing, while every Batch and job would come in two shapes for clients to handle.
 - A single `kind:id` string as the usage filter: it would let the parameter repeat to name several submitters at once, but no page needs that, and the object needs no parsing.
+- Refusing every add to a cancelled Batch before comparing content would stop new runnable jobs, but an exact retry creates none. A caller retrying a lost answer cannot foresee an intervening cancel. Returning the held jobs with 200 also tells the caller the Batch’s current status.
 
 ## Consequences
 

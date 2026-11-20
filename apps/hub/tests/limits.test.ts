@@ -60,6 +60,34 @@ test("the hub applies the defaults and accepts limits up to the maxima it report
   });
 });
 
+test("a repeat keeps the limits accepted for a Batch before the maximum was lowered", async () => {
+  const agent = { outputContract: SUBMISSION.outputContract, modelBudgetUsd: 5 };
+  const jobs = [{ customId: "count", input: SUBMISSION.input }];
+  system.model.setResponses([callTool("submit_output", { value: 1 })]);
+  const created = await system.owner().batches.create({ agent, jobs });
+  const jobId = created.jobs[0]?.job.id;
+  if (!jobId) throw new Error("The creation returned no job");
+  await untilStatus(system.owner(), jobId, "succeeded");
+
+  const lowered = startSystem({ hubVars: { JOB_MODEL_BUDGET_USD_MAX: "4" } });
+  await lowered.start({ keepDatabase: true });
+  try {
+    const client = lowered.owner();
+    await expect(client.batches.create({ agent })).rejects.toMatchObject({
+      cause: { status: 400 },
+    });
+    expect(await client.batches.create({ id: created.id, agent })).toMatchObject({
+      id: created.id,
+      jobs: [],
+    });
+    expect(await client.batches.create({ id: created.id, agent, jobs })).toMatchObject({
+      jobs: [{ created: false, job: { id: jobId, modelBudgetUsd: 5 } }],
+    });
+  } finally {
+    await lowered.stop();
+  }
+});
+
 test("a job whose run passes its timeout fails, and a resume with a longer one carries it on", async () => {
   const client = await system.clientWithNewJobsKey();
   system.model.setResponses([untilAborted]);

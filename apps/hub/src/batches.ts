@@ -26,6 +26,7 @@ import {
   sql,
   type Transaction,
 } from "kysely";
+import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { v7 as uuidv7 } from "uuid";
 import * as z from "zod/mini";
 
@@ -55,7 +56,8 @@ import {
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
-  readJobs,
+  jobsById,
+  jobFromJson,
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
@@ -132,89 +134,93 @@ function batchStatus(
  * The Batch `which`, by its `uid` or by the ID the API shows, as the API reports it, with its
  * jobs' counts and usage read from them; or nothing when there is no such Batch.
  */
-export async function readBatch(
-  db: Kysely<Database>,
-  which: { uid: BatchUid } | { id: string },
-): Promise<Batch | undefined> {
-  const now = new Date();
-  const row = await db
-    // Materializing the Batch runs its Canary check once for the whole Batch, outside the per-job scan.
-    .with(
-      (cte) => cte("b").materialized(),
-      (qb) =>
-        qb
-          .selectFrom("batch")
-          .select(BATCH_COLUMNS)
-          .select("uid")
-          .select((eb) => hasUnfinishedCanary(eb.ref("batch.uid")).as("unfinishedCanary"))
-          .$call((q) =>
-            "uid" in which
-              ? q.where("uid", "=", which.uid)
-              : // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
-                q.where("id", "=", which.id),
-          ),
-    )
-    .selectFrom("b")
-    .innerJoinLateral(
-      (eb) =>
-        eb
-          .selectFrom("job as j")
-          .innerJoin("jobProgress as p", "p.jobId", "j.id")
-          .whereRef("j.batchUid", "=", "b.uid")
-          .select((agg) => [
-            ...jobCountsBy(agg.ref("j.status"), jobStatusSchema.options),
-            ...jobCountsBy(
-              blockedByFrom(
-                {
-                  status: agg.ref("j.status"),
-                  placedAt: agg.ref("j.placedAt"),
-                  inCanary: agg.ref("j.inCanary"),
-                },
-                {
-                  pausedBy: agg.ref("b.pausedBy"),
-                  unfinishedCanary: agg.ref("b.unfinishedCanary"),
-                },
-              ),
-              blockedBySchema.options,
+function selectBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: string }, now: Date) {
+  return (
+    db
+      // Materializing the Batch runs its Canary check once for the whole Batch, outside the per-job scan.
+      .with(
+        (cte) => cte("b").materialized(),
+        (qb) =>
+          qb
+            .selectFrom("batch")
+            .select(BATCH_COLUMNS)
+            .select("uid")
+            .select((eb) => hasUnfinishedCanary(eb.ref("batch.uid")).as("unfinishedCanary"))
+            .$call((q) =>
+              "uid" in which
+                ? q.where("uid", "=", which.uid)
+                : // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
+                  q.where("id", "=", which.id),
             ),
-            agg.fn
-              .countAll<number>()
-              .filterWhere(
-                isStatusUnknown(
+      )
+      .selectFrom("b")
+      .innerJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom("job as j")
+            .innerJoin("jobProgress as p", "p.jobId", "j.id")
+            .whereRef("j.batchUid", "=", "b.uid")
+            .select((agg) => [
+              ...jobCountsBy(agg.ref("j.status"), jobStatusSchema.options),
+              ...jobCountsBy(
+                blockedByFrom(
                   {
                     status: agg.ref("j.status"),
                     placedAt: agg.ref("j.placedAt"),
-                    runnerId: agg.ref("j.runnerId"),
-                    lastReportedAt: agg.ref("p.lastReportedAt"),
+                    inCanary: agg.ref("j.inCanary"),
                   },
-                  now,
+                  {
+                    pausedBy: agg.ref("b.pausedBy"),
+                    unfinishedCanary: agg.ref("b.unfinishedCanary"),
+                  },
                 ),
-              )
-              .as("statusUnknown"),
-            // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.
-            agg
-              .cast<number>(agg.fn.coalesce(agg.fn.sum("p.totalTokens"), agg.lit(0)), "bigint")
-              .as("totalTokens"),
-            agg.fn.coalesce(agg.fn.sum<number>("p.costUsd"), agg.lit(0)).as("costUsd"),
-          ])
-          .as("j"),
-      (join) => join.onTrue(),
-    )
-    .select(BATCH_COLUMNS)
-    .selectAll("j")
-    .select((eb) =>
-      batchStatus(
-        eb.ref("b.cancelledAt"),
-        eb.ref("b.pausedBy"),
-        hasUnfinishedJobs((status) => eb.ref(`j.${status}`)),
-      ).as("status"),
-    )
-    .executeTakeFirst();
-  if (!row) return undefined;
+                blockedBySchema.options,
+              ),
+              agg.fn
+                .countAll<number>()
+                .filterWhere(
+                  isStatusUnknown(
+                    {
+                      status: agg.ref("j.status"),
+                      placedAt: agg.ref("j.placedAt"),
+                      runnerId: agg.ref("j.runnerId"),
+                      lastReportedAt: agg.ref("p.lastReportedAt"),
+                    },
+                    now,
+                  ),
+                )
+                .as("statusUnknown"),
+              // Added up as Postgres's exact `numeric` and `bigint`, not in JavaScript.
+              agg
+                .cast<number>(agg.fn.coalesce(agg.fn.sum("p.totalTokens"), agg.lit(0)), "bigint")
+                .as("totalTokens"),
+              agg.fn.coalesce(agg.fn.sum<number>("p.costUsd"), agg.lit(0)).as("costUsd"),
+            ])
+            .as("j"),
+        (join) => join.onTrue(),
+      )
+      .select(BATCH_COLUMNS)
+      .selectAll("j")
+      .select((eb) =>
+        batchStatus(
+          eb.ref("b.cancelledAt"),
+          eb.ref("b.pausedBy"),
+          hasUnfinishedJobs((status) => eb.ref(`j.${status}`)),
+        ).as("status"),
+      )
+  );
+}
+
+function batchOf(row: ListedBatchRow & { totalTokens: number; costUsd: number }): Batch {
   return {
     ...listedBatchOf(row),
     usage: { totalTokens: row.totalTokens, cost: { totalUsd: row.costUsd } },
   };
+}
+
+export async function readBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: string }) {
+  const row = await selectBatch(db, which, new Date()).executeTakeFirst();
+  return row && batchOf(row);
 }
 
 /** What `listedBatchOf` reads of a Batch: its row, and its jobs' counts. */
@@ -422,7 +428,9 @@ export function getBatch(id: string) {
 
 /**
  * Creates or matches the Batch by its ID and creation content, then submits the requested jobs
- * under their custom IDs. The Batch and jobs in the answer come from the same transaction.
+ * under their custom IDs. Invalid inputs or a new Batch above the configured limits get 400.
+ * Reusing a Batch or custom ID with different content gets 422. Adding a new job after a cancel
+ * gets 409. Each refusal leaves the Batch and jobs as they were.
  */
 export function createBatch(
   creation: BatchCreation,
@@ -432,21 +440,14 @@ export function createBatch(
 ) {
   return Effect.gen(function* () {
     const { agent, jobs = [] } = creation;
-    const schemaIssues = outputContractProblems(agent.outputContract.schema).map((message) => ({
-      message,
-      path: ["agent", "outputContract", "schema"],
-    }));
-    const limitIssues = limitProblems(agent, settings).map(({ message, path }) => ({
-      message,
-      path: ["agent", ...path],
-    }));
-    const jobIssues = jobProblems(jobs, creation.labels);
-    // An invalid schema can contain text that canonical JSON or Postgres cannot represent.
-    if (schemaIssues.length || (jobIssues.length && !limitIssues.length)) {
-      return yield* Effect.fail(
-        new InvalidInput({ problems: [...schemaIssues, ...limitIssues, ...jobIssues] }),
-      );
-    }
+    const problems = [
+      ...outputContractProblems(agent.outputContract.schema).map((message) => ({
+        message,
+        path: ["agent", "outputContract", "schema"],
+      })),
+      ...jobProblems(jobs, creation.labels),
+    ];
+    if (problems.length) return yield* Effect.fail(new InvalidInput({ problems }));
     const breaker = breakerOf(creation.breaker);
     // A UUIDv4 when the creation gives none, as a retry key is: random, so it says nothing of
     // when the Batch was made, which its `uid`, a UUIDv7, orders by (ADR 0036).
@@ -484,21 +485,24 @@ export function createBatch(
           cancelledAt: null,
         } satisfies NewBatch)
         .onConflict((conflict) => conflict.constraint("batch_id_organizationId_key").doNothing())
-        .returning(["uid", "contentHash"])
+        .returning("uid")
         .executeTakeFirst();
-      const row =
-        inserted ??
-        (await trx
-          .selectFrom("batch")
-          .select(["uid", "contentHash"])
-          .where("id", "=", id)
-          .where("organizationId", "=", organizationId)
-          .executeTakeFirstOrThrow());
-      // A lowered maximum applies to a new Batch. Jobs submitted to a matching Batch inherit
-      // the limits it already holds, just as they do on addJobs.
-      const problems =
-        inserted || row.contentHash !== contentHash ? [...limitIssues, ...jobIssues] : jobIssues;
-      if (problems.length) throw new InvalidInput({ problems });
+      // Current maxima govern only a new Batch. A repeat after a maximum falls still uses
+      // the accepted agent and its stored limits, including for new jobs.
+      if (inserted) {
+        const maximumProblems = limitProblems(agent, settings).map(({ message, path }) => ({
+          message,
+          path: ["agent", ...path],
+        }));
+        if (maximumProblems.length) throw new InvalidInput({ problems: maximumProblems });
+        return addJobsAndReadBatch(trx, inserted.uid, jobs, submitter);
+      }
+      const row = await trx
+        .selectFrom("batch")
+        .select(["uid", "contentHash"])
+        .where("id", "=", id)
+        .where("organizationId", "=", organizationId)
+        .executeTakeFirstOrThrow();
       if (row.contentHash !== contentHash) {
         const message = "The ID was already used for a Batch with other content";
         throw new IdReused({
@@ -591,6 +595,8 @@ function submissionTransaction<A>(work: (trx: Transaction<Database>) => Promise<
   return Db.use((database) => database.query((db) => db.transaction().execute(work))).pipe(
     Effect.mapError((error) => {
       const { cause } = error;
+      // Only these submission refusals belong to the create/add contracts. An unexpected
+      // exception from the database or a different operation must remain a server error.
       return cause instanceof InvalidInput ||
         cause instanceof IdReused ||
         cause instanceof ControlRefused
@@ -606,10 +612,27 @@ async function addJobsAndReadBatch(
   jobs: readonly JobSubmission[],
   submitter: Submitter,
 ): Promise<AddedJobs> {
-  const added = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
-  const batch = await readBatch(trx, { uid });
-  if (!batch) throw new Error(`The Batch ${uid} vanished during submission`);
-  return { batch, jobs: added };
+  const entries = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
+  const now = new Date();
+  // A Runner can update usage while the submission holds the Batch lock. Read both totals
+  // from a single snapshot, including on a retry that only found existing jobs.
+  const requestedJobs = jobsById(
+    trx,
+    entries.map(({ id }) => id),
+    now,
+  );
+  const row = await selectBatch(trx, { uid }, now)
+    .select(jsonArrayFrom(requestedJobs).as("jobs"))
+    .executeTakeFirstOrThrow();
+  const byId = new Map(row.jobs.map((job) => [job.id, jobFromJson(job)]));
+  return {
+    batch: batchOf(row),
+    jobs: entries.map(({ id, created }) => {
+      const job = byId.get(id);
+      if (!job) throw new Error(`The job ${id} was not read back`);
+      return { created, job };
+    }),
+  };
 }
 
 async function addJobsInTransaction(
@@ -713,16 +736,7 @@ async function addJobsInTransaction(
         .execute();
     }
   }
-  const read = await readJobs(
-    trx,
-    entries.map(({ id }) => id),
-  );
-  const readById = new Map(read.map((job) => [job.id, job]));
-  return entries.map(({ id, created }) => {
-    const job = readById.get(id);
-    if (!job) throw new Error(`The job ${id} was not read back`);
-    return { created, job };
-  });
+  return entries;
 }
 
 /**

@@ -463,9 +463,9 @@ export function startSystem(
     ownerAuth: () => authClient(ownerCookie),
     authClient,
     addMember,
-    async start() {
+    async start({ keepDatabase = false } = {}) {
       const databaseUrl = inject("databaseUrl");
-      await clearDatabase(databaseUrl);
+      if (!keepDatabase) await clearDatabase(databaseUrl);
       const settings = { ...HUB_SETTINGS, ...options.hubVars };
       if (inject("hub") === "node") {
         running = await startNodeHub(databaseUrl, settings);
