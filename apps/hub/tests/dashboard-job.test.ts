@@ -52,6 +52,30 @@ test("a member opens a listed job, sees its pause requested, and finds the pause
   );
 }, 45_000);
 
+test("a member can finish reading a Cancel confirmation after the job starts", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const job = await submitJob(client, submission);
+  const page = await openAsMember("Job confirmation", `jobs/${job.id}`);
+  await page.getByRole("button", { name: "Cancel the job" }).click();
+  const dialog = page.getByRole("dialog");
+  await expectBrowser(dialog).toContainText("it has not started");
+
+  system.model.setResponses([untilAborted]);
+  await system.startRunner();
+  onTestFinished(async () => {
+    try {
+      await client.jobs.cancel({ id: job.id });
+      await untilStatus(client, job.id, "cancelled");
+    } finally {
+      await system.stopRunner();
+    }
+  });
+  await expectBrowser(dialog).toContainText("it can be resumed", { timeout: 15_000 });
+  await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Running" })).toBeFocused();
+}, 30_000);
+
 test("a member confirms deletion and sees when the job has gone", async () => {
   const client = await system.clientWithNewJobsKey();
   const job = await submitJob(client, { ...submission, customId: "withdrawn-invoices" });
@@ -71,7 +95,11 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   } finally {
     release.resolve();
   }
-  await page.getByText("It ended before it started, so it cannot be resumed.").waitFor();
+  await expectBrowser(
+    page
+      .getByRole("status")
+      .filter({ hasText: "It ended before it started, so it cannot be resumed." }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Delete the job" }).click();
   const dialog = page.getByRole("dialog");
   await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();

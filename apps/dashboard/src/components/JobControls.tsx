@@ -47,10 +47,10 @@ export function JobControls(props: {
   let deletionNotice: HTMLDivElement | undefined;
   let failureNotice: HTMLDivElement | undefined;
 
-  function showPageFailure(message: string) {
-    setPageFailure(message);
+  function showPageFailure(control: Control, message: string) {
+    setPageFailure(`${control[0].toUpperCase()}${control.slice(1)}: ${message}`);
     flush();
-    failureNotice?.focus();
+    focusIfLost(failureNotice);
   }
 
   async function act(control: Control, modelBudgetUsd?: number) {
@@ -94,14 +94,14 @@ export function JobControls(props: {
 
   async function press(control: Control, modelBudgetUsd?: number) {
     const message = await act(control, modelBudgetUsd);
-    if (message) showPageFailure(message);
+    if (message) showPageFailure(control, message);
   }
 
   // createFormAction holds shared signal writes until its action settles. The budget field and
   // every job control must reflect this request while the hub is still answering it.
   async function submitBudget(event: SubmitEvent) {
     event.preventDefault();
-    if (!budgetField || pending()) return;
+    if (!props.resumeOffered || !budgetField || pending()) return;
     const { submitter } = event;
     await press("resume", budgetField.valueAsNumber);
     if (budgetDialog?.open) {
@@ -110,12 +110,18 @@ export function JobControls(props: {
     }
   }
 
-  const active = () => props.job.status === "queued" || props.job.status === "running";
+  const active = () =>
+    !props.job.deletedAt && (props.job.status === "queued" || props.job.status === "running");
   const spent = () =>
     props.job.modelBudgetUsd !== undefined &&
     props.job.usage.cost.totalUsd >= props.job.modelBudgetUsd;
   const canCancel = () => !FINAL_JOB_STATUSES.includes(props.job.status);
   const waiting = () => props.job.pendingControl?.type;
+
+  const cancelAvailable = () => !props.job.deletedAt && canCancel() && waiting() !== "cancel";
+  const confirmCancel = () => cancelAvailable() && !props.job.startedAt;
+  const deleteAvailable = () => !props.job.deletedAt && !canCancel();
+  const focusStatusIfLost = () => focusIfLost(deletionNotice ?? status);
 
   const journalLost = () =>
     props.job.status === "failed" && props.job.failure.reason === "journalLost";
@@ -182,145 +188,153 @@ export function JobControls(props: {
           </Notice>
         )}
       </Show>
-      <Show when={!props.job.deletedAt}>
-        <div class="controls job-controls">
-          <Show when={active() && waiting() !== "cancel"}>
-            <button
-              type="button"
-              disabled={pending() || waiting() === "pause"}
-              onClick={() => void press("pause")}
-            >
-              Pause
-            </button>
-          </Show>
-          <Show when={props.resumeOffered}>
-            <button
-              type="button"
-              disabled={pending()}
-              aria-describedby={resumeNote() ? "resume-note" : undefined}
-              onClick={() => {
-                if (!spent()) {
-                  void press("resume");
-                  return;
-                }
-                setBudgetFailure(undefined);
-                if (budgetField) budgetField.value = "";
-                flush();
-                budgetDialog?.showModal();
-              }}
-            >
-              Resume
-            </button>
-            <dialog
-              aria-labelledby="resume-heading"
-              ref={(element) => {
-                budgetDialog = element;
-              }}
-            >
-              <form onSubmit={submitBudget}>
-                <h2 id="resume-heading" class="dialog-h">
-                  Resume the job
-                </h2>
-                <div class="dialog-b">
-                  <div class="field">
-                    <label for="job-budget">New model budget (USD)</label>
-                    <input
-                      id="job-budget"
-                      type="number"
-                      required
-                      min="0"
-                      step="any"
-                      readonly={pending()}
-                      aria-invalid={budgetFailure()?.field ? "true" : undefined}
-                      aria-describedby={
-                        budgetFailure()?.field ? "spent-budget budget-error" : "spent-budget"
-                      }
-                      onInput={() => setBudgetFailure(undefined)}
-                      autofocus
-                      ref={(element) => {
-                        budgetField = element;
-                      }}
-                    />
-                    <Show when={budgetFailure()?.field && budgetFailure()?.message}>
-                      {(message) => <FieldError id="budget-error">{message()}</FieldError>}
-                    </Show>
-                    <p id="spent-budget" class="note">
-                      Cost so far {USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est.
-                      The new budget must exceed this cost.
-                    </p>
-                  </div>
-                  <Show when={pending()}>
-                    <p class="note" role="status">
-                      Working…
-                    </p>
-                  </Show>
-                  <Show when={!budgetFailure()?.field && budgetFailure()?.message}>
-                    {(message) => <Notice role="alert">{message()}</Notice>}
-                  </Show>
-                </div>
-                <div class="dialog-f">
-                  <button type="button" onClick={() => budgetDialog?.close()}>
-                    Close
-                  </button>
-                  <button type="submit" class="primary" disabled={pending()}>
-                    Resume the job
-                  </button>
-                </div>
-              </form>
-            </dialog>
-          </Show>
-          <Show when={canCancel()}>
-            <Show
-              when={!props.job.startedAt && waiting() !== "cancel"}
-              fallback={
-                <button
-                  class="danger"
-                  type="button"
-                  aria-describedby={waiting() !== "cancel" ? "cancel-note" : undefined}
-                  disabled={pending() || waiting() === "cancel"}
-                  onClick={() => void press("cancel")}
-                >
-                  Cancel
-                </button>
+      <div class="controls job-controls">
+        <Show when={active() && waiting() !== "cancel"}>
+          <button
+            type="button"
+            disabled={pending() || waiting() === "pause"}
+            onClick={() => void press("pause")}
+          >
+            Pause
+          </button>
+        </Show>
+        <Show when={props.resumeOffered}>
+          <button
+            type="button"
+            disabled={pending()}
+            aria-describedby={resumeNote() ? "resume-note" : undefined}
+            onClick={() => {
+              if (!spent()) {
+                void press("resume");
+                return;
               }
-            >
-              <ConfirmAction
-                trigger="Cancel"
-                describedBy="cancel-note"
-                triggerLabel="Cancel the job"
-                confirm="Cancel the job"
-                heading="Cancel this job?"
-                disabled={pending()}
-                act={() => act("cancel")}
-                reportPageFailure={showPageFailure}
-              >
-                <p>{cancelConsequence(props.job)}</p>
-              </ConfirmAction>
-            </Show>
-          </Show>
-          <Show when={!canCancel()}>
-            <ConfirmAction
-              trigger="Delete"
-              describedBy="delete-note"
-              triggerLabel="Delete the job"
-              confirm="Delete the job"
-              heading="Delete this job?"
-              disabled={pending()}
-              act={() => act("delete")}
-              reportPageFailure={showPageFailure}
-            >
-              <p>
-                Its input, Input files, Events and Output go from the hub now
-                <Show when={props.job.runner}>
-                  {(runner) => (
-                    <>, and from {runner().name} once that Runner has deleted its files</>
-                  )}
+              setBudgetFailure(undefined);
+              if (budgetField) budgetField.value = "";
+              flush();
+              budgetDialog?.showModal();
+            }}
+          >
+            Resume
+          </button>
+        </Show>
+        <dialog
+          onClose={focusStatusIfLost}
+          aria-labelledby="resume-heading"
+          ref={(element) => {
+            budgetDialog = element;
+          }}
+        >
+          <form onSubmit={submitBudget}>
+            <h2 id="resume-heading" class="dialog-h">
+              Resume the job
+            </h2>
+            <div class="dialog-b">
+              <div class="field">
+                <label for="job-budget">New model budget (USD)</label>
+                <input
+                  id="job-budget"
+                  type="number"
+                  required
+                  min="0"
+                  step="any"
+                  readonly={pending()}
+                  aria-invalid={budgetFailure()?.field ? "true" : undefined}
+                  aria-describedby={
+                    budgetFailure()?.field ? "spent-budget budget-error" : "spent-budget"
+                  }
+                  onInput={() => setBudgetFailure(undefined)}
+                  autofocus
+                  ref={(element) => {
+                    budgetField = element;
+                  }}
+                />
+                <Show when={budgetFailure()?.field && budgetFailure()?.message}>
+                  {(message) => <FieldError id="budget-error">{message()}</FieldError>}
                 </Show>
-                . Its Usage record stays.
-              </p>
-            </ConfirmAction>
+                <p id="spent-budget" class="note">
+                  Cost so far {USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The
+                  new budget must exceed this cost.
+                </p>
+              </div>
+              <Show when={!props.resumeOffered}>
+                <p role="status">{props.cannotResume ?? "This job can no longer be resumed."}</p>
+              </Show>
+              <Show when={pending()}>
+                <p class="note" role="status">
+                  Working…
+                </p>
+              </Show>
+              <Show when={!budgetFailure()?.field && budgetFailure()?.message}>
+                {(message) => <Notice role="alert">{message()}</Notice>}
+              </Show>
+            </div>
+            <div class="dialog-f">
+              <button type="button" onClick={() => budgetDialog?.close()}>
+                Close
+              </button>
+              <button type="submit" class="primary" disabled={pending() || !props.resumeOffered}>
+                Resume the job
+              </button>
+            </div>
+          </form>
+        </dialog>
+        <Show when={!props.job.deletedAt && canCancel() && !confirmCancel()}>
+          <button
+            class="danger"
+            type="button"
+            aria-describedby={waiting() !== "cancel" ? "cancel-note" : undefined}
+            disabled={pending() || waiting() === "cancel"}
+            onClick={() => void press("cancel")}
+          >
+            Cancel
+          </button>
+        </Show>
+        <ConfirmAction
+          trigger="Cancel"
+          showTrigger={confirmCancel()}
+          canConfirm={cancelAvailable()}
+          onClose={focusStatusIfLost}
+          describedBy="cancel-note"
+          triggerLabel="Cancel the job"
+          confirm="Cancel the job"
+          heading="Cancel this job?"
+          disabled={pending()}
+          act={() => act("cancel")}
+          reportPageFailure={(message) => showPageFailure("cancel", message)}
+        >
+          <p>
+            {cancelAvailable()
+              ? cancelConsequence(props.job)
+              : waiting() === "cancel"
+                ? "Cancel has already been asked."
+                : "This job can no longer be cancelled."}
+          </p>
+        </ConfirmAction>
+        <ConfirmAction
+          trigger="Delete"
+          showTrigger={deleteAvailable()}
+          canConfirm={deleteAvailable()}
+          onClose={focusStatusIfLost}
+          describedBy="delete-note"
+          triggerLabel="Delete the job"
+          confirm="Delete the job"
+          heading="Delete this job?"
+          disabled={pending()}
+          act={() => act("delete")}
+          reportPageFailure={(message) => showPageFailure("delete", message)}
+        >
+          <Show when={deleteAvailable()} fallback={<p>This job can no longer be deleted.</p>}>
+            <p>
+              Its input, Input files, Events and Output go from the hub now
+              <Show when={props.job.runner}>
+                {(runner) => <>, and from {runner().name} once that Runner has deleted its files</>}
+              </Show>
+              . Its Usage record stays.
+            </p>
           </Show>
-        </div>
+        </ConfirmAction>
+      </div>
+      <Show when={!props.job.deletedAt}>
         <Show when={resumeNote()}>
           <p class="note" id="resume-note">
             <Show when={spent()}>Resume asks for a larger model budget.</Show>

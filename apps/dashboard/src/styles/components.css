@@ -1670,7 +1670,7 @@ p mark.placeholder {
 .status-lg {
   font-size: var(--text-lg);
 }
-.job-controls {
+.job-controls:has(> button) {
   margin-top: var(--space-3);
   align-items: flex-start;
 }

@@ -17,8 +17,14 @@ export function ConfirmAction(props: {
   trigger: string;
   /** Disable the trigger while another control is acting on the same record. */
   disabled?: boolean;
+  /** An open dialog can outlive the record state that allowed the action. */
+  canConfirm?: boolean;
   /** The ID of the visible note explaining the trigger’s consequence. */
   describedBy?: string;
+  /** A poll can withdraw the button independently of an open dialog. */
+  showTrigger?: boolean;
+  /** Restore focus on the page if the original trigger has gone. */
+  onClose?: () => void;
   /** The button's whole name, which starts with its words and names what it acts on. */
   triggerLabel: string;
   heading: JSX.Element;
@@ -57,27 +63,30 @@ export function ConfirmAction(props: {
       // Re-enable the confirming button before restoring focus if disabling it lost focus.
       flush();
       focusIfLost(confirmButton);
-    } else props.reportPageFailure(`${props.confirm}: ${message}`);
+    } else props.reportPageFailure(message);
   }
 
   return (
     <>
-      <button
-        type="button"
-        class="danger"
-        aria-label={props.triggerLabel}
-        aria-describedby={props.describedBy}
-        disabled={props.disabled}
-        onClick={() => {
-          setFailure(undefined);
-          // Clear the previous refusal before the browser opens and announces the dialog.
-          flush();
-          dialog?.showModal();
-        }}
-      >
-        {props.trigger}
-      </button>
+      <Show when={props.showTrigger !== false}>
+        <button
+          type="button"
+          class="danger"
+          aria-label={props.triggerLabel}
+          aria-describedby={props.describedBy}
+          disabled={props.disabled}
+          onClick={() => {
+            setFailure(undefined);
+            // Clear the previous refusal before the browser opens and announces the dialog.
+            flush();
+            dialog?.showModal();
+          }}
+        >
+          {props.trigger}
+        </button>
+      </Show>
       <dialog
+        onClose={() => props.onClose?.()}
         aria-labelledby={headingId}
         ref={(element) => {
           dialog = element;
@@ -104,7 +113,7 @@ export function ConfirmAction(props: {
               ref={(element) => {
                 confirmButton = element;
               }}
-              disabled={pending()}
+              disabled={pending() || props.canConfirm === false}
               onClick={() => void confirm()}
             >
               {props.confirm}

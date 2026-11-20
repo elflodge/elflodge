@@ -412,7 +412,9 @@ function KeyTable(props: {
                 <td role="cell" class="is-act">
                   <ConfirmAction
                     trigger="Revoke"
-                    reportPageFailure={props.reportPageFailure}
+                    reportPageFailure={(message) =>
+                      props.reportPageFailure(`Revoke ${label()}: ${message}`)
+                    }
                     triggerLabel={`Revoke ${label()}`}
                     heading={
                       <>

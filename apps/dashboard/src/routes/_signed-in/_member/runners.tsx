@@ -218,7 +218,9 @@ function RunnerList(props: {
                 <div class="runner-ctl">
                   <ConfirmAction
                     trigger="Remove"
-                    reportPageFailure={props.reportPageFailure}
+                    reportPageFailure={(message) =>
+                      props.reportPageFailure(`Remove ${label()}: ${message}`)
+                    }
                     triggerLabel={`Remove ${label()}`}
                     heading={
                       <>
