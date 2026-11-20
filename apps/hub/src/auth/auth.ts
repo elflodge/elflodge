@@ -16,7 +16,6 @@ import {
 import { Cause, Context, Effect, Layer, type Types } from "effect";
 import ensureError from "ensure-error";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
-import * as z from "zod/mini";
 
 import { Db, DB_SCHEMA, openScopedDatabase } from "../db/database.ts";
 import { ApikeyId, type Database, OrganizationId } from "../db/types.ts";
@@ -177,12 +176,8 @@ export function requireRolePermission(role: string, permissions: RolePermissions
 /** Permissions a member's role may grant, as Better Auth's check of a role takes them. */
 type RolePermissions = Types.DeepMutable<RoleStatements<typeof ac.statements>>;
 
-/**
- * What the hub records in the metadata of a key a member creates: the member, whom Better Auth does
- * not keep for an Organization's key. Better Auth types metadata as any object, so the hub checks it.
- */
-export const keyMetadataSchema = z.object({ createdBy: z.string() });
-export type KeyMetadata = z.infer<typeof keyMetadataSchema>;
+/** A key's creator for the Organization's key list. Better Auth records the Organization itself. */
+export type KeyMetadata = { createdBy: string };
 
 /**
  * Who made a call: the API key it was sent with, as Better Auth verified it, the member, or anyone,
