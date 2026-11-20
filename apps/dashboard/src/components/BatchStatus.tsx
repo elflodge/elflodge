@@ -2,7 +2,7 @@ import type { ListedBatch } from "contract";
 import { Show } from "solid-js";
 
 import { BATCH_STATUS_WORDS } from "../batch.ts";
-import { FULL, TIME_SECONDS } from "../format.ts";
+import { formatCount, FULL, plural, TIME_SECONDS } from "../format.ts";
 import { Instant } from "./Instant.tsx";
 
 export function BatchStatus(props: { batch: ListedBatch }) {
@@ -14,11 +14,7 @@ export function BatchStatus(props: { batch: ListedBatch }) {
   );
 }
 
-export function BatchConditions(props: {
-  batch: ListedBatch;
-  detailed?: boolean;
-  canary?: boolean;
-}) {
+export function BatchConditions(props: { batch: ListedBatch; detailed?: boolean }) {
   return (
     <>
       <Show when={props.batch.pausedBy}>
@@ -41,11 +37,13 @@ export function BatchConditions(props: {
           </span>
         )}
       </Show>
-      <Show when={props.canary}>
-        <span class="beside">
-          <span class="mark mark-blocked" aria-hidden="true" />
-          Jobs waiting for its Canary
-        </span>
+      <Show when={props.batch.blockedJobCounts.batchCanary}>
+        {(count) => (
+          <span class="beside">
+            <span class="mark mark-blocked" aria-hidden="true" />
+            {formatCount(count())} {plural(count(), "job", "jobs")} waiting for its Canary
+          </span>
+        )}
       </Show>
     </>
   );

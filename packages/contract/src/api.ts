@@ -96,6 +96,12 @@ export const jobStatusSchema = z.enum([
 ]);
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 
+export const blockedBySchema = z.enum([
+  "batchPausedByCaller",
+  "batchPausedByBreaker",
+  "batchCanary",
+]);
+
 /** The statuses a job ends in: once a job reaches one, nothing more happens to it unless it is resumed. */
 export const finalJobStatusSchema = z.enum(["succeeded", "failed", "cancelled"]);
 export const FINAL_JOB_STATUSES: readonly JobStatus[] = finalJobStatusSchema.options;
@@ -209,7 +215,7 @@ const jobBaseSchema = z.object({
    * (`batchCanary`). A block changes no status: the job stays `queued`, and is sent once nothing
    * blocks it and a Runner has room. New values may be added.
    */
-  blockedBy: z.optional(z.enum(["batchPausedByCaller", "batchPausedByBreaker", "batchCanary"])),
+  blockedBy: z.optional(blockedBySchema),
   /**
    * The Runner the job was last sent to, as the hub knows it now: absent before the job is first
    * sent, once that Runner is removed, and once the job is deleted.
@@ -432,6 +438,15 @@ export const batchSchema = z
       failed: z.int(),
       cancelled: z.int(),
     }),
+    /**
+     * How many of its jobs show each `blockedBy` reason. Each is also counted in
+     * `jobCounts.queued`. New reasons may be added.
+     */
+    blockedJobCounts: z.object(
+      z
+        .record(blockedBySchema, z.instanceof(z.ZodMiniNumberFormat))
+        .parse(Object.fromEntries(blockedBySchema.options.map((reason) => [reason, z.int()]))),
+    ),
     /**
      * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
      * recorded status.

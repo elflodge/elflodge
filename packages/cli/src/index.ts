@@ -846,7 +846,7 @@ class WaitTimedOut extends Error {
 }
 
 /** How a Batch's jobs stand, on one line. */
-function progressOf(batch: Batch, inCanary: boolean) {
+function progressOf(batch: Batch) {
   const { queued, running, paused, succeeded, failed, cancelled } = batch.jobCounts;
   // Once no job is unfinished, the line openai-cli ends its wait with; a cancelled job is neither a
   // success nor a failure, so it is named apart, only when there is one.
@@ -861,7 +861,9 @@ function progressOf(batch: Batch, inCanary: boolean) {
     .join(", ");
   // Short enough that the line fits in 80 columns while a Batch of hundreds waits for its Canary.
   const canary =
-    inCanary && batch.breaker !== false ? `; Canary of ${batch.breaker.canary} first` : "";
+    batch.blockedJobCounts.batchCanary > 0 && batch.breaker !== false
+      ? `; Canary of ${batch.breaker.canary} first`
+      : "";
   const pause = batch.pausedBy === "caller" ? "; paused" : "";
   const unknown = batch.statusUnknownJobs > 0 ? `; ${batch.statusUnknownJobs} status unknown` : "";
   return `${counts}${canary}${pause}${unknown}`;
@@ -873,20 +875,9 @@ function settled(batch: Batch) {
   return batch.pausedBy === "breaker" || queued + running + paused === 0;
 }
 
-/** Shows how `batch` stands on stderr, over what it showed before. */
-function showProgress(client: ApiClient, batch: Batch) {
-  return Effect.gen(function* () {
-    // The Batch read has no Canary of its own, so its newest queued job tells whether the
-    // Canary still holds the rest.
-    const newestQueued =
-      batch.breaker !== false && batch.jobCounts.queued > 0
-        ? yield* hubCall((signal) =>
-            client.jobs.list({ batchId: batch.id, status: ["queued"], limit: 1 }, { signal }),
-          ).pipe(Effect.retry(retryTransient))
-        : undefined;
-    const inCanary = newestQueued?.jobs[0]?.blockedBy === "batchCanary";
-    yield* Effect.sync(() => logUpdateStderr(progressOf(batch, inCanary)));
-  });
+/** Shows the counts and Canary condition from the same Batch read on stderr. */
+function showProgress(batch: Batch) {
+  return Effect.sync(() => logUpdateStderr(progressOf(batch)));
 }
 
 /**
@@ -1029,7 +1020,7 @@ function waitAndSave(
       ).pipe(
         Effect.retry(retryTransient),
         Effect.tap(noticeUnknown),
-        Effect.tap((read) => (onTerminal ? showProgress(client, read) : Effect.void)),
+        Effect.tap((read) => (onTerminal ? showProgress(read) : Effect.void)),
         Effect.repeat({ schedule: pollSchedule, until: settled }),
         Effect.ensuring(endProgress),
         // A read that fails ends the wait, which says how to wait again, the ID with it; not on an

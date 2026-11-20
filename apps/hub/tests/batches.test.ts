@@ -5,6 +5,7 @@ import * as z from "zod/mini";
 import {
   type ApiClient,
   type JobInput,
+  protocolClient,
   startSystem,
   submitJob,
   untilStatus,
@@ -427,6 +428,93 @@ test("a Batch's Canary, its first jobs, those added later included, runs before 
   });
   expect(blockedBy(all)).toEqual(["none", "none"]);
   await client.batches.cancel({ id: uncautious.id });
+});
+
+test("Batch reads count blocked jobs through a pause and a new Canary at the end of the queue", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const labels = { series: "tail-canary" };
+  const { id } = await client.batches.create({
+    agent: AGENT,
+    labels,
+    breaker: { canary: 2, maxFailurePercent: 100 },
+  });
+  const { jobs } = await client.batches.addJobs({
+    id,
+    jobs: ["first", "second", "older", "next", "newest"].map((name) => jobNamed(name)),
+  });
+  const [, , older, next, newest] = jobs.map(({ job }) => job.id);
+  if (!older || !next || !newest) throw new Error("The add answered without the jobs");
+
+  async function counts(expected: {
+    batchCanary?: number;
+    batchPausedByCaller?: number;
+    batchPausedByBreaker?: number;
+  }) {
+    const batch = await client.batches.get({ id });
+    expect(batch.blockedJobCounts).toEqual({
+      batchPausedByCaller: 0,
+      batchPausedByBreaker: 0,
+      batchCanary: 0,
+      ...expected,
+    });
+    const [listed] = (await client.batches.list({ labels })).batches;
+    expect(listed?.blockedJobCounts).toEqual(batch.blockedJobCounts);
+  }
+  await counts({ batchCanary: 3 });
+  await client.jobs.pause({ id: older });
+
+  // Placement alone leaves both Canary jobs queued. Neither counts under the caller's pause,
+  // and the second still does not count when the first job's failure trips the breaker.
+  const { socket, runnerId } = await system.connectRunner();
+  const runner = protocolClient(socket);
+  const { runs } = await runner.request("sync", { held: [], free: 2 }, 10_000);
+  const held = runs.map(({ jobId, runId }) => ({ jobId, runId }));
+  const [first] = held;
+  expect(new Set(held.map(({ jobId }) => jobId))).toEqual(
+    new Set(jobs.slice(0, 2).map(({ job }) => job.id)),
+  );
+  if (!first) throw new Error("The Runner received no job");
+  await client.batches.pause({ id });
+  await counts({ batchPausedByCaller: 2 });
+  await client.batches.resume({ id });
+  await runner.request(
+    "report",
+    {
+      held,
+      free: 0,
+      deleted: [],
+      jobs: [
+        {
+          ...first,
+          position: 0,
+          intent: "run",
+          events: [],
+          failure: {
+            timestamp: Date.now(),
+            reason: "runFaulted",
+            message: "The journal could not be opened",
+          },
+        },
+      ],
+    },
+    10_000,
+  );
+  await counts({ batchPausedByBreaker: 2 });
+
+  await client.batches.resume({ id });
+  expect(await client.jobs.resume({ id: older })).toMatchObject({ blockedBy: "batchCanary" });
+  const [latest] = (await client.jobs.list({ batchId: id, status: ["queued"], limit: 1 })).jobs;
+  expect(latest?.id).toBe(newest);
+  expect(latest).not.toHaveProperty("blockedBy");
+  await counts({ batchCanary: 1 });
+
+  await client.jobs.cancel({ id: next });
+  await client.jobs.cancel({ id: newest });
+  await counts({});
+  expect(await client.jobs.get({ id: older })).not.toHaveProperty("blockedBy");
+  await client.batches.cancel({ id });
+  await system.owner().runners.delete({ id: runnerId });
+  socket.close(1000);
 });
 
 test("a failure in the Canary pauses the Batch, and resuming it runs a new Canary of the next jobs first, those added later included", async () => {
