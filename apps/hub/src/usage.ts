@@ -2,6 +2,8 @@ import type { DistributiveOmit } from "@orpc/shared";
 import {
   type Labels,
   MAX_USAGE_DAYS,
+  parseUsagePeriod,
+  USAGE_PERIOD_ERROR,
   usageGroupsSchema,
   type UsageGroupBy,
   type UsageReport,
@@ -95,10 +97,12 @@ function windowOf({ period, from, to }: UsageQuery, today: DateTime.Utc) {
   if (period !== undefined) {
     if (from !== undefined || to !== undefined)
       return refused("period", "Choose a period or give from and to separately");
-    if (period.endsWith("d")) {
-      count = Number(period.slice(0, -1));
+    const parsed = parseUsagePeriod(period);
+    if (!parsed) return refused("period", USAGE_PERIOD_ERROR);
+    if (parsed.kind === "days") {
+      count = parsed.days;
     } else {
-      const first = DateTime.makeUnsafe(`${period}-01`);
+      const first = DateTime.makeUnsafe(`${parsed.month}-01`);
       if (DateTime.isGreaterThan(first, today))
         return refused("period", "The month must have begun");
       return Effect.succeed({

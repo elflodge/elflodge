@@ -603,13 +603,24 @@ export type JobEventsPage = z.infer<typeof jobEventsPageSchema>;
 /** The most days one read of usage covers. */
 export const MAX_USAGE_DAYS = 400;
 
-/** A rolling number of UTC days or one calendar month, resolved by the hub. */
-export const usagePeriodSchema = z.union(
-  [
-    z.string().check(z.regex(/^(?:[1-9]\d?|[1-3]\d{2}|400)d$/)),
-    z.string().check(z.regex(/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/)),
-  ],
-  { error: "Must be 1d through 400d or a calendar month as YYYY-MM, from year 0001" },
+/** Read a rolling number of UTC days or a calendar month in the wire format of `period`. */
+export function parseUsagePeriod(value: string) {
+  const days = /^([1-9]\d*)d$/.exec(value);
+  if (days) {
+    const count = Number(days[1]);
+    if (count <= MAX_USAGE_DAYS) return { kind: "days" as const, days: count };
+  } else if (/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/.test(value)) {
+    return { kind: "month" as const, month: value };
+  }
+  return undefined;
+}
+
+export const USAGE_PERIOD_ERROR = `Must be 1d through ${MAX_USAGE_DAYS}d or a calendar month as YYYY-MM, from year 0001`;
+
+export const usagePeriodSchema = z.string().check(
+  z.refine((value) => parseUsagePeriod(value) !== undefined, {
+    error: USAGE_PERIOD_ERROR,
+  }),
 );
 
 /** A calendar day, as `YYYY-MM-DD`. */
@@ -1374,7 +1385,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           period: z.optional(
             usagePeriodSchema.check(
               z.describe(
-                "1d through 400d for that many UTC days ending today, or YYYY-MM (years 0001–9999) for that month through today. With from or to, or for a month that has not begun, the hub refuses period with 400. With no period or dates, the window is the last 30 days.",
+                `1d through ${MAX_USAGE_DAYS}d for that many UTC days ending today, or YYYY-MM (years 0001–9999) for that month through today. With from or to, or for a month that has not begun, the hub refuses period with 400. With no period or dates, the window is the last 30 days.`,
               ),
             ),
           ),

@@ -15,6 +15,7 @@ Each UTC day carries only its totals. A grouped read computes the daily totals a
 - Dating by `endedAt`: a late report changes a past day and month, the Runner's clock decides the day, and a partition by it never closes.
 - Dating by the job's `createdAt`: a long job counts on the day it was submitted, and each later end of a resumed job adds to a day long past.
 - Putting groups inside each day: Batches and label values have no upper bound, and ranking them over the window needs only one total per group. OpenAI's Organization [Usage][openai-usage] and [Costs][openai-cost] APIs, Anthropic's Admin [usage][admin-usage] and [cost][admin-cost] reports, and AWS Cost Explorer's [`GetCostAndUsage`][aws] put groups inside time buckets, which works for a handful of models, projects or keys. [Anthropic's successor analytics API][analytics] ranks flat rows over the range with a page limit. [Azure Cost Management Query][azure] also returns flat rows.
+- Reading `today`, `readAt` and the window from Postgres would use the clock that dates `recordedAt`. The hub needs to resolve and validate the window before the report statement. Reading the database clock first would add a round trip, which on the Workers hub crosses Hyperdrive.
 - Resolving the window on the caller's clock can put its last day in the future if the clock is ahead. A browser using local dates west of UTC can mark yesterday as the day still being recorded.
 - Taking `days` and `month` separately would require each to rule out the other as well as `from` and `to`. The answer already uses `days` for its rows.
 - Putting a flag on each row would send up to 400 flags to identify one UTC day. A caller can compare each row's date with `today`.
@@ -32,8 +33,12 @@ Each UTC day carries only its totals. A grouped read computes the daily totals a
 
 An end the hub learns of late counts on the day it learns of it, so a Runner that reconnects after midnight adds the previous day's work to the new day. The `recordedAt` index supports reads over a window of days.
 
+If the hub and Postgres are on different sides of UTC midnight, “so far” can mark the wrong day. An end Postgres records today can fall after the answer’s `to`.
+
 ## When to reconsider
 
 When callers need usage dated by when the work happened, as to compare it with a model provider's bill, which dates each call, and accept that past days can change: the record keeps `endedAt` for that.
 
 Reconsider the grouping when a chart needs to stack groups by day or a caller needs every group in the window.
+
+Reconsider the clock used for the window if skew between the hub’s clock and the database’s clock is seen in practice.

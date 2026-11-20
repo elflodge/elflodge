@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute } from "@tanstack/solid-router";
-import { problemOf } from "contract";
+import { parseUsagePeriod, problemOf } from "contract";
 import { Show } from "solid-js";
 
-import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
@@ -50,7 +50,12 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
           }
         >
           <p>
-            <Link class="stands-alone" to="/usage" search={reportDefaults} onClick={focusRange}>
+            <Link
+              class="stands-alone"
+              to="/usage"
+              search={{ groupBy: reportDefaults.groupBy }}
+              onClick={focusRange}
+            >
               Show the last 30 days by Batch
             </Link>
           </p>
@@ -78,7 +83,8 @@ function Report() {
   const focusRange = focusAfterLinkDrops(() => document.getElementById("usage-range"));
   const empty = () => {
     if (range() === "custom") return "No job ended in this range";
-    if (range().endsWith("d")) return `No job has ended in the ${rangeName(range()).toLowerCase()}`;
+    if (parseUsagePeriod(range())?.kind === "days")
+      return `No job has ended in the ${rangeName(range()).toLowerCase()}`;
     return soFar()
       ? `No job has ended in ${rangeName(range())} yet`
       : `No job ended in ${rangeName(range())}`;
@@ -90,7 +96,7 @@ function Report() {
           {rangeName(range())}
           {soFar() ? " so far" : ""},{" "}
         </Show>
-        {period()} (UTC).
+        {period()} (UTC){range() === "custom" && soFar() ? " so far" : ""}.
       </p>
       <p class="note">
         Each job end counts on the day the hub recorded it, deleted jobs included. A job resumed
@@ -100,7 +106,7 @@ function Report() {
       <Show when={query.isError && problemOf(query.error)?.status !== 400}>
         <FailedReadNotice
           what="Usage"
-          detail={hubFailureMessage(query.error)}
+          detail={hubFailureDetail(query.error)}
           failedAt={query.errorUpdatedAt}
           readAt={query.data.readAt.getTime()}
           format={TIME_SECONDS_ZONED}
@@ -116,7 +122,7 @@ function Report() {
                 <Link
                   class="stands-alone"
                   to="/usage"
-                  search={{ period: reportDefaults.period, groupBy: search().groupBy }}
+                  search={{ groupBy: search().groupBy }}
                   onClick={focusRange}
                 >
                   Show the last 30 days

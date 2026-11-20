@@ -22,7 +22,7 @@ import { orpc } from "../query.ts";
 import { shortIds } from "../short-ids.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Instant, LastContact } from "./Instant.tsx";
-import { JobSubmitter, RunnerOfJob } from "./JobReferences.tsx";
+import { JobSubmitter, RunnerReference } from "./JobReferences.tsx";
 import { TextPreview } from "./TextPreview.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
@@ -102,7 +102,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             >
               {(runner) => (
                 <>
-                  <RunnerOfJob linked runner={runner()} shortId={runnerId() ?? runner().id} />
+                  <RunnerReference linked runner={runner()} shortId={runnerId() ?? runner().id} />
                   <span class="sub">
                     last seen <LastContact at={runner().lastSeenAt} readAt={props.readAt} />
                   </span>

@@ -1,11 +1,10 @@
+import { JOB_SUCCEEDED } from "contract";
 import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, beforeEach, expect, onTestFinished, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
-import { formatCount, formatUsd } from "../../dashboard/src/format.ts";
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
-import { OWNER, startSystem, untilStatus } from "./harness.ts";
-import { callTool } from "./scripted-model.ts";
+import { OWNER, protocolClient, startSystem, untilStatus } from "./harness.ts";
 
 const system = startSystem();
 let browser: Browser;
@@ -13,9 +12,6 @@ let browser: Browser;
 beforeAll(async () => {
   await system.start();
   browser = await launchDashboardBrowser(system);
-});
-
-async function seedUsage() {
   const owner = system.owner();
   const agent = { outputContract: { schema: { type: "integer" } } };
   for (const id of ["receipts", "statements"]) {
@@ -29,15 +25,50 @@ async function seedUsage() {
     if (!added) throw new Error("The Batch has no job");
     if (id === "receipts") await owner.jobs.cancel({ id: added.job.id });
     else {
-      system.model.setResponses([callTool("submit_output", { value: 1 })]);
-      await system.startRunner();
-      await untilStatus(owner, added.job.id, "succeeded");
+      // A Runner reports known figures so the expected ledger is independent of model pricing.
+      const { socket } = await system.connectRunner();
+      try {
+        const runner = protocolClient(socket);
+        const {
+          runs: [run],
+        } = await runner.request("sync", { held: [], free: 1 }, 10_000);
+        if (!run) throw new Error("The job was not placed");
+        const ref = { jobId: run.jobId, runId: run.runId };
+        const report = await runner.request(
+          "report",
+          {
+            held: [ref],
+            free: 0,
+            deleted: [],
+            jobs: [
+              {
+                ...ref,
+                intent: "run",
+                position: 0,
+                events: [
+                  {
+                    id: 1,
+                    type: "entry",
+                    record: { kind: JOB_SUCCEEDED, data: { timestamp: Date.now(), output: 1 } },
+                  },
+                ],
+                usage: {
+                  models: { ledger: { totalTokens: 12345, cost: { total: 0.125 } } },
+                  tools: {},
+                },
+              },
+            ],
+          },
+          10_000,
+        );
+        expect(report.refused).toEqual([]);
+        await untilStatus(owner, added.job.id, "succeeded");
+      } finally {
+        socket.close();
+      }
     }
   }
-}
-// untilStatus uses a polling assertion, which runs in a test context.
-let seeded: Promise<void> | undefined;
-beforeEach(() => (seeded ??= seedUsage()));
+});
 afterAll(async () => {
   await browser?.close();
   await system.stop();
@@ -52,16 +83,11 @@ async function newPage(timezoneId?: string) {
 test("an owner sees a range's job ends, tokens and cost by Batch and by day, including empty days", async () => {
   const page = await newPage();
   await signInAt(system, page, "usage", OWNER);
-  const report = await system.owner().usage.get({ groupBy: "batch" });
   const group = page.getByRole("table", { name: "By Batch" });
   await expectBrowser(group.getByRole("rowheader")).toHaveText(["statements", "receipts", "Total"]);
   const daily = page.getByRole("table", { name: "By day" });
   await expectBrowser(daily.getByRole("rowheader")).toHaveCount(31);
-  const figures = [
-    "2",
-    formatCount(report.usage.totalTokens),
-    formatUsd(report.usage.cost.totalUsd),
-  ];
+  const figures = ["2", "12,345", "0.1250"];
   for (const ledger of [group, daily]) {
     await expectBrowser(ledger.locator("tfoot td.num")).toHaveText(figures);
   }
@@ -179,23 +205,17 @@ test("a member can correct a refused range and leave the end open through today"
   await to.fill("");
   const show = page.getByRole("button", { name: "Show", exact: true });
   await show.click();
-  const refusal = page.getByRole("alert");
-  await expectBrowser(refusal).toContainText("400 days");
-  await expectBrowser(from).toHaveValue("2000-01-01");
-  await expectBrowser(to).toHaveValue("");
-  await expectBrowser(show).toBeFocused();
-  const retry = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/usage" && response.status() === 400,
+  await expectBrowser(from).toBeFocused();
+  await expectBrowser(from).toHaveJSProperty(
+    "validationMessage",
+    "Choose at most 400 days, counting both From and To.",
   );
-  await show.click();
-  await retry;
-  await expectBrowser(refusal).toContainText("400 days");
-  await expectBrowser(show).toBeFocused();
-  await expectBrowser(show).not.toHaveAttribute("aria-disabled", "true");
+  await expectBrowser(page.getByRole("alert")).toHaveCount(0);
   await from.fill(report.today);
   await show.click();
   await expectBrowser(page.getByRole("table", { name: "By day" }).locator("tbody tr")).toHaveCount(
     1,
   );
+  await expectBrowser(page.locator(".report-range")).toContainText("(UTC) so far.");
   expect(new URL(page.url()).searchParams.has("to")).toBe(false);
 }, 30_000);

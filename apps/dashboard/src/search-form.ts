@@ -1,7 +1,6 @@
 import { parseFormData } from "@orpc/openapi/helpers";
 import { useQueryClient, type QueryKey } from "@tanstack/solid-query";
 import { deepEqual, linkOptions, trimPathRight, useRouter } from "@tanstack/solid-router";
-import { onFlush } from "solid-js";
 import * as z from "zod/mini";
 
 import { createFormAction } from "./form.ts";
@@ -14,7 +13,6 @@ export function createSearchForm<T extends Record<string, unknown>>(options: {
   schema: z.ZodMiniType<T>;
   queryKey: (search: T) => QueryKey;
   beforeSubmit?: (form: FormData) => void;
-  retryFirstRead?: boolean;
 }) {
   const router = useRouter();
   const client = useQueryClient();
@@ -25,25 +23,14 @@ export function createSearchForm<T extends Record<string, unknown>>(options: {
     const destination = linkOptions({ to: options.to, search });
     const current = router.latestLocation;
     const next = router.buildLocation(destination);
+    // The current location holds URL values: one status is text and a page cursor is still present.
     if (
       trimPathRight(current.pathname) !== trimPathRight(next.pathname) ||
-      !deepEqual(options.schema.parse(current.search), options.schema.parse(next.search))
+      !deepEqual(options.schema.parse(current.search), search)
     ) {
       return router.navigate(destination);
     }
     // An unchanged navigation inside the Solid action can wait on its own commit.
-    const queryKey = options.queryKey(search);
-    if (options.retryFirstRead && client.getQueryData(queryKey) === undefined) {
-      // Only the form's disabled observer remains after a loader refusal.
-      // Invalidate after the pending flush. Inside this action the router waits for a
-      // commit that the action itself is holding, leaving Show pending after the retry.
-      return new Promise<void>((resolve) =>
-        onFlush(() => resolve(router.invalidate({ filter: (match) => match.status === "error" }))),
-      );
-    }
-    return client.invalidateQueries(
-      { queryKey, exact: true },
-      options.retryFirstRead ? { cancelRefetch: false } : undefined,
-    );
+    return client.invalidateQueries({ queryKey: options.queryKey(search), exact: true });
   });
 }

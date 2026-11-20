@@ -74,6 +74,8 @@ const zonedTime = {
 
 /** An instant's time and the reader's time zone, such as "15:41 CET", where the zone is not said nearby. */
 export const TIME_ZONED = new Intl.DateTimeFormat(LANGUAGE, zonedTime);
+
+/** The failed and last successful reads each give the second and the reader’s zone. */
 export const TIME_SECONDS_ZONED = new Intl.DateTimeFormat(LANGUAGE, {
   ...zonedTime,
   second: "2-digit",

@@ -2252,11 +2252,15 @@ p mark.placeholder {
   width: var(--ledger-bar);
   min-width: var(--ledger-bar);
 }
-.ledger.by-cost th:has(time) {
+.ledger.by-cost time {
   white-space: nowrap;
 }
 .ledger .runner-ref {
+  flex-wrap: wrap;
   white-space: normal;
+}
+.ledger .runner-ref > a {
+  max-width: 100%;
 }
 .report-range {
   color: var(--c-ink);

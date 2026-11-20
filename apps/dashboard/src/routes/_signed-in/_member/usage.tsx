@@ -12,7 +12,8 @@ import {
   LABEL_KEY_PATTERN,
   problemOf,
   usageGroupBySchema,
-  usagePeriodSchema,
+  MAX_USAGE_DAYS,
+  parseUsagePeriod,
   type UsageReport,
 } from "contract";
 import { For, Show, createSignal, createEffect } from "solid-js";
@@ -42,7 +43,7 @@ type UsageSearch = z.infer<typeof searchSchema>;
 
 export const Route = createFileRoute("/_signed-in/_member/usage")({
   validateSearch: searchSchema,
-  search: { middlewares: [stripSearchParams(reportDefaults)] },
+  search: { middlewares: [stripSearchParams({ groupBy: reportDefaults.groupBy })] },
   component: Usage,
 });
 
@@ -51,12 +52,13 @@ export function rangeOf(search: UsageSearch) {
 }
 export function rangeName(range: string) {
   if (range === "custom") return "Custom range";
-  if (!usagePeriodSchema.safeParse(range).success) return range;
-  if (range.endsWith("d")) {
-    const days = Number(range.slice(0, -1));
+  const parsed = parseUsagePeriod(range);
+  if (!parsed) return range;
+  if (parsed.kind === "days") {
+    const { days } = parsed;
     return `Last ${days} ${days === 1 ? "day" : "days"}`;
   }
-  return UTC_MONTH.format(new Date(`${range}-01`));
+  return UTC_MONTH.format(new Date(`${parsed.month}-01`));
 }
 
 export function reportOptions(search: UsageSearch) {
@@ -150,6 +152,7 @@ function ReportForm(props: { report?: UsageReport }) {
   const [draftRange, setRange] = createSignal<string>();
   const [draftGroup, setGroup] = createSignal<string>();
   const months = () => {
+    // Effect DateTime.subtract with Array.makeBy added 6,398 gzipped client bytes for this list.
     const anchor = new Date(props.report?.today ?? Date.now());
     anchor.setUTCDate(1);
     const recent = Array.from({ length: 12 }, () => {
@@ -165,15 +168,47 @@ function ReportForm(props: { report?: UsageReport }) {
     to: "/usage",
     schema: searchSchema,
     beforeSubmit(form) {
-      if (form.get("period") === "custom") form.delete("period");
+      if (form.get("period") === "custom" || form.get("period") === reportDefaults.period)
+        form.delete("period");
+      // The hub supplied From for an end-only address. The unchanged dates still ask that question.
+      if (
+        search().from === undefined &&
+        search().to === form.get("to") &&
+        props.report?.from === form.get("from")
+      )
+        form.delete("from");
       if (form.get("groupBy") === "label")
         form.set("groupBy", `label:${fieldText(form, "labelKey")}`);
     },
     queryKey: (input) => reportOptions(input).queryKey,
-    retryFirstRead: true,
   });
   let form: HTMLFormElement | undefined;
-  createEffect(search, () => form?.reset(), { defer: true });
+  createEffect(
+    search,
+    () => {
+      if (form) {
+        form.reset();
+        // Reset restores field values, but the browser keeps a custom validation message.
+        checkWindow(form);
+      }
+    },
+    { defer: true },
+  );
+  function checkWindow(element: HTMLFormElement) {
+    const from = element.elements.namedItem("from");
+    const to = element.elements.namedItem("to");
+    if (!(from instanceof HTMLInputElement) || !(to instanceof HTMLInputElement)) return;
+    const end = to.value || props.report?.today;
+    const days = end ? (Date.parse(end) - from.valueAsNumber) / 86_400_000 + 1 : NaN;
+    from.setCustomValidity(
+      days > MAX_USAGE_DAYS
+        ? `Choose at most ${MAX_USAGE_DAYS} days, counting both From and To.`
+        : "",
+    );
+    to.setCustomValidity(
+      to.valueAsNumber < from.valueAsNumber ? "To must be on or after From." : "",
+    );
+  }
   return (
     <form
       ref={(el) => {
@@ -181,7 +216,12 @@ function ReportForm(props: { report?: UsageReport }) {
       }}
       class="filters"
       aria-label="Usage report"
-      onSubmit={onSubmit}
+      onInput={({ currentTarget }) => checkWindow(currentTarget)}
+      onSubmit={async (event) => {
+        checkWindow(event.currentTarget);
+        if (event.currentTarget.reportValidity()) await onSubmit(event);
+        else event.preventDefault();
+      }}
       onReset={() => {
         setRange(undefined);
         setGroup(undefined);
@@ -218,7 +258,8 @@ function ReportForm(props: { report?: UsageReport }) {
                   defaultValue={
                     (draftRange() === "custom"
                       ? (props.report?.[name] ?? search()[name])
-                      : search()[name]) ?? ""
+                      : (search()[name] ?? (name === "from" ? props.report?.from : undefined))) ??
+                    ""
                   }
                 />
               </div>

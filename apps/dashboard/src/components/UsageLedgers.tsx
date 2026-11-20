@@ -6,7 +6,7 @@ import { For, Repeat, Show, createMemo } from "solid-js";
 import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY } from "../format.ts";
 import { shortIds } from "../short-ids.ts";
 import { groupings, type usageGrouping } from "../usage-grouping.ts";
-import { JobSubmitter } from "./JobReferences.tsx";
+import { JobSubmitter, RunnerReference, submitterName } from "./JobReferences.tsx";
 import { JobStatus } from "./JobStatus.tsx";
 
 type Figures = Pick<UsageReport, "jobEnds" | "usage">;
@@ -43,23 +43,11 @@ function groupName(
     return group.runner === null ? (
       "No Runner: ended before one started them"
     ) : (
-      <span class="runner-ref">
-        {group.runner.name === undefined ? (
-          "A Runner since removed"
-        ) : (
-          <Link
-            class="mono cut stands-alone"
-            title={group.runner.name}
-            to="/runners"
-            hash={group.runner.id}
-          >
-            {group.runner.name}
-          </Link>
-        )}
-        <span class="sid" title={group.runner.id}>
-          {ids.get(group.runner.id)}
-        </span>
-      </span>
+      <RunnerReference
+        linked
+        runner={group.runner}
+        shortId={ids.get(group.runner.id) ?? group.runner.id}
+      />
     );
   const submitter = group.submitter;
   return (
@@ -70,7 +58,7 @@ function groupName(
           (other) =>
             "submitter" in other &&
             other.submitter.id !== submitter.id &&
-            (other.submitter.name ?? "Unnamed") === (submitter.name ?? "Unnamed"),
+            submitterName(other.submitter) === submitterName(submitter),
         )}
       >
         <span class="sid" title={submitter.id}>

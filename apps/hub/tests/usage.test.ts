@@ -296,12 +296,18 @@ test("the hub dates rolling days and calendar months by the UTC day of its read"
     7,
   ]);
   const month = week.today.slice(0, 7);
-  expect(await get({ period: month })).toMatchObject({ from: `${month}-01`, to: week.today });
+  const monthly = await get({ period: month });
+  const monthEnd = new Date(`${month}-01`);
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1, 0);
+  expect(monthly.from).toBe(`${month}-01`);
+  expect(monthly.to).toBe(
+    monthly.today.startsWith(month) ? monthly.today : monthEnd.toISOString().slice(0, 10),
+  );
   expect(await get({ period: "2024-02" })).toMatchObject({ from: "2024-02-01", to: "2024-02-29" });
-  expect(await get({ from: week.today, to: "9999-12-31" })).toMatchObject({
-    to: week.today,
-    days: [{ date: week.today }],
-  });
+  const capped = await get({ from: week.today, to: "9999-12-31" });
+  expect(capped.from).toBe(week.today);
+  expect(capped.to).toBe(capped.today);
+  expect(capped.days.at(-1)?.date).toBe(capped.today);
 });
 
 test("refused periods and future starts name the conflicting field", async () => {
