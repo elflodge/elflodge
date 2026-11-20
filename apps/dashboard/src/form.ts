@@ -14,6 +14,15 @@ export function focusAfterRowDrops(target: HTMLElement, isListed: () => boolean)
   });
 }
 
+/** Returns true when a field was refused, even if the member moved focus while waiting. */
+export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Element | null) {
+  const refused = form.querySelector<HTMLElement>('[aria-invalid="true"]');
+  if (!refused) return false;
+  if (document.activeElement === focusedAtSubmit) refused.focus();
+  else focusIfLost(refused);
+  return true;
+}
+
 /** Keep the form pending until its submission, including any navigation, settles. */
 export function createFormAction(submit: (form: HTMLFormElement) => Promise<void>) {
   const [pending, setPending] = createOptimistic(false);
@@ -29,11 +38,9 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
     try {
       await run(currentTarget);
     } finally {
-      const refused = currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]');
-      if (refused) {
-        if (document.activeElement === focused) refused.focus();
-        else focusIfLost(refused);
-      } else if (
+      // The description has rendered with aria-invalid, so a screen reader can announce it on focus.
+      if (
+        !focusRefusedField(currentTarget, focused) &&
         focused instanceof HTMLElement &&
         "form" in focused &&
         focused.form === currentTarget

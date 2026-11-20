@@ -2,7 +2,7 @@ import type { JSX } from "@solidjs/web";
 import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tanstack/solid-router";
 import { problemOf } from "contract";
-import { Match, Show, Switch, createEffect, createSignal, flush, onSettled } from "solid-js";
+import { Match, Show, Switch, createEffect, createSignal, onSettled } from "solid-js";
 
 import {
   api,
@@ -270,8 +270,6 @@ function AcceptInvitation(props: {
         (message === "Password too long" || message === "Password too short")
       ) {
         setPasswordError(message);
-        flush();
-        password.focus();
       } else {
         setError(message);
         setOfferSignIn(status === 422);
