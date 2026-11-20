@@ -73,7 +73,11 @@ export function HubStrip() {
                 <>
                   {/* A count of running jobs may say agents (CONTEXT.md). */}
                   <li class={{ "hub-unknown": allRunningUnknown() }}>
-                    <Link to="/jobs" search={{ status: ["running"] }}>
+                    <Link
+                      activeOptions={{ exact: true }}
+                      to="/jobs"
+                      search={{ status: ["running"] }}
+                    >
                       <span
                         class={[
                           "mark",
@@ -87,14 +91,22 @@ export function HubStrip() {
                     </Link>
                   </li>
                   <li>
-                    <Link to="/jobs" search={{ status: ["queued"] }}>
+                    <Link
+                      activeOptions={{ exact: true }}
+                      to="/jobs"
+                      search={{ status: ["queued"] }}
+                    >
                       <span class="mark mark-queued" aria-hidden="true" />
                       {formatCount(read().jobCounts.queued)} queued
                     </Link>
                   </li>
                   <Show when={read().jobCounts.paused > 0}>
                     <li>
-                      <Link to="/jobs" search={{ status: ["paused"] }}>
+                      <Link
+                        activeOptions={{ exact: true }}
+                        to="/jobs"
+                        search={{ status: ["paused"] }}
+                      >
                         <span class="mark mark-paused" aria-hidden="true" />
                         {formatCount(read().jobCounts.paused)} paused
                       </Link>
@@ -102,7 +114,11 @@ export function HubStrip() {
                   </Show>
                   <Show when={unknownTotal() > 0}>
                     <li class="hub-unknown">
-                      <Link to="/jobs" search={{ statusUnknown: true }}>
+                      <Link
+                        activeOptions={{ exact: true }}
+                        to="/jobs"
+                        search={{ statusUnknown: true }}
+                      >
                         <span class="mark mark-unknown" aria-hidden="true" />
                         {formatCount(unknownTotal())} status unknown
                       </Link>

@@ -39,7 +39,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs/")({
       <ReadErrorPage {...props} heading="Jobs">
         <Show when={filterCount(search()) > 0}>
           <p>
-            <Link to="/jobs" search={{}} class="stands-alone">
+            <Link activeOptions={{ exact: true }} to="/jobs" search={{}} class="stands-alone">
               Clear the filters
             </Link>
           </p>
@@ -344,13 +344,23 @@ function Paging(props: { search: JobsSearch; page: JobsPage }) {
             : "there are no older jobs."}
       </span>
       <Show when={props.search.after !== undefined}>
-        <Link to="/jobs" search={{ ...props.search, after: undefined }} class="stands-alone">
+        <Link
+          activeOptions={{ exact: true }}
+          to="/jobs"
+          search={{ ...props.search, after: undefined }}
+          class="stands-alone"
+        >
           Newest jobs
         </Link>
       </Show>
       <Show when={props.page.hasMore ? last() : undefined}>
         {(after) => (
-          <Link to="/jobs" search={{ ...props.search, after: after() }} class="stands-alone">
+          <Link
+            activeOptions={{ exact: true }}
+            to="/jobs"
+            search={{ ...props.search, after: after() }}
+            class="stands-alone"
+          >
             Older jobs
           </Link>
         )}
@@ -371,7 +381,12 @@ function NoJobs(props: { search: JobsSearch; runners: Runner[] | undefined }) {
         <Match when={props.search.after !== undefined}>
           <h2>No older jobs</h2>
           <p class="empty-act">
-            <Link to="/jobs" search={{ ...props.search, after: undefined }} class="stands-alone">
+            <Link
+              activeOptions={{ exact: true }}
+              to="/jobs"
+              search={{ ...props.search, after: undefined }}
+              class="stands-alone"
+            >
               Newest jobs
             </Link>
           </p>
@@ -379,7 +394,7 @@ function NoJobs(props: { search: JobsSearch; runners: Runner[] | undefined }) {
         <Match when={filterCount(props.search) > 0}>
           <h2>No job matches these filters</h2>
           <p class="empty-act">
-            <Link to="/jobs" search={{}} class="stands-alone">
+            <Link activeOptions={{ exact: true }} to="/jobs" search={{}} class="stands-alone">
               Clear the filters
             </Link>
           </p>

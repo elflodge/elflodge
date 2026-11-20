@@ -1,13 +1,16 @@
+import { parseFormData } from "@orpc/openapi/helpers";
 import { useQuery, type UseQueryResult } from "@tanstack/solid-query";
 import {
   Link,
   Outlet,
   createFileRoute,
   useChildMatches,
+  useLocation,
   useNavigate,
+  useRouterState,
 } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, jobIdSchema, jobStatusSchema, type Runner } from "contract";
-import { For, Show, createMemo, createSignal, onFlush } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
@@ -73,7 +76,8 @@ export function availableRunners(query: UseQueryResult<Runner[]>) {
 }
 
 function Jobs() {
-  const search = Route.useSearch();
+  // Start the form for the new address as navigation begins, before the list read settles.
+  const search = useLocation({ select: (location) => jobsSearchSchema.parse(location.search) });
   const listFailed = useChildMatches({
     select: (matches) => matches.some((match) => match.status === "error"),
   });
@@ -100,19 +104,28 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
   let toggle: HTMLButtonElement | undefined;
   let apply: HTMLButtonElement | undefined;
 
+  const focusTarget = () => (toggle?.checkVisibility() ? toggle : apply);
+  // Each way to clear the filters removes its link. Wait for the unfiltered page to be visible.
+  const cleared = useRouterState({
+    select: ({ resolvedLocation }) =>
+      resolvedLocation?.pathname === "/jobs"
+        ? filterCount(jobsSearchSchema.parse(resolvedLocation.search)) === 0
+        : undefined,
+  });
+  createEffect(cleared, (unfiltered, wasUnfiltered) => {
+    if (unfiltered && wasUnfiltered === false) focusIfLost(focusTarget());
+  });
+
   function closeFilters() {
     // Close in a separate flush so navigation cannot hold the panel open until its read settles.
     onFlush(() => setOpen(false));
-    (toggle?.checkVisibility() ? toggle : apply)?.focus();
+    focusTarget()?.focus();
   }
 
   const { pending, onSubmit } = createFormAction((element) => {
     const form = new FormData(element);
     closeFilters();
-    const search = jobsSearchSchema.parse({
-      ...Object.fromEntries(form),
-      status: form.getAll("status"),
-    });
+    const search = jobsSearchSchema.parse(parseFormData(form));
     return navigate({ to: "/jobs", search });
   });
 
@@ -126,9 +139,8 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
     return chosen && !runnerIds().has(chosen) ? chosen : undefined;
   };
 
-  // Keep disclosure updates independent of the form bindings so drafts survive a toggle.
-  function FilterToggle() {
-    return (
+  return (
+    <div class="filters">
       <button
         type="button"
         class="filter-toggle"
@@ -142,107 +154,112 @@ function Filters(props: { search: JobsSearch; runners: Runner[] }) {
         Filters
         <Show when={applied() > 0}> ({formatCount(applied())} applied)</Show>
       </button>
-    );
-  }
-
-  return (
-    <div class="filters">
-      <FilterToggle />
-      <form
-        id="jobs-filters"
-        class="filters-form"
-        aria-label="Filter the jobs"
-        onSubmit={async (event) => {
-          await onSubmit(event);
-          // Clear can replace a pending read while Apply is still disabled.
-          focusIfLost(apply);
-        }}
-      >
-        <div class="filters-row">
-          <fieldset class="check-group is-inline">
-            <legend>Status</legend>
-            <For each={STATUSES}>
-              {(status) => (
-                <label class="check">
-                  <input
-                    type="checkbox"
-                    name="status"
-                    value={status}
-                    checked={props.search.status?.includes(status) ?? false}
-                  />
-                  <span class={["mark", `mark-${status}`]} aria-hidden="true" />
-                  {STATUS_WORDS[status]}
-                </label>
-              )}
-            </For>
-          </fieldset>
-          <div class="filter-field">
-            <label for="jobs-status-unknown">Status unknown</label>
-            <select id="jobs-status-unknown" name="statusUnknown">
-              <option value="" selected={props.search.statusUnknown === undefined}>
-                Any
-              </option>
-              <option value="true" selected={props.search.statusUnknown === true}>
-                Only status unknown
-              </option>
-              <option value="false" selected={props.search.statusUnknown === false}>
-                Only status known
-              </option>
-            </select>
-          </div>
-        </div>
-        <div class="filters-row">
-          <div class="filter-field">
-            <label for="jobs-batch">Batch</label>
-            <input
-              id="jobs-batch"
-              name="batchId"
-              pattern={BATCH_ID_PATTERN.source}
-              title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
-              value={props.search.batchId ?? ""}
-            />
-          </div>
-          <div class="filter-field">
-            <label for="jobs-runner">Runner</label>
-            <select id="jobs-runner" name="runnerId">
-              <option value="" selected={props.search.runnerId === undefined}>
-                Any
-              </option>
-              <For each={props.runners}>
-                {(runner) => (
-                  <option value={runner.id} selected={props.search.runnerId === runner.id}>
-                    {runnerLabel(runner)}
+      {/* Each applied search starts a fresh form. Edits then belong to its native controls. */}
+      <Show when={props.search} keyed>
+        {(initial) => (
+          <form
+            id="jobs-filters"
+            class="filters-form"
+            aria-label="Filter the jobs"
+            onSubmit={async (event) => {
+              await onSubmit(event);
+              // Clear can replace a pending read while Apply is still disabled.
+              focusIfLost(apply);
+            }}
+          >
+            <div class="filters-row">
+              <fieldset class="check-group is-inline">
+                <legend>Status</legend>
+                <For each={STATUSES}>
+                  {(status) => (
+                    <label class="check">
+                      <input
+                        type="checkbox"
+                        name="status"
+                        value={status}
+                        defaultChecked={initial.status?.includes(status) ?? false}
+                      />
+                      <span class={["mark", `mark-${status}`]} aria-hidden="true" />
+                      {STATUS_WORDS[status]}
+                    </label>
+                  )}
+                </For>
+              </fieldset>
+              <div class="filter-field">
+                <label for="jobs-status-unknown">Status unknown</label>
+                <select id="jobs-status-unknown" name="statusUnknown">
+                  <option value="" defaultSelected={initial.statusUnknown === undefined}>
+                    Any
                   </option>
-                )}
-              </For>
-              <Show when={unlistedRunner()}>
-                {(id) => (
-                  <option value={id()} selected>
-                    Runner ID: {id()}
+                  <option value="true" defaultSelected={initial.statusUnknown === true}>
+                    Only status unknown
                   </option>
-                )}
-              </Show>
-            </select>
-          </div>
-          <span class="filter-act">
-            <button
-              type="submit"
-              class="primary"
-              disabled={pending()}
-              ref={(element) => {
-                apply = element;
-              }}
-            >
-              Apply
-            </button>
-            <Show when={applied() > 0}>
-              <Link to="/jobs" search={{}} class="stands-alone" onClick={closeFilters}>
-                Clear
-              </Link>
-            </Show>
-          </span>
-        </div>
-      </form>
+                  <option value="false" defaultSelected={initial.statusUnknown === false}>
+                    Only status known
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div class="filters-row">
+              <div class="filter-field">
+                <label for="jobs-batch">Batch</label>
+                <input
+                  id="jobs-batch"
+                  name="batchId"
+                  pattern={BATCH_ID_PATTERN.source}
+                  title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
+                  defaultValue={initial.batchId ?? ""}
+                />
+              </div>
+              <div class="filter-field">
+                <label for="jobs-runner">Runner</label>
+                <select id="jobs-runner" name="runnerId">
+                  <option value="" defaultSelected={initial.runnerId === undefined}>
+                    Any
+                  </option>
+                  <For each={props.runners}>
+                    {(runner) => (
+                      <option value={runner.id} defaultSelected={initial.runnerId === runner.id}>
+                        {runnerLabel(runner)}
+                      </option>
+                    )}
+                  </For>
+                  <Show when={unlistedRunner()}>
+                    {(id) => (
+                      <option value={id()} defaultSelected>
+                        Runner ID: {id()}
+                      </option>
+                    )}
+                  </Show>
+                </select>
+              </div>
+              <span class="filter-act">
+                <button
+                  type="submit"
+                  class="primary"
+                  disabled={pending()}
+                  ref={(element) => {
+                    apply = element;
+                  }}
+                >
+                  Apply
+                </button>
+                <Show when={applied() > 0}>
+                  <Link
+                    activeOptions={{ exact: true }}
+                    to="/jobs"
+                    search={{}}
+                    class="stands-alone"
+                    onClick={closeFilters}
+                  >
+                    Clear
+                  </Link>
+                </Show>
+              </span>
+            </div>
+          </form>
+        )}
+      </Show>
     </div>
   );
 }

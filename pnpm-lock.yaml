@@ -486,6 +486,9 @@ importers:
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.50
+      '@orpc/openapi':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))
       '@orpc/tanstack-query':
         specifier: 'catalog:'
         version: 2.0.0-beta.50(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))

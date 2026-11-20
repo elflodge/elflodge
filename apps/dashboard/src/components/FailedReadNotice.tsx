@@ -1,9 +1,8 @@
 import type { JSX } from "@solidjs/web";
 import { useRouter, type ErrorComponentProps } from "@tanstack/solid-router";
-import { Show, onSettled } from "solid-js";
+import { Show } from "solid-js";
 
 import { HubReadError } from "../api-client.ts";
-import { focusIfLost } from "../form.ts";
 import { TIME_SECONDS, timeZoneNote } from "../format.ts";
 import { DefaultCatchBoundary } from "./DefaultCatchBoundary.tsx";
 import { FallbackPage } from "./FallbackPage.tsx";
@@ -46,10 +45,7 @@ export function ReadErrorPage(
     return <DefaultCatchBoundary {...props} />;
   }
   return (
-    <FallbackPage
-      heading={props.heading}
-      headingRef={(heading) => onSettled(() => focusIfLost(heading))}
-    >
+    <FallbackPage heading={props.heading} focusHeading>
       <p class="note">
         {timeZoneNote()} {props.note}
       </p>

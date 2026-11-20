@@ -13,6 +13,7 @@
     "@fontsource-variable/jetbrains-mono": "catalog:",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
     "@orpc/tanstack-query": "catalog:",
     "@solidjs/web": "catalog:",
     "@tanstack/solid-query": "catalog:",
