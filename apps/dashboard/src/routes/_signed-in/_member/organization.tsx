@@ -223,7 +223,9 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
           code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER" ||
           code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER"
         ) {
-          if (
+          if (next === "remove" && !fresh) {
+            message = "The hub refused to remove an owner. Only an owner can remove an owner.";
+          } else if (
             next === "remove" &&
             reader &&
             !rolesOf(reader.role).includes("owner") &&
