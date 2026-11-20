@@ -2,7 +2,7 @@ import { getOpenAPIMeta, getDynamicPathParams } from "@orpc/openapi";
 import { DEFAULT_ERROR_STATUS, ORPCError, ValidationError, type AnyORPCError } from "@orpc/server";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn } from "@orpc/shared";
-import { errorStatusMap, type RequestProblem } from "contract";
+import { errorStatusMap, type ProblemDetails, type RequestProblem } from "contract";
 import * as JsonPointer from "effect/JsonPointer";
 import { problemDetails } from "hono-problem-details";
 import { prettifyError } from "zod/mini";
@@ -64,14 +64,13 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = async (
   }
 };
 
-/** Hono flattens extension members when serializing its standalone response. */
-export function toProblemDetails(error: AnyORPCError) {
+export function toProblemDetails(error: AnyORPCError): ProblemDetails {
   const errors = requestProblems.get(error);
-  return problemDetails({
+  const { problemDetails: document } = problemDetails({
     status: statusOf(error.code),
     detail: detailOf(error),
-    extensions: errors && { errors },
-  }).getResponse().body;
+  });
+  return errors ? { ...document, errors } : { ...document };
 }
 
 /** The status oRPC's handler answers `code` with, including its default for codes it does not know. */
