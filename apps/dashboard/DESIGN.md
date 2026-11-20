@@ -668,7 +668,7 @@ Show reads the displayed report again in place. A stale report also refreshes wh
 
 `div.ledger-layout` holds two sections in reading order. They stand side by side when each has 30rem plus the gap, and stack otherwise. Each table takes its accessible name from its heading. Job ends, tokens and estimated USD follow the row name. The group ledger gives up to ten groups in the hub's order, then the sum of any others. The day ledger gives every UTC day in order. Both footers use the hub's total.
 
-In `table.ledger.by-cost`, the group’s name cell (`th.is-name`) takes the space left by the figures. A name cell with a link uses the Records ID cell’s padding. A name cell with only text keeps the table’s padding. A Runner’s name or removal description and short ID share the baseline in `span.runner-ref`. Batch IDs use `a.cut.stands-alone`, with the full ID in the title and on the record. Runner names wrap, and the short ID can follow on another line. Each Label value is a JSON string in `code.label-value`, preserving spaces. A missing Label is described in words. A `.bar-cell` holds a native meter against the largest cost in that table. Its header reads “Against the largest”. Zero, other and total rows leave the cell empty. At a table width of 30rem or less the bar column gives way and all three figures stay whole. `.day-name` sets the weekday in secondary ink. `tr.is-last-day-of-week` rules off a Sunday. Single-line day rows keep the standard row height, with smaller cell gaps at 20rem and below. Today’s row says “so far”, which can wrap beneath its date.
+In `table.ledger.by-cost`, the group’s name cell (`th.is-name`) takes the space left by the figures. A name cell with a link uses the Records ID cell’s padding. A name cell with only text keeps the table’s padding. A Runner’s name or removal description and short ID share the baseline in `span.runner-ref`. Batch IDs use `a.cut.stands-alone`, with the full ID in the title and on the record. Runner names wrap, and the short ID can follow on another line. Each Label value is a JSON string in `code.label-value`, preserving spaces. A missing Label is described in words. A `.bar-cell` holds a native meter against the largest cost in that table. Its header reads “Against the largest”. Zero, other and total rows leave the cell empty. At a table width of 30rem or less the bar column gives way and all three figures stay whole. `.day-name` sets the weekday in secondary ink. `tr.is-last-day-of-week` rules off a Sunday. Single-line day rows keep the standard row height. At 20rem and below, cell gaps shrink and the day and month may wrap onto separate lines to leave room for the figures. Today’s row says “so far”, which can wrap beneath its date.
 
 ```tsx
 <div class="ledger-layout">
@@ -696,7 +696,7 @@ In `table.ledger.by-cost`, the group’s name cell (`th.is-name`) takes the spac
         <tr class="is-last-day-of-week">
           <th scope="row">
             <time datetime="2026-11-15">
-              <span class="day-name">Sun</span> 15 Nov
+              <span class="day-name">Sun</span> <span>15 Nov</span>
             </time>{" "}
             <span class="unit">so far</span>
           </th>

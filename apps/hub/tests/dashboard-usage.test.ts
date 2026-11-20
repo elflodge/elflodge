@@ -187,9 +187,14 @@ test("west of UTC a job end keeps its UTC weekday, day and year in a cross-year 
     .replace(",", "");
   const daily = page.getByRole("table", { name: "By day" });
   const cell = page.locator(`time[datetime="${day.date}"]`);
-  const yearGroup = daily.getByRole("rowgroup").filter({ has: cell });
-  await expectBrowser(yearGroup.locator('th[scope="rowgroup"]')).toHaveText(day.date.slice(0, 4));
   await expectBrowser(cell).toHaveText(expected);
+  for (const body of await daily.locator("tbody").all()) {
+    const heading = await body.locator('th[scope="rowgroup"]').innerText();
+    const years = await body
+      .locator("time")
+      .evaluateAll((dates) => dates.map((date) => date.dateTime.slice(0, 4)));
+    expect(new Set(years)).toEqual(new Set([heading]));
+  }
   await expectBrowser(
     daily.getByRole("row").filter({ has: cell }).getByRole("cell").first(),
   ).toHaveText(String(day.jobEnds));

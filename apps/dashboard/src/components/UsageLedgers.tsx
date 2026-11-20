@@ -234,24 +234,24 @@ export function UsageLedgers(props: {
         footer={`${formatCount(dayCount())} ${plural(dayCount(), "day", "days")}`}
         total={props.report}
       >
-        <For each={years()}>
-          {([year, days]) => (
+        <For each={years()} keyed={([year]) => year}>
+          {(group) => (
             <tbody>
               <Show when={props.showYears}>
                 <tr class="day-line">
                   <th scope="rowgroup" colspan={5}>
-                    {year}
+                    {group()[0]}
                   </th>
                 </tr>
               </Show>
-              <For each={days}>
+              <For each={group()[1]} keyed={(day) => day.date}>
                 {(day) => {
-                  const date = () => new Date(day.date);
-                  const soFar = () => day.date === props.report?.today;
+                  const date = () => new Date(day().date);
+                  const soFar = () => day().date === props.report?.today;
                   return (
                     <tr class={{ "is-last-day-of-week": date().getUTCDay() === 0 }}>
                       <th scope="row">
-                        <time datetime={day.date}>
+                        <time datetime={day().date}>
                           <span class="day-name">{UTC_WEEKDAY.format(date())}</span>{" "}
                           <span>{UTC_DAY.format(date())}</span>
                         </time>
@@ -260,7 +260,7 @@ export function UsageLedgers(props: {
                           <span class="unit">so far</span>
                         </Show>
                       </th>
-                      <FigureCells figures={day} largest={largestDay()} />
+                      <FigureCells figures={day()} largest={largestDay()} />
                     </tr>
                   );
                 }}

@@ -2257,9 +2257,12 @@ p mark.placeholder {
 }
 .ledger.by-cost time {
   white-space: normal;
+  overflow-wrap: normal;
 }
-.ledger.by-cost time span {
-  white-space: nowrap;
+@container (width > 20rem) {
+  .ledger.by-cost time span {
+    white-space: nowrap;
+  }
 }
 .ledger .runner-ref {
   flex-wrap: wrap;
