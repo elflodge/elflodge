@@ -14,7 +14,19 @@ export function focusAfterRowDrops(target: HTMLElement, isListed: () => boolean)
   });
 }
 
-/** Keep the form pending until its submission, including any navigation, settles. */
+/** Returns true when a field was refused, even if the member moved focus while waiting. */
+export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Element | null) {
+  const refused = form.querySelector<HTMLElement>('[aria-invalid="true"]');
+  if (!refused) return false;
+  if (document.activeElement === focusedAtSubmit) refused.focus();
+  else focusIfLost(refused);
+  return true;
+}
+
+/**
+ * Keep the form pending until its submission, including any navigation, settles. Then focus a
+ * refused field, or return focus to the control that disabling lost it, unless the member moved on.
+ */
 export function createFormAction(submit: (form: HTMLFormElement) => Promise<void>) {
   const [pending, setPending] = createOptimistic(false);
   const run = action(function* (form: HTMLFormElement) {
@@ -29,14 +41,14 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
     try {
       await run(currentTarget);
     } finally {
-      const refused = currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]');
-      if (refused) refused.focus();
-      // Enter can submit from a field that is disabled along with the submit button.
-      else if (
+      // The description has rendered with aria-invalid, so a screen reader can announce it on focus.
+      if (
+        !focusRefusedField(currentTarget, focused) &&
         focused instanceof HTMLElement &&
         "form" in focused &&
         focused.form === currentTarget
       ) {
+        // Enter can submit from a field that is disabled along with the submit button.
         focusIfLost(focused);
       }
     }

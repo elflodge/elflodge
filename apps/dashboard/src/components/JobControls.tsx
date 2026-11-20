@@ -3,7 +3,7 @@ import { FINAL_JOB_STATUSES, problemOf, type Job } from "contract";
 import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
-import { focusIfLost } from "../form.ts";
+import { focusIfLost, focusRefusedField } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
@@ -80,10 +80,6 @@ export function JobControls(props: {
         // Resume sends the validated job ID and one editable field. Its 400 is the budget’s refusal.
         const field = problemOf(error)?.status === 400;
         setBudgetFailure({ message, field });
-        if (field) {
-          flush();
-          focusIfLost(budgetField);
-        }
         return undefined;
       }
       return message;
@@ -99,14 +95,15 @@ export function JobControls(props: {
 
   // createFormAction holds shared signal writes until its action settles. The budget field and
   // every job control must reflect this request while the hub is still answering it.
-  async function submitBudget(event: SubmitEvent) {
+  async function submitBudget(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
     if (!props.resumeOffered || !budgetField || pending()) return;
-    const { submitter } = event;
+    const { currentTarget, submitter } = event;
+    const focused = document.activeElement;
     await press("resume", budgetField.valueAsNumber);
     if (budgetDialog?.open) {
       flush();
-      focusIfLost(submitter);
+      if (!focusRefusedField(currentTarget, focused)) focusIfLost(submitter);
     }
   }
 

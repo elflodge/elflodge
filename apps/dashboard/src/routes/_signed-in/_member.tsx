@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, useLoaderData } from "@tanstack/solid-router";
-import { Show, onSettled } from "solid-js";
+import { Show } from "solid-js";
 
+import { FallbackPage } from "../../components/FallbackPage.tsx";
 import { Notice } from "../../components/Notice.tsx";
 import { canManageKeys } from "../../permissions.ts";
 
@@ -20,14 +21,9 @@ function Member() {
     <Show
       when={session().membership.status === "member"}
       fallback={
-        <>
-          <div class="head">
-            <h1 tabindex="-1" ref={(heading) => onSettled(() => heading.focus())}>
-              Organization access
-            </h1>
-          </div>
+        <FallbackPage heading="Organization access" focusHeading>
           <Notice role="alert">This account is no longer a member of the Organization.</Notice>
-        </>
+        </FallbackPage>
       }
     >
       <Outlet />

@@ -5,7 +5,7 @@ import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
 
 import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
-import { authClient } from "../../../auth-client.ts";
+import { authClient, hasAuthCode, isAuthAccessError } from "../../../auth-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -114,9 +114,21 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
   const liveInvitations = createMemo(() =>
     manages() ? invitations.data.filter((invite) => invite.expiresAt.getTime() > now()) : [],
   );
+  const activeKeys = createMemo(() =>
+    keys.isSuccess
+      ? keys.data.filter((key) => key.expiresAt === null || key.expiresAt.getTime() > now())
+      : [],
+  );
   const checkExpiry = () => setNow(Date.now());
   createEffect(
-    () => Math.min(...liveInvitations().map((invite) => invite.expiresAt.getTime())),
+    () => {
+      const expires = Math.min(
+        ...liveInvitations().map((invite) => invite.expiresAt.getTime()),
+        ...activeKeys().map((key) => key.expiresAt?.getTime() ?? Infinity),
+      );
+      // A key can outlive the browser's maximum timeout of 2^31 - 1 milliseconds.
+      return Number.isFinite(expires) ? Math.min(expires, now() + 2 ** 31 - 1) : expires;
+    },
     (expires) => {
       if (!Number.isFinite(expires)) return undefined;
       // A suspended tab may miss its timer. Check its clock again when it becomes visible.
@@ -134,7 +146,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
     message: JSX.Element;
     focusRef?: (element: HTMLDivElement) => void;
   }>();
-  const report = (message: string) =>
+  const report = (message: JSX.Element) =>
     setNotice({
       role: "alert",
       message,
@@ -167,10 +179,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
       error: members.error,
     }),
     ({ readerRole, error }) => {
-      if (
-        readerRole !== role() ||
-        (error instanceof BetterFetchError && [401, 403].includes(error.status))
-      ) {
+      if (readerRole !== role() || isAuthAccessError(error)) {
         void refreshSession();
       }
     },
@@ -211,34 +220,33 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         list?.status === "success" && !list.isInvalidated ? list.data?.members : undefined;
       const reader = fresh?.find(isOwn);
       const target = fresh?.find((m) => m.id === person.id);
-      if (error instanceof BetterFetchError) {
-        const code = error.error?.code;
-        if ([401, 403].includes(error.status) || code === "MEMBER_NOT_FOUND")
-          await refreshSession();
-        if (code === "MEMBER_NOT_FOUND" && fresh && !fresh.some((m) => m.id === person.id)) {
-          status(`${name} is already gone.`, listed);
-          return undefined;
-        }
+      const memberMissing = hasAuthCode(error, "MEMBER_NOT_FOUND");
+      if (isAuthAccessError(error) || memberMissing) await refreshSession();
+      if (memberMissing && fresh && !target) {
+        status(`${name} is already gone.`, listed);
+        return undefined;
+      }
+      if (
+        hasAuthCode(
+          error,
+          "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
+          "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+        )
+      ) {
         if (
-          code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER" ||
-          code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER"
+          next === "remove" &&
+          (!fresh ||
+            (reader &&
+              !rolesOf(reader.role).includes("owner") &&
+              target &&
+              rolesOf(target.role).includes("owner")))
         ) {
-          if (next === "remove" && !fresh) {
-            message = "The hub refused to remove an owner. Only an owner can remove an owner.";
-          } else if (
-            next === "remove" &&
-            reader &&
-            !rolesOf(reader.role).includes("owner") &&
-            target &&
-            rolesOf(target.role).includes("owner")
-          ) {
-            message = "Only an owner can remove an owner.";
-          } else if (fresh && soleOwner(fresh, context().user.id)) {
-            message = "You are now the only owner, so you cannot leave or change your own role.";
-          }
-        } else if (error.status >= 500 && fresh) {
-          message = `The hub could not do this: ${message.replace(/\.$/, "")}. The members were read again; check them before trying again.`;
+          message = "Only an owner can remove an owner.";
+        } else if (fresh && soleOwner(fresh, context().user.id)) {
+          message = "You are now the only owner, so you cannot leave or change your own role.";
         }
+      } else if (error instanceof BetterFetchError && error.status >= 500 && fresh) {
+        message = `Check the refreshed member list before trying again (${message.replace(/\.$/, "")}).`;
       }
       // Query can finish the read before the table unmounts a control that no longer applies.
       const available =
@@ -297,8 +305,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
       await Promise.all([refreshMembers(), refreshInvites()]);
       const list = client.getQueryState(queryKey);
       if (
-        error instanceof BetterFetchError &&
-        error.error?.code === "INVITATION_NOT_FOUND" &&
+        hasAuthCode(error, "INVITATION_NOT_FOUND") &&
         list?.data &&
         !list.isInvalidated &&
         !list.data.some((item) => item.id === id)
@@ -306,10 +313,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         status(<>{label} is already gone.</>, listed);
         return undefined;
       }
-      if (
-        error instanceof BetterFetchError &&
-        ([401, 403].includes(error.status) || error.error?.code === "MEMBER_NOT_FOUND")
-      )
+      if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
         await refreshSession();
       return hubFailureMessage(error);
     }
@@ -329,10 +333,9 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
           ? 0
           : sent.length;
     const keepKeys = ["remove", "leave", "member"].includes(next);
-    const count =
-      keys.dataUpdatedAt && !keys.isError
-        ? keys.data.filter((key) => key.creator?.id === person.userId).length
-        : undefined;
+    const count = keys.isSuccess
+      ? activeKeys().filter((key) => key.creator?.id === person.userId).length
+      : undefined;
     const creator = own ? "you created" : `created by ${person.user.name}`;
     return (
       <>
