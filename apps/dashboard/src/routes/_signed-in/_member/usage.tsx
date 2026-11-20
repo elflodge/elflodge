@@ -16,12 +16,13 @@ import {
   parseUsagePeriod,
   type UsageReport,
 } from "contract";
-import { For, Show, createSignal, createEffect } from "solid-js";
+import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
+import { FieldError } from "../../../components/FieldError.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { fieldText } from "../../../form.ts";
+import { fieldText, formRefusal } from "../../../form.ts";
 import { UTC_MONTH } from "../../../format.ts";
 import { canReadUsage } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
@@ -151,23 +152,38 @@ function GrantedUsage() {
         <div class="head">
           <h1>Usage</h1>
         </div>
-        <ReportForm report={report.dataUpdatedAt ? report.data : undefined} />
-        {/* Problem Details gives the reason in words and has no structured field location. */}
-        <Show when={problem()?.status === 400}>
-          <Notice role="alert">{hubFailureMessage(report.error)}</Notice>
-        </Show>
+        <ReportForm
+          report={report.dataUpdatedAt ? report.data : undefined}
+          error={problem()?.status === 400 ? report.error : undefined}
+        />
       </div>
       <Outlet />
     </Show>
   );
 }
 
-function ReportForm(props: { report?: UsageReport }) {
+function ReportForm(props: { report?: UsageReport; error?: unknown }) {
   const search = Route.useSearch();
   const range = () => rangeOf(search());
   const grouping = () => usageGrouping(search().groupBy);
   const [draftRange, setRange] = createSignal<string>();
   const [draftGroup, setGroup] = createSignal<string>();
+  const custom = () => (draftRange() ?? range()) === "custom";
+  const label = () => (draftGroup() ?? grouping().by) === "label";
+  // Range supplies the period and both dates until Custom exposes the dates separately.
+  // Grouped by supplies groupBy until Label exposes the key that completes its value.
+  const refusal = createMemo(() =>
+    props.error
+      ? formRefusal(props.error, {
+          range: custom() ? ["period"] : ["period", "from", "to"],
+          from: custom() ? ["from"] : [],
+          to: custom() ? ["to"] : [],
+          group: label() ? [] : ["groupBy"],
+          label: label() ? ["groupBy"] : [],
+        })
+      : undefined,
+  );
+  const field = (name: string) => refusal()?.fields.get(name);
   const months = () => {
     // Effect DateTime.subtract with Array.makeBy added 6,398 gzipped client bytes for this list.
     const anchor = new Date(props.report?.today ?? Date.now());
@@ -261,6 +277,8 @@ function ReportForm(props: { report?: UsageReport }) {
           {/* Desktop Firefox 125 and Safari 17.5 have no month picker. */}
           <select
             id="usage-range"
+            aria-invalid={field("range") ? "true" : undefined}
+            aria-describedby={field("range") ? "usage-range-error" : undefined}
             name="period"
             onChange={({ currentTarget }) => setRange(currentTarget.value)}
           >
@@ -272,8 +290,11 @@ function ReportForm(props: { report?: UsageReport }) {
               )}
             </For>
           </select>
+          <Show when={field("range")}>
+            {(message) => <FieldError id={"usage-range-error"}>{message()}</FieldError>}
+          </Show>
         </div>
-        <Show when={(draftRange() ?? range()) === "custom"}>
+        <Show when={custom()}>
           <For each={["from", "to"] as const}>
             {(name) => (
               <div class="filter-field">
@@ -282,9 +303,16 @@ function ReportForm(props: { report?: UsageReport }) {
                   type="date"
                   name={name}
                   id={`usage-${name}`}
+                  aria-invalid={field(name) ? "true" : undefined}
+                  aria-describedby={field(name) ? "usage-" + name + "-error" : undefined}
                   required={name === "from"}
                   defaultValue={dateValue(name)}
                 />
+                <Show when={field(name)}>
+                  {(message) => (
+                    <FieldError id={"usage-" + name + "-error"}>{message()}</FieldError>
+                  )}
+                </Show>
               </div>
             )}
           </For>
@@ -293,6 +321,8 @@ function ReportForm(props: { report?: UsageReport }) {
           <label for="usage-group">Grouped by</label>
           <select
             id="usage-group"
+            aria-invalid={field("group") ? "true" : undefined}
+            aria-describedby={field("group") ? "usage-group-error" : undefined}
             name="groupBy"
             onChange={({ currentTarget }) => setGroup(currentTarget.value)}
           >
@@ -302,18 +332,26 @@ function ReportForm(props: { report?: UsageReport }) {
               </option>
             ))}
           </select>
+          <Show when={field("group")}>
+            {(message) => <FieldError id={"usage-group-error"}>{message()}</FieldError>}
+          </Show>
         </div>
-        <Show when={(draftGroup() ?? grouping().by) === "label"}>
+        <Show when={label()}>
           <div class="filter-field">
             <label for="usage-label">Label key</label>
             <input
               id="usage-label"
+              aria-invalid={field("label") ? "true" : undefined}
+              aria-describedby={field("label") ? "usage-label-error" : undefined}
               name="labelKey"
               pattern={LABEL_KEY_PATTERN.source}
               title="A Label name, optionally after a DNS prefix and /"
               required
               defaultValue={grouping().labelKey ?? ""}
             />
+            <Show when={field("label")}>
+              {(message) => <FieldError id={"usage-label-error"}>{message()}</FieldError>}
+            </Show>
           </div>
         </Show>
         <span class="filter-act">
@@ -322,6 +360,7 @@ function ReportForm(props: { report?: UsageReport }) {
           </button>
         </span>
       </div>
+      <Show when={refusal()?.alert}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
     </form>
   );
 }

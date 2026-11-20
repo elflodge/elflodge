@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/solid-query";
-import { FINAL_JOB_STATUSES, problemOf, type Job } from "contract";
+import { FINAL_JOB_STATUSES, type Job } from "contract";
 import { Show, createSignal, flush } from "solid-js";
 
 import { api, hubFailureMessage } from "../api-client.ts";
-import { focusIfLost, focusRefusedField } from "../form.ts";
+import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
 import { orpc } from "../query.ts";
 import { ConfirmAction } from "./ConfirmAction.tsx";
@@ -39,7 +39,7 @@ export function JobControls(props: {
 }) {
   const client = useQueryClient();
   const [pageFailure, setPageFailure] = createSignal<string>();
-  const [budgetFailure, setBudgetFailure] = createSignal<{ message: string; field: boolean }>();
+  const [budgetFailure, setBudgetFailure] = createSignal<ReturnType<typeof formRefusal>>();
   const [pending, setPending] = createSignal(false);
   let budgetDialog: HTMLDialogElement | undefined;
   let budgetField: HTMLInputElement | undefined;
@@ -84,14 +84,11 @@ export function JobControls(props: {
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       return undefined;
     } catch (error) {
-      const message = hubFailureMessage(error);
       if (modelBudgetUsd !== undefined && budgetDialog?.open && budgetDialog.isConnected) {
-        // Resume sends the validated job ID and one editable field. Its 400 is the budget’s refusal.
-        const field = problemOf(error)?.status === 400;
-        setBudgetFailure({ message, field });
+        setBudgetFailure(formRefusal(error, { budget: ["modelBudgetUsd"] }));
         return undefined;
       }
-      return message;
+      return hubFailureMessage(error);
     } finally {
       setPending(false);
     }
@@ -239,15 +236,18 @@ export function JobControls(props: {
               <div class="field">
                 <label for="job-budget">New model budget (USD)</label>
                 <input
+                  name="modelBudgetUsd"
                   id="job-budget"
                   type="number"
                   required
                   min="0"
                   step="any"
                   readonly={pending()}
-                  aria-invalid={budgetFailure()?.field ? "true" : undefined}
+                  aria-invalid={budgetFailure()?.fields.has("budget") ? "true" : undefined}
                   aria-describedby={
-                    budgetFailure()?.field ? "spent-budget budget-error" : "spent-budget"
+                    budgetFailure()?.fields.has("budget")
+                      ? "spent-budget budget-error"
+                      : "spent-budget"
                   }
                   onInput={() => setBudgetFailure(undefined)}
                   autofocus
@@ -255,7 +255,7 @@ export function JobControls(props: {
                     budgetField = element;
                   }}
                 />
-                <Show when={budgetFailure()?.field && budgetFailure()?.message}>
+                <Show when={budgetFailure()?.fields.get("budget")}>
                   {(message) => <FieldError id="budget-error">{message()}</FieldError>}
                 </Show>
                 <p id="spent-budget" class="note">
@@ -271,7 +271,7 @@ export function JobControls(props: {
                   Working…
                 </p>
               </Show>
-              <Show when={!budgetFailure()?.field && budgetFailure()?.message}>
+              <Show when={budgetFailure()?.alert}>
                 {(message) => <Notice role="alert">{message()}</Notice>}
               </Show>
             </div>

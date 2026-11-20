@@ -223,6 +223,12 @@ test("a member can correct a refused range and leave the end open through today"
     "Choose at most 400 days, counting both From and To.",
   );
   await expectBrowser(page.getByRole("alert")).toHaveCount(0);
+  await from.fill("2099-01-01");
+  await show.click();
+  await expectBrowser(from).toHaveAccessibleDescription("Must not be after today");
+  await expectBrowser(from).toHaveValue("2099-01-01");
+  await expectBrowser(from).toBeFocused();
+  await expectBrowser(page.getByRole("alert")).toHaveCount(0);
   await from.fill(first);
   const read = page.waitForResponse((response) => {
     const url = new URL(response.url());

@@ -8,9 +8,10 @@ import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
+import { FieldError } from "../../../components/FieldError.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
+import { formRefusal, createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { orpc } from "../../../query.ts";
 
@@ -196,19 +197,20 @@ function CreateKey(props: { onClose: () => void }) {
   const queryClient = useQueryClient();
   let dialog: HTMLDialogElement | undefined;
   const [created, setCreated] = createSignal<{ name: string; key: string }>();
-  const [failure, setFailure] = createSignal<string>();
+  const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
+  const field = (name: string) => failure()?.fields.get(name);
   const { pending, onSubmit } = createFormAction(create);
 
   async function create(element: HTMLFormElement) {
     const form = new FormData(element);
     const permissions = Object.fromEntries(
-      GRANTABLE.map(([resource]) => [resource, form.getAll(resource).map(String)] as const).filter(
-        ([, actions]) => actions.length > 0,
-      ),
+      GRANTABLE.map(
+        ([resource]) => [resource, form.getAll(`permissions[${resource}][]`).map(String)] as const,
+      ).filter(([, actions]) => actions.length > 0),
     );
     setFailure(undefined);
     const name = fieldText(form, "name");
-    const expiresIn = EXPIRIES[Number(fieldText(form, "expires"))]?.seconds;
+    const expiresIn = EXPIRIES[Number(fieldText(form, "expiresIn"))]?.seconds;
     try {
       const { key } = await api.apiKeys.create({
         name,
@@ -218,7 +220,13 @@ function CreateKey(props: { onClose: () => void }) {
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
       setCreated({ name, key });
     } catch (error) {
-      setFailure(hubFailureMessage(error));
+      setFailure(
+        formRefusal(error, {
+          name: ["name"],
+          permissions: ["permissions"],
+          expiresIn: ["expiresIn"],
+        }),
+      );
     }
   }
 
@@ -246,7 +254,10 @@ function CreateKey(props: { onClose: () => void }) {
                   id="key-name"
                   name="name"
                   autocomplete="off"
-                  aria-describedby="key-name-hint"
+                  aria-invalid={field("name") ? "true" : undefined}
+                  aria-describedby={
+                    field("name") ? "key-name-hint key-name-error" : "key-name-hint"
+                  }
                   onInput={({ currentTarget }) =>
                     currentTarget.setCustomValidity(
                       currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
@@ -255,13 +266,22 @@ function CreateKey(props: { onClose: () => void }) {
                     )
                   }
                 />
+                <Show when={field("name")}>
+                  {(message) => <FieldError id="key-name-error">{message()}</FieldError>}
+                </Show>
                 <p class="note" id="key-name-hint">
                   Optional, up to {MAX_API_KEY_NAME_LENGTH} characters.
                 </p>
               </div>
               <fieldset
                 class="field"
-                aria-describedby="key-permissions-hint"
+                tabindex="-1"
+                aria-invalid={field("permissions") ? "true" : undefined}
+                aria-describedby={
+                  field("permissions")
+                    ? "key-permissions-hint key-permissions-error"
+                    : "key-permissions-hint"
+                }
                 ref={(group) => {
                   onSettled(() => validatePermissions(group));
                 }}
@@ -278,7 +298,11 @@ function CreateKey(props: { onClose: () => void }) {
                       <For each={group.actions}>
                         {(action) => (
                           <label class="check">
-                            <input type="checkbox" name={resource} value={action} />
+                            <input
+                              type="checkbox"
+                              name={`permissions[${resource}][]`}
+                              value={action}
+                            />
                             <span class="mono">{action}</span>
                           </label>
                         )}
@@ -286,16 +310,29 @@ function CreateKey(props: { onClose: () => void }) {
                     </fieldset>
                   )}
                 </For>
+                <Show when={field("permissions")}>
+                  {(message) => <FieldError id="key-permissions-error">{message()}</FieldError>}
+                </Show>
               </fieldset>
               <div class="field">
                 <label for="key-expires">Expires</label>
-                <select id="key-expires" name="expires">
+                <select
+                  id="key-expires"
+                  name="expiresIn"
+                  aria-invalid={field("expiresIn") ? "true" : undefined}
+                  aria-describedby={field("expiresIn") ? "key-expires-error" : undefined}
+                >
                   <For each={EXPIRIES}>
                     {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
                   </For>
                 </select>
+                <Show when={field("expiresIn")}>
+                  {(message) => <FieldError id="key-expires-error">{message()}</FieldError>}
+                </Show>
               </div>
-              <Show when={failure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+              <Show when={failure()?.alert}>
+                {(message) => <Notice role="alert">{message()}</Notice>}
+              </Show>
             </div>
             <div class="dialog-f">
               <button type="button" onClick={() => dialog?.close()}>

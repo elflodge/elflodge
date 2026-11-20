@@ -143,6 +143,24 @@ test("a member can correct a refused budget and resume the job to its Output", a
     "only with a modelBudgetUsd above that",
   );
   await expectBrowser(submit).toBeFocused();
+  await page.route(
+    "**/jobs/*/resume",
+    (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          title: "Bad Request",
+          status: 400,
+          errors: [{ parameter: "id", detail: "Invalid ID" }],
+        },
+      }),
+    { times: 1 },
+  );
+  await submit.click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("Invalid ID");
+  await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
   await field.fill("6");
   await submit.click();
   await expectBrowser(field).toBeFocused();

@@ -242,11 +242,16 @@ test("a member can correct a refused key name and keep the permissions they chos
   await expectBrowser(name).toHaveValue(submitted);
 
   expect(createRequests).toBe(0);
+  await create.evaluate((button) => button.setAttribute("formnovalidate", ""));
+  await create.click();
+  await expectBrowser(name).toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(name).toBeFocused();
+  await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
 
   await name.fill(corrected);
   await create.click();
   await expectBrowser(dialog.getByRole("heading")).toHaveText(`The new key, ${corrected}`);
-  expect(createRequests).toBe(1);
+  expect(createRequests).toBe(2);
 }, 30_000);
 
 test("in a browser, a plain member gets no owner's actions on Runners and API keys", async () => {
