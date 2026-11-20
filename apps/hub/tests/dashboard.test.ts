@@ -152,7 +152,7 @@ test("sign-in allows keyboard retry, takes only one submit during navigation and
   await submit.click();
   try {
     await reading;
-    await expectBrowser(submit).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(submit).toBeDisabled();
     await page.keyboard.press("Enter");
     await page.locator("form").evaluate((form) => form.requestSubmit());
   } finally {
