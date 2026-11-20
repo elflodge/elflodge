@@ -27,7 +27,8 @@ export const Route = createFileRoute("/_signed-in")({
   },
   // Pending routes lose beforeLoad context (TanStack/router#8115). Keep the last completed
   // session visible and publish each check because membership can change for the same user.
-  // Remove this loader when Solid Start builds with the context fix (TanStack/router#8964).
+  // Once Solid Start includes TanStack/router#8964, move the shell and _member from this loader
+  // back to route context together, then remove the loader.
   shouldReload: true,
   loader: {
     staleReloadMode: "blocking",
