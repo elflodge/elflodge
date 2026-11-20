@@ -43,7 +43,6 @@ import {
   type RunnerId,
   type SubmitterKind,
   type UsageRecordId,
-  type UserId,
 } from "./db/types.ts";
 import { lockHeldBlobs, storeInputFiles, unheldFileProblems } from "./input-files.ts";
 import { InvalidInput } from "./invalid-input.ts";
@@ -779,7 +778,6 @@ async function insertJobs(
           "modelBudgetUsd",
           "inCanary",
           ...SUBMITTER_COLUMNS,
-          "keyCreatorUserId",
           "createdAt",
         ])
         .expression(
@@ -811,9 +809,6 @@ async function insertJobs(
                   .as("submitterKind"),
                 eb.cast<string>(eb.val(recorded.submitterId), "text").as("submitterId"),
                 eb.cast<string | null>(eb.val(recorded.submitterName), "text").as("submitterName"),
-                eb
-                  .cast<UserId | null>(eb.val(recorded.keyCreatorUserId), "text")
-                  .as("keyCreatorUserId"),
                 eb.cast<Date>(eb.val(now), "timestamptz").as("createdAt"),
               ];
             }),

@@ -45,7 +45,7 @@ import {
 import { jsonArrayFrom, jsonBuildObject, jsonObjectFrom } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
-import { type Caller, keyMetadataSchema } from "./auth/auth.ts";
+import type { Caller } from "./auth/auth.ts";
 import { deleteUnusedBlobs } from "./blobs.ts";
 import { Db, DB_SCHEMA, greatest, plusDuration } from "./db/database.ts";
 import {
@@ -64,7 +64,7 @@ import {
   type NewJob,
   type RunnerId,
   type UsageRecordId,
-  UserId,
+  type UserId,
 } from "./db/types.ts";
 import { lockInputFileBlobs } from "./input-files.ts";
 import { connectedOf, GONE_AFTER_MS } from "./runners.ts";
@@ -94,7 +94,6 @@ export const USAGE_COPIED_COLUMNS = [
   "failureReason",
   "runnerId",
   ...SUBMITTER_COLUMNS,
-  "keyCreatorUserId",
   "createdAt",
   "startedAt",
   "endedAt",
@@ -504,11 +503,11 @@ export function limitProblems(given: GivenLimits, settings: JobLimits) {
 }
 
 /**
- * Who submitted a Batch or a job, copied as it was then: the API key it was sent with, with the user
- * who created the key, or the member whose session sent it.
+ * Who submitted a Batch or a job, copied as it was then: the API key it was sent with or the
+ * member whose session sent it.
  */
 export type Submitter =
-  | { kind: typeof KEY_SUBMITTER; id: ApikeyId; name: string | null; keyCreatorUserId: UserId }
+  | { kind: typeof KEY_SUBMITTER; id: ApikeyId; name: string | null }
   | { kind: typeof MEMBER_SUBMITTER; id: UserId; name: string };
 
 /**
@@ -518,12 +517,10 @@ export type Submitter =
 export function submitterOf(caller: Caller): Effect.Effect<Submitter> {
   if (caller.kind === "key") {
     const { key } = caller;
-    const { createdBy } = keyMetadataSchema.parse(key.metadata);
     return Effect.succeed({
       kind: KEY_SUBMITTER,
       id: key.id,
       name: key.name,
-      keyCreatorUserId: UserId(createdBy),
     });
   }
   if (caller.kind === "member") {
@@ -539,12 +536,11 @@ export function submitterOf(caller: Caller): Effect.Effect<Submitter> {
 /** The columns that record `submitter` on a Batch, a job or a Usage record. */
 export function submitterColumns(
   submitter: Submitter,
-): Pick<NewJob, (typeof SUBMITTER_COLUMNS)[number] | "keyCreatorUserId"> {
+): Pick<NewJob, (typeof SUBMITTER_COLUMNS)[number]> {
   return {
     submitterKind: submitter.kind,
     submitterId: submitter.id,
     submitterName: submitter.name,
-    keyCreatorUserId: submitter.kind === KEY_SUBMITTER ? submitter.keyCreatorUserId : null,
   };
 }
 
