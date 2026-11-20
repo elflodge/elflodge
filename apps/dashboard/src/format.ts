@@ -81,11 +81,15 @@ export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeS
 
 const COUNT = new Intl.NumberFormat(LANGUAGE);
 
-// Four decimals: a job's cost is often a fraction of a cent, which two would show as 0.00.
-const USD = new Intl.NumberFormat(LANGUAGE, {
-  minimumFractionDigits: 4,
+// Four decimal places keep costs comparable. Two significant digits keep smaller costs visible.
+// roundingPriority shipped in Chromium 106, Firefox 116 and Safari 15.4, within our browser floor.
+// https://github.com/mdn/browser-compat-data/blob/main/javascript/builtins/Intl/NumberFormat.json
+const usdPrecision = {
   maximumFractionDigits: 4,
-});
+  maximumSignificantDigits: 2,
+  roundingPriority: "morePrecision",
+} satisfies Intl.NumberFormatOptions;
+const USD = new Intl.NumberFormat(LANGUAGE, { ...usdPrecision, minimumFractionDigits: 4 });
 
 const PLURAL = new Intl.PluralRules(LANGUAGE);
 
@@ -106,13 +110,35 @@ export function formatRoles(roles: string): string {
   return ROLE_LIST.format(roles.split(","));
 }
 
-/** An amount in US dollars, to four decimal places so a fraction of a cent remains visible. */
+/** An amount in US dollars, with two significant digits when four decimal places would be less precise. */
 export function formatUsd(amount: number): string {
   return USD.format(amount);
 }
 
-/** A budget in USD, with two to four decimal places. */
+/** Budgets use the same precision as costs, with a minimum of two decimal places. */
 export const USD_BUDGET = new Intl.NumberFormat(LANGUAGE, {
+  ...usdPrecision,
   minimumFractionDigits: 2,
-  maximumFractionDigits: 4,
 });
+
+/** A member choosing a new budget must exceed the exact cost the hub reports. */
+export const USD_THRESHOLD = new Intl.NumberFormat(LANGUAGE, { maximumSignificantDigits: 21 });
+
+// Intl.DurationFormat first shipped in Firefox 136. The dashboard supports Firefox 125.
+// https://github.com/mdn/browser-compat-data/blob/main/javascript/builtins/Intl/DurationFormat.json
+const HOURS = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "hour" });
+const MINUTES = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "minute" });
+const SECONDS = new Intl.NumberFormat(LANGUAGE, { style: "unit", unit: "second" });
+const UNITS = new Intl.ListFormat(LANGUAGE, { type: "unit", style: "narrow" });
+
+/** A length in whole seconds, including the seconds left after whole hours and minutes. */
+export function duration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor(whole / 60) % 60;
+  const parts = [];
+  if (hours) parts.push(HOURS.format(hours));
+  if (minutes) parts.push(MINUTES.format(minutes));
+  if (whole % 60 || !parts.length) parts.push(SECONDS.format(whole % 60));
+  return UNITS.format(parts);
+}

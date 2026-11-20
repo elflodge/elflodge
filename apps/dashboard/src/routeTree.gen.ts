@@ -22,6 +22,7 @@ import { Route as SignedInMemberJobsRouteImport } from './routes/_signed-in/_mem
 import { Route as SignedInMemberOrganizationRouteImport } from './routes/_signed-in/_member/organization'
 import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_member/runners'
 import { Route as SignedInMemberJobsIndexRouteImport } from './routes/_signed-in/_member/jobs.index'
+import { Route as SignedInMemberJobsIdRouteImport } from './routes/_signed-in/_member/jobs_.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -87,6 +88,11 @@ const SignedInMemberJobsIndexRoute = SignedInMemberJobsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SignedInMemberJobsRoute,
 } as any)
+const SignedInMemberJobsIdRoute = SignedInMemberJobsIdRouteImport.update({
+  id: '/jobs_/$id',
+  path: '/jobs/$id',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/organization': typeof SignedInMemberOrganizationRoute
   '/runners': typeof SignedInMemberRunnersRoute
+  '/jobs/$id': typeof SignedInMemberJobsIdRoute
   '/jobs/': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -111,6 +118,7 @@ export interface FileRoutesByTo {
   '/api-keys': typeof SignedInMemberApiKeysRoute
   '/organization': typeof SignedInMemberOrganizationRoute
   '/runners': typeof SignedInMemberRunnersRoute
+  '/jobs/$id': typeof SignedInMemberJobsIdRoute
   '/jobs': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRoutesById {
@@ -127,6 +135,7 @@ export interface FileRoutesById {
   '/_signed-in/_member/jobs': typeof SignedInMemberJobsRouteWithChildren
   '/_signed-in/_member/organization': typeof SignedInMemberOrganizationRoute
   '/_signed-in/_member/runners': typeof SignedInMemberRunnersRoute
+  '/_signed-in/_member/jobs_/$id': typeof SignedInMemberJobsIdRoute
   '/_signed-in/_member/jobs/': typeof SignedInMemberJobsIndexRoute
 }
 export interface FileRouteTypes {
@@ -142,6 +151,7 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/organization'
     | '/runners'
+    | '/jobs/$id'
     | '/jobs/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
     | '/api-keys'
     | '/organization'
     | '/runners'
+    | '/jobs/$id'
     | '/jobs'
   id:
     | '__root__'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/_signed-in/_member/jobs'
     | '/_signed-in/_member/organization'
     | '/_signed-in/_member/runners'
+    | '/_signed-in/_member/jobs_/$id'
     | '/_signed-in/_member/jobs/'
   fileRoutesById: FileRoutesById
 }
@@ -273,6 +285,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberJobsIndexRouteImport
       parentRoute: typeof SignedInMemberJobsRoute
     }
+    '/_signed-in/_member/jobs_/$id': {
+      id: '/_signed-in/_member/jobs_/$id'
+      path: '/jobs/$id'
+      fullPath: '/jobs/$id'
+      preLoaderRoute: typeof SignedInMemberJobsIdRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
   }
 }
 
@@ -292,6 +311,7 @@ interface SignedInMemberRouteChildren {
   SignedInMemberJobsRoute: typeof SignedInMemberJobsRouteWithChildren
   SignedInMemberOrganizationRoute: typeof SignedInMemberOrganizationRoute
   SignedInMemberRunnersRoute: typeof SignedInMemberRunnersRoute
+  SignedInMemberJobsIdRoute: typeof SignedInMemberJobsIdRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
@@ -299,6 +319,7 @@ const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberJobsRoute: SignedInMemberJobsRouteWithChildren,
   SignedInMemberOrganizationRoute: SignedInMemberOrganizationRoute,
   SignedInMemberRunnersRoute: SignedInMemberRunnersRoute,
+  SignedInMemberJobsIdRoute: SignedInMemberJobsIdRoute,
 }
 
 const SignedInMemberRouteWithChildren = SignedInMemberRoute._addFileChildren(

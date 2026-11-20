@@ -1141,8 +1141,13 @@ p mark.placeholder {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.job-list td.c-job {
+  padding-block: calc((var(--row) - var(--target) - var(--rule)) / 2);
+}
 .job-name {
-  color: var(--c-ink);
+  min-height: var(--target);
+  align-content: center;
+  min-width: var(--target);
   font-family: var(--font-mono);
   font-size: var(--mono-size);
   font-weight: var(--weight-mono-strong);
@@ -1374,6 +1379,15 @@ p mark.placeholder {
     }
   }
 }
+@media (max-width: 640px), (pointer: coarse) {
+  .job-list .c-job .cell-line {
+    align-items: center;
+  }
+  .job-list .c-job .job-name {
+    min-width: min(100%, var(--control-touch));
+    line-height: var(--control-touch);
+  }
+}
 /* Coarse pointers keep the same line height on wide screens. */
 @media (pointer: coarse) {
   @container job-list (width >= 73.625rem) {
@@ -1549,4 +1563,222 @@ p mark.placeholder {
   .role-choice {
     min-height: var(--control-touch);
   }
+}
+
+/* ---------- Job subject and record: facts beside the working part on a wide page ---------- */
+.job-address {
+  overflow-wrap: anywhere;
+}
+.subject {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-mono-strong);
+  overflow-wrap: anywhere;
+}
+.whole-id {
+  white-space: break-spaces;
+}
+.subject .kind {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--c-ink-2);
+  font: var(--weight-medium) var(--text-sm) / var(--leading) var(--font-sans);
+}
+.record-with-aside,
+.record-sections {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.record-with-aside {
+  margin-top: var(--space-4);
+  align-items: start;
+}
+.record-sections {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* Above 1000px the record has 36.5rem for its limits, 20rem for facts, a 3rem gap
+   and two page gutters of 1.5rem. Below that budget the facts follow the record. */
+@media (width > 62.5rem) {
+  .record-with-aside {
+    grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
+    column-gap: var(--space-7);
+  }
+}
+.record-sections section,
+.facts-aside {
+  border-top: var(--rule-heavy) solid var(--c-rule-strong);
+  padding-top: var(--space-2);
+  min-width: 0;
+}
+.record-with-aside h2 {
+  margin-bottom: var(--space-2);
+}
+.facts-aside .labels {
+  display: grid;
+}
+.facts-aside .runner-ref {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+.facts-aside .runner-ref > a {
+  flex: 0 1 auto;
+}
+.facts-aside .stands-alone {
+  position: relative;
+  min-height: 0;
+}
+.facts-aside .stands-alone::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: max(100%, var(--target));
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .facts-aside .stands-alone::after {
+    min-height: max(100%, var(--control-touch));
+  }
+}
+.selectable {
+  user-select: all;
+  -webkit-user-select: all;
+}
+.sub {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--c-ink-2);
+}
+
+/* ---------- Job status, control requests and their consequences ---------- */
+.job-status .beside {
+  display: block;
+  margin-top: var(--space-1);
+}
+.job-status .beside .mark {
+  margin-right: var(--space-1);
+}
+.job-status .note,
+.activity .note,
+.output-or-failure .note,
+.job-controls .note {
+  display: block;
+}
+.job-status .note {
+  max-width: var(--measure);
+}
+.status-lg {
+  font-size: var(--text-lg);
+}
+.job-controls:has(> button) {
+  margin-top: var(--space-3);
+  align-items: flex-start;
+}
+.job-controls ~ .note {
+  display: block;
+  margin-top: var(--space-1);
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Current activity is live only at the Runner’s report ---------- */
+.record-sections .activity {
+  background: var(--c-lamp-wash);
+  border-color: var(--c-lamp-ink);
+  padding: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.activity h3,
+.activity li {
+  margin-top: var(--space-2);
+}
+.activity h3,
+.activity .sid {
+  color: var(--c-ink-2);
+}
+.activity .sid {
+  white-space: normal;
+}
+.activity ul {
+  margin: 0;
+}
+
+/* ---------- Job limits and the scale of measured cost against the budget ---------- */
+.limits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.limit {
+  min-width: 0;
+}
+.limit h3 .unit {
+  font-weight: var(--weight-regular);
+}
+.limit-value,
+.limit dd {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.limit-value {
+  font-size: var(--text-lg);
+}
+.scale {
+  position: relative;
+  border-right: var(--rule-heavy) solid var(--c-ink-2);
+  margin-block: var(--space-2);
+}
+.scale meter {
+  display: block;
+  width: 100%;
+  height: var(--space-2);
+  appearance: none;
+  background: transparent;
+  border: none;
+}
+.scale meter::-webkit-meter-bar {
+  height: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: var(--rule) dashed var(--c-ink-3);
+  border-radius: 0;
+}
+.scale meter::-webkit-meter-optimum-value {
+  background: var(--c-link);
+}
+.scale meter::-moz-meter-bar {
+  background: var(--c-link);
+}
+.scale.is-over::after {
+  content: "";
+  position: absolute;
+  inset: -2px 0;
+  border-right: 2px solid var(--c-failed);
+  transform: skewX(-25deg);
+}
+@media (max-width: 640px) {
+  .limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Output or failure: the complete text once, with an eight-line preview ---------- */
+.output-or-failure-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.output-or-failure .text-preview {
+  margin-top: var(--space-2);
+}
+.text-preview code {
+  display: block;
+  font: inherit;
+}
+.output-or-failure:has(button[aria-expanded="false"]) .text-preview {
+  max-block-size: calc(var(--job-preview-lines) * 1lh + 2 * var(--space-2));
+}
+.output-or-failure > button {
+  margin-top: var(--space-1);
 }

@@ -7,18 +7,11 @@ import { api, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
-import { Instant } from "../../../components/Instant.tsx";
+import { Instant, LastContact } from "../../../components/Instant.tsx";
 import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { focusAfterRowDrops } from "../../../form.ts";
-import {
-  DATE_TIME_SECONDS,
-  TIME_SECONDS,
-  elapsedSince,
-  formatCount,
-  plural,
-  timeZoneNote,
-} from "../../../format.ts";
+import { formatCount, plural, timeZoneNote } from "../../../format.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
@@ -184,7 +177,7 @@ function RunnerList(props: {
           const sid = () => props.shortId(runner());
           const label = () => `${runner().name} ${sid()}`;
           return (
-            <li class="runner">
+            <li class="runner" id={runner().id}>
               <div class="runner-id">
                 <h2 class="runner-name">
                   <span class="mono">{runner().name}</span> <span class="sid">{sid()}</span>
@@ -212,15 +205,7 @@ function RunnerList(props: {
                 <dl>
                   <dt>Last contact</dt>
                   <dd>
-                    {elapsedSince(runner().lastSeenAt, props.readAt)},{" "}
-                    {runner().lastSeenAt.toDateString() ===
-                    new Date(props.readAt).toDateString() ? (
-                      <>
-                        at <Instant value={runner().lastSeenAt} format={TIME_SECONDS} />
-                      </>
-                    ) : (
-                      <Instant value={runner().lastSeenAt} format={DATE_TIME_SECONDS} />
-                    )}
+                    <LastContact at={runner().lastSeenAt} readAt={props.readAt} />
                   </dd>
                   <dt>Registered</dt>
                   <dd>
@@ -233,7 +218,9 @@ function RunnerList(props: {
                 <div class="runner-ctl">
                   <ConfirmAction
                     trigger="Remove"
-                    reportPageFailure={props.reportPageFailure}
+                    reportPageFailure={(message) =>
+                      props.reportPageFailure(`Remove ${label()}: ${message}`)
+                    }
                     triggerLabel={`Remove ${label()}`}
                     heading={
                       <>

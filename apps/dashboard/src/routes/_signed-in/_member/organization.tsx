@@ -491,7 +491,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                             keep="Keep them"
                             confirm={`Remove ${name()}`}
                             act={(close) => membershipAction(row(), "remove", close)}
-                            reportPageFailure={report}
+                            reportPageFailure={(message) => report(`Remove ${name()}: ${message}`)}
                           >
                             <p>
                               They can no longer read or change anything here, from now on. Jobs and
@@ -512,7 +512,9 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                             keep="Stay"
                             confirm={`Leave ${org().name}`}
                             act={(close) => membershipAction(row(), "leave", close)}
-                            reportPageFailure={report}
+                            reportPageFailure={(message) =>
+                              report(`Leave ${org().name}: ${message}`)
+                            }
                           >
                             <p>
                               You can no longer read or change anything here. Jobs and Batches you
@@ -595,7 +597,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                                 </>
                               }
                               act={() => revoke(invite().id, invite().email)}
-                              reportPageFailure={report}
+                              reportPageFailure={(message) => report(`${label()}: ${message}`)}
                             >
                               <p>
                                 Its link stops working at once. Final: to invite them again, create
