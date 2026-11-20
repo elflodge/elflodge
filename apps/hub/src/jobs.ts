@@ -16,6 +16,7 @@ import {
   type JobEventsPage,
   type JobsPage,
   type JobRunner,
+  type JobLimits,
   type Labels,
   type StatusUnknownReason,
   jobEventSchema,
@@ -59,7 +60,6 @@ import {
 } from "./db/types.ts";
 import { lockInputFileBlobs } from "./input-files.ts";
 import { connectedOf, GONE_AFTER_MS } from "./runners.ts";
-import type { HubSettings } from "./settings.ts";
 
 /** The statuses a job ends in (`FINAL_JOB_STATUSES`), as the hub's database types them. */
 export const FINAL_STATUSES: JobStatus[] = [...FINAL_JOB_STATUSES];
@@ -443,22 +443,14 @@ export type GivenLimits = Pick<JobUpdate, "runTimeoutSeconds" | "modelBudgetUsd"
  * What `given` asks above the hub's maximums, as problems with the input fields they name,
  * which the API refuses as it refuses any invalid input.
  */
-export function limitProblems(given: GivenLimits, settings: HubSettings["jobLimits"]) {
+export function limitProblems(given: GivenLimits, settings: JobLimits) {
   const problems: { message: string; path: (string | number)[] }[] = [];
-  if (
-    given.runTimeoutSeconds !== undefined &&
-    given.runTimeoutSeconds > settings.runTimeoutSecondsMax
-  ) {
-    problems.push({
-      message: `Must be at most ${settings.runTimeoutSecondsMax}, the hub's maximum`,
-      path: ["runTimeoutSeconds"],
-    });
-  }
-  if (given.modelBudgetUsd !== undefined && given.modelBudgetUsd > settings.modelBudgetUsdMax) {
-    problems.push({
-      message: `Must be at most ${settings.modelBudgetUsdMax}, the hub's maximum`,
-      path: ["modelBudgetUsd"],
-    });
+  for (const field of Struct.keys(settings)) {
+    const value = given[field];
+    const { max } = settings[field];
+    if (value !== undefined && value > max) {
+      problems.push({ message: `Must be at most ${max}, the hub's maximum`, path: [field] });
+    }
   }
   return problems;
 }

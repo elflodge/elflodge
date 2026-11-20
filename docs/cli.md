@@ -25,7 +25,7 @@ elflodge batches submit --each invoices/*.pdf --instructions "Extract the total.
 elflodge jobs --help
 ```
 
-- `jobs limits` reads the hub's default timeout and model budget for a new Batch and the maximum a caller may supply for each. It requires a key with `job:read`.
+- `jobs limits` reads the hub's default timeout and total model budget for each job in a new Batch and the maximum a caller may supply for each. It requires a key with `job:read`.
 - `jobs submit` submits one job as a Batch of one, without a failure breaker: it creates the Batch, running the job's `agent`, and adds the job. It retries each call that got no answer or a server error, at most twice, under one ID, the job's custom ID and its Batch's ID: yours, as `customId` in the job's JSON, in a Batch ID's syntax (1 to 100 letters, digits, `_` and `-`, not beginning with `-`), or a UUID it makes for this run. A made ID is printed on stderr only if the command fails or is stopped with Ctrl-C, which exits with 130. Submitting again with that ID tells whether the job was accepted; give a job an ID of your own to make submitting it safe to repeat, also after the command was killed outright.
 - `batches create` retries the same way, under the Batch's `--id` or one it makes and prints only if it stops early.
 - `batches submit` runs a whole Batch, its agent from `--instructions` and `--output-schema`, a file holding the JSON Schema each output must match. Its jobs come from a JSONL file, one job's JSON per line as `batches add-jobs` takes it, or from `--each` with files and folders; the two cannot be mixed. Blank lines, also those holding only whitespace, are skipped; any other line that is not a job's JSON is refused, named by its place among the jobs.

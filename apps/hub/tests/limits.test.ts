@@ -5,9 +5,8 @@ import { hubSettings, readConfig } from "../src/settings.ts";
 import { type OneJob, startSystem, submitJob, untilStatus } from "./harness.ts";
 import { callTool, untilAborted } from "./scripted-model.ts";
 
-// A job's limits, against a real hub and Runner: a run timeout and a model budget, the hub's
-// defaults unless the job gives its own and refused above the hub's maximums: limits that fail a
-// job that passes them, and that a resume can renew to carry the job on.
+// Batch creation applies the hub's defaults. Added jobs inherit their Batch's limits, and a resume
+// keeps the job's stored value for each omitted limit. Resume can raise a limit that stopped the job.
 
 const system = startSystem({
   hubVars: {

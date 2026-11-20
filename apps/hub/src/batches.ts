@@ -5,6 +5,7 @@ import {
   type BatchCreation,
   type BatchesPage,
   type BatchStatus,
+  type JobLimits,
   type Labels,
   type ListedBatch,
   BREAKER_DEFAULTS,
@@ -59,7 +60,6 @@ import {
   UNFINISHED,
   USAGE_COPIED_COLUMNS,
 } from "./jobs.ts";
-import type { HubSettings } from "./settings.ts";
 
 // Batches: every job belongs to one, the jobs added together, which run the Batch's agent and are
 // released, paused and cancelled as one. A Batch's row keeps only what its jobs cannot tell: its
@@ -378,7 +378,7 @@ export function getBatch(id: string) {
  * What is wrong with `agent` that the contract's schemas cannot check, with paths from the
  * creation: its Output contract's schema, and limits above the hub's maximums.
  */
-function agentProblems(agent: Agent, settings: HubSettings["jobLimits"]) {
+function agentProblems(agent: Agent, settings: JobLimits) {
   return [
     ...outputContractProblems(agent.outputContract.schema).map((message) => ({
       message,
@@ -401,7 +401,7 @@ export function createBatch(
   creation: BatchCreation,
   organizationId: OrganizationId,
   submitter: Submitter,
-  settings: HubSettings["jobLimits"],
+  settings: JobLimits,
 ) {
   return Effect.gen(function* () {
     const problems = agentProblems(creation.agent, settings);
@@ -433,8 +433,8 @@ export function createBatch(
             contentHash,
             instructions: agent.instructions,
             outputContract: agent.outputContract,
-            runTimeoutSeconds: agent.runTimeoutSeconds ?? settings.runTimeoutSecondsDefault,
-            modelBudgetUsd: agent.modelBudgetUsd ?? settings.modelBudgetUsdDefault,
+            runTimeoutSeconds: agent.runTimeoutSeconds ?? settings.runTimeoutSeconds.default,
+            modelBudgetUsd: agent.modelBudgetUsd ?? settings.modelBudgetUsd.default,
             labels: creation.labels,
             ...breaker,
             canaryPlacesLeft: breaker.canary ?? 0,

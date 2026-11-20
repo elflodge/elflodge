@@ -462,12 +462,19 @@ export const jobCountsSchema = z
   .register(z.globalRegistry, { id: "JobCounts" });
 export type JobCounts = z.infer<typeof jobCountsSchema>;
 
+/**
+ * The hub's current job limits. Each default applies at Batch creation when the field is omitted.
+ * A value supplied at creation or resume may be at most the corresponding `max`, inclusive.
+ */
 export const jobLimitsSchema = z
   .object({
+    /** How long each run may work, in seconds. */
     runTimeoutSeconds: z.object({ default: runTimeoutSecondsSchema, max: runTimeoutSecondsSchema }),
+    /** The total model budget for one job across all its runs, in US dollars. */
     modelBudgetUsd: z.object({ default: modelBudgetUsdSchema, max: modelBudgetUsdSchema }),
   })
   .register(z.globalRegistry, { id: "JobLimits" });
+export type JobLimits = z.infer<typeof jobLimitsSchema>;
 
 /**
  * A Batch as a list shows it: without its `usage`, which only reading every job's progress tells,
@@ -1294,17 +1301,18 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       // Organization's counts, which would read as the Batch's (ADR 0010).
       .input(noQueryParametersSchema)
       .output(jobCountsSchema),
-    // These are the only settings callers need that vary by deployment. A submit form needs them
-    // before it has a Batch or job, and putting them on either would mix policy with stored limits.
-    // job:read uses the existing all-required rule. Accepting either create or resume would need
-    // alternatives in Access, and granting those keys access later is additive.
+    // A general settings document would hold only these limits. Nothing else callers need varies by
+    // deployment. A submit form needs them before it has a Batch or job, and putting them on either
+    // would mix policy with stored values. Like other job reads, this takes job:read. A key needs
+    // every permission a call lists, so accepting either job:create or job:resume would require a
+    // different check. We can grant those keys access later.
     limits: forMembers
       .meta(
         openapi({
           method: "GET",
           path: "/jobs/limits",
           description:
-            "Reads the hub's default run timeout and lifetime model budget for a new Batch, and the maximum it accepts for each limit at Batch creation or job resume.",
+            "Reads the hub's default run timeout and total model budget for each job in a new Batch, and the maximum it accepts for each limit at Batch creation or job resume.",
         }),
         ...byKeyOrMember({ job: ["read"] }),
       )

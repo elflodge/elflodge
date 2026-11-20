@@ -777,7 +777,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Reads the hub's default run timeout and lifetime model budget for a new Batch, and the maximum it accepts for each limit at Batch creation or job resume.",
+          "description": "Reads the hub's default run timeout and total model budget for each job in a new Batch, and the maximum it accepts for each limit at Batch creation or job resume.",
           "name": "limits",
           "options": [],
           "usage": "[options]",
