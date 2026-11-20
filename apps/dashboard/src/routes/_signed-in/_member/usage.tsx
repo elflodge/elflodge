@@ -291,7 +291,7 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
             </For>
           </select>
           <Show when={field("range")}>
-            {(message) => <FieldError id={"usage-range-error"}>{message()}</FieldError>}
+            {(message) => <FieldError id="usage-range-error">{message()}</FieldError>}
           </Show>
         </div>
         <Show when={custom()}>
@@ -304,14 +304,12 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
                   name={name}
                   id={`usage-${name}`}
                   aria-invalid={field(name) ? "true" : undefined}
-                  aria-describedby={field(name) ? "usage-" + name + "-error" : undefined}
+                  aria-describedby={field(name) ? `usage-${name}-error` : undefined}
                   required={name === "from"}
                   defaultValue={dateValue(name)}
                 />
                 <Show when={field(name)}>
-                  {(message) => (
-                    <FieldError id={"usage-" + name + "-error"}>{message()}</FieldError>
-                  )}
+                  {(message) => <FieldError id={`usage-${name}-error`}>{message()}</FieldError>}
                 </Show>
               </div>
             )}
@@ -333,7 +331,7 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
             ))}
           </select>
           <Show when={field("group")}>
-            {(message) => <FieldError id={"usage-group-error"}>{message()}</FieldError>}
+            {(message) => <FieldError id="usage-group-error">{message()}</FieldError>}
           </Show>
         </div>
         <Show when={label()}>
@@ -350,7 +348,7 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
               defaultValue={grouping().labelKey ?? ""}
             />
             <Show when={field("label")}>
-              {(message) => <FieldError id={"usage-label-error"}>{message()}</FieldError>}
+              {(message) => <FieldError id="usage-label-error">{message()}</FieldError>}
             </Show>
           </div>
         </Show>
