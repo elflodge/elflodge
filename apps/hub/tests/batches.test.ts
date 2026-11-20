@@ -83,7 +83,12 @@ test("an ID used again with the same content returns what it named, whoever repe
   });
   const creation = { id: "invoices-2026-10", agent: AGENT, breaker: false } as const;
   const batch = await client.batches.create(creation);
-  expect(batch).toMatchObject({ id: "invoices-2026-10", status: "active", breaker: false });
+  expect(batch).toMatchObject({
+    id: "invoices-2026-10",
+    status: "active",
+    breaker: false,
+    jobs: [],
+  });
   // The script runs again, from the start, by a member: the same Batch, still the key's, as IDs
   // belong to the Organization.
   expect(await member.batches.create(creation)).toMatchObject({ id: batch.id, submitter: byKey });
@@ -109,8 +114,8 @@ test("an ID used again with the same content returns what it named, whoever repe
   expect(named.status).toBe(400);
   expect(await named.json()).toMatchObject({ errors: [{ parameter: "id" }] });
 
-  const first = await client.batches.addJobs({
-    id: batch.id,
+  const first = await client.batches.create({
+    ...creation,
     jobs: [jobNamed("a"), jobNamed("b")],
   });
   expect(first.jobs.map(({ created, job }) => [job.customId, created])).toEqual([
@@ -153,6 +158,30 @@ test("an ID used again with the same content returns what it named, whoever repe
   });
   expect((await client.batches.get({ id: batch.id })).jobCounts).toMatchObject({ queued: 3 });
   await client.batches.cancel({ id: batch.id });
+});
+
+test("a refused creation leaves the Batch ID free, including when a job names an unheld Blob", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const id = "atomic";
+  const jobs = [
+    jobNamed("first"),
+    jobNamed("second", {
+      files: [{ path: "rates.csv", digest: `sha256:${"0".repeat(64)}`, sizeBytes: 3 }],
+    }),
+  ];
+  await expect(client.batches.create({ id, agent: AGENT, jobs })).rejects.toMatchObject({
+    cause: { status: 400, errors: [{ pointer: "/jobs/1/files/0/digest" }] },
+  });
+  await expect(client.batches.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const response = await post("/batches", {
+    id,
+    agent: { outputContract: { schema: { type: "array" } } },
+    jobs: [{ customId: "first" }],
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    errors: [{ pointer: "/agent/outputContract/schema" }, { pointer: "/jobs/0/input" }],
+  });
 });
 
 test("an add with an invalid job adds none, and its answer names every problem with its path", async () => {
@@ -424,10 +453,25 @@ test("a cancel is final: the Batch takes no new jobs and resumes none, even with
     jobCounts: { cancelled: 1 },
   });
   expect(cancelled).not.toHaveProperty("pendingControl");
-  // Also an add of the job it has.
-  await expect(
-    client.batches.addJobs({ id: batch.id, jobs: [jobNamed("a"), jobNamed("b")] }),
-  ).rejects.toMatchObject({ code: "CONFLICT" });
+  // Both calls can recover the job after cancellation, even if the original answer was lost.
+  for (const submit of [
+    (jobs: JobInput[]) =>
+      client.batches.create({ id: batch.id, agent: AGENT, breaker: false, jobs }),
+    (jobs: JobInput[]) => client.batches.addJobs({ id: batch.id, jobs }),
+  ]) {
+    expect(await submit([jobNamed("a")])).toMatchObject({
+      jobs: [{ created: false, job: { customId: "a", status: "cancelled" } }],
+    });
+    await expect(
+      submit([jobNamed("b"), jobNamed("a", { input: "Changed." })]),
+    ).rejects.toMatchObject({
+      code: "UNPROCESSABLE_CONTENT",
+      cause: { errors: [{ pointer: "/jobs/1/customId" }] },
+    });
+    await expect(submit([jobNamed("a"), jobNamed("b")])).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+  }
   await expect(client.batches.resume({ id: batch.id })).rejects.toMatchObject({ code: "CONFLICT" });
 
   const empty = await client.batches.create({ agent: AGENT });
