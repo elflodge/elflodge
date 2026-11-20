@@ -74,7 +74,11 @@ const MAX_PAGE_BYTES = 1024 * 1024;
 /** The columns a submitter is read from, on a Batch, a job or a Usage record. */
 export const SUBMITTER_COLUMNS = ["submitterKind", "submitterId", "submitterName"] as const;
 
-/** What a job's Usage record copies from the job's row at its end, beside the job's ID. */
+/**
+ * What a job's Usage record copies from the job's row at its end, beside the job's ID.
+ * `startedAt` is the job's first start, kept so a deleted job still shows its lifecycle times.
+ * Usage counts what the job used since its previous end, which can include several runs.
+ */
 export const USAGE_COPIED_COLUMNS = [
   "organizationId",
   "batchUid",
@@ -1384,32 +1388,7 @@ export function listJobs(query: JobListQuery) {
     database.query(async (db) => {
       const { statuses, labels, batchId, customId, runnerId, statusUnknown, after, limit } = query;
       const now = new Date();
-      let selection = db
-        .selectFrom("job as j")
-        .innerJoin("jobProgress as p", "p.jobId", "j.id")
-        // Without the content a list leaves out.
-        .select((eb) => [
-          ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
-            (column) => `p.${column}` as const,
-          ),
-          blockedByOf({
-            status: eb.ref("j.status"),
-            placedAt: eb.ref("j.placedAt"),
-            batchUid: eb.ref("j.batchUid"),
-            inCanary: eb.ref("j.inCanary"),
-          }).as("blockedBy"),
-          batchIdOf(eb.ref("j.batchUid")).as("batchId"),
-          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
-          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
-        ]);
-      if (statusUnknown !== undefined) {
-        selection = selection.where((eb) =>
-          statusUnknown
-            ? isStatusUnknown(listedJobOf(eb), now)
-            : eb.not(isStatusUnknown(listedJobOf(eb), now)),
-        );
-      }
+      let selection = db.selectFrom("job as j").select("j.id");
       if (statuses.length > 0) {
         selection = selection.where("j.status", "=", (eb) => eb.fn.any(eb.val([...statuses])));
       }
@@ -1424,10 +1403,40 @@ export function listJobs(query: JobListQuery) {
       if (customId !== undefined) selection = selection.where("j.customId", "=", customId);
       if (runnerId !== undefined) selection = selection.where("j.runnerId", "=", runnerId);
       if (after !== undefined) selection = selection.where("j.id", "<", after);
-      const rows = await selection
+      // Read just IDs for the page so e.g. the index on (runnerId, id) can supply it without
+      // visiting a job's row. Load the displayed fields and progress for that page afterwards.
+      const pageIds = selection
         .orderBy("j.id", "desc")
         // One more than the page, to learn whether more follow.
-        .limit(limit + 1)
+        .limit(limit + 1);
+      const page =
+        statusUnknown === undefined
+          ? pageIds
+          : pageIds.innerJoin("jobProgress as p", "p.jobId", "j.id").where((eb) => {
+              const unknown = isStatusUnknown(listedJobOf(eb), now);
+              return statusUnknown ? unknown : eb.not(unknown);
+            });
+      const rows = await db
+        .with("page", () => page)
+        .selectFrom("page")
+        .innerJoin("job as j", "j.id", "page.id")
+        .innerJoin("jobProgress as p", "p.jobId", "j.id")
+        .select((eb) => [
+          ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
+          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
+            (column) => `p.${column}` as const,
+          ),
+          blockedByOf({
+            status: eb.ref("j.status"),
+            placedAt: eb.ref("j.placedAt"),
+            batchUid: eb.ref("j.batchUid"),
+            inCanary: eb.ref("j.inCanary"),
+          }).as("blockedBy"),
+          batchIdOf(eb.ref("j.batchUid")).as("batchId"),
+          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
+          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
+        ])
+        .orderBy("page.id", "desc")
         .execute();
       return {
         // Read without their content, which the contract's `ListedJob` leaves out of the answer.
