@@ -15,9 +15,9 @@ export function formRefusal(error: unknown, controls: Record<string, readonly st
     // getIssueMessage returns the first match. Looking up each issue separately also preserves
     // repeated issues at one field and identical messages belonging to different fields.
     for (const issue of error.data.issues.filter(isSchemaIssue)) {
-      const one = { data: { issues: [issue] } };
+      const singleIssueError = { data: { issues: [issue] } };
       const control = Object.entries(controls).find(([, paths]) =>
-        paths.some((path) => getIssueMessage(one, path) !== undefined),
+        paths.some((path) => getIssueMessage(singleIssueError, path) !== undefined),
       );
       if (control) {
         const [name] = control;

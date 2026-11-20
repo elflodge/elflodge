@@ -32,7 +32,7 @@ When the hub locates an issue, its Problem Details includes one entry for every 
 }
 ```
 
-The pointer counts from zero within that request. If this is the first job in the second group of 100, `batches submit` also prints `job 101: /customId: Already used in the Batch for a job with other content` on stderr. Query and path issues use a `parameter` name and header issues use a `header` name.
+The pointer counts from zero within that request. If this is the first job in the second group of 100, `batches submit` also prints `job 101: /customId: Already used in the Batch for a job with other content` when stderr is a terminal. Piped stderr carries the Problem Details document alone. Query and path issues use a `parameter` name and header issues use a `header` name.
 
 ## Jobs and Batches
 
