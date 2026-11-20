@@ -35,6 +35,7 @@ const toolCall = z.object({
   name: z.string(),
   id: z.string(),
   arguments: z.record(z.string(), z.unknown()),
+  argumentsError: z.optional(z.string()),
 });
 export type EventToolCall = z.infer<typeof toolCall>;
 

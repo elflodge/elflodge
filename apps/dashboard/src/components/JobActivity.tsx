@@ -1,4 +1,3 @@
-import { dynamic } from "@solidjs/web";
 import type { Job } from "contract";
 import { For, Show } from "solid-js";
 
@@ -23,14 +22,12 @@ function Retry(props: { retry: { at: string; error: string } }) {
   );
 }
 
-export function JobActivity(props: { job: Job; atEnd?: boolean }) {
-  const Heading = dynamic(() => (props.atEnd ? "h3" : "h2"));
-  const ConversationHeading = dynamic(() => (props.atEnd ? "h4" : "h3"));
+export function JobActivity(props: { job: Job }) {
   return (
-    <section class="activity" aria-labelledby={props.atEnd ? "latest-activity" : "job-activity"}>
-      <Heading id={props.atEnd ? "latest-activity" : "job-activity"}>
-        {props.atEnd && <span class="mark mark-running" aria-hidden="true" />} Latest activity
-      </Heading>
+    <section class="activity" aria-labelledby="job-activity">
+      <h2 id="job-activity" tabindex="-1">
+        Latest activity
+      </h2>
       <Show when={props.job.lastReportedAt} fallback={<p>No report recorded yet for this run.</p>}>
         <Show when={props.job.activity} fallback={<p>No activity has been reported.</p>}>
           {(activity) => (
@@ -41,9 +38,7 @@ export function JobActivity(props: { job: Job; atEnd?: boolean }) {
             >
               {(conversation) => (
                 <div>
-                  <ConversationHeading>
-                    Conversation {conversation().conversationId}
-                  </ConversationHeading>
+                  <h3>Conversation {conversation().conversationId}</h3>
                   <ul class="plain">
                     <Show when={conversation().generation}>
                       {(call) => (

@@ -1695,7 +1695,7 @@ p mark.placeholder {
   padding: var(--space-3);
   overflow-wrap: anywhere;
 }
-.activity div > :is(h3, h4),
+.activity div > h3,
 .activity li {
   margin-top: var(--space-2);
 }

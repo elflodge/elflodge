@@ -2,14 +2,14 @@ import { Link } from "@tanstack/solid-router";
 import { JOB_PAUSED, JOB_RECOVERED, JOB_RESUMED, JOB_SUCCEEDED, type Job } from "contract";
 import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-js";
 
-import { failureDetailSuffix, hubFailureMessage } from "../api-client.ts";
+import { failureDetailSuffix, hubFailureDetail } from "../api-client.ts";
+import { focusIfLost } from "../form.ts";
 import { DAY_YEAR, TIME_SECONDS, formatCount, plural } from "../format.ts";
 import type { ReadJobEvent } from "../job-event-record.ts";
 import type { JobEvents, PagingDirection } from "../job-events.ts";
 import type { JobEventGroups } from "../job-runs.ts";
 import { FailedReadNotice } from "./FailedReadNotice.tsx";
 import { Instant } from "./Instant.tsx";
-import { JobActivity } from "./JobActivity.tsx";
 import { JobEventRow } from "./JobEventRow.tsx";
 import { RunHeading } from "./JobRun.tsx";
 import { Notice } from "./Notice.tsx";
@@ -18,9 +18,8 @@ function linkTo(id?: number) {
   return id === undefined ? null : document.getElementById(`event-${id}`);
 }
 
-function shownNumber(events: readonly { id: number }[], fromEnd: boolean) {
-  const shown = (event: { id: number }) => linkTo(event.id)?.getClientRects().length;
-  return linkTo((fromEnd ? events.findLast(shown) : events.find(shown))?.id);
+function firstShownNumber(events: readonly { id: number }[]) {
+  return linkTo(events.find((event) => linkTo(event.id)?.getClientRects().length)?.id);
 }
 
 function reveal(target: HTMLElement | null) {
@@ -75,13 +74,14 @@ function PageEdge(props: {
   events: JobEvents;
   at?: Date;
   read: (direction: PagingDirection) => Promise<HTMLElement | null>;
-  jump: () => Promise<void>;
+  jump: (button: HTMLButtonElement) => Promise<void>;
   timeline: () => HTMLOListElement | undefined;
 }) {
   const earlier = () => props.direction === "earlier";
   const hasPage = () => props.events.hasPage(props.direction);
   const error = () => props.events.pageError(props.direction);
-  const retryJump = () => !hasPage() && !!error();
+  const retryJump = () => error()?.jump;
+  const jumpLabel = () => (earlier() ? "Start" : "Latest");
   const usedUp = () => props.events.usedUp(props.direction) && !retryJump();
   const edgeTime = createMemo<Date | undefined>((previous) => (usedUp() ? previous : props.at));
   let box: HTMLDivElement | undefined;
@@ -131,17 +131,22 @@ function PageEdge(props: {
           >
             {(failure) => (
               <Notice role="alert">
-                The {props.direction} Events could not be read
-                {failureDetailSuffix(hubFailureMessage(failure()))}
+                {failure().jump
+                  ? `${jumpLabel()} failed`
+                  : `The ${props.direction} Events could not be read`}
+                {failureDetailSuffix(hubFailureDetail(failure().error))}
               </Notice>
             )}
           </Show>
           <button
             type="button"
+            id={`events-${props.direction}-button`}
             disabled={props.events.isReadingPage()}
-            onClick={(e) => void (retryJump() ? props.jump() : read(e.currentTarget))}
+            onClick={(e) =>
+              void (retryJump() ? props.jump(e.currentTarget) : read(e.currentTarget))
+            }
           >
-            {retryJump() ? (earlier() ? "Start" : "Latest") : `Show ${props.direction} Events`}
+            {retryJump() ? jumpLabel() : `Show ${props.direction} Events`}
           </button>
         </div>
         <Show when={earlier() && usedUp()}>
@@ -196,29 +201,30 @@ export function JobTimeline(props: {
   );
 
   function goToEnd() {
-    const target = document.getElementById("latest") ?? shownNumber(rows(), true);
-    if (target) reveal(target);
-    else {
-      timeline?.scrollIntoView({ block: "end" });
-      timeline?.focus({ preventScroll: true });
-    }
+    reveal(document.getElementById("latest") ?? endMarker ?? null);
   }
-  async function jump(toStart: boolean) {
-    if (
-      toStart &&
-      (events.hasPage("earlier") || events.pageError("earlier")) &&
-      !(await events.readFromStart())
-    )
-      return;
-    if (
-      !toStart &&
-      (!events.isAtLatest() || events.pageError("later")) &&
-      !(await events.readLatest())
-    )
-      return;
+  async function jump(toStart: boolean, button: HTMLButtonElement) {
+    const focused = document.activeElement;
+    const side = toStart ? "earlier" : "later";
+    const needsRead =
+      (toStart ? events.hasPage("earlier") : !events.isAtLatest()) || events.pageError(side)?.jump;
+    const reached =
+      !needsRead || (toStart ? await events.readFromStart() : await events.readLatest());
     flush();
+    if (!timeline?.isConnected) return;
+    if (!reached) {
+      focusIfLost(button.isConnected ? button : document.getElementById(`events-${side}-button`));
+      return;
+    }
     setAddition(undefined);
-    if (toStart) reveal(shownNumber(rows(), false) ?? heading ?? null);
+    const active = document.activeElement;
+    if (
+      active !== focused &&
+      active !== document.body &&
+      active?.checkVisibility({ visibilityProperty: true })
+    )
+      return;
+    if (toStart) reveal(firstShownNumber(rows()) ?? heading ?? null);
     else goToEnd();
   }
 
@@ -301,7 +307,7 @@ export function JobTimeline(props: {
         {(failure) => (
           <FailedReadNotice
             what="The Events"
-            detail={hubFailureMessage(failure().error)}
+            detail={hubFailureDetail(failure().error)}
             failedAt={failure().failedAt}
             readAt={failure().readAt}
           />
@@ -341,7 +347,7 @@ export function JobTimeline(props: {
       </Show>
       <PageEdge
         direction="earlier"
-        jump={() => jump(true)}
+        jump={(button) => jump(true, button)}
         events={events}
         at={earlierTime()}
         read={extend}
@@ -350,7 +356,11 @@ export function JobTimeline(props: {
       <Show when={rows().length}>
         <nav class="jump-row" aria-label="Go to a moment of the job">
           <span>Go to</span>
-          <button type="button" disabled={events.isReadingPage()} onClick={() => void jump(true)}>
+          <button
+            type="button"
+            disabled={events.isReadingPage()}
+            onClick={(e) => void jump(true, e.currentTarget)}
+          >
             Start
           </button>
           <For each={moments()} keyed={(row) => row.id}>
@@ -366,7 +376,11 @@ export function JobTimeline(props: {
           <JumpGroup name="sub-agent" multiple="sub-agents" rows={subAgents()} content />
           <JumpGroup name="compaction" multiple="compactions" rows={compactions()} content />
           <JumpGroup name="error" multiple="errors" rows={errors()} />
-          <button type="button" disabled={events.isReadingPage()} onClick={() => void jump(false)}>
+          <button
+            type="button"
+            disabled={events.isReadingPage()}
+            onClick={(e) => void jump(false, e.currentTarget)}
+          >
             Latest
           </button>
         </nav>
@@ -401,7 +415,7 @@ export function JobTimeline(props: {
               <JobEventRow
                 row={row()}
                 shortRunId={props.groups.shortRunIds.get(row().runId ?? "")}
-                userLabel={props.groups.userLabels.get(row().id)}
+                resumeNote={props.groups.resumeNotes.has(row().id)}
                 subAgent={props.groups.subAgents.has(row().conversationId ?? 0)}
                 currentOutput={
                   props.job.status === "succeeded" &&
@@ -420,20 +434,26 @@ export function JobTimeline(props: {
         </For>
         <Show when={running()}>
           <li class="ev is-live" id="latest" tabindex="-1">
-            <JobActivity job={props.job} atEnd />
+            <span class="mark mark-running" aria-hidden="true" /> Still running.{" "}
+            <Link to="." hash="job-activity">
+              Latest activity
+            </Link>{" "}
+            is at the top of this page.
           </li>
         </Show>
       </ol>
       <div
         class="timeline-end"
-        aria-hidden="true"
+        role="group"
+        aria-label="End of Events"
+        tabindex="-1"
         ref={(el) => {
           endMarker = el;
         }}
       />
       <PageEdge
         direction="later"
-        jump={() => jump(false)}
+        jump={(button) => jump(false, button)}
         events={events}
         at={laterTime()}
         read={extend}
@@ -459,7 +479,7 @@ export function JobTimeline(props: {
             <button
               type="button"
               onClick={() => {
-                const firstNew = shownNumber(unread(), false);
+                const firstNew = firstShownNumber(unread());
                 if (firstNew) reveal(firstNew);
                 else goToEnd();
               }}

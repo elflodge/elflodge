@@ -1,6 +1,12 @@
+import { size } from "effect/Iterable";
+import { linesIterator } from "effect/String";
 import { Show, createMemo, createSignal, createUniqueId, flush, onSettled } from "solid-js";
 
 import { formatCount } from "../format.ts";
+
+export function countLines(text: string) {
+  return size(linesIterator(text));
+}
 
 /** Shorten the text by rendered lines: one logical line can fill a phone screen when it wraps. */
 export function TextPreview(props: {
@@ -12,7 +18,7 @@ export function TextPreview(props: {
   wholeTextLabel?: string;
 }) {
   const id = props.id ?? createUniqueId();
-  const lines = createMemo(() => props.text.split("\n").length);
+  const lines = createMemo(() => countLines(props.text));
   const [limitExceeded, setLimitExceeded] = createSignal<number>();
   const [expanded, setExpanded] = createSignal(false);
   let text: HTMLElement | undefined;

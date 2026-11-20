@@ -81,7 +81,7 @@ export const FULL = new Intl.DateTimeFormat(LANGUAGE, { dateStyle: "full", timeS
 
 const COUNT = new Intl.NumberFormat(LANGUAGE);
 
-// Four decimal places keep costs comparable. Two significant digits keep smaller costs visible.
+// Four decimal places keep costs comparable. Rounding smaller costs by significant digits keeps them visible.
 // roundingPriority shipped in Chromium 106, Firefox 116 and Safari 15.4, within our browser floor.
 // https://github.com/mdn/browser-compat-data/blob/main/javascript/builtins/Intl/NumberFormat.json
 const usdPrecision = {
@@ -110,7 +110,7 @@ export function formatRoles(roles: string): string {
   return ROLE_LIST.format(roles.split(","));
 }
 
-/** A cost in US dollars: four decimal places, or two significant digits for smaller amounts. */
+/** Round a USD cost to four decimal places or at most two significant digits, whichever is more precise. */
 export function formatUsd(amount: number): string {
   return USD.format(amount);
 }

@@ -13,25 +13,29 @@ import { TIME_SECONDS, formatCount, formatUsd, plural } from "../format.ts";
 import type { EventToolCall, ReadJobEvent } from "../job-event-record.ts";
 import { Instant } from "./Instant.tsx";
 import { FAILURE_WORDS } from "./JobStatus.tsx";
-import { TextPreview } from "./TextPreview.tsx";
+import { TextPreview, countLines } from "./TextPreview.tsx";
 
 interface RowProps {
   row: ReadJobEvent;
   shortRunId?: string;
-  userLabel?: "Input" | "Note at the resume";
+  resumeNote?: boolean;
   subAgent?: boolean;
   currentOutput?: boolean;
 }
 
-function countLines(text: string) {
-  // As in the Output preview, count the displayed lines, including a final empty one.
-  const count = text.split("\n").length;
+function formatLines(text: string) {
+  const count = countLines(text);
   return `${formatCount(count)} ${plural(count, "line", "lines")}`;
 }
 
 function Call(props: { call: EventToolCall }) {
   const { name, id, arguments: args } = props.call;
   function argumentsBody() {
+    if (props.call.argumentsError !== undefined) {
+      return (
+        <TextPreview text={props.call.argumentsError} label={`Invalid arguments of ${id}`} wraps />
+      );
+    }
     if (name === "bash" && typeof args["command"] === "string") {
       return <TextPreview text={args["command"]} label={`Command for ${id}`} wraps />;
     }
@@ -43,7 +47,7 @@ function Call(props: { call: EventToolCall }) {
       return (
         <>
           <p>
-            to <code>{args["path"]}</code>, {countLines(args["content"])}
+            to <code>{args["path"]}</code>, {formatLines(args["content"])}
           </p>
           <details>
             <summary>Show what it writes</summary>
@@ -96,7 +100,7 @@ function agentStop(reason: string) {
   }
 }
 
-function eventLabel({ row, userLabel }: RowProps) {
+function eventLabel({ row, resumeNote }: RowProps) {
   const record = row.record;
   if (row.kind === "conversation" && row.relation) {
     const { owner, parent } = row.relation;
@@ -108,7 +112,7 @@ function eventLabel({ row, userLabel }: RowProps) {
   if (row.lifecycle) return `Runner: ${row.lifecycle.label}`;
   switch (record?.kind) {
     case "pi.user":
-      return userLabel ?? "Message to the agent";
+      return resumeNote ? "Note at the resume" : "Message to the agent";
     case "pi.assistant":
       return "Agent";
     case "pi.tool-result": {
@@ -120,7 +124,7 @@ function eventLabel({ row, userLabel }: RowProps) {
     case "pi.reset":
       return "Context reset";
     case "pi.system":
-      return "The agent’s instructions or tools changed";
+      return "The agent’s instructions or tools were recorded";
     default:
       return row.unreadable
         ? `The Event’s record could not be read: ${row.kind}`
@@ -143,7 +147,7 @@ function summary(row: ReadJobEvent) {
     case "pi.tool-result": {
       const message = record.model[0];
       const body = messageText(message.content);
-      return `: ${message.isError ? "Error, " : ""}${body.includes("\n") && !message.isError ? countLines(body) : firstLine(body)}`;
+      return `: ${message.isError ? "Error, " : ""}${body.includes("\n") && !message.isError ? formatLines(body) : firstLine(body)}`;
     }
     case "pi.assistant": {
       const message = record.model[0];
@@ -218,7 +222,7 @@ function EventBody(props: RowProps) {
           <div class="result">
             <p>
               {message.isError && <b>Error. </b>}
-              {countLines(text)}
+              {formatLines(text)}
             </p>
             <TextPreview
               text={text}

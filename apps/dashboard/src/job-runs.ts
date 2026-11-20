@@ -27,12 +27,12 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
   const headings = new Map<number, LoadedRun>();
   const dayLines = new Set<number>();
   const subAgents = new Set<number>();
-  const userLabels = new Map<number, "Input" | "Note at the resume">();
+  const resumeNotes = new Set<number>();
   let currentRun: LoadedRun | undefined;
   let countFrom: TimedEvent | undefined;
   let previousEnd: TimedEvent | undefined;
   let previousDay: string | undefined;
-  let awaitingInput = false;
+  let awaitingResumeNote = false;
 
   for (const row of events) {
     if (row.runId) runIds.add(row.runId);
@@ -51,7 +51,7 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
           headings.set(row.id, currentRun);
           previousEnd = undefined;
           countFrom = timed;
-          awaitingInput = true;
+          awaitingResumeNote = row.kind === JOB_RESUMED;
           break;
         case JOB_RECOVERED:
           countFrom = timed;
@@ -64,22 +64,19 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
           if (currentRun) currentRun.end = timed;
           previousEnd = timed;
           countFrom = undefined;
-          awaitingInput = false;
+          awaitingResumeNote = false;
           break;
       }
     }
     if (!currentRun || currentRun.end) continue;
     if (row.providerModel) currentRun.models.add(row.providerModel);
     if (
-      awaitingInput &&
+      awaitingResumeNote &&
       row.kind === "pi.user" &&
       row.conversationId === currentRun.opening.conversationId
     ) {
-      userLabels.set(
-        row.id,
-        currentRun.opening.kind === JOB_STARTED ? "Input" : "Note at the resume",
-      );
-      awaitingInput = false;
+      resumeNotes.add(row.id);
+      awaitingResumeNote = false;
     }
   }
   // Earlier history expands below the paging button. A newly revealed opening or previous end
@@ -98,7 +95,7 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
     countFrom: forHead(countFrom),
     dayLines,
     subAgents,
-    userLabels,
+    resumeNotes,
   };
 }
 export type JobEventGroups = ReturnType<typeof groupJobEvents>;

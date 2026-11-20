@@ -217,7 +217,7 @@ async function jobWithHistory(entries: number) {
             content: [
               {
                 type: "text",
-                text: Array.from({ length: 66 }, (_, i) => `Invoice ${i + 1}`).join("\n"),
+                text: Array.from({ length: 66 }, (_, i) => `Invoice ${i + 1}\n`).join(""),
               },
             ],
             isError: false,
@@ -238,6 +238,19 @@ test("a member opens the latest hundred Events in journal order, with their orig
   await expectBrowser(numbers).toHaveText(
     Array.from({ length: 100 }, (_, i) => String((i + 3) * 10)),
   );
+}, 30_000);
+
+test("Back returns to the live end after a member follows its Latest activity link", async () => {
+  const { id } = await jobWithHistory(25);
+  const page = await openAsMember("Live activity", `jobs/${id}`);
+  const activity = page.getByRole("heading", { name: "Latest activity" });
+  const link = page.getByRole("link", { name: "Latest activity" });
+  await page.getByRole("button", { name: "Latest", exact: true }).click();
+  await expectBrowser(link).toBeInViewport();
+  await link.click();
+  await expectBrowser(activity).toBeInViewport();
+  await page.goBack();
+  await expectBrowser(link).toBeInViewport();
 }, 30_000);
 
 test("a member reads earlier Events from the same button until reaching the start", async () => {
@@ -311,6 +324,34 @@ test("a member can retry a refused earlier page from its own box", async () => {
   await expectBrowser(box).toBeFocused();
 }, 30_000);
 
+test("Latest recovers a refused forward read without dropping the Events already shown", async () => {
+  const { id, report } = await jobWithHistory(23);
+  const page = await openAsMember("Retry Latest", `jobs/${id}`);
+  const count = page.locator(".tl-head [role=status]");
+  await expectBrowser(count).toHaveText("All 25 read");
+  const forward = (url: URL) =>
+    url.pathname === `/jobs/${id}/events` && url.searchParams.get("order") === "asc";
+  await page.route(forward, (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: "application/problem+json",
+      json: { type: "about:blank", title: "Forbidden", status: 403, detail: "Access refused." },
+    }),
+  );
+  await expectBrowser(page.locator(".tl").getByRole("alert")).toContainText("Access refused.", {
+    timeout: 12_000,
+  });
+  await expectBrowser(count).toHaveText("The first 25 read");
+  await page.unroute(forward);
+  await report([message(235)]);
+  const next = page.waitForRequest((request) => forward(new URL(request.url())));
+  await page.getByRole("button", { name: "Latest", exact: true }).click();
+  expect(new URL((await next).url()).searchParams.get("after")).toBe("230");
+  await expectBrowser(count).toHaveText("All 26 read");
+  await expectBrowser(page.locator(".ev-id").first()).toHaveText("1");
+  await expectBrowser(page.locator(".ev-id").last()).toHaveText("235");
+}, 30_000);
+
 test("a member can read from the start and request the next page in order", async () => {
   const { id, report } = await jobWithHistory(102);
   const page = await openAsMember("First Events", `jobs/${id}`);
@@ -340,7 +381,7 @@ test("a member reading earlier Events can jump to new ones, and following ends a
   await page.locator("#latest").evaluate((el) => el.scrollIntoView({ block: "end" }));
   await report([message(255)]);
   await expectBrowser(page.locator("#event-255")).toBeInViewport({ timeout: 12_000 });
-  // Reading the new Event can still leave the bottom of Current activity below the viewport.
+  // The new Event may be visible while the end of the list is still below the viewport.
   await page.locator("#latest").evaluate((el) => el.scrollIntoView({ block: "center" }));
   await expectBrowser(page.getByRole("button", { name: "Go to them" })).toHaveCount(0);
   const first = page.locator("#event-20");
