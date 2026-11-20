@@ -1,13 +1,13 @@
 import type { JSX } from "@solidjs/web";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tanstack/solid-router";
 import { problemOf } from "contract";
 import { Match, Show, Switch, createEffect, createSignal, flush, onSettled } from "solid-js";
 
 import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
 import { authClient, getSession } from "../auth-client.ts";
+import { BrandMark } from "../components/BrandMark.tsx";
 import { FailedReadNotice } from "../components/FailedReadNotice.tsx";
-import { FallbackPage } from "../components/FallbackPage.tsx";
 import { FieldError } from "../components/FieldError.tsx";
 import { Instant } from "../components/Instant.tsx";
 import { Notice } from "../components/Notice.tsx";
@@ -23,21 +23,35 @@ import { orpc } from "../query.ts";
 export const Route = createFileRoute("/invitation")({
   beforeLoad: async ({ location }) => {
     if (!location.hash) return { session: null };
-    const session = await readFromHub("The session", getSession);
-    await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
-    return { session };
+    return { session: await readFromHub("The session", readInvitationSession) };
   },
   pendingComponent: ReadingInvitation,
   component: Invitation,
 });
 
+async function readInvitationSession() {
+  const session = await getSession();
+  await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
+  return session;
+}
+
+function InvitationPage(props: { heading: string; children: JSX.Element }) {
+  return (
+    <main id="main" class="page is-alone">
+      <BrandMark alt="" />
+      <h1>{props.heading}</h1>
+      {props.children}
+    </main>
+  );
+}
+
 function ReadingInvitation() {
   return (
-    <FallbackPage heading="Invitation">
+    <InvitationPage heading="Invitation">
       <p class="prose" role="status">
         Reading the invitation…
       </p>
-    </FallbackPage>
+    </InvitationPage>
   );
 }
 
@@ -48,9 +62,9 @@ function Invitation() {
       when={id()}
       keyed
       fallback={
-        <FallbackPage heading="Invitation">
+        <InvitationPage heading="Invitation">
           <p class="prose">Open the invitation link you were sent.</p>
-        </FallbackPage>
+        </InvitationPage>
       }
     >
       {(invitationId) => <ReadInvitation invitationId={invitationId} />}
@@ -63,8 +77,27 @@ function ReadInvitation(props: { invitationId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const previewOptions = () =>
-    orpc.invitations.preview.queryOptions({ input: { invitationId: props.invitationId } });
+    orpc.invitations.preview.queryOptions({
+      input: { invitationId: props.invitationId },
+      refetchOnWindowFocus: "always",
+    });
   const preview = useQuery(previewOptions);
+  const onFocus = () => {
+    void router.invalidate();
+    void preview.refetch({ cancelRefetch: false });
+  };
+  onSettled(() => {
+    // Query refreshes the preview when a tab becomes visible. Two visible windows can also
+    // exchange focus after sign-in, without a visibility change.
+    const unsubscribe = focusManager.subscribe((focused) => {
+      if (focused) void router.invalidate();
+    });
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      unsubscribe();
+    };
+  });
   const forgetPreview = () =>
     queryClient.removeQueries({ queryKey: previewOptions().queryKey, exact: true });
   createEffect(
@@ -81,40 +114,21 @@ function ReadInvitation(props: { invitationId: string }) {
       {/* Once joined, a fresh preview answers 404. Keep the sign-in failure and the way in. */}
       <Match when={joined()}>
         {(result) => (
-          <FallbackPage heading={`Joined ${result().organization}`}>
+          <InvitationPage heading={`Joined ${result().organization}`}>
             <Notice role="alert">{result().message}</Notice>
             <p>
               <Link class="stands-alone" to="/sign-in" ref={focusSignIn}>
                 Sign in
               </Link>
             </p>
-          </FallbackPage>
+          </InvitationPage>
         )}
       </Match>
       <Match when={dead() || (preview.isError && problemOf(preview.error)?.status === 404)}>
-        <FallbackPage heading="Invitation">
-          <p class="prose">
-            This invitation is no longer available. It may have been used, revoked or replaced, or
-            have expired. Ask whoever invited you for a new one.
-          </p>
-          <p>
-            <Show
-              when={context().session}
-              fallback={
-                <Link class="stands-alone" to="/sign-in">
-                  Sign in
-                </Link>
-              }
-            >
-              <Link class="stands-alone" to="/">
-                Go to the dashboard
-              </Link>
-            </Show>
-          </p>
-        </FallbackPage>
+        <UnavailableInvitation />
       </Match>
       <Match when={preview.isLoadingError}>
-        <FallbackPage heading="Invitation">
+        <InvitationPage heading="Invitation">
           <Notice role="alert">
             The invitation could not be read: {hubFailureMessage(preview.error)}
           </Notice>
@@ -123,17 +137,15 @@ function ReadInvitation(props: { invitationId: string }) {
               Try again
             </button>
           </p>
-        </FallbackPage>
+        </InvitationPage>
       </Match>
       <Match when={preview.dataUpdatedAt}>
         <AcceptInvitation
           invitationId={props.invitationId}
           invitation={preview.data}
           consumed={forgetPreview}
-          unavailable={async () => {
+          unavailable={() => {
             forgetPreview();
-            // The invitation may have been used in another tab that also changed the session.
-            await router.invalidate();
             setDead(true);
           }}
           joined={setJoined}
@@ -152,6 +164,40 @@ function ReadInvitation(props: { invitationId: string }) {
   );
 }
 
+function UnavailableInvitation() {
+  const router = useRouter();
+  const context = Route.useRouteContext();
+  const [checked, setChecked] = createSignal(false);
+  // Either the preview or the press can discover that another tab already joined.
+  onSettled(() => {
+    void router.invalidate().then(() => setChecked(true));
+  });
+  return (
+    <InvitationPage heading="Invitation">
+      <p class="prose">
+        This invitation is no longer available. It may have been used, revoked or replaced, or have
+        expired. Ask whoever invited you for a new one.
+      </p>
+      <p>
+        <Show when={checked()}>
+          <Show
+            when={context().session}
+            fallback={
+              <Link class="stands-alone" to="/sign-in">
+                Sign in
+              </Link>
+            }
+          >
+            <Link class="stands-alone" to="/">
+              Go to the dashboard
+            </Link>
+          </Show>
+        </Show>
+      </p>
+    </InvitationPage>
+  );
+}
+
 function focusSignIn(link: HTMLAnchorElement) {
   onSettled(() => focusIfLost(link));
 }
@@ -160,7 +206,7 @@ function AcceptInvitation(props: {
   invitationId: string;
   invitation: Awaited<ReturnType<typeof api.invitations.preview>>;
   consumed: () => void;
-  unavailable: () => Promise<void>;
+  unavailable: () => void;
   children: JSX.Element;
   joined: (result: { organization: string; message: string }) => void;
 }) {
@@ -173,7 +219,9 @@ function AcceptInvitation(props: {
   const [offerSignIn, setOfferSignIn] = createSignal(false);
   const [passwordError, setPasswordError] = createSignal<string>();
   let password: HTMLInputElement | undefined;
-  const [needsSignIn, setNeedsSignIn] = createSignal(false);
+  // A 401 asks the account that pressed to sign in. Another tab can satisfy that prompt.
+  const [refusedAccount, setRefusedAccount] = createSignal<string | null>();
+  const accountId = () => session()?.user.id ?? null;
   const { pending, onSubmit } = createFormAction(async (element) => {
     setError(undefined);
     setPasswordError(undefined);
@@ -188,6 +236,7 @@ function AcceptInvitation(props: {
     }
 
     const form = new FormData(element);
+    const submittedBy = accountId();
     const account = session()
       ? undefined
       : { name: fieldText(form, "name"), password: fieldText(form, "password") };
@@ -198,25 +247,24 @@ function AcceptInvitation(props: {
     } catch (failure) {
       const status = problemOf(failure)?.status;
       if (status === 404) {
-        await props.unavailable();
+        props.unavailable();
         return;
       }
       if (status === 401) {
-        setNeedsSignIn(true);
+        setRefusedAccount(submittedBy);
         return;
       }
       const message = hubFailureMessage(failure);
       // Invitation refusals carry the hub's detail, without Better Auth's field error code.
       if (
         account &&
+        password?.value === account.password &&
         status === 400 &&
         (message === "Password too long" || message === "Password too short")
       ) {
-        if (password?.value === account.password) {
-          setPasswordError(message);
-          flush();
-          password.focus();
-        }
+        setPasswordError(message);
+        flush();
+        password.focus();
       } else {
         setError(message);
         setOfferSignIn(status === 422);
@@ -225,12 +273,25 @@ function AcceptInvitation(props: {
     }
     props.consumed();
     if (account) {
+      // Accept returns the invited address for both paths. A session established in another
+      // tab can have redeemed the invitation even if this form submitted a name and password.
+      let current;
       try {
-        await authClient.signIn.email({ email: joined.email, password: account.password });
+        current = await readInvitationSession();
       } catch (failure) {
         props.joined({
           organization,
-          message: `Your account was created and you have joined ${organization}, but signing in failed: ${hubFailureMessage(failure)}`,
+          message: `You have joined ${organization}, but your session could not be read: ${hubFailureMessage(failure)}`,
+        });
+        return;
+      }
+      try {
+        if (current?.user.email !== joined.email)
+          await authClient.signIn.email({ email: joined.email, password: account.password });
+      } catch (failure) {
+        props.joined({
+          organization,
+          message: `You have joined ${organization}, but signing in failed: ${hubFailureMessage(failure)}`,
         });
         return;
       }
@@ -241,10 +302,10 @@ function AcceptInvitation(props: {
   const join = () => `Join ${props.invitation.organizationName}`;
   const signInSearch = { redirect: "/invitation" };
   return (
-    <FallbackPage heading={differentAccount() ? "Invitation" : join()}>
+    <InvitationPage heading={differentAccount() ? "Invitation" : join()}>
       {props.children}
       <Switch>
-        <Match when={needsSignIn()}>
+        <Match when={refusedAccount() === accountId()}>
           <Notice role="alert">
             An account with <span class="mono">{props.invitation.email}</span> already exists. Sign
             in with it to join.
@@ -346,11 +407,9 @@ function AcceptInvitation(props: {
           </Show>
         </Match>
       </Switch>
-      <Show when={pending()}>
-        <p role="status" class="note">
-          Working…
-        </p>
-      </Show>
-    </FallbackPage>
+      <p role="status" class={pending() ? "note" : "vh"}>
+        {pending() ? "Working…" : ""}
+      </p>
+    </InvitationPage>
   );
 }
