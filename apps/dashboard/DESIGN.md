@@ -287,7 +287,7 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 ### Dialogs
 
-A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). "Keep it" comes first and has the focus. The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
+A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). The keeping button comes first and has the focus. It reads "Keep it", "Keep them" or "Stay". The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
 
 ```tsx
 <dialog aria-labelledby="remove-h">
@@ -374,6 +374,16 @@ Records that each have a page of their own, such as a list of Batches, are a `ta
 A record with no page of its own, such as an API key, has its identifier as a `span.cut`, and may end with its one action, such as Revoke, in `td.is-act`, whose column head is `.vh`. A table of short values such as API keys uses `.records.is-narrow` to keep the name near its values, up to 64rem wide. Its name column takes a fifth of the table, leaving room for the permissions. An absent name reads "Unnamed" in the secondary sans (`.unnamed`).
 
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
+
+### Organization records and role choices
+
+The Organization's name and Rename share a wrapping `div.org-name`. Each list is a
+`section.record-section` with its own heading and `table.records.is-fit`, sized to its
+content. Plain-text identifiers, addresses and the names of inviters and key creators wrap in full. A row's `td.is-act` holds
+`div.controls` when two controls can act there. They sit together after the record on a phone.
+
+A dialog offering roles uses a fieldset and legend. Each `label.role-choice` holds a native
+radio and the role name, with a `small.note` on the next line describing what it permits.
 
 ### Command to copy, and a secret shown once
 

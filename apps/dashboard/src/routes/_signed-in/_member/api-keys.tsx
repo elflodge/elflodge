@@ -362,6 +362,9 @@ function KeyTable(props: {
             Permissions
           </th>
           <th scope="col" role="columnheader">
+            Created by
+          </th>
+          <th scope="col" role="columnheader">
             Created
           </th>
           <th scope="col" role="columnheader">
@@ -389,6 +392,16 @@ function KeyTable(props: {
                 </td>
                 <td role="cell" data-l="Permissions">
                   <Permissions permissions={key().permissions} />
+                </td>
+                <td role="cell" data-l="Created by">
+                  <Show when={key().creator} fallback="Unknown">
+                    {(creator) => (
+                      <>
+                        {creator().name}
+                        {creator().isMember ? "" : " (no longer a member)"}
+                      </>
+                    )}
+                  </Show>
                 </td>
                 <td role="cell" data-l="Created">
                   <Instant value={key().createdAt} />

@@ -10,6 +10,7 @@ const DESTINATIONS = linkOptions([
   { to: "/", label: "Home", activeOptions: { exact: true, includeSearch: false } },
   { to: "/runners", label: "Runners", activeOptions: { includeSearch: false } },
   { to: "/api-keys", label: "API keys", activeOptions: { includeSearch: false } },
+  { to: "/organization", label: "Organization", activeOptions: { includeSearch: false } },
 ]);
 
 /**

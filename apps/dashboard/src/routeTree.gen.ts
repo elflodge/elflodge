@@ -18,6 +18,7 @@ import { Route as SignedInMemberRouteImport } from './routes/_signed-in/_member'
 import { Route as SignedInChangePasswordRouteImport } from './routes/_signed-in/change-password'
 import { Route as SignedInMemberIndexRouteImport } from './routes/_signed-in/_member/index'
 import { Route as SignedInMemberApiKeysRouteImport } from './routes/_signed-in/_member/api-keys'
+import { Route as SignedInMemberOrganizationRouteImport } from './routes/_signed-in/_member/organization'
 import { Route as SignedInMemberRunnersRouteImport } from './routes/_signed-in/_member/runners'
 
 const SignedInRoute = SignedInRouteImport.update({
@@ -63,6 +64,12 @@ const SignedInMemberApiKeysRoute = SignedInMemberApiKeysRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberOrganizationRoute =
+  SignedInMemberOrganizationRouteImport.update({
+    id: '/organization',
+    path: '/organization',
+    getParentRoute: () => SignedInMemberRoute,
+  } as any)
 const SignedInMemberRunnersRoute = SignedInMemberRunnersRouteImport.update({
   id: '/runners',
   path: '/runners',
@@ -77,6 +84,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
   '/api-keys': typeof SignedInMemberApiKeysRoute
+  '/organization': typeof SignedInMemberOrganizationRoute
   '/runners': typeof SignedInMemberRunnersRoute
 }
 export interface FileRoutesByTo {
@@ -87,6 +95,7 @@ export interface FileRoutesByTo {
   '/$': typeof SignedInSplatRoute
   '/change-password': typeof SignedInChangePasswordRoute
   '/api-keys': typeof SignedInMemberApiKeysRoute
+  '/organization': typeof SignedInMemberOrganizationRoute
   '/runners': typeof SignedInMemberRunnersRoute
 }
 export interface FileRoutesById {
@@ -99,6 +108,7 @@ export interface FileRoutesById {
   '/_signed-in/_member': typeof SignedInMemberRouteWithChildren
   '/_signed-in/change-password': typeof SignedInChangePasswordRoute
   '/_signed-in/_member/api-keys': typeof SignedInMemberApiKeysRoute
+  '/_signed-in/_member/organization': typeof SignedInMemberOrganizationRoute
   '/_signed-in/_member/runners': typeof SignedInMemberRunnersRoute
   '/_signed-in/_member/': typeof SignedInMemberIndexRoute
 }
@@ -112,6 +122,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/change-password'
     | '/api-keys'
+    | '/organization'
     | '/runners'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -122,6 +133,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/change-password'
     | '/api-keys'
+    | '/organization'
     | '/runners'
   id:
     | '__root__'
@@ -133,6 +145,7 @@ export interface FileRouteTypes {
     | '/_signed-in/_member'
     | '/_signed-in/change-password'
     | '/_signed-in/_member/api-keys'
+    | '/_signed-in/_member/organization'
     | '/_signed-in/_member/runners'
     | '/_signed-in/_member/'
   fileRoutesById: FileRoutesById
@@ -209,6 +222,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberApiKeysRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/organization': {
+      id: '/_signed-in/_member/organization'
+      path: '/organization'
+      fullPath: '/organization'
+      preLoaderRoute: typeof SignedInMemberOrganizationRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
     '/_signed-in/_member/runners': {
       id: '/_signed-in/_member/runners'
       path: '/runners'
@@ -221,12 +241,14 @@ declare module '@tanstack/solid-router' {
 
 interface SignedInMemberRouteChildren {
   SignedInMemberApiKeysRoute: typeof SignedInMemberApiKeysRoute
+  SignedInMemberOrganizationRoute: typeof SignedInMemberOrganizationRoute
   SignedInMemberRunnersRoute: typeof SignedInMemberRunnersRoute
   SignedInMemberIndexRoute: typeof SignedInMemberIndexRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberApiKeysRoute: SignedInMemberApiKeysRoute,
+  SignedInMemberOrganizationRoute: SignedInMemberOrganizationRoute,
   SignedInMemberRunnersRoute: SignedInMemberRunnersRoute,
   SignedInMemberIndexRoute: SignedInMemberIndexRoute,
 }

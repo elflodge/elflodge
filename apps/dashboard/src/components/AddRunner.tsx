@@ -5,6 +5,7 @@ import { Show, createEffect, createSignal, onSettled } from "solid-js";
 import { version } from "../../package.json";
 import { api, hubFailureMessage } from "../api-client.ts";
 import { createFormAction } from "../form.ts";
+import { isLoopback } from "../hub-address.ts";
 import { orpc } from "../query.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Notice } from "./Notice.tsx";
@@ -90,8 +91,7 @@ export function AddRunner(props: {
 
   const { hostname, origin } = window.location;
   // The browser normalizes the URL host first: 127.1 becomes 127.0.0.1 and [0:0::1] becomes [::1].
-  // localhost, its .localhost subdomains, IPv6 loopback and IPv4 127/8 all reach the container itself.
-  const loopback = /(?:^|\.)localhost\.?$|^\[::1\]$|^127\.\d+\.\d+\.\d+$/.test(hostname);
+  const loopback = isLoopback(hostname);
   const hub: Piece = loopback ? { text: HUB_PLACEHOLDER, mark: "placeholder" } : { text: origin };
   const command = () => dockerCommand(key(), hub);
   let copyCommand: HTMLButtonElement | undefined;

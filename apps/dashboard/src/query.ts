@@ -1,3 +1,4 @@
+import { BetterFetchError } from "@better-fetch/fetch";
 import { ORPCError } from "@orpc/client";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { QueryClient } from "@tanstack/solid-query";
@@ -35,6 +36,7 @@ export function createQueryClient() {
  * a call that got no answer may go through when tried again, as Query does by default.
  */
 function refused(error: Error) {
+  if (error instanceof BetterFetchError) return error.status >= 400 && error.status < 500;
   if (!(error instanceof ORPCError)) return false;
   const status = problemOf(error)?.status;
   return status === undefined || status < 500;

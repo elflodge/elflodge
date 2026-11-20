@@ -18,6 +18,7 @@ export function ConfirmAction(props: {
   heading: JSX.Element;
   /** The confirming button's words, which name what it acts on. */
   confirm: string;
+  keep?: string;
   /** What the action ends, and whether that is final. */
   children: JSX.Element;
   act: () => Promise<string | undefined>;
@@ -81,7 +82,7 @@ export function ConfirmAction(props: {
           </div>
           <div class="dialog-f">
             <button value="keep" autofocus>
-              {pending() ? "Close" : "Keep it"}
+              {pending() ? "Close" : (props.keep ?? "Keep it")}
             </button>
             <button
               type="button"
