@@ -1444,12 +1444,13 @@ const LISTED_JOB_COLUMNS = [
 ] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
 /** A filtered job count for each value, with the value as its column name. */
-export function jobCountsBy<S extends string>(
-  column: Expression<string | null>,
-  values: readonly S[],
+export function jobCountsBy<Value extends string, Counted extends Value>(
+  column: Expression<Value | null>,
+  values: readonly Counted[],
 ) {
   const eb = expressionBuilder();
-  return values.map((value) => eb.fn.countAll<number>().filterWhere(column, "=", value).as(value));
+  const text: Expression<string | null> = column;
+  return values.map((value) => eb.fn.countAll<number>().filterWhere(text, "=", value).as(value));
 }
 
 /**

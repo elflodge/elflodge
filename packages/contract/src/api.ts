@@ -443,6 +443,8 @@ export const batchSchema = z
      * `jobCounts.queued`. New reasons may be added.
      */
     blockedJobCounts: z.object(
+      // fromEntries widens the keys to string. Check the shape once so the inferred Batch type
+      // requires every reason and the object parser drops reasons added by a newer hub.
       z
         .record(blockedBySchema, z.instanceof(z.ZodMiniNumberFormat))
         .parse(Object.fromEntries(blockedBySchema.options.map((reason) => [reason, z.int()]))),
