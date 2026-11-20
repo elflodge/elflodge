@@ -8,6 +8,7 @@ import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { TIME_ZONED, UTC_DAY, UTC_DAY_YEAR, UTC_ISO_MONTH } from "../../../format.ts";
+import { usageGrouping } from "../../../usage-grouping.ts";
 import {
   rangeName,
   reportDefaults,
@@ -25,7 +26,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
     );
   },
   pendingComponent: () => {
-    const grouping = UsageRoute.useLoaderDeps();
+    const grouping = UsageRoute.useSearch({ select: (search) => usageGrouping(search.groupBy) });
     return (
       <>
         <UsageLedgers grouping={grouping()} />
@@ -47,7 +48,7 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
           }
         >
           <p>
-            <Link class="stands-alone" to="/usage" search={reportDefaults}>
+            <Link class="stands-alone" to="/usage" search={reportDefaults} preload={false}>
               Show the last 30 days by Batch
             </Link>
           </p>
@@ -60,7 +61,6 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
 
 function Report() {
   const search = Route.useSearch();
-  const grouping = UsageRoute.useLoaderDeps();
   const query = useQuery(() => reportOptions(search()));
   const period = () => {
     const from = new Date(query.data.from);
@@ -116,7 +116,11 @@ function Report() {
           </div>
         }
       >
-        <UsageLedgers report={query.data} grouping={grouping()} readAt={query.dataUpdatedAt} />
+        <UsageLedgers
+          report={query.data}
+          grouping={usageGrouping(search().groupBy)}
+          readAt={query.dataUpdatedAt}
+        />
       </Show>
     </>
   );

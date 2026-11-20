@@ -169,6 +169,7 @@ export function UsageLedgers(props: {
   report?: UsageReport;
   readAt?: number;
 }) {
+  const dayCount = () => props.report?.days.length ?? 0;
   const label = () => props.grouping.labelKey;
   const words = () => groupings[props.grouping.by];
   const groups = () => props.report?.groups ?? [];
@@ -232,7 +233,7 @@ export function UsageLedgers(props: {
         id="usage-days"
         heading="By day"
         column="Day"
-        footer={`${props.report?.days.length ?? 0} days`}
+        footer={`${dayCount()} ${plural(dayCount(), "day", "days")}`}
         total={props.report}
       >
         <For each={props.report?.days}>

@@ -3,6 +3,7 @@ import {
   Outlet,
   createFileRoute,
   useChildMatches,
+  useLoaderData,
   stripSearchParams,
   useRouter,
 } from "@tanstack/solid-router";
@@ -10,10 +11,11 @@ import { LABEL_KEY_PATTERN, problemOf, usageGroupBySchema } from "contract";
 import { For, Show, createSignal, createEffect } from "solid-js";
 import * as z from "zod/mini";
 
-import { HubReadError } from "../../../api-client.ts";
+import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText } from "../../../form.ts";
 import { UTC_MONTH, UTC_ISO_DATE, UTC_ISO_MONTH } from "../../../format.ts";
+import { canReadUsage } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
 import { groupings, usageGrouping } from "../../../usage-grouping.ts";
 
@@ -31,7 +33,6 @@ type UsageSearch = z.infer<typeof searchSchema>;
 export const Route = createFileRoute("/_signed-in/_member/usage")({
   validateSearch: searchSchema,
   search: { middlewares: [stripSearchParams(reportDefaults)] },
-  loaderDeps: ({ search }) => usageGrouping(search.groupBy),
   component: Usage,
 });
 
@@ -66,6 +67,7 @@ export function reportOptions({ range, groupBy }: UsageSearch) {
   if (range < UTC_ISO_MONTH.format(new Date())) return usage.queryOptions({ input });
   return usage.queryOptions({
     input,
+    // Future days have no figures yet. Resolve today at each read so an open tab follows UTC midnight.
     queryFn: ({ signal }) => {
       const now = new Date();
       return usage.call(
@@ -81,10 +83,15 @@ export function refusedReport(error: unknown): error is HubReadError {
 }
 
 function Usage() {
-  const context = Route.useRouteContext();
+  // The shell keeps its last completed session while a retry rebuilds route context.
+  const session = useLoaderData({ from: "/_signed-in" });
+  const readsUsage = () => {
+    const { membership } = session();
+    return membership.status === "member" && canReadUsage(membership.role);
+  };
   return (
     <Show
-      when={context().readsUsage}
+      when={readsUsage()}
       fallback={
         <>
           <div class="head">
@@ -124,7 +131,7 @@ function GrantedUsage() {
           <div class="head">
             <h1>Usage</h1>
           </div>
-          <Notice role="alert">{report.error?.message}</Notice>
+          <Notice role="alert">{hubFailureMessage(report.error)}</Notice>
         </>
       }
     >
@@ -144,9 +151,11 @@ function ReportForm(props: { readAt: number }) {
   const navigate = Route.useNavigate();
   const router = useRouter();
   const client = useQueryClient();
-  const grouping = Route.useLoaderDeps();
+  const grouping = () => usageGrouping(search().groupBy);
   const [selectedRange, setRange] = createSignal(() => search().range);
   const [group, setGroup] = createSignal<string>(() => grouping().by);
+  // Track each successful read so a tab left open into a new month refreshes its choices.
+  // A cached report may predate the month in which the form opens.
   const [monthAt, setMonthAt] = createSignal(() => Math.max(props.readAt, Date.now()));
   const months = () => {
     const now = new Date(monthAt());
@@ -188,6 +197,7 @@ function ReportForm(props: { readAt: number }) {
           <select
             id="usage-range"
             name="range"
+            // Range may still have focus when the month changes, so update on pointer and key use too.
             onFocus={() => setMonthAt(Date.now())}
             onPointerDown={() => setMonthAt(Date.now())}
             onKeyDown={() => setMonthAt(Date.now())}
