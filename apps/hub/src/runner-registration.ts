@@ -65,7 +65,7 @@ export function findRunnerByKey(keyId: ApikeyId) {
  * Better Auth's deleteApiKey call needs the session headers. The Runner's row goes
  * first, in one transaction with the work it held, so nothing leaves the Runner gone with its
  * jobs unended. Its key goes after, through Better Auth: the hub refuses a key whose Runner's row is
- * gone, so a key a failure leaves behind grants nothing, and retention's sweep removes it.
+ * gone, so a key a failure leaves behind grants no Runner access.
  * Returns the jobs the removal concerns. The caller drops the Runner's connection. Every way the hub
  * deletes a Runner's key comes here: Better Auth's own key routes are disabled for this reason.
  */

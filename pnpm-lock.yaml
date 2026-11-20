@@ -831,6 +831,9 @@ importers:
       atomically:
         specifier: 'catalog:'
         version: 2.1.1
+      better-auth:
+        specifier: 'catalog:'
+        version: 1.7.22(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.0(solid-js@2.0.0))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.2)(rollup@4.65.0)(solid-js@2.0.0)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.0)(vitest@5.1.0)
       contract:
         specifier: workspace:*
         version: link:../contract
