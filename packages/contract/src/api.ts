@@ -780,6 +780,9 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         [InvitationUnavailable.code]: InvitationUnavailable,
         UNAUTHORIZED: {},
         FORBIDDEN: {},
+        // Another registration can win the account insert after lookup. The claim rolls back
+        // and the invitation stays usable.
+        UNPROCESSABLE_CONTENT: {},
       })
       .meta(
         openapi({
