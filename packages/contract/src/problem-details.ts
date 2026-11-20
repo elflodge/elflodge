@@ -1,8 +1,12 @@
 import { COMMON_ERROR_STATUS_MAP, ORPCError, onError, type ClientContext } from "@orpc/client";
-import { getProcedureContractOrThrow, type RouterContract } from "@orpc/contract";
+import { getProcedureContractOrThrow, type SchemaIssue, type RouterContract } from "@orpc/contract";
 import { ResponseValidationLinkPlugin } from "@orpc/contract/plugins";
-import { decodeJsonPointerSegment, SmartCoercionLinkPlugin } from "@orpc/json-schema";
-import { getDynamicPathParams, getOpenAPIMeta } from "@orpc/openapi";
+import {
+  decodeJsonPointerSegment,
+  encodeJsonPointerSegment,
+  SmartCoercionLinkPlugin,
+} from "@orpc/json-schema";
+import { getDynamicPathParams, getOpenAPIMeta, type OpenAPIMeta } from "@orpc/openapi";
 import { OpenAPILink, type OpenAPILinkOptions } from "@orpc/openapi/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parse as parseContentType } from "content-type";
@@ -41,6 +45,69 @@ const requestProblem = z.union([
   issueDetail,
 ]);
 export type RequestProblem = z.infer<typeof requestProblem>;
+
+/** Locate validation issues in the request as it went over HTTP. */
+export function requestProblemsFromIssues(
+  route: OpenAPIMeta,
+  issues: readonly SchemaIssue[],
+): RequestProblem[] {
+  const params = route.path && getDynamicPathParams(route.path);
+  const bodyless = route.method === "GET" || route.method === "HEAD";
+  return issues.map(({ message: detail, path }): RequestProblem => {
+    if (!path) return { detail };
+    const tokens = path.map((segment) => (typeof segment === "object" ? segment.key : segment));
+    if (tokens.some((token) => typeof token === "symbol")) return { detail };
+    const [first, second] = tokens;
+    if (route.inputStructure === "detailed") {
+      if (first === "headers" && typeof second === "string") return { detail, header: second };
+      if ((first === "params" || first === "query") && typeof second === "string")
+        return { detail, parameter: second };
+      if (first !== "body") return { detail };
+      tokens.shift();
+    } else {
+      if (
+        typeof first === "string" &&
+        (bodyless || params?.some(({ parameterName }) => parameterName === first))
+      )
+        return { detail, parameter: first };
+      if (bodyless) return { detail };
+    }
+    if (route.requestBodyHint === "octet-stream") return { detail };
+    return {
+      detail,
+      pointer: tokens.map((token) => "/" + encodeJsonPointerSegment(String(token))).join(""),
+    };
+  });
+}
+
+/** Restore the procedure input paths that oRPC's form helpers match. */
+function issuesFromRequestProblems(
+  route: OpenAPIMeta | undefined,
+  entries: RequestProblem[],
+): SchemaIssue[] {
+  const detailed = route?.inputStructure === "detailed";
+  return entries.map((entry) => {
+    const message = entry.detail;
+    if (entry.pointer !== undefined) {
+      const segments = entry.pointer.split("/").slice(1).map(decodeJsonPointerSegment);
+      return { message, path: detailed ? ["body", ...segments] : segments };
+    }
+    if (entry.parameter !== undefined) {
+      const name = entry.parameter;
+      if (!detailed) return { message, path: [name] };
+      const params = route.path && getDynamicPathParams(route.path);
+      return {
+        message,
+        path: [
+          params?.some(({ parameterName }) => parameterName === name) ? "params" : "query",
+          name,
+        ],
+      };
+    }
+    if (entry.header !== undefined && detailed) return { message, path: ["headers", entry.header] };
+    return { message };
+  });
+}
 
 /** An error as the API answers it: a Problem Details document, which RFC 9457 lets carry more members. */
 export const problemDetailsSchema = z
@@ -147,30 +214,7 @@ export function createProblemDetailsLink<T extends ClientContext>(
         const entries = problemOf(error)?.errors;
         if (!entries) return;
         const route = getOpenAPIMeta(getProcedureContractOrThrow(contract, path));
-        const detailed = route?.inputStructure === "detailed";
-        const issues = entries.map((entry) => {
-          const message = entry.detail;
-          if (entry.pointer !== undefined) {
-            const segments = entry.pointer.split("/").slice(1).map(decodeJsonPointerSegment);
-            return { message, path: detailed ? ["body", ...segments] : segments };
-          }
-          if (entry.parameter !== undefined) {
-            const name = entry.parameter;
-            if (!detailed) return { message, path: [name] };
-            const params = route.path && getDynamicPathParams(route.path);
-            return {
-              message,
-              path: [
-                params?.some(({ parameterName }) => parameterName === name) ? "params" : "query",
-                name,
-              ],
-            };
-          }
-          if (entry.header !== undefined && detailed)
-            return { message, path: ["headers", entry.header] };
-          return { message };
-        });
-        error.data = { issues };
+        error.data = { issues: issuesFromRequestProblems(route, entries) };
       }),
     ],
     plugins: [

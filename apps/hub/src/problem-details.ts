@@ -1,4 +1,4 @@
-import { getOpenAPIMeta, getDynamicPathParams } from "@orpc/openapi";
+import { getOpenAPIMeta } from "@orpc/openapi";
 import {
   DEFAULT_ERROR_STATUS,
   onError,
@@ -8,8 +8,12 @@ import {
 } from "@orpc/server";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn } from "@orpc/shared";
-import { errorStatusMap, type ProblemDetails, type RequestProblem } from "contract";
-import * as JsonPointer from "effect/JsonPointer";
+import {
+  errorStatusMap,
+  requestProblemsFromIssues,
+  type ProblemDetails,
+  type RequestProblem,
+} from "contract";
 import { problemDetails } from "hono-problem-details";
 import { prettifyError } from "zod/mini";
 
@@ -35,32 +39,7 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = onError
           : undefined;
     const route = getOpenAPIMeta(options.procedure);
     if (!issues || !route?.path) return;
-    const params = getDynamicPathParams(route.path);
-    const bodyless = route.method === "GET" || route.method === "HEAD";
-    const entries = issues.map(({ message: detail, path }): RequestProblem => {
-      if (!path) return { detail };
-      const tokens = path.map((segment) => (typeof segment === "object" ? segment.key : segment));
-      if (tokens.some((token) => typeof token === "symbol")) return { detail };
-      const [first, second] = tokens;
-      if (route.inputStructure === "detailed") {
-        if (first === "headers" && typeof second === "string") return { detail, header: second };
-        if ((first === "params" || first === "query") && typeof second === "string")
-          return { detail, parameter: second };
-        if (first !== "body") return { detail };
-        tokens.shift();
-      } else {
-        if (
-          typeof first === "string" &&
-          (bodyless || params?.some(({ parameterName }) => parameterName === first))
-        )
-          return { detail, parameter: first };
-        if (bodyless || (!tokens.length && params?.length)) return { detail };
-      }
-      return {
-        detail,
-        pointer: tokens.map((token) => "/" + JsonPointer.escapeToken(String(token))).join(""),
-      };
-    });
+    const entries = requestProblemsFromIssues(route, issues);
     if (entries.some((entry) => "pointer" in entry || "parameter" in entry || "header" in entry))
       error.data = { errors: entries };
   },

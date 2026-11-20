@@ -50,6 +50,12 @@ async function post(path: string, body: unknown) {
   });
 }
 
+test("an unknown member of a job add points to the whole JSON body", async () => {
+  const response = await post("/batches/example/jobs", { jobs: [jobNamed("a")], unexpected: true });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ errors: [{ pointer: "" }] });
+});
+
 test("a Batch refuses NUL in an Output contract's schema", async () => {
   for (const schema of [{ description: "a\0b" }, { properties: { "a\0b": {} } }]) {
     const response = await post("/batches", { agent: { outputContract: { schema } } });
