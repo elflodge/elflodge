@@ -16,7 +16,7 @@ On Workers, set them in `wrangler.jsonc` and as Wrangler secrets; for `wrangler 
 - `JOB_RUN_TIMEOUT_SECONDS_DEFAULT` and `JOB_RUN_TIMEOUT_SECONDS_MAX`: the default and maximum timeout for each run, in seconds; 1800 and 86400 by default.
 - `JOB_MODEL_BUDGET_USD_DEFAULT` and `JOB_MODEL_BUDGET_USD_MAX`: the default and maximum total model budget for each job, in US dollars; 1 and 10 by default.
 
-At startup, the hub refuses a default above its maximum. Members and API keys with `job:read` can read the current settings at `GET /jobs/limits`. The API descriptions in `/spec.json` explain how Batch creation, adding jobs and job resume use these limits.
+The hub refuses a default above its maximum as it refuses a missing required setting. Members and API keys with `job:read` can read the current settings at `GET /jobs/limits`. The API descriptions in `/spec.json` explain how Batch creation, adding jobs and job resume use these limits.
 
 In Docker, also:
 

@@ -1301,9 +1301,9 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       // Organization's counts, which would read as the Batch's (ADR 0010).
       .input(noQueryParametersSchema)
       .output(jobCountsSchema),
-    // A general settings document would hold only these limits. Nothing else callers need varies by
-    // deployment. A submit form needs them before it has a Batch or job, and putting them on either
-    // would mix policy with stored values. Like other job reads, this takes job:read. A key needs
+    // Their own read rather than a general settings document: a submit form needs these limits before
+    // it has a Batch or job, and no other deployment setting shapes what it may send. Putting them on
+    // either would mix policy with stored values. Like other job reads, this takes job:read. A key needs
     // every permission a call lists, so accepting either job:create or job:resume would require a
     // different check. We can grant those keys access later.
     limits: forMembers
