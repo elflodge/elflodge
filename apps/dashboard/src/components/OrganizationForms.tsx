@@ -58,13 +58,7 @@ function FormDialog(props: {
       <Show
         when={props.answered}
         fallback={
-          <form
-            onSubmit={async (event) => {
-              await onSubmit(event);
-              if (dialog.open)
-                dialog.querySelector<HTMLInputElement>('input[aria-invalid="true"]')?.focus();
-            }}
-          >
+          <form onSubmit={onSubmit}>
             <fieldset class="dialog-b" disabled={pending()}>
               {props.children}
               <p role="status" class={pending() ? "note" : "vh"}>

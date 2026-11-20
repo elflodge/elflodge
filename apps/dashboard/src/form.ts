@@ -24,14 +24,21 @@ export function createFormAction(submit: (form: HTMLFormElement) => Promise<void
   async function onSubmit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
     if (pending()) return;
-    const { submitter, currentTarget } = event;
-    const restoreFocus = submitter === document.activeElement;
+    const { currentTarget } = event;
+    const focused = document.activeElement;
     try {
       await run(currentTarget);
     } finally {
-      // Disabling the focused button sends focus to the body. If the member or the form has
-      // since focused another control (such as a refused field), keep that position.
-      if (restoreFocus) focusIfLost(submitter);
+      const refused = currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]');
+      if (refused) refused.focus();
+      // Enter can submit from a field that is disabled along with the submit button.
+      else if (
+        focused instanceof HTMLElement &&
+        "form" in focused &&
+        focused.form === currentTarget
+      ) {
+        focusIfLost(focused);
+      }
     }
   }
   return { pending, onSubmit };
