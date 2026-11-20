@@ -8,10 +8,11 @@ import {
 } from "@orpc/json-schema";
 import { getDynamicPathParams, getOpenAPIMeta, type OpenAPIMeta } from "@orpc/openapi";
 import { OpenAPILink, type OpenAPILinkOptions } from "@orpc/openapi/fetch";
-import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { parse as parseContentType } from "content-type";
 import statuses from "statuses";
 import * as z from "zod/mini";
+
+import { contractSchemaConverter } from "./json-schema.ts";
 
 // The API's errors as RFC 9457 Problem Details (ADR 0023), as clients read them back into oRPC's
 // errors; the hub produces them.
@@ -220,7 +221,7 @@ export function createProblemDetailsLink<T extends ClientContext>(
       ...(options.plugins ?? []),
       new ResponseValidationLinkPlugin(contract),
       // oRPC's Zod converter is what describes a date as one; Zod's own JSON Schema has no dates.
-      new SmartCoercionLinkPlugin(contract, { converters: [new ZodToJsonSchemaConverter()] }),
+      new SmartCoercionLinkPlugin(contract, { converters: [contractSchemaConverter] }),
     ],
   });
 }

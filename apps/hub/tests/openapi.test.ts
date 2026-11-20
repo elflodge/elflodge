@@ -1,9 +1,12 @@
+import { createORPCClient } from "@orpc/client";
 import { resolveJsonSchemaLocalPointer, type JsonSchema } from "@orpc/json-schema";
 import type { OpenAPIV3_2 } from "@orpc/openapi";
+import { walkProcedureContractsAsync } from "@orpc/server";
+import { apiContract, contractSchemaConverter, createProblemDetailsLink } from "contract";
 import { compileSchema } from "json-schema-library";
 import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
-import { startSystem } from "./harness.ts";
+import { type ApiClient, startSystem } from "./harness.ts";
 
 // The hub's OpenAPI document, as callers in other languages read it.
 
@@ -196,4 +199,62 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       }
     }
   }
+});
+
+test("the client reads every public procedure's output objects open to added members", async () => {
+  await walkProcedureContractsAsync(apiContract, (procedure, path) => {
+    for (const schema of procedure["~orpc"].outputSchemas ?? []) {
+      const [output] = contractSchemaConverter.convert(schema, "output");
+      for (const node of compileSchema(output).toSchemaNodes()) {
+        expect(
+          node.schema.additionalProperties,
+          `${path.join(".")} ${node.schemaLocation}`,
+        ).not.toBe(false);
+      }
+    }
+  });
+});
+
+/** Read the JSON a newer hub would send through the CLI and dashboard's validating link. */
+function clientReading(answer: unknown): ApiClient {
+  return createORPCClient(
+    createProblemDetailsLink(apiContract, {
+      origin: system.url().origin,
+      fetch: async () => Response.json(answer),
+    }),
+  );
+}
+
+test("the client converts dates when job, list, Batch and Events answers gain members", async () => {
+  const owner = system.owner();
+  const batch = await owner.batches.create({
+    agent: { outputContract: { schema: { type: "integer" } } },
+  });
+  const added = await owner.batches.addJobs({
+    id: batch.id,
+    jobs: [{ customId: "one", input: "Count." }],
+  });
+  const { job } = added.jobs[0];
+  const id = { id: job.id };
+  const page = await owner.jobs.list({ batchId: batch.id });
+  const events = await owner.jobs.events(id);
+  const extra = { addedLater: true };
+
+  await expect(
+    clientReading({ ...batch, ...extra, jobCounts: { ...batch.jobCounts, ...extra } }).batches.get({
+      id: batch.id,
+    }),
+  ).resolves.toMatchObject(batch);
+  const futureJob = { ...job, ...extra, usage: { ...job.usage, ...extra } };
+  await expect(clientReading(futureJob).jobs.get(id)).resolves.toMatchObject(job);
+  await expect(
+    clientReading({
+      ...page,
+      ...extra,
+      jobs: page.jobs.map((listed) => ({ ...listed, ...extra })),
+    }).jobs.list({}),
+  ).resolves.toMatchObject(page);
+  await expect(
+    clientReading({ ...events, ...extra, job: futureJob }).jobs.events(id),
+  ).resolves.toMatchObject(events);
 });

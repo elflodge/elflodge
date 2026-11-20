@@ -4,6 +4,8 @@ The job API is an oRPC contract in a shared `contract` package, with schemas in 
 
 The package exports two contracts. `apiContract` is the public API, for people and their programs: the CLI, the OpenAPI document and the TypeScript client derive from it, under the public API's compatibility. `runnerHttpContract` holds the two HTTP calls only a Runner makes, registering and downloading its jobs' Input files; they belong to the Runner protocol and its version (ADR 0026), so the public tools leave them out. The hub implements both, composed into one router; every procedure declares its own path, so the composition changes no route. Which tool sees which call is decided by which contract holds it, not inferred from a call's permissions.
 
+The hub can add a member to any response object. Clients read these objects open, including objects nested in a list or a union. The client link and the OpenAPI document share the contract's JSON Schema converter so an unfamiliar member still lets oRPC select the right union branch and convert its dates before validation. The contract tests walk every public procedure's output schemas for closed objects and read Job, ListedJob, Batch and Events answers with added members through the client. Removing or retyping an existing member, or adding a value to a closed enum, can break an existing client.
+
 We start on the newest major line of each dependency even before it is stable, pinning exact versions while pre-release: oRPC 2 changed its wire format, so clients on version 1 could not talk to a version 2 hub, and starting on the line going forward avoids a coordinated migration later.
 
 ## Considered options
