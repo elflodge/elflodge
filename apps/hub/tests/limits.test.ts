@@ -11,7 +11,9 @@ import { callTool, untilAborted } from "./scripted-model.ts";
 
 const system = startSystem({
   hubVars: {
+    JOB_RUN_TIMEOUT_SECONDS_DEFAULT: "600",
     JOB_RUN_TIMEOUT_SECONDS_MAX: "3600",
+    JOB_MODEL_BUDGET_USD_DEFAULT: "0.75",
     JOB_MODEL_BUDGET_USD_MAX: "5",
   },
 });
@@ -28,18 +30,34 @@ const SUBMISSION = {
   outputContract: { schema: { type: "integer" } },
 } satisfies OneJob;
 
-test("a job without limits gets the hub's defaults, and one above its maximums is refused", async () => {
+test("the hub applies the defaults and accepts limits up to the maxima it reports", async () => {
   const client = await system.clientWithNewJobsKey();
+  const { runTimeoutSeconds, modelBudgetUsd } = await client.jobs.limits({});
+  expect(runTimeoutSeconds).toEqual({ default: 600, max: 3600 });
+  expect(modelBudgetUsd).toEqual({ default: 0.75, max: 5 });
   system.model.setResponses([callTool("submit_output", { value: 1_000_000 })]);
   const job = await submitJob(client, SUBMISSION);
-  expect(job).toMatchObject({ runTimeoutSeconds: 30 * 60, modelBudgetUsd: 1 });
+  expect(job).toMatchObject({
+    runTimeoutSeconds: runTimeoutSeconds.default,
+    modelBudgetUsd: modelBudgetUsd.default,
+  });
   // Its model call is made before the next test gives the model other responses.
   await untilStatus(client, job.id, "succeeded");
+  const agent = {
+    outputContract: SUBMISSION.outputContract,
+    runTimeoutSeconds: runTimeoutSeconds.max,
+    modelBudgetUsd: modelBudgetUsd.max,
+  };
+  await client.batches.create({ agent });
   await expect(
-    submitJob(client, { ...SUBMISSION, runTimeoutSeconds: 2 * 60 * 60 }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(submitJob(client, { ...SUBMISSION, modelBudgetUsd: 5.01 })).rejects.toMatchObject({
-    code: "BAD_REQUEST",
+    client.batches.create({ agent: { ...agent, runTimeoutSeconds: runTimeoutSeconds.max + 1 } }),
+  ).rejects.toMatchObject({
+    cause: { status: 400, detail: expect.stringContaining("runTimeoutSeconds") },
+  });
+  await expect(
+    client.batches.create({ agent: { ...agent, modelBudgetUsd: modelBudgetUsd.max + 0.01 } }),
+  ).rejects.toMatchObject({
+    cause: { status: 400, detail: expect.stringContaining("modelBudgetUsd") },
   });
 });
 
@@ -67,7 +85,11 @@ test("a job whose run passes its timeout fails, and a resume with a longer one c
 test("a resume repeating a running job's limits returns it, and one changing them is refused", async () => {
   const client = await system.clientWithNewJobsKey();
   system.model.setResponses([untilAborted]);
-  const { id } = await submitJob(client, { ...SUBMISSION, runTimeoutSeconds: 600 });
+  const { id } = await submitJob(client, {
+    ...SUBMISSION,
+    runTimeoutSeconds: 600,
+    modelBudgetUsd: 1,
+  });
   expect(await client.jobs.resume({ id, runTimeoutSeconds: 600, modelBudgetUsd: 1 })).toMatchObject(
     { runTimeoutSeconds: 600, modelBudgetUsd: 1 },
   );
