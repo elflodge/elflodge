@@ -131,6 +131,9 @@ function RoleChoices(props: {
 
 type DialogProps = { close: () => void; report: (message: string) => void };
 
+const INVITE_ROLE_REFUSED =
+  "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE" satisfies keyof typeof authClient.$ERROR_CODES;
+
 export function InvitationAddressNote() {
   return (
     <Show when={isLoopback(window.location.hostname)}>
@@ -151,7 +154,7 @@ export function InviteMember(
   },
 ) {
   const [role, setRole] = createSignal<MemberRole>("member");
-  const [emailError, setEmailError] = createSignal<string>();
+  const [emailError, setEmailError] = createSignal<JSX.Element>();
   const [created, setCreated] = createSignal<{
     link: URL;
     email: string;
@@ -177,20 +180,29 @@ export function InviteMember(
       });
       props.refresh();
     } catch (error) {
-      if (
-        error instanceof BetterFetchError &&
-        error.error?.code === "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION"
-      ) {
-        const message = `${email} is already a member.`;
-        if (!emailField.isConnected) return message;
-        if (emailField.value === email) setEmailError(email);
-      } else {
-        if (
-          error instanceof BetterFetchError &&
-          ([401, 403].includes(error.status) || error.error?.code === "MEMBER_NOT_FOUND")
-        )
-          await props.refreshSession();
-        throw error;
+      if (!(error instanceof BetterFetchError)) throw error;
+      const code = error.error?.code;
+      if ([401, 403].includes(error.status) || code === "MEMBER_NOT_FOUND")
+        await props.refreshSession();
+
+      const alreadyMember = code === "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION";
+      // For a Member or Admin grant, this refusal refers to the invitation already at the address.
+      const ownerInvitation =
+        error.status === 403 && code === INVITE_ROLE_REFUSED && grant !== "owner";
+      if (!alreadyMember && !ownerInvitation) throw error;
+      const ownerMessage = "This address has an invitation only an owner can replace.";
+      if (!emailField.isConnected)
+        return alreadyMember ? `${email} is already a member.` : ownerMessage;
+      if (emailField.value === email) {
+        setEmailError(
+          alreadyMember ? (
+            <>
+              <span class="mono">{email}</span> is already a member.
+            </>
+          ) : (
+            ownerMessage
+          ),
+        );
       }
     }
     return undefined;
@@ -240,8 +252,8 @@ export function InviteMember(
       }
     >
       <p class="note">
-        The hub sends no email. You get a link to send them yourself. Inviting an address again
-        replaces its earlier invitation.
+        The hub sends no email. You get a link to send them yourself. To replace an earlier
+        invitation, invite the address again. Only an owner can replace a live owner invitation.
       </p>
       <div class="field">
         <label for="invite-email">Email</label>
@@ -258,11 +270,7 @@ export function InviteMember(
           onInput={() => setEmailError(undefined)}
         />
         <Show when={emailError()}>
-          {(email) => (
-            <FieldError id="invite-email-error">
-              <span class="mono">{email()}</span> is already a member.
-            </FieldError>
-          )}
+          {(message) => <FieldError id="invite-email-error">{message()}</FieldError>}
         </Show>
       </div>
       <RoleChoices owner={props.owner} value={role()} choose={setRole} />

@@ -70,6 +70,36 @@ test("an owner can copy a link that lets its recipient join with the chosen role
     .invitations.accept({ invitationId, name: "Lucia", password: "an invited person's password" });
 }, 30_000);
 
+test("the email field explains why an admin cannot replace an owner invitation", async () => {
+  const email = "mara@example.com";
+  const invitation = await system.ownerAuth().organization.inviteMember({
+    organizationId,
+    email,
+    role: "owner",
+  });
+  const adminEmail = "sam@example.com";
+  await addAdmin("Sam", adminEmail);
+  const page = await openOrganization({
+    email: adminEmail,
+    password: "a member's own long password",
+  });
+  await page.getByRole("button", { name: "Invite a member" }).click();
+  const dialog = page.getByRole("dialog");
+  const field = dialog.getByLabel("Email");
+  await field.fill(email);
+  await dialog.getByRole("radio", { name: /^Member/ }).check();
+  await dialog.getByRole("button", { name: "Create invitation" }).click();
+  await expectBrowser(field).toHaveAccessibleDescription(
+    "This address has an invitation only an owner can replace.",
+  );
+  await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
+  await expectBrowser(field).toHaveValue(email);
+  await expectBrowser(field).toBeFocused();
+  expect(await system.owner().invitations.list()).toContainEqual(
+    expect.objectContaining({ id: invitation.id, email, role: "owner" }),
+  );
+}, 30_000);
+
 test("removing a member counts their active keys and invitations and keeps their keys identifiable", async () => {
   const admin = await addAdmin("Mei Tanaka", "mei@example.com");
   await admin.client.apiKeys.create({ name: "Importer", permissions: { job: ["read"] } });
