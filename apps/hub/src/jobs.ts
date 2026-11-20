@@ -164,6 +164,7 @@ function toApiJob(
   return withOutcome({ ...rest, ...summary }, { status, output, failureReason, failureMessage });
 }
 
+/** Whether any job of the Batch `batchUid`'s Canary is unfinished. */
 export function hasUnfinishedCanary(batchUid: Expression<BatchUid>) {
   const eb = expressionBuilder<Database>();
   return eb.exists(
@@ -182,7 +183,14 @@ interface JobForBlock {
   inCanary: Expression<JobRow["inCanary"]>;
 }
 
-/** A pause changes one Batch row. Job reads, Batch counts and placement derive its effect here. */
+/**
+ * What keeps the job from being sent to a Runner, or null, given its Batch's pause and whether any
+ * job of its Batch's Canary is unfinished: only a queued job not yet sent to one is blocked, by its
+ * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
+ * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
+ * a Batch is one write; placement sends only the jobs this finds nothing for, and a Batch's counts
+ * by reason use the same rule.
+ */
 export function blockedByFrom(
   job: JobForBlock,
   batch: {

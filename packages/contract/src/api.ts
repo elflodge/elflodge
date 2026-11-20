@@ -96,6 +96,7 @@ export const jobStatusSchema = z.enum([
 ]);
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 
+/** What keeps a queued job from being sent to a Runner (`Job["blockedBy"]`). */
 export const blockedBySchema = z.enum([
   "batchPausedByCaller",
   "batchPausedByBreaker",
@@ -442,13 +443,13 @@ export const batchSchema = z
      * How many of its jobs show each `blockedBy` reason. Each is also counted in
      * `jobCounts.queued`. New reasons may be added.
      */
-    blockedJobCounts: z.object(
-      // fromEntries widens the keys to string. Check the shape once so the inferred Batch type
-      // requires every reason and the object parser drops reasons added by a newer hub.
-      z
-        .record(blockedBySchema, z.instanceof(z.ZodMiniNumberFormat))
-        .parse(Object.fromEntries(blockedBySchema.options.map((reason) => [reason, z.int()]))),
-    ),
+    // An object, not a record keyed by the enum, so an older client drops a reason a newer hub
+    // adds instead of refusing the Batch; `satisfies` keeps a key for every reason.
+    blockedJobCounts: z.object({
+      batchPausedByCaller: z.int(),
+      batchPausedByBreaker: z.int(),
+      batchCanary: z.int(),
+    } satisfies Record<z.infer<typeof blockedBySchema>, unknown>),
     /**
      * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
      * recorded status.
