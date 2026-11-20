@@ -1,19 +1,15 @@
-import {
-  blockedBySchema,
-  failureSchema,
-  statusUnknownReasonSchema,
-  type BlockedBy,
-  type OpenBlockedBy,
-  type Failure,
-  type Job,
-  type JobStatus as Status,
-  type ListedJob,
-  type OpenFailure,
-  type OpenStatusUnknownReason,
-  type StatusUnknownReason,
+import type {
+  BlockedBy,
+  OpenBlockedBy,
+  Failure,
+  Job,
+  JobStatus as Status,
+  ListedJob,
+  OpenFailure,
+  OpenStatusUnknownReason,
+  StatusUnknownReason,
 } from "contract";
 import { Show } from "solid-js";
-import type { ZodMiniType } from "zod/mini";
 
 import { FULL, TIME_SECONDS } from "../format.ts";
 import { Instant } from "./Instant.tsx";
@@ -28,25 +24,27 @@ export const STATUS_WORDS: Record<Status, string> = {
   cancelled: "Cancelled",
 };
 
-const BLOCKED_WORDS = {
-  batchPausedByCaller: "Blocked: Batch paused",
-  batchPausedByBreaker: "Blocked: failure breaker",
-  batchCanary: "Waiting for Canary",
-} satisfies Record<BlockedBy, string>;
+const BLOCKED_WORDS = new Map(
+  Object.entries({
+    batchPausedByCaller: "Blocked: Batch paused",
+    batchPausedByBreaker: "Blocked: failure breaker",
+    batchCanary: "Waiting for Canary",
+  } satisfies Record<BlockedBy, string>),
+);
 
-const UNKNOWN_WORDS = {
-  runnerDisconnected: { short: "Runner not connected", detail: "its Runner is not connected" },
-  notReported: { short: "not reported", detail: "its Runner has not reported it" },
-} satisfies Record<StatusUnknownReason, { short: string; detail: string }>;
+const UNKNOWN_WORDS = new Map(
+  Object.entries({
+    runnerDisconnected: { short: "Runner not connected", detail: "its Runner is not connected" },
+    notReported: { short: "not reported", detail: "its Runner has not reported it" },
+  } satisfies Record<StatusUnknownReason, { short: string; detail: string }>),
+);
 
 function statusUnknownWords(reason: OpenStatusUnknownReason, form: "short" | "detail") {
-  return (
-    knownWords(statusUnknownReasonSchema, reason, UNKNOWN_WORDS)?.[form] ?? unknownWord(reason)
-  );
+  return UNKNOWN_WORDS.get(reason)?.[form] ?? unknownWord(reason);
 }
 
 function blockedWords(reason: OpenBlockedBy) {
-  return knownWords(blockedBySchema, reason, BLOCKED_WORDS) ?? `Blocked: ${unknownWord(reason)}`;
+  return BLOCKED_WORDS.get(reason) ?? `Blocked: ${unknownWord(reason)}`;
 }
 
 const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> = {
@@ -72,24 +70,17 @@ export function JobStatus(props: { status: Status; lastRecorded: boolean }) {
   );
 }
 
-const FAILURE_WORDS = {
-  modelFailed: "Generating the next step failed.",
-  noOutput: "its agent ended without an accepted Output",
-  runTimedOut: "a run went past its run timeout",
-  modelBudgetExceeded: "its model calls’ cost reached its model budget",
-  runFaulted: "its run broke on its Runner",
-  runnerRemoved: "its Runner was removed before it ended",
-  journalLost: "its Runner’s journal of it was lost",
-} satisfies Record<Failure["reason"], string>;
-
-function knownWords<K extends string, T>(
-  schema: ZodMiniType<K>,
-  reason: string,
-  words: Record<K, T>,
-) {
-  const parsed = schema.safeParse(reason);
-  return parsed.success ? words[parsed.data] : undefined;
-}
+export const FAILURE_WORDS = new Map(
+  Object.entries({
+    modelFailed: "Generating the next step failed.",
+    noOutput: "its agent ended without an accepted Output",
+    runTimedOut: "a run went past its run timeout",
+    modelBudgetExceeded: "its model calls’ cost reached its model budget",
+    runFaulted: "its run broke on its Runner",
+    runnerRemoved: "its Runner was removed before it ended",
+    journalLost: "its Runner’s journal of it was lost",
+  } satisfies Record<Failure["reason"], string>),
+);
 
 const UNKNOWN_TO_DASHBOARD = "(unknown to this dashboard version)";
 
@@ -97,17 +88,16 @@ export function unknownWord(value: string) {
   return `${JSON.stringify(value)} ${UNKNOWN_TO_DASHBOARD}`;
 }
 
-export function FailureReason(props: { reason: OpenFailure["reason"]; separator?: string }) {
-  const words = () => knownWords(failureSchema.shape.reason, props.reason, FAILURE_WORDS);
+export function FailureReason(props: { reason: OpenFailure["reason"] }) {
+  const known = () => FAILURE_WORDS.has(props.reason);
   return (
-    <span>
-      <code class="failure-reason">
-        {words() === undefined ? JSON.stringify(props.reason) : props.reason}
-      </code>
-      <Show when={words()} fallback={` ${UNKNOWN_TO_DASHBOARD}`}>
-        {(known) => props.separator && props.separator + known()}
+    <>
+      <code class="failure-reason">{known() ? props.reason : JSON.stringify(props.reason)}</code>
+      <Show when={!known()}>
+        {" "}
+        <span>{UNKNOWN_TO_DASHBOARD}</span>
       </Show>
-    </span>
+    </>
   );
 }
 
@@ -174,10 +164,12 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
       <Show when={props.job.status === "failed" ? props.job.failure : undefined}>
         {(failure) => (
           <span class="beside">
-            <FailureReason
-              reason={failure().reason}
-              separator={props.detailed ? ": " : undefined}
-            />
+            <span>
+              <FailureReason reason={failure().reason} />
+              <Show when={props.detailed && FAILURE_WORDS.get(failure().reason)}>
+                {(words) => <>: {words()}</>}
+              </Show>
+            </span>
           </span>
         )}
       </Show>

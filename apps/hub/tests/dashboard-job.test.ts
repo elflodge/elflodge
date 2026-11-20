@@ -642,7 +642,8 @@ test("a member can read a failure reason added by a newer hub on the job and its
       },
     },
   ]);
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 320, height: 780 } });
+  const reason = "providerUnavailableAfterExhaustingAllConfiguredRecoveryAttempts";
   onTestFinished(() => page.close());
   // Serve the seeded job and journal as a hub with one more failure reason would.
   await page.route(
@@ -656,32 +657,40 @@ test("a member can read a failure reason added by a newer hub on the job and its
       });
       const json = await response.json();
       if (pathname.endsWith("/events")) {
-        if (json.job) json.job.failure.reason = "providerUnavailable";
+        if (json.job) json.job.failure.reason = reason;
         for (const event of json.events) {
-          if (event.record.kind === JOB_FAILED) event.record.data.reason = "providerUnavailable";
+          if (event.record.kind === JOB_FAILED) event.record.data.reason = reason;
         }
       } else {
-        json.failure.reason = "providerUnavailable";
+        json.failure.reason = reason;
       }
       await route.fulfill({ response, json });
     },
   );
   await signInAt(system, page, `jobs/${id}`, await newMember(system, "Failure reader"));
-  const words = '"providerUnavailable" (unknown to this dashboard version)';
+  const quoted = JSON.stringify(reason);
+  const words = `${quoted} (unknown to this dashboard version)`;
   const beside = page.locator(".beside").filter({ hasText: words });
-  await expectBrowser(beside.locator("code")).toHaveText('"providerUnavailable"');
+  await expectBrowser(beside.locator("code")).toHaveText(quoted);
   await expectBrowser(beside).toBeVisible();
   const event = page.getByRole("listitem").filter({ has: page.locator("#event-11") });
   const full = event.locator(".ev-body");
   await expectBrowser(full).toBeVisible();
   await expectBrowser(full).toContainText(words);
+  const fullReason = full.locator("code.failure-reason");
+  await full.scrollIntoViewIfNeeded();
+  await expectBrowser(fullReason).toHaveText(quoted);
+  await expectBrowser(fullReason).toBeInViewport({ ratio: 1 });
   await expectBrowser(
-    full.locator("code").filter({ hasText: '"providerUnavailable"' }),
-  ).toBeVisible();
+    full.getByText("(unknown to this dashboard version)", { exact: true }),
+  ).toBeInViewport({ ratio: 1 });
   await expectBrowser(full).toContainText("Provider unavailable.");
   await page.getByText("One line each", { exact: true }).click();
   const summary = event.locator(".ev-line");
   await expectBrowser(summary).toBeVisible();
-  await expectBrowser(summary).toContainText(words);
-  await expectBrowser(summary.locator("code")).toHaveText('"providerUnavailable"');
+  await summary.scrollIntoViewIfNeeded();
+  await expectBrowser(summary.getByText("Unknown failure reason", { exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await expectBrowser(summary.locator("[title]")).toHaveAttribute("title", words);
 }, 30_000);

@@ -1072,6 +1072,7 @@ p mark.placeholder {
 }
 /* Why a job failed, as the hub names it. */
 .failure-reason {
+  overflow-wrap: anywhere;
   color: var(--c-failed);
 }
 

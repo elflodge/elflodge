@@ -133,7 +133,7 @@ function openEnum<E extends Record<string, string>, B extends string>(
 
 const openBlockedBySchema = openEnum(blockedBySchema, "UnknownBlockedBy").check(
   z.describe(
-    "What blocks a queued job. `batchPausedByCaller` means a caller paused its Batch, `batchPausedByBreaker` means the failure breaker paused its Batch, and `batchCanary` means its Batch’s Canary is still running. New values may be added. Show an unfamiliar value as unknown to this client version.",
+    "What blocks a queued job. `batchPausedByCaller` means a caller paused its Batch. `batchPausedByBreaker` means the failure breaker paused its Batch. `batchCanary` means at least one job in its Batch's Canary has not finished. New values may be added. Show an unfamiliar value as unknown to this client version.",
   ),
 );
 export type OpenBlockedBy = z.infer<typeof openBlockedBySchema>;
@@ -143,7 +143,7 @@ const openStatusUnknownReasonSchema = openEnum(
   "UnknownStatusUnknownReason",
 ).check(
   z.describe(
-    "Why the hub cannot confirm the job's status. With `runnerDisconnected`, the hub has not heard from its Runner. With `notReported`, the hub has heard from the Runner but the Runner has not reported this job. New reasons may be added. Show an unfamiliar reason as unknown to this client version.",
+    "Why the hub cannot confirm the job's status. With `runnerDisconnected`, the hub has had no contact with the Runner for two minutes. With `notReported`, the Runner is in contact but has not reported this job for two minutes. New reasons may be added. Show an unfamiliar reason as unknown to this client version.",
   ),
 );
 export type OpenStatusUnknownReason = z.infer<typeof openStatusUnknownReasonSchema>;
@@ -270,10 +270,10 @@ const jobBaseSchema = z.object({
   /** The job's labels, its Batch's included. Absent once the job is deleted, as its content is. */
   labels: z.optional(labelsSchema),
   /**
-   * What keeps a queued job from being sent to a Runner, to start or to carry on after a resume,
-   * present only while something does: its Batch paused by a caller (`batchPausedByCaller`) or by
-   * its failure breaker (`batchPausedByBreaker`), or its Batch's Canary still running
-   * (`batchCanary`). A block changes no status: the job stays `queued`, and is sent once nothing
+   * What blocks a queued job. `batchPausedByCaller` means a caller paused its Batch.
+   * `batchPausedByBreaker` means the failure breaker paused its Batch. `batchCanary` means at
+   * least one job in its Batch's Canary has not finished. This applies before the job is sent,
+   * including after a resume. The job stays `queued` and is sent once nothing
    * blocks it and a Runner has room. New values may be added. Show an unfamiliar value as unknown
    * to this client version.
    */
@@ -294,9 +294,10 @@ const jobBaseSchema = z.object({
   /**
    * Present while the hub cannot confirm the job's `status`, which is then its recorded status:
    * for a job sent to a Runner and not yet ended, paused or cancelled, when the job has
-   * not been reported, nor placed, within two minutes. `reason` says why: its Runner has not been
-   * heard from either (`runnerDisconnected`), or has, but has not reported this job
-   * (`notReported`). The job may still be running there, and its Runner carries on from where it
+   * not been reported, nor placed, within two minutes.
+   * With `runnerDisconnected`, the hub has had no contact with the Runner for two minutes. With
+   * `notReported`, the Runner is in contact but has not reported this job for two minutes.
+   * The job may still be running there, and its Runner carries on from where it
    * was once it reports again; nothing ends it meanwhile. A cancel or pause waits for its Runner to
    * confirm it, and a job in its Batch's Canary holds the Batch's other jobs until it ends; removing
    * the Runner ends it, with the Runner's other unfinished jobs. A Runner can stop reporting one job

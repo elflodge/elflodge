@@ -12,7 +12,7 @@ import { For, Show } from "solid-js";
 import { TIME_SECONDS, formatCount, formatUsd, plural } from "../format.ts";
 import type { EventToolCall, ReadJobEvent } from "../job-event-record.ts";
 import { Instant } from "./Instant.tsx";
-import { FailureReason, unknownWord } from "./JobStatus.tsx";
+import { FAILURE_WORDS, FailureReason, unknownWord } from "./JobStatus.tsx";
 import { TextPreview, countLines } from "./TextPreview.tsx";
 
 interface RowProps {
@@ -188,7 +188,8 @@ function EventBody(props: RowProps) {
       case JOB_FAILED:
         return (
           <div class="rec">
-            <FailureReason reason={record.data.reason} separator=" — " />
+            <FailureReason reason={record.data.reason} />
+            <Show when={FAILURE_WORDS.get(record.data.reason)}>{(words) => <> — {words()}</>}</Show>
             {record.data.message && (
               <TextPreview
                 text={record.data.message}
@@ -287,6 +288,12 @@ function EventBody(props: RowProps) {
 export function JobEventRow(props: RowProps) {
   const assistant = () =>
     props.row.record?.kind === "pi.assistant" ? props.row.record.model[0] : undefined;
+  const unknownFailure = () => {
+    const record = props.row.record;
+    return record?.kind === JOB_FAILED && !FAILURE_WORDS.has(record.data.reason)
+      ? record.data
+      : undefined;
+  };
   return (
     <li
       class={[
@@ -313,9 +320,24 @@ export function JobEventRow(props: RowProps) {
         <Show when={props.row.isError}>
           <span class="mark mark-failed" aria-hidden="true" />{" "}
         </Show>
-        {props.subAgent && "Sub-agent: "}
-        {eventLabel(props)}
-        {summary(props.row)}
+        <Show
+          when={unknownFailure()}
+          fallback={
+            <>
+              {props.subAgent && "Sub-agent: "}
+              {eventLabel(props)}
+              {summary(props.row)}
+            </>
+          }
+        >
+          {(failure) => (
+            <span title={unknownWord(failure().reason)}>
+              <span>Unknown failure reason</span>
+              {props.subAgent && " (sub-agent)"}:{" "}
+              <code class="failure-reason">{JSON.stringify(failure().reason)}</code>
+            </span>
+          )}
+        </Show>
       </p>
       <EventBody {...props} />
       <Show when={assistant()}>
