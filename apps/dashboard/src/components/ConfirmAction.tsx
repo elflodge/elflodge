@@ -7,7 +7,7 @@ import { Notice } from "./Notice.tsx";
 /**
  * A destructive control and the dialog that confirms it: the button opens the dialog, which says
  * what the action ends and whether that is final, and acts only on its confirming button, which names
- * what it acts on. "Keep it" is first and has the focus, so a stray Enter keeps. `act` gives the
+ * what it acts on. The safe action comes first and has focus, so a stray Enter keeps. `act` gives the
  * words of a refusal or failure, said in the dialog or on the page if the member closed it.
  */
 export function ConfirmAction(props: {
@@ -18,10 +18,11 @@ export function ConfirmAction(props: {
   heading: JSX.Element;
   /** The confirming button's words, which name what it acts on. */
   confirm: string;
+  /** The safe action’s words, such as "Keep them" or "Stay". Defaults to "Keep it". */
   keep?: string;
   /** What the action ends, and whether that is final. */
   children: JSX.Element;
-  act: () => Promise<string | undefined>;
+  act: (close: () => boolean) => Promise<string | undefined>;
   reportPageFailure: (message: string) => void;
 }) {
   let dialog: HTMLDialogElement | undefined;
@@ -35,7 +36,11 @@ export function ConfirmAction(props: {
     setFailure(undefined);
     let message;
     try {
-      message = await props.act();
+      message = await props.act(() => {
+        const open = Boolean(dialog?.open && dialog.isConnected);
+        dialog?.close();
+        return open;
+      });
     } finally {
       setPending(false);
     }

@@ -77,8 +77,17 @@ test("removing a member counts their active keys and invitations and keeps their
     .authClient(admin.cookie)
     .organization.inviteMember({ organizationId, email: "teo@example.com", role: "member" });
   const page = await openOrganization();
-  await page.getByRole("button", { name: "Remove Mei Tanaka" }).click();
   const dialog = page.getByRole("dialog");
+  await page.getByRole("button", { name: "Change role for Mei Tanaka" }).click();
+  await dialog.getByRole("radio", { name: /^Member/ }).check();
+  await expectBrowser(dialog).toContainText(
+    "1 active API key created by Mei Tanaka keeps working.",
+  );
+  await expectBrowser(dialog).toContainText("Their 1 pending invitation stops working.");
+  await dialog.getByRole("radio", { name: /^Admin/ }).check();
+  await expectBrowser(dialog).not.toContainText("pending invitation");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Remove Mei Tanaka" }).click();
   await expectBrowser(dialog).toContainText(
     "1 active API key created by Mei Tanaka keeps working. Review it under API keys, and the Runners registered with it under Runners.",
   );
@@ -107,7 +116,7 @@ test("a member can leave the Organization and immediately sees their remaining a
   await expectBrowser(page.getByRole("heading", { name: "Invitations" })).toHaveCount(0);
   await page.getByRole("button", { name: "Leave Organization" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Leave Organization" }).click();
-  await expectBrowser(page.getByRole("heading", { name: "Organization access" })).toBeVisible();
+  await expectBrowser(page.getByRole("heading", { name: "Organization access" })).toBeFocused();
 }, 30_000);
 
 test.each(["last-owner refusal", "server error"])(
@@ -142,6 +151,7 @@ test.each(["last-owner refusal", "server error"])(
     );
     await expectBrowser(page.getByRole("button", { name: "Leave Organization" })).toHaveCount(0);
     await expectBrowser(page.getByRole("row").filter({ hasText: email })).toHaveCount(0);
+    await expectBrowser(alert).toBeFocused();
   },
   30_000,
 );
@@ -169,4 +179,69 @@ test("an admin changing their own role immediately loses the management controls
       .filter({ hasText: email })
       .getByRole("cell", { name: "Member", exact: true }),
   ).toBeVisible();
+}, 30_000);
+
+test("a role changed by another owner replaces the open draft before it can be submitted", async () => {
+  const name = "Robin Soto";
+  const person = await addAdmin(name, "robin@example.com");
+  const org = system.ownerAuth().organization;
+  const { members } = await org.listMembers({ query: { organizationId } });
+  const member = members.find((row) => row.userId === person.userId);
+  if (!member) throw new Error("The new admin is missing");
+  const page = await openOrganization();
+  await page.getByRole("button", { name: `Change role for ${name}` }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: /^Member/ }).check();
+  await org.updateMemberRole({ organizationId, memberId: member.id, role: "owner" });
+  await page.clock.setFixedTime(new Date(Date.now() + 10_000));
+  // Returning to a stale tab reads the table again without closing the editor.
+  await page.evaluate('window.dispatchEvent(new Event("visibilitychange"))');
+  await expectBrowser(dialog.getByRole("radio", { name: /^Owner/ })).toBeChecked();
+  let writes = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/organization/update-member-role") writes++;
+  });
+  await dialog.getByRole("button", { name: "Change role" }).click();
+  await expectBrowser(dialog).toHaveCount(0);
+  expect(writes).toBe(0);
+}, 30_000);
+
+test("a failed keys read leaves members and invitations usable and explains the missing counts", async () => {
+  const email = "piper@example.com";
+  await addAdmin("Piper", email);
+  const name = "River";
+  await system.addMember({ name, email: "river@example.com" });
+  const page = await openOrganization({ email, password: "a member's own long password" });
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          title: "Forbidden",
+          status: 403,
+          detail: "The keys could not be read.",
+        },
+      }),
+  );
+  await page.reload();
+  await expectBrowser(page.getByRole("heading", { name: "Invitations" })).toBeVisible();
+  await expectBrowser(page.getByRole("alert")).toContainText("The API keys could not be read");
+  const dialog = page.getByRole("dialog");
+  await page.getByRole("button", { name: `Remove ${name}` }).click();
+  await expectBrowser(dialog.getByRole("alert")).toContainText("The API keys could not be read");
+  await expectBrowser(dialog).toContainText(`API keys created by ${name} keep working.`);
+  await dialog.getByRole("button", { name: "Keep them" }).click();
+  await page.getByRole("button", { name: "Leave Organization" }).click();
+  await expectBrowser(dialog.getByRole("alert")).toContainText("The API keys could not be read");
+  await expectBrowser(dialog).toContainText("API keys you created keep working.");
+  await dialog.getByRole("button", { name: "Stay" }).click();
+  await page
+    .getByRole("navigation", { name: "Destinations" })
+    .getByRole("link", { name: "API keys" })
+    .click();
+  await expectBrowser(page.getByRole("heading", { name: "API keys" })).toBeVisible();
+  await expectBrowser(page.getByRole("alert")).toContainText("The API keys could not be read");
 }, 30_000);

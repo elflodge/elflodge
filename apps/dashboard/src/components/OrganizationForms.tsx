@@ -1,10 +1,10 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
-import { For, Show, createSignal, createUniqueId, flush, onSettled } from "solid-js";
+import { For, Show, createSignal, createUniqueId, onSettled } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
-import { GIVEN_NAME, createFormAction, fieldText } from "../form.ts";
+import { createFormAction, fieldText } from "../form.ts";
 import { isLoopback } from "../hub-address.ts";
 import { ROLE_LABEL, asRole, invitationLink, rolesOf, type MemberRole } from "../organization.ts";
 import { CopyButton } from "./CopyButton.tsx";
@@ -14,7 +14,7 @@ import { Notice } from "./Notice.tsx";
 
 /** Form dialogs can be closed while the hub is answering. */
 function FormDialog(props: {
-  heading: string;
+  heading: JSX.Element;
   confirm: string;
   children: JSX.Element;
   answered?: boolean;
@@ -58,14 +58,20 @@ function FormDialog(props: {
       <Show
         when={props.answered}
         fallback={
-          <form onSubmit={onSubmit}>
-            <div class="dialog-b">
+          <form
+            onSubmit={async (event) => {
+              await onSubmit(event);
+              if (dialog.open)
+                dialog.querySelector<HTMLInputElement>('input[aria-invalid="true"]')?.focus();
+            }}
+          >
+            <fieldset class="dialog-b" disabled={pending()}>
               {props.children}
               <p role="status" class={pending() ? "note" : "vh"}>
                 {pending() ? "Working…" : ""}
               </p>
               <Show when={failure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
-            </div>
+            </fieldset>
             <div class="dialog-f">
               <button type="button" onClick={() => dialog.close()}>
                 {pending() ? "Close" : "Cancel"}
@@ -131,6 +137,17 @@ function RoleChoices(props: {
 
 type DialogProps = { close: () => void; report: (message: string) => void };
 
+export function InvitationAddressNote() {
+  return (
+    <Show when={isLoopback(window.location.hostname)}>
+      <p class="note">
+        This page's address reaches the hub only from this machine. Replace it with the address the
+        invited person will use.
+      </p>
+    </Show>
+  );
+}
+
 export function InviteMember(
   props: DialogProps & {
     organizationId: string;
@@ -172,11 +189,12 @@ export function InviteMember(
       ) {
         const message = `${email} is already a member.`;
         if (!emailField.isConnected) return message;
-        setEmailError(message);
-        flush();
-        emailField.focus();
+        if (emailField.value === email) setEmailError(email);
       } else {
-        if (error instanceof BetterFetchError && [401, 403].includes(error.status))
+        if (
+          error instanceof BetterFetchError &&
+          ([401, 403].includes(error.status) || error.error?.code === "MEMBER_NOT_FOUND")
+        )
           await props.refreshSession();
         throw error;
       }
@@ -186,7 +204,15 @@ export function InviteMember(
   return (
     <FormDialog
       {...props}
-      heading={created() ? `The invitation for ${created()?.email}` : "Invite a member"}
+      heading={
+        <Show when={created()} fallback="Invite a member">
+          {(answer) => (
+            <>
+              The invitation for <span class="mono">{answer().email}</span>
+            </>
+          )}
+        </Show>
+      }
       confirm="Create invitation"
       submit={invite}
       answered={!!created()}
@@ -208,16 +234,11 @@ export function InviteMember(
                   buttonRef={(button) => onSettled(() => button.focus())}
                 />
               </div>
-              <Show when={isLoopback(answer().link.hostname)}>
-                <p class="note">
-                  This page's address reaches the hub only from this machine. Replace it with the
-                  address the invited person will use.
-                </p>
-              </Show>
+              <InvitationAddressNote />
               <p>
-                Send this link to {answer().email} yourself. It works once, until{" "}
-                <Instant value={answer().expires} />, and lets them join as {asRole(answer().role)}.
-                It stays under Invitations until then.
+                Send this link to <span class="mono">{answer().email}</span> yourself. It works
+                once, until <Instant value={answer().expires} />, and lets them join as{" "}
+                {asRole(answer().role)}. It stays under Invitations until then.
               </p>
             </div>
           )}
@@ -243,7 +264,11 @@ export function InviteMember(
           onInput={() => setEmailError(undefined)}
         />
         <Show when={emailError()}>
-          {(message) => <FieldError id="invite-email-error">{message()}</FieldError>}
+          {(email) => (
+            <FieldError id="invite-email-error">
+              <span class="mono">{email()}</span> is already a member.
+            </FieldError>
+          )}
         </Show>
       </div>
       <RoleChoices owner={props.owner} value={role()} choose={setRole} />
@@ -254,19 +279,20 @@ export function InviteMember(
 export function RenameOrganization(
   props: DialogProps & { name: string; rename: (name: string) => Promise<void> },
 ) {
+  const startingName = props.name;
   return (
     <FormDialog
       {...props}
       heading="Rename the Organization"
       confirm="Rename"
       submit={async (form, close) => {
-        await props.rename(fieldText(form, "name").trim());
+        await props.rename(fieldText(form, "name"));
         close();
       }}
     >
       <div class="field">
         <label for="organization-name">Name</label>
-        <input id="organization-name" name="name" value={props.name} required {...GIVEN_NAME} />
+        <input id="organization-name" name="name" defaultValue={startingName} required />
       </div>
     </FormDialog>
   );
@@ -282,9 +308,14 @@ export function ChangeRole(
     consequences: (role: MemberRole) => JSX.Element;
   },
 ) {
-  const [choice, setChoice] = createSignal<MemberRole | undefined>(
-    rolesOf(props.role).find((r) => r === props.role),
+  // A newly read role replaces any draft based on the old one, even while this dialog stays open.
+  const [choice, setChoice] = createSignal<MemberRole | undefined>(() =>
+    rolesOf(props.role).find((role) => role === props.role),
   );
+  const consequences = () => {
+    const selected = choice();
+    return selected && props.consequences(selected);
+  };
   return (
     <FormDialog
       {...props}
@@ -302,12 +333,12 @@ export function ChangeRole(
     >
       <Show when={rolesOf(props.role).length > 1}>
         <p>
-          Their role is {rolesOf(props.role).join(" and ")} together; choosing one replaces{" "}
-          {rolesOf(props.role).length === 2 ? "both" : "them all"}.
+          {props.own ? "Your" : "Their"} role is {rolesOf(props.role).join(" and ")} together;
+          choosing one replaces {rolesOf(props.role).length === 2 ? "both" : "them all"}.
         </p>
       </Show>
       <RoleChoices owner={props.owner} own={props.own} value={choice()} choose={setChoice} />
-      <Show when={choice()}>{(role) => props.consequences(role())}</Show>
+      {consequences()}
       <Show when={props.own}>
         <p>Once you change your own role, you cannot change it back yourself.</p>
       </Show>

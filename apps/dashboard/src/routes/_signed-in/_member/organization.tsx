@@ -1,7 +1,8 @@
 import { BetterFetchError } from "@better-fetch/fetch";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import type { JSX } from "@solidjs/web";
+import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
-import { For, Show, createEffect, createSignal, onSettled } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { authClient } from "../../../auth-client.ts";
@@ -13,6 +14,7 @@ import { Notice } from "../../../components/Notice.tsx";
 import {
   ChangeRole,
   InviteMember,
+  InvitationAddressNote,
   RenameOrganization,
 } from "../../../components/OrganizationForms.tsx";
 import { focusAfterRowDrops, focusIfLost } from "../../../form.ts";
@@ -36,16 +38,10 @@ export const Route = createFileRoute("/_signed-in/_member/organization")({
       readFromHub("The members", () =>
         queryClient.query({ ...membersOptions(member.organization.id), staleTime: "static" }),
       ),
-      ...(managesKeys
-        ? [
-            readFromHub("The invitations", () =>
-              queryClient.query({ ...invitationsOptions(member.role), staleTime: "static" }),
-            ),
-            readFromHub("The API keys", () =>
-              queryClient.query(orpc.apiKeys.list.queryOptions({ staleTime: "static" })),
-            ),
-          ]
-        : []),
+      managesKeys &&
+        readFromHub("The invitations", () =>
+          queryClient.query({ ...invitationsOptions(member.role), staleTime: "static" }),
+        ),
     ]);
   },
   errorComponent: (props) => <ReadErrorPage {...props} heading="Organization" />,
@@ -108,11 +104,30 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
   const manages = () => context().managesKeys;
   const members = useQuery(() => membersOptions(org().id));
   const invitations = useQuery(() => ({ ...invitationsOptions(role()), enabled: manages() }));
+  // The page can show members and invitations while an optional key count is unavailable.
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions({ enabled: manages() }));
+  const [now, setNow] = createSignal(Date.now());
+  const liveInvitations = createMemo(() =>
+    manages() ? invitations.data.filter((invite) => invite.expiresAt.getTime() > now()) : [],
+  );
+  const checkExpiry = () => setNow(Date.now());
+  createEffect(
+    () => Math.min(...liveInvitations().map((invite) => invite.expiresAt.getTime())),
+    (expires) => {
+      if (!Number.isFinite(expires)) return undefined;
+      // A suspended tab may miss its timer. Check its clock again when it becomes visible.
+      const timer = setTimeout(checkExpiry, Math.max(0, expires - Date.now()));
+      const unsubscribe = focusManager.subscribe(checkExpiry);
+      return () => {
+        clearTimeout(timer);
+        unsubscribe();
+      };
+    },
+  );
   const [form, setForm] = createSignal<"rename" | "invite">();
   const [notice, setNotice] = createSignal<{
     role: "alert" | "status";
-    message: string;
+    message: JSX.Element;
     focusRef?: (element: HTMLDivElement) => void;
   }>();
   const report = (message: string) =>
@@ -121,7 +136,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
       message,
       focusRef: (element) => onSettled(() => focusIfLost(element)),
     });
-  const status = (message: string, stillListed?: () => boolean) =>
+  const status = (message: JSX.Element, stillListed?: () => boolean) =>
     setNotice({
       role: "status",
       message,
@@ -199,8 +214,10 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
           return undefined;
         }
         if (
-          code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER" ||
-          code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER"
+          fresh &&
+          soleOwner(fresh, context().user.id) &&
+          (code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER" ||
+            code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER")
         ) {
           message = "You are now the only owner, so you cannot leave or change your own role.";
         } else if (error.status >= 500 && fresh) {
@@ -224,7 +241,12 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
             : next === "remove"
               ? `Remove ${name}`
               : "Change role";
-        report(`${action}: ${message}`);
+        const closed = close?.();
+        setNotice({
+          role: "alert",
+          message: `${action}: ${message}`,
+          focusRef: (element) => onSettled(() => (closed ? element.focus() : focusIfLost(element))),
+        });
         return undefined;
       }
       return message;
@@ -247,7 +269,11 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
   }
 
   async function revoke(id: string, email: string) {
-    const label = `The invitation for ${email}`;
+    const label = (
+      <>
+        The invitation for <span class="mono">{email}</span>
+      </>
+    );
     const listed = () => invitations.data.some((i) => i.id === id);
     const queryKey = invitationsOptions(role()).queryKey;
     setNotice(undefined);
@@ -263,14 +289,17 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         !list.isInvalidated &&
         !list.data.some((item) => item.id === id)
       ) {
-        status(`${label} is already gone.`, listed);
+        status(<>{label} is already gone.</>, listed);
         return undefined;
       }
-      if (error instanceof BetterFetchError && [401, 403].includes(error.status))
+      if (
+        error instanceof BetterFetchError &&
+        ([401, 403].includes(error.status) || error.error?.code === "MEMBER_NOT_FOUND")
+      )
         await refreshSession();
       return hubFailureMessage(error);
     }
-    status(`${label} is revoked.`, listed);
+    status(<>{label} is revoked.</>, listed);
     await refreshInvites();
     return undefined;
   }
@@ -278,7 +307,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
   function consequences(person: Member, next: MemberRole | "remove" | "leave") {
     if (!manages() || person.role === next) return undefined;
     const own = isOwn(person);
-    const sent = invitations.data.filter((invite) => invite.inviter.id === person.userId);
+    const sent = liveInvitations().filter((invite) => invite.inviter.id === person.userId);
     const lost =
       next === "admin"
         ? sent.filter((invite) => rolesOf(invite.role).includes("owner")).length
@@ -286,20 +315,29 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
           ? 0
           : sent.length;
     const keepKeys = ["remove", "leave", "member"].includes(next);
-    const count = keys.data.filter((key) => key.creator?.id === person.userId).length;
+    const count =
+      keys.dataUpdatedAt && !keys.isError
+        ? keys.data.filter((key) => key.creator?.id === person.userId).length
+        : undefined;
     const creator = own ? "you created" : `created by ${person.user.name}`;
     return (
       <>
-        <Show when={keepKeys && (count || keys.isError)}>
+        <Show when={keepKeys && keys.isError}>
+          <FailedReadNotice
+            what="The API keys"
+            detail={hubFailureMessage(keys.error)}
+            failedAt={keys.errorUpdatedAt}
+          />
+        </Show>
+        <Show when={keepKeys && count !== 0}>
           <p>
-            {keys.isError
+            {count === undefined
               ? `API keys ${creator} keep working.`
               : `${count} active API ${plural(count, "key", "keys")} ${creator} ${plural(count, "keeps", "keep")} working.`}
             <Show when={next === "remove"}>
               {" "}
-              Review {count === 1 && !keys.isError ? "it" : "them"} under{" "}
-              <Link to="/api-keys">API keys</Link>
-              {keys.isError
+              Review {count === 1 ? "it" : "them"} under <Link to="/api-keys">API keys</Link>
+              {count === undefined
                 ? " and "
                 : `, and the Runners registered with ${count === 1 ? "it" : "them"} under `}
               <Link to="/runners">Runners</Link>.
@@ -438,7 +476,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                             heading={`Remove ${name()} from ${org().name}?`}
                             keep="Keep them"
                             confirm={`Remove ${name()}`}
-                            act={() => membershipAction(row(), "remove")}
+                            act={(close) => membershipAction(row(), "remove", close)}
                             reportPageFailure={report}
                           >
                             <p>
@@ -459,7 +497,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                             heading={`Leave ${org().name}?`}
                             keep="Stay"
                             confirm={`Leave ${org().name}`}
-                            act={() => membershipAction(row(), "leave")}
+                            act={(close) => membershipAction(row(), "leave", close)}
                             reportPageFailure={report}
                           >
                             <p>
@@ -499,12 +537,13 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
             The hub sends no email. Copy an invitation's link and send it yourself. A link works
             once, until it expires.
           </p>
-          <Show when={invitations.data.length} fallback={<p>No invitations are waiting.</p>}>
+          <Show when={liveInvitations().length} fallback={<p>No invitations are waiting.</p>}>
+            <InvitationAddressNote />
             <table class="records is-fit" role="table">
               <caption class="vh">Invitations</caption>
               <TableHead columns={["Email", "Role", "Invited by", "Expires"]} />
               <tbody role="rowgroup">
-                <For each={invitations.data} keyed={(i) => i.id}>
+                <For each={liveInvitations()} keyed={(i) => i.id}>
                   {(invite) => {
                     const label = () => `Revoke the invitation for ${invite().email}`;
                     return (
@@ -535,7 +574,12 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                               trigger="Revoke"
                               triggerLabel={label()}
                               confirm={label()}
-                              heading={`${label()}?`}
+                              heading={
+                                <>
+                                  Revoke the invitation for{" "}
+                                  <span class="mono">{invite().email}</span>?
+                                </>
+                              }
                               act={() => revoke(invite().id, invite().email)}
                               reportPageFailure={report}
                             >
