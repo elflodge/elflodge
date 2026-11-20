@@ -1,5 +1,5 @@
 import { Outlet, createFileRoute } from "@tanstack/solid-router";
-import { Show } from "solid-js";
+import { Show, onSettled } from "solid-js";
 
 import { Notice } from "../../components/Notice.tsx";
 import { canManageKeys } from "../../permissions.ts";
@@ -22,7 +22,9 @@ function Member() {
       fallback={
         <>
           <div class="head">
-            <h1>Organization access</h1>
+            <h1 tabindex="-1" ref={(heading) => onSettled(() => heading.focus())}>
+              Organization access
+            </h1>
           </div>
           <Notice role="alert">This account is no longer a member of the Organization.</Notice>
         </>

@@ -786,6 +786,7 @@ dialog.is-wide {
   overflow-wrap: anywhere;
 }
 .dialog-b {
+  overflow-wrap: anywhere;
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
