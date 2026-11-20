@@ -240,7 +240,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling it moved focus to the body and focus is still there when the action settles, the form returns focus to the button.
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays disabled through navigation. If disabling the focused button or field moved focus to the body, the form returns focus to that control when the action settles, unless a field was refused or focus has moved elsewhere.
 
 ```tsx
 <div class="field">
@@ -287,7 +287,9 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 ### Dialogs
 
-A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). The keeping button comes first and has the focus. It reads "Keep it", "Keep them" or "Stay". The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. The heading is `h2.dialog-h` under a heavy rule, the body `div.dialog-b`, the buttons `div.dialog-f`; a long name in the heading or a button wraps, so it stays inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A dialog may also hold a form, as creating an API key does: its fields in `div.dialog-b`, its submit button the primary one in `div.dialog-f`.
+A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). The keeping button comes first and has the focus. It reads "Keep it", "Keep them" or "Stay". The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. If a fresh roster removes the action, as when the reader becomes the only owner during Leave, the page closes the dialog and shows the alert beside the roster. The `close` callback returns true if it closed an open dialog still on the page. In that case the alert takes focus. Otherwise the page moves focus to the alert only if focus was lost.
+
+The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and the buttons are in `div.dialog-f`. A long name in the heading or a button wraps inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A form dialog has its primary submit button in `div.dialog-f`. Create key groups its fields in `div.dialog-b`. The Organization forms use `fieldset.dialog-b` to disable the submitted fields while the hub answers and keep Close available.
 
 ```tsx
 <dialog aria-labelledby="remove-h">

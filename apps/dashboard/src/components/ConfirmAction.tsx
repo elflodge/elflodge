@@ -8,7 +8,9 @@ import { Notice } from "./Notice.tsx";
  * A destructive control and the dialog that confirms it: the button opens the dialog, which says
  * what the action ends and whether that is final, and acts only on its confirming button, which names
  * what it acts on. The safe action comes first and has focus, so a stray Enter keeps. `act` gives the
- * words of a refusal or failure, said in the dialog or on the page if the member closed it.
+ * words of a refusal or failure for the open dialog. The page reports it if the member dismissed
+ * the dialog. If a fresh roster removes the action, the caller closes the dialog and reports the
+ * refusal beside the roster.
  */
 export function ConfirmAction(props: {
   /** The words on the button that opens the dialog, such as "Remove". */
@@ -22,6 +24,7 @@ export function ConfirmAction(props: {
   keep?: string;
   /** What the action ends, and whether that is final. */
   children: JSX.Element;
+  /** `close` returns true if it closed an open, connected dialog and the caller can move focus. */
   act: (close: () => boolean) => Promise<string | undefined>;
   reportPageFailure: (message: string) => void;
 }) {

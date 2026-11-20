@@ -1,6 +1,6 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
-import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { focusManager, noop, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
 
@@ -42,6 +42,9 @@ export const Route = createFileRoute("/_signed-in/_member/organization")({
         readFromHub("The invitations", () =>
           queryClient.query({ ...invitationsOptions(member.role), staleTime: "static" }),
         ),
+      // Wait for counts, but let the page show a failed keys read alongside the roster.
+      managesKeys &&
+        queryClient.query(orpc.apiKeys.list.queryOptions({ staleTime: "static" })).catch(noop),
     ]);
   },
   errorComponent: (props) => <ReadErrorPage {...props} heading="Organization" />,
@@ -104,8 +107,9 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
   const manages = () => context().managesKeys;
   const members = useQuery(() => membersOptions(org().id));
   const invitations = useQuery(() => ({ ...invitationsOptions(role()), enabled: manages() }));
-  // The page can show members and invitations while an optional key count is unavailable.
-  const keys = useQuery(() => orpc.apiKeys.list.queryOptions({ enabled: manages() }));
+  const keys = useQuery(() =>
+    orpc.apiKeys.list.queryOptions({ enabled: manages(), retryOnMount: false }),
+  );
   const [now, setNow] = createSignal(Date.now());
   const liveInvitations = createMemo(() =>
     manages() ? invitations.data.filter((invite) => invite.expiresAt.getTime() > now()) : [],
@@ -205,6 +209,8 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
       const list = client.getQueryState(membersOptions(organizationId).queryKey);
       const fresh =
         list?.status === "success" && !list.isInvalidated ? list.data?.members : undefined;
+      const reader = fresh?.find(isOwn);
+      const target = fresh?.find((m) => m.id === person.id);
       if (error instanceof BetterFetchError) {
         const code = error.error?.code;
         if ([401, 403].includes(error.status) || code === "MEMBER_NOT_FOUND")
@@ -214,19 +220,25 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
           return undefined;
         }
         if (
-          fresh &&
-          soleOwner(fresh, context().user.id) &&
-          (code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER" ||
-            code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER")
+          code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER" ||
+          code === "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER"
         ) {
-          message = "You are now the only owner, so you cannot leave or change your own role.";
+          if (
+            next === "remove" &&
+            reader &&
+            !rolesOf(reader.role).includes("owner") &&
+            target &&
+            rolesOf(target.role).includes("owner")
+          ) {
+            message = "Only an owner can remove an owner.";
+          } else if (fresh && soleOwner(fresh, context().user.id)) {
+            message = "You are now the only owner, so you cannot leave or change your own role.";
+          }
         } else if (error.status >= 500 && fresh) {
           message = `The hub could not do this: ${message.replace(/\.$/, "")}. The members were read again; check them before trying again.`;
         }
       }
       // Query can finish the read before the table unmounts a control that no longer applies.
-      const reader = fresh?.find(isOwn);
-      const target = fresh?.find((m) => m.id === person.id);
       const available =
         fresh &&
         reader &&
@@ -329,7 +341,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
             failedAt={keys.errorUpdatedAt}
           />
         </Show>
-        <Show when={keepKeys && count !== 0}>
+        <Show when={keepKeys && (keys.isError || (count ?? 0) > 0)}>
           <p>
             {count === undefined
               ? `API keys ${creator} keep working.`
