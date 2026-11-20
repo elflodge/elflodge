@@ -350,6 +350,17 @@ test.each([0, 1])(
   },
 );
 
+test("batches submit refuses an agent and first job that exceed the create limit together before creating anything", async () => {
+  const cwd = await folderWith({
+    "jobs.jsonl": JSON.stringify({ customId: "one", input: "a".repeat(MAX_BODY_BYTES - 100) }),
+  });
+  const hub = fakeHub(() => ({ status: "succeeded", output: {} }));
+  const result = await submit(hub.listener, cwd, ["jobs.jsonl", "--instructions", "a".repeat(200)]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("agent and first job exceed the request size limit");
+  expect(hub.batchIds).toEqual([]);
+});
+
 test("batches create reads the Batch a 0.10.0 hub returned without jobs or later progress and submitter fields", async () => {
   const released = Struct.omit(batchOf("count"), [
     "submitter",
