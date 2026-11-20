@@ -1380,6 +1380,18 @@ function listedJobOf(
 }
 
 /**
+ * Read progress only for candidate jobs, without joining the whole progress table. A job and its
+ * progress row are created together, so this reads the same timestamp as an inner join.
+ */
+function lastReportedAtOf(jobId: Expression<JobId>) {
+  return expressionBuilder<Database>()
+    .selectFrom("jobProgress")
+    .select("jobProgress.lastReportedAt")
+    .whereRef("jobProgress.jobId", "=", jobId)
+    .$asScalar();
+}
+
+/**
  * A page of jobs matching `query`, newest first, after the job `query.after`: at most
  * `query.limit` of them, without their content, and whether more follow.
  */
@@ -1412,8 +1424,17 @@ export function listJobs(query: JobListQuery) {
       const page =
         statusUnknown === undefined
           ? pageIds
-          : pageIds.innerJoin("jobProgress as p", "p.jobId", "j.id").where((eb) => {
-              const unknown = isStatusUnknown(listedJobOf(eb), now);
+          : pageIds.where((eb) => {
+              const unknown = isStatusUnknown(
+                {
+                  status: eb.ref("j.status"),
+                  placedAt: eb.ref("j.placedAt"),
+                  runnerId: eb.ref("j.runnerId"),
+                  // Keep the ordered scan of placed jobs from reading unrelated progress rows.
+                  lastReportedAt: lastReportedAtOf(eb.ref("j.id")),
+                },
+                now,
+              );
               return statusUnknown ? unknown : eb.not(unknown);
             });
       const rows = await db
@@ -1503,14 +1524,7 @@ export function countJobs() {
               status: where.ref("job.status"),
               placedAt: where.ref("job.placedAt"),
               runnerId: where.ref("job.runnerId"),
-              // Looked up only for the candidates the other conditions leave: joined instead,
-              // the planner may read every job's row or every progress row. It differs from a
-              // join only for a job without a progress row, which the hub never leaves.
-              lastReportedAt: where
-                .selectFrom("jobProgress")
-                .select("jobProgress.lastReportedAt")
-                .whereRef("jobProgress.jobId", "=", "job.id")
-                .$asScalar(),
+              lastReportedAt: lastReportedAtOf(where.ref("job.id")),
             },
             now,
           ),
