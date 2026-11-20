@@ -8,7 +8,7 @@ import { CurrentDestination, Destinations } from "../components/Destinations.tsx
 import { InShell } from "../components/FallbackPage.tsx";
 import { HubStrip } from "../components/HubStrip.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { createFormAction, focusIfLost } from "../form.ts";
+import { createFormAction } from "../form.ts";
 import {
   reloadAndWaitIfMemberChanged,
   signOutTo,
@@ -78,13 +78,11 @@ function SignedIn() {
     try {
       await signOutTo(router.buildLocation({ to: "/sign-in" }).publicHref);
     } catch (failure) {
-      // The notice is in the page, which the open menu would cover. The focus goes to the menu's
-      // button when it is still in the menu or is nowhere, as it is once the button pressed has
-      // been disabled. A member who has moved on meanwhile keeps their place.
+      // Close the menu to reveal the notice. Return focus to its button if the member is
+      // still in the menu group when the refusal arrives.
       const menuHadFocus = inMenuGroup(document.activeElement);
       closeMenu();
       if (menuHadFocus) opener?.focus();
-      else focusIfLost(opener);
       setError(hubFailureMessage(failure));
     }
   });

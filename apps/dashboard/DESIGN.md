@@ -250,7 +250,7 @@ A plain form is `form.fields`: fields one under another, at most 24rem wide, the
 </form>
 ```
 
-When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere. See [MDN’s focusable submit button example](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-disabled#description) and [React Aria’s pending button](https://react-aria.adobe.com/Button#pending).
+When the hub refuses what one field holds, say so under that field, as a `FieldError` (`src/components/FieldError.tsx`): the field takes `aria-invalid="true"` and names the error with `aria-describedby`, and the focus goes to it. A refusal that is about no one field is the form's notice. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
 
 ```tsx
 <div class="field">
