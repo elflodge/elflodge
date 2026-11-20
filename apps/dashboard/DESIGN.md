@@ -191,7 +191,7 @@ A list with nothing in it says what belongs there and the way to it: `div.empty`
 
 ### A page without the shell
 
-Signing in and setting up have no bar, since no one is signed in yet. Such a page is `main#main.page.is-alone`: one narrow column under the mark.
+Sign-in, setup and invitation links can be opened before signing in. They have no bar. Such a page is `main#main.page.is-alone`: one narrow column under the mark. An invitation can name the Organization in its heading and its button. Long names and email addresses wrap within the column.
 
 ```tsx
 <main id="main" class="page is-alone">

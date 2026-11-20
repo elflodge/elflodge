@@ -347,7 +347,7 @@
 .page {
   padding: var(--space-3) var(--gutter) var(--space-7);
 }
-/* A page without the shell (signing in, setting up, a page that failed or was not found outside it): one narrow column under the mark. */
+/* A page without the shell: one narrow column under the mark. */
 .page.is-alone {
   display: grid;
   gap: var(--space-3);
@@ -355,6 +355,11 @@
   max-width: 26rem;
   margin-inline: auto;
   padding-top: min(12vh, 6rem);
+  overflow-wrap: anywhere;
+}
+.page.is-alone .fields > button {
+  max-width: 100%;
+  white-space: normal;
 }
 .page.is-alone > h1 {
   padding-bottom: var(--space-2);

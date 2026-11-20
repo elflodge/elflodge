@@ -42,10 +42,10 @@ export function watchDocumentMember(memberId: string) {
   });
 }
 
-/** End the session and replace this document with the sign-in page at `href`. */
-export async function signOutTo(href: string) {
+/** End the session and load a fresh document, at `href` or at the current address. */
+export async function signOutTo(href?: string) {
   // A session read can see the sign-out before the button gets its answer. Either one must
-  // take the member to the plain sign-in page.
+  // load the requested document. Reloading the current address also preserves its fragment.
   signOutHref = href;
   try {
     await authClient.signOut();
