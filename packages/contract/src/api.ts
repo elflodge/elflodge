@@ -342,45 +342,6 @@ const breakerSchema = z.union([
   z.object({ canary: canarySchema, maxFailurePercent: maxFailurePercentSchema }),
 ]);
 
-/** A Batch as a caller creates it. */
-export const batchCreationSchema = z
-  .strictObject({
-    id: z.optional(
-      batchIdSchema.check(
-        z.describe(
-          "The Batch's ID, unique in the Organization, which names it in every call; a UUID is made for it when left out. 1 to 100 letters, digits, `_` and `-`, not beginning with `-`, compared exactly, so `Invoices` and `invoices` are two Batches. Creating a Batch again with the same `id` and the same `agent`, `labels` and `breaker` returns the Batch already created, so a creation can be retried safely; with any of them different it is refused. A new Batch needs a new ID.",
-        ),
-      ),
-    ),
-    agent: agentSchema,
-    labels: z._default(
-      labelsSchema.check(
-        z.describe(
-          `Labels every job of the Batch gets, beside its own, which win where both name a key; none by default. Keys follow Kubernetes's label key syntax; values are any text of at most 256 characters, kept exactly as given. A job has at most ${MAX_LABELS} labels, the Batch's and its own together, so a job whose own labels take it past that is refused.`,
-        ),
-      ),
-      {},
-    ),
-    breaker: z
-      ._default(
-        z.union([
-          z.boolean(),
-          z.strictObject({
-            canary: z.optional(canarySchema),
-            maxFailurePercent: z.optional(maxFailurePercentSchema),
-          }),
-        ]),
-        true,
-      )
-      .check(
-        z.describe(
-          "The failure breaker, which pauses the Batch when a flaw its jobs share shows, after a few jobs instead of after all of them. The Batch's first `canary` jobs (5 by default), its Canary, run before the rest are released, and any of them failing pauses the Batch. Once every Canary place is filled and its jobs have ended, it pauses when more than `maxFailurePercent` (10 by default) of the jobs ended since the Canary began have failed. A job counts once, by its latest end; a job that a limit stopped counts as failed, while a cancelled job, or one its Runner's removal ended, does not count. Resuming a pause the breaker made starts a new Canary of the next `canary` jobs, those added later included. `canary: 0` releases every job at once, and the percentage then judges from the first job to end, so one early failure still pauses the Batch; `maxFailurePercent: 100` keeps the Canary alone. `true` by default, for the defaults; `false` turns the breaker off.",
-        ),
-      ),
-  })
-  .register(z.globalRegistry, { id: "BatchCreation" });
-export type BatchCreation = z.infer<typeof batchCreationSchema>;
-
 /** A job as a caller adds it to a Batch, whose agent it runs. */
 export const jobSubmissionSchema = z
   .strictObject({
@@ -419,6 +380,56 @@ export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
 
 /** The most jobs one request adds to a Batch. */
 export const MAX_JOBS_PER_ADD = 100;
+
+const submittedJobsSchema = z
+  .array(jobSubmissionSchema)
+  .check(
+    z.minLength(1),
+    z.maxLength(MAX_JOBS_PER_ADD),
+    z.describe(
+      "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
+    ),
+  );
+
+/** A Batch as a caller creates it. */
+export const batchCreationSchema = z
+  .strictObject({
+    id: z.optional(
+      batchIdSchema.check(
+        z.describe(
+          "The Batch's ID, unique in the Organization, which names it in every call; a UUID is made for it when left out. 1 to 100 letters, digits, `_` and `-`, not beginning with `-`, compared exactly, so `Invoices` and `invoices` are two Batches. Creating a Batch again with the same `id` and the same `agent`, `labels` and `breaker` returns the Batch already created, so a creation can be retried safely; with any of them different it is refused. A new Batch needs a new ID.",
+        ),
+      ),
+    ),
+    agent: agentSchema,
+    jobs: z.optional(submittedJobsSchema),
+    labels: z._default(
+      labelsSchema.check(
+        z.describe(
+          `Labels every job of the Batch gets, beside its own, which win where both name a key; none by default. Keys follow Kubernetes's label key syntax; values are any text of at most 256 characters, kept exactly as given. A job has at most ${MAX_LABELS} labels, the Batch's and its own together, so a job whose own labels take it past that is refused.`,
+        ),
+      ),
+      {},
+    ),
+    breaker: z
+      ._default(
+        z.union([
+          z.boolean(),
+          z.strictObject({
+            canary: z.optional(canarySchema),
+            maxFailurePercent: z.optional(maxFailurePercentSchema),
+          }),
+        ]),
+        true,
+      )
+      .check(
+        z.describe(
+          "The failure breaker, which pauses the Batch when a flaw its jobs share shows, after a few jobs instead of after all of them. The Batch's first `canary` jobs (5 by default), its Canary, run before the rest are released, and any of them failing pauses the Batch. Once every Canary place is filled and its jobs have ended, it pauses when more than `maxFailurePercent` (10 by default) of the jobs ended since the Canary began have failed. A job counts once, by its latest end; a job that a limit stopped counts as failed, while a cancelled job, or one its Runner's removal ended, does not count. Resuming a pause the breaker made starts a new Canary of the next `canary` jobs, those added later included. `canary: 0` releases every job at once, and the percentage then judges from the first job to end, so one early failure still pauses the Batch; `maxFailurePercent: 100` keeps the Canary alone. `true` by default, for the defaults; `false` turns the breaker off.",
+        ),
+      ),
+  })
+  .register(z.globalRegistry, { id: "BatchCreation" });
+export type BatchCreation = z.infer<typeof batchCreationSchema>;
 
 /** Where a Batch is: releasing its jobs, paused, or cancelled. */
 export const batchStatusSchema = z.enum(["active", "paused", "cancelled"]);
@@ -1049,7 +1060,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
   },
   batches: {
     create: forMembers
-      .errors({ [IdReused.code]: IdReused })
+      .errors({ [ControlRefused.code]: ControlRefused, [IdReused.code]: IdReused })
       .meta(
         // One status, 200, whether the Batch is new or a retry's, as for an add: no caller acts on
         // the difference, and a status per answer would make the typed client answer this one call
@@ -1058,12 +1069,12 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch, without jobs, and answers with it: the `agent` every job added to it runs, set once, its labels and its failure breaker. The hub checks the Output contract's schema, refusing one that is invalid, describes a list or refers outside itself. Use the Batch's `id` when adding its jobs. Giving the `id` makes the creation safe to retry: the same `id` with the same `agent`, `labels` and `breaker` answers with the Batch already created, and with any of them different is refused.",
+            "Creates a Batch with its optional first jobs in one transaction. The answer is the Batch with each requested job in order and whether it was created. The hub checks the agent and jobs, including the Output contract's schema. Retrying the same ID, agent, labels and breaker returns the existing Batch. Each custom ID follows the same rule as an add: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
       .input(batchCreationSchema)
-      .output(batchSchema),
+      .output(z.extend(batchSchema, { jobs: addedJobsSchema.shape.jobs })),
     addJobs: forMembers
       .errors({
         [NotFound.code]: NotFound,
@@ -1074,21 +1085,13 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. Otherwise the add is refused with 409 if the Batch is cancelled, or 422 if the Batch already has a job with the same \`customId\` and different content. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
       .input(
         z.extend(batchRefSchema, {
-          jobs: z
-            .array(jobSubmissionSchema)
-            .check(
-              z.minLength(1),
-              z.maxLength(MAX_JOBS_PER_ADD),
-              z.describe(
-                "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
-              ),
-            ),
+          jobs: submittedJobsSchema,
         }),
       )
       .output(addedJobsSchema),

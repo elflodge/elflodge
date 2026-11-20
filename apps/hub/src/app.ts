@@ -301,11 +301,18 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
       create: os.batches.create.effect(function* ({ input, context, errors }) {
         const organizationId = yield* callerOrganizationId(context.caller);
         const submitter = yield* submitterOf(context.caller);
-        return yield* createBatch(input, organizationId, submitter, yield* JobLimitSettings).pipe(
+        const batch = yield* createBatch(
+          input,
+          organizationId,
+          submitter,
+          yield* JobLimitSettings,
+        ).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
         );
+        if (batch.jobs.some(({ created }) => created)) yield* hintRunners("live");
+        return batch;
       }),
       addJobs: os.batches.addJobs.effect(function* ({ input, context, errors }) {
         const submitter = yield* submitterOf(context.caller);
