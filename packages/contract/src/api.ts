@@ -70,6 +70,7 @@ export const apiKeySchema = z
   .object({
     id: z.string(),
     name: z.nullable(z.string()),
+    creator: z.nullable(z.object({ id: z.string(), name: z.string(), isMember: z.boolean() })),
     /** The first characters of the key, to recognize it by. */
     start: z.nullable(z.string()),
     permissions: z.nullable(permissionsSchema),
@@ -642,6 +643,12 @@ export type UsageReport = z.infer<typeof usageReportSchema>;
 /** A name a person gives, such as the Organization's or a member's. */
 const nameSchema = textSchema.check(z.trim(), z.minLength(1));
 
+const invitationInput = z.strictObject({ invitation: textSchema });
+const invitationFields = z.object({ email: z.email(), role: z.string(), expiresAt: z.date() });
+export const InvitationUnavailable = error("NOT_FOUND", {
+  message: "This invitation is no longer available",
+});
+
 /** A setup link the hub did not issue, or one it no longer accepts. */
 export const SetupLinkRefused = error("FORBIDDEN", {
   message:
@@ -752,6 +759,62 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           email: z.email(),
           password: z.string(),
         }),
+      ),
+  },
+  invitations: {
+    preview: forAnyone
+      .errors({ [InvitationUnavailable.code]: InvitationUnavailable })
+      .meta(
+        openapi({
+          method: "POST",
+          path: "/invitations/preview",
+          description: "Shows who an invitation is for and the role it grants.",
+        }),
+        ...byAnyone,
+      )
+      .input(invitationInput)
+      .output(z.extend(invitationFields, { organizationName: z.string() })),
+    accept: forAnyone
+      .errors({
+        [InvitationUnavailable.code]: InvitationUnavailable,
+        UNAUTHORIZED: {},
+        FORBIDDEN: {},
+        UNPROCESSABLE_CONTENT: {},
+      })
+      .meta(
+        openapi({
+          method: "POST",
+          path: "/invitations/accept",
+          description:
+            "Joins the Organization once. A new account supplies a name and password. An existing account signs in first.",
+        }),
+        ...byAnyone,
+      )
+      .input(
+        z.extend(invitationInput, {
+          name: z.optional(nameSchema),
+          password: z.optional(z.string()),
+        }),
+      )
+      .output(z.object({ email: z.email() })),
+    list: forMembers
+      .meta(
+        openapi({
+          method: "GET",
+          path: "/invitations",
+          description: "Lists pending invitations the member may grant, newest first.",
+        }),
+        ...byMember,
+      )
+      .input(noQueryParametersSchema)
+      .output(
+        z.array(
+          z.extend(invitationFields, {
+            id: z.string(),
+            inviter: z.object({ id: z.string(), name: z.string() }),
+            createdAt: z.date(),
+          }),
+        ),
       ),
   },
   runners: {

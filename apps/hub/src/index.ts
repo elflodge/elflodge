@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { createApp } from "./app.ts";
 import { databaseAndAuthLayer } from "./auth/auth.ts";
 import { sweepUnusedBlobs } from "./blobs.ts";
+import { sweepInvitations } from "./invitations.ts";
 import { RunnerConnections } from "./platform.ts";
 import {
   authSettings,
@@ -62,12 +63,15 @@ const app = createApp<Env>({
 
 export default {
   fetch: app.fetch,
-  // The Cron Trigger's sweep of Blobs nothing uses, every hour (`wrangler.jsonc`). A sweep that
-  // fails is logged and recorded by Cloudflare as a failed invocation; the next trigger tries again.
+  // The hourly Cron Trigger sweeps unused Blobs and expired or closed invitations. Cloudflare
+  // records a failure with this invocation and the next trigger tries again.
   scheduled: (_controller, env, context) => {
     context.waitUntil(
       Effect.runPromise(
-        sweepUnusedBlobs.pipe(Effect.tapCause(Effect.logError), Effect.provide(workersLayer(env))),
+        Effect.all([sweepUnusedBlobs, sweepInvitations]).pipe(
+          Effect.tapCause(Effect.logError),
+          Effect.provide(workersLayer(env)),
+        ),
       ),
     );
   },

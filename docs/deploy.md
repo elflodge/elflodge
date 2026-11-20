@@ -211,9 +211,15 @@ EOF
 
 The hub lists the Runner under its host's name, which `--hostname` gives the container in place of its ID. `RUNNER_EXTENSIONS_DIR` gives jobs the image's extensions, as the Compose Runner has; to let them search the web, add `RUNNER_WEB_SEARCH` and its key as in step 3. `docker logs elflodge-runner` shows any error that keeps the Runner from connecting. To upgrade it to the hub's release, run `docker stop elflodge-runner && docker rm elflodge-runner`, then run the `docker run` command from the `elflodge-runner` directory with the new version. The Runner's README explains [the Docker options and running it outside Docker](../apps/runner/README.md#what-a-host-needs).
 
+## Membership and account recovery
+
+An owner or admin can invite someone with Better Auth's `organization/invite-member` call. Give the invitation ID privately to the intended recipient. It works once within 48 hours, while the inviter can still grant the role. Only an owner can invite another owner. The recipient can preview the invitation and then accept it with a name and password for a new account, or their signed-in session for an existing account.
+
+If a leaked invitation was redeemed first, verify who should control the address. An operator with database access can reset that account's password and revoke its sessions. Use the same command when a returning member has forgotten their password. From `apps/hub`, set `DATABASE_URL` to the hub's database, `ADMIN_EMAIL` to the affected address and `ADMIN_PASSWORD` to the new password, then run `vp run reset-password`. Give the password privately to its owner. A former member also needs a fresh invitation to rejoin. Review any keys or Runners created during unintended access. They have their own credentials.
+
 ## Calling the API directly
 
-The hub serves an OpenAPI document of its public calls at `/spec.json`, generated from the contract. Anyone can read it. `GET /setup` needs no credential. `POST /setup` takes the token from the setup link. Other calls take an API key in the `x-api-key` header with the listed permissions, a member's session cookie, or either. Errors are RFC 9457 Problem Details.
+The hub serves an OpenAPI document of its public calls at `/spec.json`, generated from the contract. Anyone can read it. `GET /setup` needs no credential. `POST /setup` takes the token from the setup link. `POST /invitations/preview` and `POST /invitations/accept` take the invitation ID in the request body. Accepting for an existing account also requires its session. Other calls take an API key in the `x-api-key` header with the listed permissions, a member's session cookie, or either. Errors are RFC 9457 Problem Details.
 
 - **Waiting for a job:** read it until its status is final, waiting longer between reads, as `elflodge jobs wait` does.
 - **Reading events:** Open recent history with `order=desc`, then pass `order=desc&after=<oldest ID shown>` until `hasMore` is false. New events can arrive while you walk back. To follow them, read forward from the newest ID seen, or from 0 if the first page was empty. The CLI call is `elflodge jobs events --id <id> --after <newest event id>`. Advance the cursor after each nonempty page. Read again at once while `hasMore` is true, or after a few seconds otherwise. Stop following when an ascending page has both a final `status` and `hasMore: false`.

@@ -98,10 +98,10 @@ export function authOptions(settings: AuthSettings) {
       db: settings.db,
       type: "postgres",
       schemaName: DB_SCHEMA,
-      // Setup creates the owner and Organization in one Kysely transaction, which cannot open another.
+      // Setup and invitation redemption each supply a Kysely transaction that cannot open another.
       transaction: !settings.db.isTransaction,
     },
-    // Members sign in with a password (ADR 0015); only the hub's setup signs anyone up.
+    // Members sign in with a password (ADR 0015); only setup and invitation redemption sign anyone up.
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
@@ -136,14 +136,19 @@ export function authOptions(settings: AuthSettings) {
       },
     },
     // The hub's own routes manage API keys, adding which permissions may be granted and closing a
-    // removed Runner's connection; Better Auth's would skip both. Its server-side calls still work.
+    // removed Runner's connection. Its invitation claim must also verify the inviter's current
+    // authority. Better Auth's server-side calls still work.
     disabledPaths: [
+      "/organization/accept-invitation",
+      "/organization/reject-invitation",
       "/api-key/create",
       "/api-key/get",
       "/api-key/list",
       "/api-key/update",
       "/api-key/delete",
     ],
+    // Let the HTTP handler recognize the database constraint that protects the last owner.
+    onAPIError: { throw: true },
     logger: {
       // Better Auth's lines go to the console like the hub's own, without terminal colours, so Workers
       // Logs keeps them with the request they belong to.
@@ -162,6 +167,7 @@ export function authOptions(settings: AuthSettings) {
         roles,
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
+        cancelPendingInvitationsOnReInvite: true,
       }),
       apiKey([
         {

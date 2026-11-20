@@ -344,12 +344,12 @@ export function startSystem(
     return cookie.split(";")[0] ?? "";
   }
 
-  /** Better Auth's client of the hub's organization routes, signed in as `OWNER`. */
-  function ownerAuth() {
+  /** Better Auth's client of the hub's organization routes with the given session. */
+  function authClient(cookie: string) {
     return createAuthClient({
       baseURL: url.origin,
       plugins: [organizationClient()],
-      fetchOptions: { headers: { cookie: ownerCookie, origin: HUB_ORIGIN }, throw: true },
+      fetchOptions: { headers: { cookie, origin: HUB_ORIGIN }, throw: true },
     });
   }
 
@@ -366,7 +366,7 @@ export function startSystem(
     password?: string;
     name: string;
   }): Promise<{ client: ApiClient; cookie: string; userId: string }> {
-    const [organization] = await ownerAuth().organization.list();
+    const [organization] = await authClient(ownerCookie).organization.list();
     if (!organization) throw new Error("The hub has no Organization");
     // Public sign-up is off, so the account is created as setup creates the owner's.
     await using db = openDatabase(inject("databaseUrl"));
@@ -469,7 +469,8 @@ export function startSystem(
     },
     /** The session cookie of `OWNER`. */
     ownerCookie: () => ownerCookie,
-    ownerAuth,
+    ownerAuth: () => authClient(ownerCookie),
+    authClient,
     addMember,
     async start() {
       const databaseUrl = inject("databaseUrl");

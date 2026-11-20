@@ -18,4 +18,4 @@ The Runner protocol is not part of the API: both ends are ours. The hub's refusa
 
 ## Consequences
 
-Paths outside the API answer 404 as Problem Details too, and so do failures outside oRPC, such as a hub missing its settings; unexpected errors are logged and answer 500 with a generic `detail`. Better Auth's own routes under `/api/auth` keep Better Auth's error format. When the hub publishes its OpenAPI document, the error responses there are described as Problem Details.
+Paths outside the API answer 404 as Problem Details too, and so do failures outside oRPC, such as a hub missing its settings; unexpected errors are logged and answer 500 with a generic `detail`. Better Auth's own routes under `/api/auth` keep Better Auth's error format, except that a last-owner conflict returns HTTP 409 Problem Details whether the library or the database refuses the change. When the hub publishes its OpenAPI document, the error responses there are described as Problem Details.

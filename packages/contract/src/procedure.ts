@@ -53,7 +53,7 @@ export const NotFound = error("NOT_FOUND");
  * with `UNAUTHORIZED`, or a signed-in account that is not a member with `FORBIDDEN`.
  */
 export const api = oc.errors({ [Unauthorized.code]: Unauthorized });
-/** The calls anyone may make (`byAnyone`), which the hub never refuses as `UNAUTHORIZED`. */
+/** Calls anyone can start, including invitation acceptance, which may ask an existing user to sign in. */
 export const forAnyone = oc;
 /**
  * How the OpenAPI document describes an API key, sent in `x-api-key`. A call's security lists the
@@ -104,7 +104,7 @@ export const byKey = (permissions: KeyPermissions) => calledBy({ key: permission
 export const byMember = calledBy({ member: true });
 export const byKeyOrMember = (permissions: KeyPermissions) =>
   calledBy({ key: permissions, member: true });
-/** For the calls a hub answers before it has members, such as setting it up. */
+/** For calls which can start without an existing membership, such as setup and joining. */
 export const byAnyone = calledBy({ anyone: true });
 
 /** Calls that act for the Organization, which exists once the hub is set up. */

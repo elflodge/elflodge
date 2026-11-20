@@ -7,6 +7,7 @@ import ensureError from "ensure-error";
 import { createApp, decideRunnerUpgrade } from "./app.ts";
 import { sweepUnusedBlobs } from "./blobs.ts";
 import { migrateDatabase } from "./db/migrate.ts";
+import { sweepInvitations } from "./invitations.ts";
 import { dashboardFiles } from "./node/dashboard.ts";
 import { NodeRunnerSockets, nodeServices } from "./node/layers.ts";
 import { startServer, stopServer } from "./node/server.ts";
@@ -97,7 +98,7 @@ function hubServer(port: number, host: string | undefined, settings: HubSettings
  */
 const sweeper = Layer.effectDiscard(
   Effect.forkScoped(
-    sweepUnusedBlobs.pipe(
+    Effect.all([sweepUnusedBlobs, sweepInvitations]).pipe(
       Effect.catchCause(Effect.logError),
       Effect.repeat(Schedule.cron("0 * * * *", "UTC")),
     ),

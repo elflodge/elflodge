@@ -4,6 +4,7 @@ import {
   type AbortableQueryOptions,
   type Expression,
   type ExpressionBuilder,
+  expressionBuilder,
   type InflightQueryAbortStrategy,
   Kysely,
   PostgresDialect,
@@ -53,6 +54,15 @@ export function greatest<T>(first: Expression<T>, ...rest: Expression<T | null>[
 export function greatest<T>(...values: Expression<T | null>[]): RawBuilder<T | null>;
 export function greatest<T>(...values: Expression<T | null>[]): RawBuilder<T | null> {
   return sql<T | null>`greatest(${sql.join(values)})`;
+}
+
+/** Better Auth stores role names joined by commas, including for a grant of several roles. */
+export function storedRoles(role: Expression<string | null>) {
+  const eb = expressionBuilder();
+  return eb.fn<string[]>("regexp_split_to_array", [
+    eb.fn("btrim", [role]),
+    eb.val("[[:space:]]*,[[:space:]]*"),
+  ]);
 }
 
 /** The hub's database. */
