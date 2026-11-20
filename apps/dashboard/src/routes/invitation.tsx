@@ -125,7 +125,7 @@ function ReadInvitation(props: { invitationId: string }) {
         )}
       </Match>
       <Match when={dead() || (preview.isError && problemOf(preview.error)?.status === 404)}>
-        <UnavailableInvitation />
+        <UnavailableInvitation focusLink={dead()} />
       </Match>
       <Match when={preview.isLoadingError}>
         <InvitationPage heading="Invitation">
@@ -164,10 +164,11 @@ function ReadInvitation(props: { invitationId: string }) {
   );
 }
 
-function UnavailableInvitation() {
+function UnavailableInvitation(props: { focusLink: boolean }) {
   const router = useRouter();
   const context = Route.useRouteContext();
   const [checked, setChecked] = createSignal(false);
+  const linkProps = () => (props.focusLink ? { ref: focusSignIn } : {});
   // Either the preview or the press can discover that another tab already joined.
   onSettled(() => {
     void router.invalidate().then(() => setChecked(true));
@@ -183,12 +184,12 @@ function UnavailableInvitation() {
           <Show
             when={context().session}
             fallback={
-              <Link class="stands-alone" to="/sign-in" ref={focusSignIn}>
+              <Link class="stands-alone" to="/sign-in" {...linkProps()}>
                 Sign in
               </Link>
             }
           >
-            <Link class="stands-alone" to="/" ref={focusSignIn}>
+            <Link class="stands-alone" to="/" {...linkProps()}>
               Go to the dashboard
             </Link>
           </Show>
