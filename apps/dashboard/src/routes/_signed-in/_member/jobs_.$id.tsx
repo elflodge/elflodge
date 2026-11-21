@@ -44,8 +44,8 @@ function jobName(job: Pick<Job, "id" | "customId">) {
 
 export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
   head: ({ match, params }) => {
-    // The loader has warmed the cache the page reads. It holds no job for an account that is no
-    // member and after a failed read, and then the address names the job.
+    // The loader has warmed the cache the page reads; when it holds none, as after a failed read or
+    // for an account that is no member, the address names the job.
     const job = match.context.queryClient.getQueryData(jobQuery(params.id).queryKey);
     const name =
       match.status === "notFound" ? "Job not found" : `Job ${job ? jobName(job) : params.id}`;
