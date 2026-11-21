@@ -92,8 +92,8 @@ export const USAGE_COPIED_COLUMNS = [
   "endedAt",
 ] as const;
 
-/** What the hub reports of a job, from its own row and from its progress row. */
-const JOB_COLUMNS = [
+/** What a list reads of a job's row: its columns without its content. */
+const LISTED_JOB_COLUMNS = [
   "id",
   "status",
   "createdAt",
@@ -101,16 +101,26 @@ const JOB_COLUMNS = [
   "endedAt",
   "runTimeoutSeconds",
   "modelBudgetUsd",
-  "output",
   "failureReason",
-  "failureMessage",
   "pendingControl",
   "pendingControlRequestedAt",
   "customId",
   "labels",
   ...SUBMITTER_COLUMNS,
 ] as const;
-const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
+/** What a list reads of a job's progress: its totals without its activity. */
+const LISTED_PROGRESS_COLUMNS = ["totalTokens", "costUsd", "lastReportedAt"] as const;
+
+/**
+ * A job's content, which a list leaves out: its output and its failure's message from its row, its
+ * activity from its progress row. Postgres reads these only for a job read whole.
+ */
+const JOB_CONTENT_COLUMNS = ["output", "failureMessage"] as const;
+const PROGRESS_CONTENT_COLUMNS = ["activity"] as const;
+
+/** What the hub reports of a job, from its own row and from its progress row. */
+const JOB_COLUMNS = [...LISTED_JOB_COLUMNS, ...JOB_CONTENT_COLUMNS] as const;
+const PROGRESS_COLUMNS = [...LISTED_PROGRESS_COLUMNS, ...PROGRESS_CONTENT_COLUMNS] as const;
 
 type SelectedJob = Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
   Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
@@ -365,31 +375,10 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 /** The statuses of a job that has not ended. */
 export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
-/** What a list reads of a job's row: its columns without its output and its failure's message. */
-const LISTED_JOB_COLUMNS = [
-  "id",
-  "status",
-  "createdAt",
-  "startedAt",
-  "endedAt",
-  "runTimeoutSeconds",
-  "modelBudgetUsd",
-  "failureReason",
-  "pendingControl",
-  "pendingControlRequestedAt",
-  "customId",
-  "labels",
-  ...SUBMITTER_COLUMNS,
-] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
-
-/** What a list reads of a job's progress: its totals without its activity. */
-const LISTED_PROGRESS_COLUMNS = [
-  "totalTokens",
-  "costUsd",
-  "lastReportedAt",
-] as const satisfies readonly (typeof PROGRESS_COLUMNS)[number][];
-
-type ListedJobRow = Omit<SelectedJob, "output" | "failureMessage" | "activity">;
+type ListedJobRow = Omit<
+  SelectedJob,
+  (typeof JOB_CONTENT_COLUMNS)[number] | (typeof PROGRESS_CONTENT_COLUMNS)[number]
+>;
 
 /**
  * Jobs as a list reads them, `j` with its progress `p`: without their content, so Postgres reads
@@ -416,7 +405,10 @@ function selectListedJobs(db: Kysely<Database>, now: Date) {
 
 /** Jobs whole, `j` with its progress `p`: as a list reads them, and their content. */
 function selectJobs(db: Kysely<Database>, now = new Date()) {
-  return selectListedJobs(db, now).select(["j.output", "j.failureMessage", "p.activity"]);
+  return selectListedJobs(db, now).select([
+    ...JOB_CONTENT_COLUMNS.map((column) => `j.${column}` as const),
+    ...PROGRESS_CONTENT_COLUMNS.map((column) => `p.${column}` as const),
+  ]);
 }
 
 /** The jobs `ids`, as a list reads them. */
@@ -424,7 +416,10 @@ export function listedJobsById(db: Kysely<Database>, ids: readonly JobId[], now:
   return selectListedJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
 }
 
-/** A job as the contract's `ListedJob` gives it, from what `selectListedJobs` read. */
+/**
+ * A job as the contract's `ListedJob` gives it, from what `selectListedJobs` read. The type
+ * refuses it if a content column the lists leave out is not set to none here.
+ */
 function toListedJob(row: ListedJobRow): ListedJob {
   return toApiJob({ ...row, output: null, failureMessage: null, activity: null });
 }
