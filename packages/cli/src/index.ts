@@ -976,14 +976,14 @@ const prepareOutputDir = Effect.fnUntraced(function* (dir: string) {
 const saveJobLines = Effect.fnUntraced(function* (
   client: ApiClient,
   dir: string,
-  jobs: readonly (readonly [string, ListedJob["id"]])[],
+  jobs: readonly Pick<ListedJob, "customId" | "id">[],
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   // One read per job, a few at a time, until the API reads a Batch's outputs a page at a time.
   const lines = yield* Effect.forEach(
     jobs,
-    ([customId, id]) =>
+    ({ customId, id }) =>
       hubCall((signal) => client.jobs.get({ id }, { signal })).pipe(
         Effect.retry(retryTransient),
         Effect.map((read) => jobLine(customId, read)),
@@ -1027,7 +1027,7 @@ const saveJobLines = Effect.fnUntraced(function* (
 function waitAndSave(
   client: ApiClient,
   submitted: Batch,
-  jobs: readonly (readonly [string, ListedJob["id"]])[],
+  jobs: readonly Pick<ListedJob, "customId" | "id">[],
   options: {
     again: string;
     idGiven: boolean;
@@ -1360,8 +1360,7 @@ function submitBatchCommand() {
             );
           });
           const batch = Array.lastNonEmpty(adds).batch;
-          // The answers give each job as the list does, so its line is read after the wait.
-          const added = adds.flatMap((add) => add.jobs.map(({ job }) => job.id));
+          const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
           const printBatchAndWaitHint = Effect.gen(function* () {
             yield* printStep(batch);
             if (batchWasCancelled(batch)) yield* Effect.fail(new Error("The Batch was cancelled"));
@@ -1374,25 +1373,17 @@ function submitBatchCommand() {
             }
           });
           return yield* flags.wait
-            ? waitAndSave(
-                client,
-                batch,
-                Array.zip(
-                  local.jobs.map((job) => job.customId),
-                  added,
-                ),
-                {
-                  again,
-                  idGiven: !runId.made,
-                  // `0` waits without limit; it is a duration until here, so that without --wait it
-                  // is refused as any --wait-timeout is.
-                  timeout:
-                    flags.waitTimeout === undefined || Duration.isZero(flags.waitTimeout)
-                      ? undefined
-                      : flags.waitTimeout,
-                  outputDir: flags.outputDir,
-                },
-              )
+            ? waitAndSave(client, batch, added, {
+                again,
+                idGiven: !runId.made,
+                // `0` waits without limit; it is a duration until here, so that without --wait it
+                // is refused as any --wait-timeout is.
+                timeout:
+                  flags.waitTimeout === undefined || Duration.isZero(flags.waitTimeout)
+                    ? undefined
+                    : flags.waitTimeout,
+                outputDir: flags.outputDir,
+              })
             : printBatchAndWaitHint;
         }).pipe(Effect.mapError(commandError)),
       ),
