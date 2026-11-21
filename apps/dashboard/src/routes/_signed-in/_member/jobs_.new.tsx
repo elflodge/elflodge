@@ -16,8 +16,8 @@ import { USD_THRESHOLD, duration, formatCount } from "../../../format.ts";
 import { isLeavingDocument } from "../../../member-document.ts";
 import { orpc } from "../../../query.ts";
 
-// It creates a Batch of one, but cannot be /batches/new: "new" is a valid Batch ID.
-export const Route = createFileRoute("/_signed-in/_member/submit/job")({
+// Under /jobs/, where the bar marks Jobs: job IDs are UUIDs, so "new" cannot name a job.
+export const Route = createFileRoute("/_signed-in/_member/jobs_/new")({
   loader: ({ context }) => {
     // Not awaited: the form works without the limits, which only fill two hints. Preloading on
     // intent starts the read before the page shows.
