@@ -119,16 +119,16 @@ test("a shared catalog can gain models while each conversation keeps its own pro
   const [prior] = models.getModels("anthropic");
   const alice = await attach("alice");
   const bob = await attach("bob");
-  expect(await alice.extensions.input("change endpoint")).toMatchObject({
-    action: "transform",
-    text: expect.stringContaining("baseUrl"),
-  });
   await alice.extensions.input("refresh");
   const model = { provider: "fixture", modelId: "new" };
   expect(models.getModel(model.provider, model.modelId)).toBeDefined();
   await bob.conversation.configure({ model }, context);
   expect(await (await bob.ask("hello")).wait(context)).toMatchObject({ status: "done" });
   expect(await bob.answer()).toMatchObject({ content: [{ text: "bob: hello" }] });
+
+  await alice.extensions.input("change endpoint");
+  expect(await (await bob.ask("endpoint")).wait(context)).toMatchObject({ status: "done" });
+  expect(await bob.answer()).toMatchObject({ content: [{ text: "https://other.example" }] });
 
   await bob.extensions.close();
   expect(models.getModel("anthropic", prior.id)?.baseUrl).toBe("https://proxy.example");

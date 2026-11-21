@@ -38,6 +38,7 @@ export default function extension(pi: ExtensionAPI) {
             await once(request, "abort");
           if (text === "call two tools") return tool("begin");
           if (text === "call tool") return tool("receipt");
+          if (text === "endpoint") return fauxAssistantMessage(model.baseUrl);
           if (text === "header")
             return fauxAssistantMessage(options?.headers?.["x-fixture"] ?? "missing");
           return fauxAssistantMessage(owner + ": " + text);
@@ -62,19 +63,16 @@ export default function extension(pi: ExtensionAPI) {
     if (text === "refresh") {
       pi.registerProvider("fixture", {
         ...config,
-        models: [...faux.models, { ...faux.getModel(), id: "new" }],
+        models: [...faux.models, { ...faux.getModel(), id: "new", baseUrl: undefined }],
       });
     }
     if (text === "add headers")
       pi.registerProvider("fixture", { headers: { "x-fixture": "updated" } });
-    if (text === "invalid stream" || text === "change endpoint") {
+    if (text === "change endpoint")
+      pi.registerProvider("fixture", { baseUrl: "https://other.example" });
+    if (text === "invalid stream") {
       try {
-        pi.registerProvider(
-          "fixture",
-          text === "invalid stream"
-            ? { streamSimple: faux.streamSimple }
-            : { baseUrl: "https://other.example" },
-        );
+        pi.registerProvider("fixture", { streamSimple: faux.streamSimple });
       } catch (error) {
         return {
           action: "transform",
