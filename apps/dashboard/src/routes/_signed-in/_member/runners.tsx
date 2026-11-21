@@ -12,6 +12,7 @@ import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { focusAfterRowDrops } from "../../../form.ts";
 import { formatCount, plural, timeZoneNote } from "../../../format.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
@@ -19,6 +20,7 @@ const CONNECTION_NOTE =
   "Connected means the hub has heard from the Runner in about the last two minutes.";
 
 export const Route = createFileRoute("/_signed-in/_member/runners")({
+  head: ({ match }) => memberPageHead(match.context, "Runners"),
   loader: async ({ context }) => {
     if (!context.member) return;
     await readFromHub("The Runners", () =>

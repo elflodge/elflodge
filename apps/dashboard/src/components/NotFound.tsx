@@ -4,7 +4,7 @@ import { FallbackPage } from "./FallbackPage.tsx";
 
 export function NotFound() {
   return (
-    <FallbackPage heading="Not found">
+    <FallbackPage heading="Page not found">
       <p class="prose">The page you are looking for does not exist.</p>
       <p class="prose">
         <Link to="/" class="stands-alone">

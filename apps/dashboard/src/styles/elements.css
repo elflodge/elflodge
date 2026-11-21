@@ -334,6 +334,8 @@ dialog {
   border: var(--rule) solid var(--c-field-edge);
   border-radius: var(--radius);
   padding: 0;
+  /* A plain form's width at least, as a dialog that holds one short field would be narrower. */
+  min-width: min(24rem, calc(100vw - 2 * var(--gutter)));
   max-width: min(44rem, calc(100vw - 2 * var(--gutter)));
   box-shadow: var(--shadow-dialog);
 }

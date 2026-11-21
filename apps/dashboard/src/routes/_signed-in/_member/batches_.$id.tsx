@@ -19,10 +19,16 @@ import {
   plural,
   timeZoneNote,
 } from "../../../format.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc, REFRESH_INTERVAL_MS } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
+  head: ({ match, params }) =>
+    memberPageHead(
+      match.context,
+      match.status === "notFound" ? "Batch not found" : `Batch ${params.id}`,
+    ),
   loader: async ({ context, params }) => {
     if (!context.member) return;
     if (!batchRefSchema.safeParse(params).success) throw notFound({ data: params.id });
@@ -69,7 +75,7 @@ function MissingBatch(props: { id: string }) {
         No Batch with the ID <code class="job-address">{props.id}</code>. IDs are compared exactly,
         capitals included.
       </p>
-      <p>
+      <p class="prose">
         <Link to="/batches" class="stands-alone">
           Batches
         </Link>

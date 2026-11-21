@@ -46,6 +46,7 @@ test("a member opens a listed job, sees its pause requested, and finds the pause
 
   const page = await openAsMember("Job reader", "jobs");
   await page.getByRole("link", { name: "april-invoices" }).click();
+  await expectBrowser(page).toHaveTitle("Job april-invoices · Elflodge");
   const pause = page.getByRole("button", { name: "Pause", exact: true });
   await pause.click();
   const status = page.getByRole("status").filter({ hasText: "Pause asked" });
@@ -117,7 +118,9 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   await expectBrowser(page.getByRole("heading", { name: "This job was deleted" })).toBeVisible({
     timeout: 12_000,
   });
-  await expectBrowser(page.getByRole("link", { name: "See the jobs" })).toBeVisible();
+  await expectBrowser(
+    page.getByRole("main").getByRole("link", { name: "Jobs", exact: true }),
+  ).toBeVisible();
 }, 30_000);
 
 test("a member can correct a refused budget and resume the job to its Output", async () => {

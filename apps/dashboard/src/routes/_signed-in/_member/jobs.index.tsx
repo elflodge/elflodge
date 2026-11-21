@@ -265,7 +265,7 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
       <td role="cell" class="c-cost num">
         <Show when={props.job.startedAt}>
           {formatUsd(props.job.usage.cost.totalUsd)}
-          <span class="unit-inline"> USD, est.</span>
+          <span class="unit-inline"> USD,&nbsp;est.</span>
           <span class="of"> of {USD_BUDGET.format(props.job.modelBudgetUsd)}</span>
         </Show>
       </td>

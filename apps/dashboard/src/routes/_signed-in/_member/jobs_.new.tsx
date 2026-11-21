@@ -27,10 +27,12 @@ import {
   withoutRefusals,
 } from "../../../form.ts";
 import { preloadJobLimits } from "../../../job-limits.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 
 // Under /jobs/, where the bar marks Jobs: job IDs are UUIDs, so "new" cannot name a job.
 export const Route = createFileRoute("/_signed-in/_member/jobs_/new")({
+  head: ({ match }) => memberPageHead(match.context, "Submit a job"),
   loader: ({ context }) => preloadJobLimits(context),
   component: SubmitJob,
 });

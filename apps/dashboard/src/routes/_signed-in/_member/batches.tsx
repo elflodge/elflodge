@@ -12,6 +12,7 @@ import * as z from "zod/mini";
 import { BATCH_STATUS_WORDS } from "../../../batch.ts";
 import { Field } from "../../../components/Field.tsx";
 import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 import { optionalText } from "../../../search-form.ts";
 
@@ -43,6 +44,7 @@ export function filterCount(search: BatchesSearch) {
 }
 
 export const Route = createFileRoute("/_signed-in/_member/batches")({
+  head: ({ match }) => memberPageHead(match.context, "Batches"),
   validateSearch: batchesSearchSchema,
   component: Batches,
 });

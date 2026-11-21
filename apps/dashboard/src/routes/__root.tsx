@@ -4,6 +4,7 @@ import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/soli
 
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary.tsx";
 import { logoDark, logoLight } from "../logo.ts";
+import { PRODUCT } from "../page-title.ts";
 
 import appCss from "../styles/app.css?url";
 // The two faces are linked from here, not imported by app.css: the build's notices list the packages
@@ -16,7 +17,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charset: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Elflodge" },
+      { title: PRODUCT },
     ],
     links: [
       { rel: "stylesheet", href: sansCss },

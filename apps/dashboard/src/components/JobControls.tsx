@@ -271,6 +271,7 @@ export function JobControls(props: {
               </Show>
             </div>
             <div class="dialog-f">
+              {/* Not "Cancel", as other form dialogs say: on a job's page, Cancel cancels the job. */}
               <button type="button" onClick={() => budgetDialog?.close()}>
                 Close
               </button>

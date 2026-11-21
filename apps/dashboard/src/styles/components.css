@@ -407,9 +407,19 @@ a:where(.button) {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
+  /* Its content keeps a control's height whether or not the head holds one, so a one-line heading
+     and its rule stand at the same place on every page. The content box is what min-height sets,
+     so the padding and the rule under it add to that as they do to a control in the head. */
+  box-sizing: content-box;
+  min-height: var(--control);
   padding-bottom: var(--space-3);
   border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
   margin-bottom: var(--space-4);
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .head {
+    min-height: var(--control-touch);
+  }
 }
 .controls {
   display: flex;
@@ -874,6 +884,10 @@ p:has(> button) + .prose {
     display: inline-block;
     vertical-align: top;
   }
+  /* Folded, the record's action starts its line, as every other value does. */
+  .records td.is-act {
+    text-align: start;
+  }
   .records td[data-l]::before {
     /* Firefox before 128 needs the first declaration. The real header already names the cell. */
     content: attr(data-l);
@@ -1142,6 +1156,11 @@ p mark.placeholder {
 .copy > [role="status"] {
   color: var(--c-ink-2);
   font-size: var(--text-xs);
+}
+/* Empty, the status stays in the page for a screen reader but takes no place in the line, so the
+   gap does not set the button apart from what follows the copy. */
+.copy > [role="status"]:empty {
+  position: absolute;
 }
 .shown-once {
   padding: var(--space-2) var(--space-3);

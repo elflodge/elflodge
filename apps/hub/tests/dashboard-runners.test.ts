@@ -58,7 +58,7 @@ test("revoking the last API key returns focus to the page and stops calls with t
     .getByRole("button", { name: /^Revoke old script/ })
     .click();
   await row.waitFor({ state: "detached" });
-  await page.getByRole("heading", { name: "No API keys" }).waitFor();
+  await page.getByRole("heading", { name: "No API keys yet" }).waitFor();
   await expectBrowser(
     page.getByRole("status").filter({ hasText: /^old script .* is revoked\.$/ }),
   ).toBeFocused();

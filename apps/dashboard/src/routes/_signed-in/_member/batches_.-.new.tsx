@@ -60,12 +60,14 @@ import { createFormAction, fieldText, issuesRefusal, withoutRefusals } from "../
 import { formatBytes } from "../../../format-bytes.ts";
 import { USD_BUDGET, formatCount, plural } from "../../../format.ts";
 import { preloadJobLimits, useJobLimits } from "../../../job-limits.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 
 // Not /batches/new, which is the page of a Batch named "new". "-" is a segment no Batch ID can be,
 // so no Batch's page has this address, and the bar marks Batches. The router ignores a file name's
 // leading "-" only, so this one is routed.
 export const Route = createFileRoute("/_signed-in/_member/batches_/-/new")({
+  head: ({ match }) => memberPageHead(match.context, "Submit a Batch"),
   loader: ({ context }) => preloadJobLimits(context),
   component: SubmitBatch,
 });

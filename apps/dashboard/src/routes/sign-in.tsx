@@ -8,8 +8,10 @@ import { BrandMark } from "../components/BrandMark.tsx";
 import { Field } from "../components/Field.tsx";
 import { Notice } from "../components/Notice.tsx";
 import { createFormAction, fieldText } from "../form.ts";
+import { pageHead } from "../page-title.ts";
 
 export const Route = createFileRoute("/sign-in")({
+  head: () => pageHead("Sign in"),
   validateSearch: z.object({
     redirect: z.catch(
       z.optional(

@@ -1,6 +1,6 @@
 import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
-import { jobRefSchema, problemOf } from "contract";
+import { jobRefSchema, problemOf, type Job } from "contract";
 import {
   Match,
   Show,
@@ -28,6 +28,7 @@ import { TIME_ZONED, timeZoneNote } from "../../../format.ts";
 import { readJobEvent } from "../../../job-event-record.ts";
 import { useJobEvents } from "../../../job-events.ts";
 import { groupJobEvents } from "../../../job-runs.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
@@ -36,7 +37,20 @@ function jobQuery(id: string) {
   return orpc.jobs.get.queryOptions({ input: { id: id.toLowerCase() } });
 }
 
+/** What names a job in its heading and title: its Custom ID unless blank, else its ID. */
+function jobName(job: Pick<Job, "id" | "customId">) {
+  return job.customId?.trim() ? job.customId : job.id;
+}
+
 export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
+  head: ({ match, params }) => {
+    // The loader has warmed the cache the page reads; when it holds none, as after a failed read or
+    // for an account that is no member, the address names the job.
+    const job = match.context.queryClient.getQueryData(jobQuery(params.id).queryKey);
+    const name =
+      match.status === "notFound" ? "Job not found" : `Job ${job ? jobName(job) : params.id}`;
+    return memberPageHead(match.context, name);
+  },
   loader: async ({ context, params }) => {
     if (!context.member) return;
     if (!jobRefSchema.safeParse(params).success) throw notFound({ data: params.id });
@@ -93,7 +107,7 @@ function MissingJob(props: { id: string; deleted?: boolean }) {
             jobsLink = element;
           }}
         >
-          See the jobs
+          Jobs
         </Link>
       </p>
     </FallbackPage>
@@ -177,7 +191,7 @@ function JobPage() {
       <div class="head">
         <h1 class="subject">
           <span class="kind">Job</span>
-          <span class="whole-id">{job().customId?.trim() ? job().customId : job().id}</span>
+          <span class="whole-id">{jobName(job())}</span>
         </h1>
       </div>
       <Show
