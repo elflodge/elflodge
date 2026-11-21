@@ -161,16 +161,16 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
           </span>
         )}
       </Show>
-      {/* The Show's value is the reason, a string, not the failure. When the job turns from failed
-          to queued, Solid 2.0.0 lets the child read the value as undefined before the Show drops
-          it; a child reading a member of it throws, then throws "Stale read from <Show>" without
-          end, and the page stops updating. */}
-      <Show when={props.job.status === "failed" ? props.job.failure.reason : undefined}>
-        {(reason) => (
+      {/* Keyed, so the child gets the failure itself rather than an accessor. When the job turns
+          from failed to queued, Solid 2.0.0's accessor can return undefined before the Show drops
+          its child; reading the reason from that threw, and in our runs the page then kept
+          re-reading it and stopped updating. Keyed also shows a reason that is an empty string. */}
+      <Show when={props.job.status === "failed" ? props.job.failure : undefined} keyed>
+        {(failure) => (
           <span class="beside">
             <span>
-              <FailureReason reason={reason()} />
-              <Show when={props.detailed && FAILURE_WORDS.get(reason())}>
+              <FailureReason reason={failure.reason} />
+              <Show when={props.detailed && FAILURE_WORDS.get(failure.reason)}>
                 {(words) => <>: {words()}</>}
               </Show>
             </span>
