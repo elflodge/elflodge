@@ -279,7 +279,7 @@ A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in t
 </Field>
 ```
 
-Place refusals by the hub's locator. Never match the hub's words or guess the field from the HTTP status. When a refusal locates an input that a control edits, pass the hub’s words to `Field` or `FieldGroup` as its `error`. The refused field takes focus unless the member moved focus to something else visible while the hub answered. The form alert shows any issues outside its controls. For a refusal without locations it shows the hub’s detail. When every issue has a field, the fields carry the whole answer. Keep the values entered. The submit button stays focusable through navigation and the form ignores further submissions while pending. A form whose success leaves the page, as Submit a job does, makes its submitted controls read-only while pending, as Resume does: an edit made then would be lost on success, and a refusal stays with the value it refused. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
+Place refusals by the hub's locator. Never match the hub's words or guess the field from the HTTP status. When a refusal locates an input that a control edits, pass the hub’s words to `Field` or `FieldGroup` as its `error`. The refused field takes focus unless the member moved focus to something else visible while the hub answered. The form alert shows any issues outside its controls. For a refusal without locations it shows the hub’s detail. When every issue has a field, the fields carry the whole answer. Keep the values entered. The submit button stays focusable through navigation and the form ignores further submissions while pending. Submit a job, whose success lands on the job it made, makes its submitted controls read-only while pending, as Resume does with its budget: an edit made then would be lost on success, and a refusal stays with the value it refused. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
 
 Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
 
@@ -309,7 +309,7 @@ which draw
 
 A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu. `.danger` is a destructive control, its words and edge in the failed colour; `.danger.is-fill`, filled, is the button in a dialog that confirms it.
 
-A page's one action that leads to another page is a link drawn as a button, `a.button`, so it opens in a new tab and is preloaded as a link is. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
+A page's one action that leads to another page is a link drawn as a button, `a.button`, so it can be opened in a new tab and is preloaded as a link is. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
 
 ### Dialogs
 
@@ -338,7 +338,7 @@ The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and 
 </dialog>
 ```
 
-Leaving a page with a draft not yet sent, as on Submit a job, asks first. The router's `useBlocker` holds the navigation, and the page mounts a dialog while the blocker's status is `blocked`, opening it with `showModal()` once settled, as the other dialogs open. It says what leaving loses, with "Stay" first and focused and `button.danger.is-fill` "Leave the page". Stay or Escape keeps the page. While a request is pending, or after one got no answer that says what the hub did, the dialog says the hub may already have the job and to look in Jobs before submitting it again. Closing the tab or reloading gets the browser's own question, except when the document is being replaced after a sign-out or a change of member.
+Leaving a page with a draft not yet sent, as on Submit a job, asks first. The router's `useBlocker` holds the navigation, and the page mounts a dialog while the blocker's status is `blocked`, opening it with `showModal()` once settled, as the other dialogs open. It says what leaving loses, with "Stay" first and focused and `button.danger.is-fill` "Leave the page". Stay or Escape keeps the page; a change of fragment alone, such as the skip link's, is not leaving. Once the member chooses to leave, the answer to a pending request no longer takes them to the job. While a request is pending, or after one got no answer that says what the hub did, the dialog says the hub may already have the job and to look in Jobs before submitting it again. Closing the tab or reloading gets the browser's own question, except when the document is being replaced after a sign-out or a change of member.
 
 ### Mono
 

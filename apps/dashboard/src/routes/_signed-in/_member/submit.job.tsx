@@ -90,9 +90,13 @@ function SubmitJob() {
   // Kept so that a retry after a lost answer sends the same ID, and the hub answers with the job
   // it made instead of making a second one.
   let madeId: string | undefined;
-  // A request was sent since the last change and got no answer that says what the hub did.
+  // A request was sent since the last change and got no answer that says what the hub did. A
+  // later refusal of the same draft says nothing of that request, so only an edit or a success
+  // settles it.
   const [outcomeUnknown, setOutcomeUnknown] = createSignal(false);
   let submitted = false;
+  // The member confirmed leaving while a request was pending: its answer must not take them back.
+  let leaveConfirmed = false;
   let formElement: HTMLFormElement | undefined;
   let budgetInput!: HTMLInputElement;
   let timeoutInput!: HTMLInputElement;
@@ -104,12 +108,13 @@ function SubmitJob() {
         (control.value !== control.defaultValue || control.validity.badInput),
     );
   const blocker = useBlocker({
-    shouldBlockFn: dirty,
+    // A change of fragment alone, such as the skip link's, does not leave the page.
+    shouldBlockFn: ({ current, next }) => current.pathname !== next.pathname && dirty(),
     // A document replaced after a sign-out or a change of member must go (ADR 0046).
     enableBeforeUnload: () => !isLeavingDocument() && dirty(),
     withResolver: true,
   });
-  const heading = createUniqueId();
+  const headingId = createUniqueId();
 
   const { pending, onSubmit } = createFormAction(async (form) => {
     const data = new FormData(form);
@@ -124,8 +129,12 @@ function SubmitJob() {
       return;
     }
     const id = fieldText(data, "id") || (madeId ??= uuid());
+    // Checked here, not by oRPC's RequestValidationPlugin, which would check every dashboard call:
+    // the schema's text is parsed first, and the page must know whether anything was sent.
     const checked = batchCreationSchema.safeParse({
       id,
+      // As `jobs submit` sends it: a breaker means nothing for one job and would leave the Batch
+      // paused. A repeat under the same ID, from the CLI or this page, matches while both send this.
       breaker: false,
       jobs: [{ customId: id, input: fieldText(data, "input") }],
       agent: {
@@ -156,15 +165,16 @@ function SubmitJob() {
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.get.queryKey({ input: { id } }) });
-      if (form.isConnected) {
+      if (form.isConnected && !leaveConfirmed) {
         submitted = true;
+        // A navigation held by an open leave dialog gives way, so the member lands on the job.
         blocker().reset?.();
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
       }
     } catch (error) {
       const status = problemOf(error)?.status;
       // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
-      setOutcomeUnknown(!(status !== undefined && status >= 400 && status < 500));
+      if (!(status !== undefined && status >= 400 && status < 500)) setOutcomeUnknown(true);
       setFailure(formRefusal(error, controls));
       if (status === 403)
         void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
@@ -213,11 +223,13 @@ function SubmitJob() {
           error={refused(instructionsField)}
         >
           {(control) => (
+            // Four rows: a few sentences.
             <textarea {...control} name={instructionsField} rows={4} readonly={pending()} />
           )}
         </Field>
         <Field label="Input" hint="What the agent works on." error={refused("input")}>
           {(control) => (
+            // Eight rows: a short document, such as an invoice's lines and a question about them.
             <textarea {...control} name="input" rows={8} required readonly={pending()} />
           )}
         </Field>
@@ -231,6 +243,7 @@ function SubmitJob() {
               {...control}
               class="mono"
               name={outputSchemaField}
+              // Ten rows: the starting schema's seven lines and a few more properties.
               rows={10}
               required
               spellcheck={false}
@@ -319,14 +332,14 @@ function SubmitJob() {
       </form>
       <Show when={blocker().status === "blocked"}>
         <dialog
-          aria-labelledby={heading}
+          aria-labelledby={headingId}
           ref={(element) => {
             onSettled(() => element.showModal());
           }}
           onClose={() => blocker().reset?.()}
         >
           <form method="dialog">
-            <h2 class="dialog-h" id={heading}>
+            <h2 class="dialog-h" id={headingId}>
               {mayHaveJob() ? "Leave this page?" : "Leave without submitting?"}
             </h2>
             <div class="dialog-b">
@@ -341,7 +354,14 @@ function SubmitJob() {
               <button value="keep" autofocus>
                 Stay
               </button>
-              <button type="button" class="danger is-fill" onClick={() => blocker().proceed?.()}>
+              <button
+                type="button"
+                class="danger is-fill"
+                onClick={() => {
+                  leaveConfirmed = true;
+                  blocker().proceed?.();
+                }}
+              >
                 Leave the page
               </button>
             </div>
