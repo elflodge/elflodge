@@ -541,9 +541,9 @@ export const batchesPageSchema = z
 export type BatchesPage = z.infer<typeof batchesPageSchema>;
 
 /**
- * A job as a creation or an add answers it, by its IDs alone. A submission's answer is bounded by
- * its request, so it names what was made and whether this call made it, and anything else about a
- * job is read from the job (ADR 0050).
+ * A job as a creation or an add answers it, by its IDs alone. The answer's `jobs` follow the
+ * request, a job's IDs and a flag for each job it names, and the Batch beside them is one record;
+ * anything else about a job is read from the job (ADR 0050).
  */
 export const jobIdsSchema = z
   .required(z.pick(jobBaseSchema, { id: true, customId: true }), { customId: true })

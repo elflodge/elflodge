@@ -608,7 +608,8 @@ async function addJobsAndReadBatch(
   submitter: Submitter,
 ): Promise<AddedJobs> {
   const entries = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
-  // The answer names each job by its IDs alone, so its size follows the request's (ADR 0050).
+  // The answer's `jobs` follow the request, a job's IDs for each, and the Batch beside them is one
+  // record (ADR 0050).
   const row = await selectBatch(trx, { uid }, new Date()).executeTakeFirstOrThrow();
   return {
     batch: batchOf(row),
