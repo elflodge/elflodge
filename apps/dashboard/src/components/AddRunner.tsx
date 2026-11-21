@@ -226,17 +226,19 @@ export function AddRunner(props: {
             />
             <Show
               when={props.registered}
+              keyed
               fallback={
                 <span>
                   Waiting for a Runner to register. It will be listed here under its machine's name.
                 </span>
               }
             >
-              <span>
-                <span class="mono">{props.registered?.name}</span>{" "}
-                <span class="sid">{props.registered && props.shortId(props.registered)}</span> has
-                registered.
-              </span>
+              {(runner) => (
+                <span>
+                  <span class="mono">{runner.name}</span>{" "}
+                  <span class="sid">{props.shortId(runner)}</span> has registered.
+                </span>
+              )}
             </Show>
           </Show>
         </p>

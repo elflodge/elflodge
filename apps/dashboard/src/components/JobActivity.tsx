@@ -33,7 +33,7 @@ export function JobActivity(props: { job: Job }) {
         <Show when={props.job.activity} fallback={<p>No activity has been reported.</p>}>
           <For
             keyed={(part) => part.conversationId}
-            each={props.job.activity ?? []}
+            each={props.job.activity}
             fallback={<p>Between steps when last observed.</p>}
           >
             {(conversation) => (

@@ -209,9 +209,9 @@ function BatchJobs(props: { batch: Batch; current: boolean }) {
         <Show when={props.batch.statusUnknownJobs}>
           <p class="note is-unknown">
             <span class="mark mark-unknown" aria-hidden="true" />{" "}
-            {formatCount(props.batch.statusUnknownJobs ?? 0)} of these{" "}
-            {plural(props.batch.statusUnknownJobs ?? 0, "has", "have")} status unknown: each is
-            counted under its last recorded status.{" "}
+            {formatCount(props.batch.statusUnknownJobs)} of these{" "}
+            {plural(props.batch.statusUnknownJobs, "has", "have")} status unknown: each is counted
+            under its last recorded status.{" "}
             <Link to="/jobs" search={{ batchId: props.batch.id, statusUnknown: true }}>
               See them<span class="vh">: its jobs with status unknown</span>
             </Link>

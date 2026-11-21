@@ -39,23 +39,23 @@ export function JobFacts(props: { job: Job; readAt: number }) {
       <dl>
         <dt>ID</dt>
         <dd class="mono selectable">{props.job.id}</dd>
-        <Show when={props.job.customId}>
+        <Show when={props.job.customId} keyed>
           {(name) => (
             <>
               <dt>Custom ID</dt>
-              <dd class="mono whole-id">{name()}</dd>
+              <dd class="mono whole-id">{name}</dd>
             </>
           )}
         </Show>
-        <Show when={props.job.batchId}>
+        <Show when={props.job.batchId} keyed>
           {(batch) => (
             <>
               <dt>Batch</dt>
               <dd>
-                <Link class="mono stands-alone" to="/batches/$id" params={{ id: batch() }}>
-                  {batch()}
+                <Link class="mono stands-alone" to="/batches/$id" params={{ id: batch }}>
+                  {batch}
                 </Link>{" "}
-                <Link class="stands-alone" to="/jobs" search={{ batchId: batch() }}>
+                <Link class="stands-alone" to="/jobs" search={{ batchId: batch }}>
                   its jobs
                 </Link>
               </dd>
@@ -169,6 +169,7 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
   // The count is new on each report, so its Show's child reads it directly (AGENTS.md).
   const counted = () => measured()?.seconds ?? 0;
   const countedFrom = () => measured()?.start;
+  const recountedFrom = () => (countedFrom()?.kind === JOB_STARTED ? undefined : countedFrom());
   const timesOutAt = () => {
     const from = countedFrom();
     const limit = props.job.runTimeoutSeconds;
@@ -181,23 +182,23 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
       </h2>
       <div class="limits">
         <div class="limit">
-          <Show when={props.job.modelBudgetUsd}>
+          <Show when={props.job.modelBudgetUsd} keyed>
             {(budget) => (
               <>
                 <h3>
                   Model budget <span class="unit">over its life</span>
                 </h3>
                 <p class="limit-value">
-                  {USD_BUDGET.format(budget())} <span class="unit">USD</span>
+                  {USD_BUDGET.format(budget)} <span class="unit">USD</span>
                 </p>
                 <Show when={props.job.startedAt}>
-                  <div class={["scale", { "is-over": cost() >= budget() }]}>
+                  <div class={["scale", { "is-over": cost() >= budget }]}>
                     <meter
                       aria-label="Model budget used"
                       min={0}
-                      max={budget()}
-                      value={Math.min(cost(), budget())}
-                      aria-valuetext={`${formatUsd(cost())} of ${USD_BUDGET.format(budget())} USD, estimated`}
+                      max={budget}
+                      value={Math.min(cost(), budget)}
+                      aria-valuetext={`${formatUsd(cost())} of ${USD_BUDGET.format(budget)} USD, estimated`}
                     />
                   </div>
                 </Show>
@@ -215,21 +216,21 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
             </dl>
           </Show>
         </div>
-        <Show when={props.job.runTimeoutSeconds}>
+        <Show when={props.job.runTimeoutSeconds} keyed>
           {(limit) => (
             <div class="limit">
               <h3>
                 Run timeout <span class="unit">each run</span>
               </h3>
-              <p class="limit-value">{duration(limit())}</p>
+              <p class="limit-value">{duration(limit)}</p>
               <Show when={measured()}>
                 <div class="scale">
                   <meter
                     aria-label="Run timeout counted so far"
                     min={0}
-                    max={limit()}
-                    value={Math.min(counted(), limit())}
-                    aria-valuetext={`about ${duration(counted())} of ${duration(limit())} at the report`}
+                    max={limit}
+                    value={Math.min(counted(), limit)}
+                    aria-valuetext={`about ${duration(counted())} of ${duration(limit)} at the report`}
                   />
                 </div>
                 <dl>
@@ -240,12 +241,12 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
                     <Instant value={timesOutAt()} format={TIME_SECONDS} />
                   </dd>
                 </dl>
-                <Show when={countedFrom() && countedFrom()?.kind !== JOB_STARTED}>
+                <Show when={recountedFrom()}>
                   <p class="note">
-                    Counted from <Instant value={countedFrom()?.at} format={TIME_SECONDS} />
-                    {countedFrom()?.kind === JOB_RESUMED
+                    Counted from <Instant value={recountedFrom()?.at} format={TIME_SECONDS} />
+                    {recountedFrom()?.kind === JOB_RESUMED
                       ? ", its resume."
-                      : countedFrom() && ", its Runner’s restart."}
+                      : ", its Runner’s restart."}
                   </p>
                 </Show>
               </Show>
@@ -260,8 +261,8 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
                   <meter
                     aria-label="Run timeout reached"
                     min={0}
-                    max={limit()}
-                    value={limit()}
+                    max={limit}
+                    value={limit}
                     aria-valuetext="Run timeout reached"
                   />
                 </div>

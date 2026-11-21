@@ -103,14 +103,20 @@ function OrganizationPage(props: { organizationId: string }) {
   const client = useQueryClient();
   // The route context gives a new member on each navigation, so the Show is keyed on the
   // Organization's ID alone and its name and the member's role are read from the context. They are
-  // missing only while the Show takes the page away.
+  // missing only while the Show takes the page away, when the invitations are not read.
   const org = () => context().member?.organization;
   const orgId = () => props.organizationId;
-  const role = () => context().member?.role ?? "";
-  const owner = () => rolesOf(role()).includes("owner");
+  const role = () => context().member?.role;
+  const owner = () => {
+    const current = role();
+    return current !== undefined && rolesOf(current).includes("owner");
+  };
   const manages = () => context().managesKeys;
   const members = useQuery(() => membersOptions(orgId()));
-  const invitations = useQuery(() => ({ ...invitationsOptions(role()), enabled: manages() }));
+  const invitations = useQuery(() => ({
+    ...invitationsOptions(role()),
+    enabled: manages() && role() !== undefined,
+  }));
   const keys = useQuery(() =>
     orpc.apiKeys.list.queryOptions({ enabled: manages(), retryOnMount: false }),
   );
