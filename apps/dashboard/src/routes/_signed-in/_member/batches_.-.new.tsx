@@ -298,17 +298,20 @@ function SubmitBatch() {
     const sent = rows();
     const keyOf = (index: number) => sent[index]?.key ?? -1;
     sendController = new AbortController();
-    // The send's steps show while the form is pending. A write in the action shows at once: one made
-    // before its first `await` or after a `yield`. A report `prepareBatch` writes from a callback
-    // while the action waits shows too, only because its first report, of reading the files, was
-    // written in the action before it awaited anything (Solid keeps an optimistic write made outside
-    // an action beside one made in it). The creating step comes after a `yield`.
+    // Each report is written after a `yield`, where the action resumes: the form's action holds a
+    // write until it settles, and an optimistic one shows while it is pending only when it is written
+    // in the action, before its first `await` or after a `yield` (@solidjs/signals,
+    // dist/types/core/action.d.ts).
     let outcome: SendOutcome;
     try {
-      const prepared = await prepareBatch(draft, {
-        signal: sendController.signal,
-        onProgress: setProgress,
-      });
+      const steps = prepareBatch(draft, sendController.signal);
+      let step = await steps.next();
+      while (!step.done) {
+        yield;
+        setProgress(step.value);
+        step = await steps.next();
+      }
+      const prepared = step.value;
       if (prepared.kind === "ready") {
         yield;
         setProgress({ step: "creating" });

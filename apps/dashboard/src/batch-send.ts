@@ -8,7 +8,7 @@ import {
   MAX_FILES_PER_CHECK,
   SUGGESTED_AT_ONCE,
 } from "contract";
-import { Array, Cause, Effect, Exit, Result, Stream } from "effect";
+import { Array, Context, Effect, Queue, Result, Stream } from "effect";
 import * as z from "zod/mini";
 
 import { api, hubFailureMessage } from "./api-client.ts";
@@ -117,6 +117,7 @@ const prepare = Effect.fnUntraced(function* (
   let read: readonly { readonly file: File; readonly digest: string }[] = [];
   if (files.length > 0) {
     let count = 0;
+    onProgress({ step: "reading", read: count, files: files.length });
     const [passes, unreadable] = yield* Effect.partition(
       files,
       (file) =>
@@ -228,17 +229,19 @@ export type Prepared =
   | Exclude<SendOutcome, { readonly kind: "created" | "createFailed" }>
   | { readonly kind: "ready"; readonly creation: Creation };
 
+/** A report of how far the steps before the create are, or how they ended. */
+type PrepareStep = { readonly progress: SendProgress } | { readonly prepared: Prepared };
+
 /**
  * Everything before `draft`'s create, which the hub commits whole or not at all: checks the request
  * as the contract does, reads every file and names it by its digest, and uploads each content the
- * hub does not hold. Reports how far it is with `onProgress`, the first report, of reading the
- * files, before anything is awaited. `signal` stops it. Nothing is tried again by itself.
+ * hub does not hold. Yields how far it is as it goes, and returns how it stopped or the creation ready
+ * to send. `signal` stops it. Nothing is tried again by itself.
  */
-export async function prepareBatch(
+export async function* prepareBatch(
   draft: BatchDraft,
-  options: { readonly signal: AbortSignal; readonly onProgress: (progress: SendProgress) => void },
-): Promise<Prepared> {
-  const { signal, onProgress } = options;
+  signal: AbortSignal,
+): AsyncGenerator<SendProgress, Prepared, void> {
   // The request's count, form and size do not depend on what the files hold, as an unread file's
   // digest has a read one's length: what the contract refuses is told before anything is read.
   const unread = creationOf(draft, new Map());
@@ -251,15 +254,21 @@ export async function prepareBatch(
   // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
   // time may differ in what they hold.
   const files = draftFiles(draft.jobs);
-  if (files.length > 0) onProgress({ step: "reading", read: 0, files: files.length });
-  const prepared = await Effect.runPromiseExit(prepare(draft, files, onProgress), { signal });
-  if (Exit.isFailure(prepared)) {
-    if (Exit.hasInterrupts(prepared)) return { kind: "stopped" };
-    // Every failure the hub or a file can cause is an outcome, so this is a mistake in the page.
-    throw Cause.squash(prepared.cause);
+  // The program's reports, then its outcome, read one at a time. Every failure the hub or a file can
+  // cause is an outcome, so a stream that fails is a mistake in the page, and its read throws.
+  const steps = Stream.callback<PrepareStep>((queue) =>
+    prepare(draft, files, (progress) => Queue.offerUnsafe(queue, { progress })).pipe(
+      Effect.flatMap((prepared) => Queue.offer(queue, { prepared })),
+      Effect.andThen(Queue.end(queue)),
+    ),
+  );
+  const reader = Stream.toReadableStreamWith(steps, Context.empty(), { signal }).getReader();
+  for (let step = await reader.read(); !step.done; step = await reader.read()) {
+    if ("prepared" in step.value) return step.value.prepared;
+    yield step.value.progress;
   }
-  if (signal.aborted) return { kind: "stopped" };
-  return prepared.value;
+  // `signal` closed the stream before its outcome.
+  return { kind: "stopped" };
 }
 
 /** Creates the Batch `creation` describes, which cannot be recalled once sent. */
