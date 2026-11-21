@@ -14,6 +14,7 @@ import {
   type JobSubmission,
   jobStatusSchema,
   labelsSchema,
+  MAX_LABELS,
   NotFound,
 } from "contract";
 import { Array, Effect, Order, Struct } from "effect";
@@ -537,10 +538,17 @@ function filesByPath(files: JobSubmission["files"]) {
  * agent's Output schema problems, which the hub also checks.
  */
 function jobProblems(jobs: readonly JobSubmission[], labels: Batch["labels"]) {
+  const batchLabels = Object.keys(labels).length;
   return jobs.flatMap((job, index) => {
     const problems: { message: string; path: (string | number)[] }[] = [];
-    // The Batch's labels and the job's own each pass, but together may be too many.
-    const merged = z.safeParse(labelsSchema, { ...labels, ...job.labels });
+    // The Batch's labels and the job's own each pass, but together may be too many. Only the
+    // count can fail, so the contract's check runs on a job whose count is over the limit, for its
+    // words, and not on every job of a request beneath the Batch's labels.
+    const added = Object.keys(job.labels).filter((key) => !Object.hasOwn(labels, key)).length;
+    const merged =
+      batchLabels + added > MAX_LABELS
+        ? z.safeParse(labelsSchema, { ...labels, ...job.labels })
+        : { success: true as const };
     for (const issue of merged.success ? [] : merged.error.issues) {
       problems.push({
         message: `${issue.message}, the Batch's included`,
