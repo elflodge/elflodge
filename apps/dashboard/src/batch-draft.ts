@@ -35,10 +35,24 @@ export type DraftJob = TypedJob | FileJob;
 export type Creation = z.input<typeof batchCreationSchema>;
 
 /**
- * A Batch being gathered: the creation's fields as they will be sent, the Output schema parsed, and
- * its jobs as rows, whose files are named by digest only once they are read.
+ * The agent of a draft: its Output schema parsed, or, while its text is not JSON, the text as typed,
+ * which is what a request would carry.
  */
-export type BatchDraft = Omit<Creation, "jobs"> & { readonly jobs: readonly DraftJob[] };
+export type DraftAgent = Omit<Creation["agent"], "outputContract"> & {
+  readonly outputContract: { readonly schema: unknown };
+};
+
+/**
+ * A Batch being gathered: the creation's fields as they will be sent, and its jobs as rows, whose
+ * files are named by digest only once they are read.
+ */
+export type BatchDraft = Omit<Creation, "jobs" | "agent"> & {
+  readonly agent: DraftAgent;
+  readonly jobs: readonly DraftJob[];
+};
+
+/** The creation a draft sends, which the contract's check decides is one. */
+export type DraftCreation = Omit<BatchDraft, "jobs"> & { readonly jobs: Creation["jobs"] };
 
 /**
  * A new typed job, its Custom ID `job-N` with the first number from 1 that no job of `jobs` has,
@@ -109,7 +123,7 @@ export function jobsRefusedAtAdd(jobs: readonly DraftJob[]): number[] {
 const UNREAD_DIGEST = `sha256:${"0".repeat(64)}`;
 
 /** The creation `draft` sends, each file named by its digest in `digests`. */
-export function creationOf(draft: BatchDraft, digests: ReadonlyMap<File, string>): Creation {
+export function creationOf(draft: BatchDraft, digests: ReadonlyMap<File, string>): DraftCreation {
   return {
     ...draft,
     jobs: draft.jobs.map((job) =>
@@ -130,7 +144,7 @@ export function creationOf(draft: BatchDraft, digests: ReadonlyMap<File, string>
 }
 
 /** The bytes `creation` takes as the request's body, which the hub reads whole. */
-export function requestBytes(creation: Creation): number {
+export function requestBytes(creation: DraftCreation): number {
   return new TextEncoder().encode(JSON.stringify(creation)).length;
 }
 

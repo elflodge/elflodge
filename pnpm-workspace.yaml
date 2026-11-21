@@ -82,6 +82,7 @@ catalog:
   effect: ^4.1.4
   ensure-error: ^5.0.0
   env-paths: ^4.0.0
+  filesize: ^11.0.35
   folder-hash: ^4.1.4
   generate-license-file: ^4.2.5
   get-port: ^7.2.0

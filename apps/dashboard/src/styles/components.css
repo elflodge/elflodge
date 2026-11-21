@@ -662,6 +662,47 @@ a:where(.button) {
   }
 }
 
+/* A field inside a group keeps the plain form's width, as a field of the form itself does. */
+.fields.is-wide fieldset.field > .field > :is(input, select) {
+  max-width: 24rem;
+}
+fieldset.field {
+  display: grid;
+  gap: var(--space-2);
+}
+/* A group that takes dropped files, while files are held over it. */
+fieldset.field.is-receiving {
+  background: var(--c-ground-2);
+  outline: var(--rule-heavy) dashed var(--c-field-edge);
+  outline-offset: var(--space-2);
+}
+.drop-note {
+  font-weight: var(--weight-medium);
+  color: var(--c-ink);
+}
+/* Facts in a form: what it will send, ruled, a name and its value a line. A value past a limit
+   takes the failed colour and the error mark. */
+.fields > dl {
+  border-top: var(--rule) solid var(--c-rule-strong);
+}
+dd > .is-over {
+  color: var(--c-failed);
+}
+dd > .is-over > .mark {
+  margin-inline-end: var(--space-1);
+}
+/* What a form is doing while it sends: the step, how far, and the figures. */
+.sending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+.sending > p:first-child {
+  flex-basis: 100%;
+  color: var(--c-ink);
+}
+
 /* ---------- Hidden text: words for assistive technology alone, such as a table's caption where the page heading already says it ---------- */
 /* Repeated for the folded Records table's column heads: keep the two alike. */
 .vh:not(:focus) {
@@ -879,6 +920,133 @@ p:has(> button) + .prose {
 
 .batch-list .batch-status .beside {
   white-space: nowrap;
+}
+
+/* Draft records: rows a form gathers before it sends them, such as a Batch's jobs or its Labels.
+   Their cells hold fields; a row ends with Remove. The identifier's cell holds the field that
+   names the row and keeps a width of its own, and the cell after it takes what is left. */
+.records.is-draft {
+  table-layout: fixed;
+}
+.records.is-draft th.num {
+  width: 3rem;
+}
+.records.is-draft th.is-id {
+  width: 15rem;
+}
+.records.is-draft th.is-act {
+  width: 6rem;
+}
+.records.is-draft td {
+  white-space: normal;
+}
+/* A row's cells begin at its top, as one of them may hold several lines; what is not a field
+   stands on the line of the fields' text. */
+.records.is-draft tr:has(> td.is-act:last-child) > td {
+  vertical-align: top;
+}
+.records.is-draft td:is(.num, .is-file) {
+  padding-top: calc(var(--space-1) + (var(--control) - 1lh) / 2);
+}
+.records.is-draft td.is-act {
+  white-space: nowrap;
+}
+.records.is-draft td.is-id {
+  width: auto;
+  max-width: none;
+  padding-block: var(--space-1);
+}
+.records.is-draft td:has(> :is(input, textarea)) {
+  padding-block: var(--space-1);
+}
+.records.is-draft td > :is(input, textarea) {
+  width: 100%;
+}
+.records.is-draft td.num {
+  color: var(--c-ink-2);
+}
+.records.is-draft .field-error {
+  margin-top: var(--space-1);
+}
+/* A file a row holds: its name, cut at its end with the whole name in its title, then its size. */
+.records.is-draft .file {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  min-width: 0;
+}
+.records.is-draft .file > .cut {
+  min-width: 0;
+}
+.records.is-draft td.is-file[aria-invalid="true"] > .file > .cut {
+  color: var(--c-failed);
+}
+/* Two fields a row: each takes half of what Remove leaves. */
+.records.is-draft.is-pairs th.is-id {
+  width: 40%;
+}
+/* A refusal in the hub's words can hold a digest or a long name with no space to break at. */
+.records.is-draft .field-error > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Folded, a draft record is two lines at most: its number, the field that names it and Remove, then
+   what it holds. Two fields a row stay on one line with Remove. The column heads stay in sight above
+   the first row, since a field in a row has no label of its own to read. */
+@container records (width <= 48rem) {
+  .records.is-draft thead {
+    position: static;
+    display: block;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+  .records.is-draft tr {
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    column-gap: var(--space-2);
+    padding: var(--space-1) 0;
+  }
+  .records.is-draft.is-pairs tr {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+  .records.is-draft thead tr {
+    padding: 0;
+  }
+  .records.is-draft tr > :is(th, td) {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    padding: var(--space-1) 0;
+    border: 0;
+  }
+  .records.is-draft td[data-l] {
+    padding-inline-start: 0;
+  }
+  .records.is-draft td[data-l]::before {
+    content: none;
+  }
+  .records.is-draft:not(.is-pairs) :is(th, td):nth-child(3) {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+  .records.is-draft:not(.is-pairs) thead th:nth-child(3) {
+    display: none;
+  }
+  .records.is-draft :is(th, td).is-act {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .records.is-draft td.num {
+    padding-top: calc(var(--space-1) + (var(--control-touch) - 1lh) / 2);
+  }
+  .records.is-draft td.is-file {
+    padding-block: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
+  }
 }
 
 /* ---------- Short ID: an ID's first characters beside a name that can repeat, such as a Runner's host name ---------- */

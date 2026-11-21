@@ -74,6 +74,19 @@ test("a member can correct the limits the hub refused without retyping the job",
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("invoice-17");
 }, 30_000);
 
+test("a job submitted with Labels carries them", async () => {
+  const page = await openSubmitJob("Job labeller");
+  await page.getByLabel("Input", { exact: true }).fill("Count the invoices.");
+  await page.getByRole("button", { name: "Add a Label" }).click();
+  await page.getByLabel("Key of Label 1").fill("customer");
+  await page.getByLabel("Value of Label 1").fill("Harbor & Pine");
+  await page.getByRole("button", { name: "Submit job" }).click();
+  await expectBrowser(page).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+  await expectBrowser(page.getByRole("listitem").filter({ hasText: "customer" })).toHaveText(
+    "customer=Harbor & Pine",
+  );
+}, 30_000);
+
 test("a member leaving typed input can stay with the draft or discard it", async () => {
   const page = await openSubmitJob("Draft writer");
   const input = page.getByLabel("Input", { exact: true });
