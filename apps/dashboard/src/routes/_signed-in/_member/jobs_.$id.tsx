@@ -120,9 +120,10 @@ function JobPage() {
   const waitingForRead = () => !fresh() || read.isPaused;
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
   // A stalled poll must leave the last answer readable while its live indication expires.
-  // `deep` reads every field inside `latest`, so a held poll does not hold them; a changed field,
-  // a Date included, gives its object a new identity, and a projection that kept it froze this page
-  // on a resume, so a child holding focus reads such a value directly (AGENTS.md).
+  // `deep` reads every field inside `latest`, so the last answer stays readable while a poll is
+  // pending. A changed field, a Date included, gives its object a new identity. Keeping it with a
+  // projection froze this page on a resume, so a child holding focus, a title or a live region reads
+  // such a value directly.
   const job = createMemo(() => latest(() => deep(read.data)));
   const lastRecorded = () => !current() || !!job().statusUnknown;
   const running = () => job().status === "running" && !lastRecorded() && !job().deletedAt;
