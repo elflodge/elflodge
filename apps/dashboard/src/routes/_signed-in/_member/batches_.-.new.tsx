@@ -27,7 +27,12 @@ import {
   fileProblems,
   repeatedCustomIds,
 } from "../../../batch-draft.ts";
-import { type SendOutcome, type SendProgress, sendBatch } from "../../../batch-send.ts";
+import {
+  createBatch,
+  prepareBatch,
+  type SendOutcome,
+  type SendProgress,
+} from "../../../batch-send.ts";
 import {
   AgentFields,
   agentControls,
@@ -293,19 +298,28 @@ function SubmitBatch() {
     const sent = rows();
     const keyOf = (index: number) => sent[index]?.key ?? -1;
     sendController = new AbortController();
+    // The send's steps show while the form is pending. A write in the action shows at once: one made
+    // before its first `await` or after a `yield`. A report `prepareBatch` writes from a callback
+    // while the action waits shows too, only because its first report, of reading the files, was
+    // written in the action before it awaited anything (Solid keeps an optimistic write made outside
+    // an action beside one made in it). The creating step comes after a `yield`.
     let outcome: SendOutcome;
     try {
-      outcome = yield* sendBatch(draft, {
+      const prepared = await prepareBatch(draft, {
         signal: sendController.signal,
-        onProgress: (step) => {
-          setProgress(step);
-          if (step.step === "creating") submission.creating();
-        },
+        onProgress: setProgress,
       });
+      if (prepared.kind === "ready") {
+        yield;
+        setProgress({ step: "creating" });
+        submission.creating();
+        outcome = await createBatch(prepared.creation);
+      } else outcome = prepared;
     } finally {
       sendController = undefined;
       setProgress(undefined);
     }
+
     function refusedBy(issues: readonly unknown[], kind: RowsKind): Ending {
       const { atRows, rest } = splitRowIssues(issues, sent, repeatedCustomIds(reading.draft.jobs));
       const refusal = issuesRefusal(rest, placed);

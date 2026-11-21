@@ -223,17 +223,21 @@ const prepare = Effect.fnUntraced(function* (
   return { kind: "ready", creation } as const;
 });
 
+/** How the steps before the create ended: the creation ready to send, or how they stopped. */
+export type Prepared =
+  | Exclude<SendOutcome, { readonly kind: "created" | "createFailed" }>
+  | { readonly kind: "ready"; readonly creation: Creation };
+
 /**
- * Sends `draft` as one Batch creation, which the hub commits whole or not at all: checks the request
- * as the contract does, reads every file and names it by its digest, uploads each content the hub
- * does not hold, then creates the Batch. Reports how far it is with `onProgress`. `signal` stops it
- * until the create is sent, which cannot be recalled. Nothing is tried again by itself. A generator
- * for an action to delegate to, which it re-enters at each `yield`.
+ * Everything before `draft`'s create, which the hub commits whole or not at all: checks the request
+ * as the contract does, reads every file and names it by its digest, and uploads each content the
+ * hub does not hold. Reports how far it is with `onProgress`, the first report, of reading the
+ * files, before anything is awaited. `signal` stops it. Nothing is tried again by itself.
  */
-export async function* sendBatch(
+export async function prepareBatch(
   draft: BatchDraft,
   options: { readonly signal: AbortSignal; readonly onProgress: (progress: SendProgress) => void },
-): AsyncGenerator<void, SendOutcome, void> {
+): Promise<Prepared> {
   const { signal, onProgress } = options;
   // The request's count, form and size do not depend on what the files hold, as an unread file's
   // digest has a read one's length: what the contract refuses is told before anything is read.
@@ -247,10 +251,6 @@ export async function* sendBatch(
   // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
   // time may differ in what they hold.
   const files = draftFiles(draft.jobs);
-  // The page shows these reports while its action is pending: Solid keeps an optimistic write made
-  // outside an action only beside one made in it, before its first wait or after a `yield`. So the
-  // first report comes before the wait, the reports while waiting follow it, and the create's step,
-  // which a send of typed jobs reports first, comes after a `yield`.
   if (files.length > 0) onProgress({ step: "reading", read: 0, files: files.length });
   const prepared = await Effect.runPromiseExit(prepare(draft, files, onProgress), { signal });
   if (Exit.isFailure(prepared)) {
@@ -258,13 +258,16 @@ export async function* sendBatch(
     // Every failure the hub or a file can cause is an outcome, so this is a mistake in the page.
     throw Cause.squash(prepared.cause);
   }
-  const outcome = prepared.value;
-  if (outcome.kind !== "ready") return outcome;
   if (signal.aborted) return { kind: "stopped" };
-  yield;
-  onProgress({ step: "creating" });
+  return prepared.value;
+}
+
+/** Creates the Batch `creation` describes, which cannot be recalled once sent. */
+export async function createBatch(
+  creation: Creation,
+): Promise<Extract<SendOutcome, { readonly kind: "created" | "createFailed" }>> {
   try {
-    return { kind: "created", answer: await api.batches.create(outcome.creation) };
+    return { kind: "created", answer: await api.batches.create(creation) };
   } catch (error) {
     return { kind: "createFailed", error };
   }
