@@ -2,6 +2,8 @@ export * from "./api.ts";
 export {
   BATCH_ID_PATTERN,
   LABEL_KEY_PATTERN,
+  MAX_BATCH_ID_LENGTH,
+  MAX_LABEL_NAME_LENGTH,
   batchIdSchema,
   blobRefSchema,
   digestSchema,
