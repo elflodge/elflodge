@@ -365,37 +365,6 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 /** The statuses of a job that has not ended. */
 export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
-function selectJobs(db: Kysely<Database>, now = new Date()) {
-  return db
-    .selectFrom("job as j")
-    .innerJoin("jobProgress as p", "p.jobId", "j.id")
-    .select((eb) => [
-      ...JOB_COLUMNS.map((column) => `j.${column}` as const),
-      ...PROGRESS_COLUMNS.map((column) => `p.${column}` as const),
-      blockedByOf({
-        status: eb.ref("j.status"),
-        placedAt: eb.ref("j.placedAt"),
-        batchUid: eb.ref("j.batchUid"),
-        inCanary: eb.ref("j.inCanary"),
-      }).as("blockedBy"),
-      batchIdOf(eb.ref("j.batchUid")).as("batchId"),
-      runnerOf(eb.ref("j.runnerId"), now).as("runner"),
-      statusUnknownOf(
-        {
-          status: eb.ref("j.status"),
-          placedAt: eb.ref("j.placedAt"),
-          runnerId: eb.ref("j.runnerId"),
-          lastReportedAt: eb.ref("p.lastReportedAt"),
-        },
-        now,
-      ).as("statusUnknown"),
-    ]);
-}
-
-export function jobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
-  return selectJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
-}
-
 /** What a list reads of a job's row: its columns without its output and its failure's message. */
 const LISTED_JOB_COLUMNS = [
   "id",
@@ -443,6 +412,11 @@ function selectListedJobs(db: Kysely<Database>, now: Date) {
       runnerOf(eb.ref("j.runnerId"), now).as("runner"),
       statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
     ]);
+}
+
+/** Jobs whole, `j` with its progress `p`: as a list reads them, and their content. */
+function selectJobs(db: Kysely<Database>, now = new Date()) {
+  return selectListedJobs(db, now).select(["j.output", "j.failureMessage", "p.activity"]);
 }
 
 /** The jobs `ids`, as a list reads them. */
@@ -629,7 +603,9 @@ export function contentHashOf(content: object) {
 export function getJob(jobId: JobId) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const job = yield* database.query((db) => jobsById(db, [jobId], new Date()).executeTakeFirst());
+    const job = yield* database.query((db) =>
+      selectJobs(db).where("j.id", "=", jobId).executeTakeFirst(),
+    );
     if (job) return toApiJob(job);
     const deleted = yield* database.query((db) => readDeletedJob(db, jobId));
     if (!deleted) return yield* Effect.fail(new NotFound());
