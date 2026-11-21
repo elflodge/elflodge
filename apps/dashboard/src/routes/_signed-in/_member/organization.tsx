@@ -387,9 +387,11 @@ function OrganizationPage(props: { organizationId: string }) {
       <div class="head">
         <h1>Organization</h1>
         <Show when={manages()}>
-          <button class="primary" type="button" onClick={() => setForm("invite")}>
-            Invite a member
-          </button>
+          <div class="controls">
+            <button class="primary" type="button" onClick={() => setForm("invite")}>
+              Invite a member
+            </button>
+          </div>
         </Show>
       </div>
       <div class="org-name">

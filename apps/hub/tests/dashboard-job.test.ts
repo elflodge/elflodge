@@ -117,7 +117,9 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   await expectBrowser(page.getByRole("heading", { name: "This job was deleted" })).toBeVisible({
     timeout: 12_000,
   });
-  await expectBrowser(page.getByRole("link", { name: "See the jobs" })).toBeVisible();
+  await expectBrowser(
+    page.getByRole("main").getByRole("link", { name: "Jobs", exact: true }),
+  ).toBeVisible();
 }, 30_000);
 
 test("a member can correct a refused budget and resume the job to its Output", async () => {

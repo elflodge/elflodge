@@ -69,7 +69,7 @@ function MissingBatch(props: { id: string }) {
         No Batch with the ID <code class="job-address">{props.id}</code>. IDs are compared exactly,
         capitals included.
       </p>
-      <p>
+      <p class="prose">
         <Link to="/batches" class="stands-alone">
           Batches
         </Link>

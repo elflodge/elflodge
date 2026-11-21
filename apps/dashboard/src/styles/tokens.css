@@ -174,7 +174,7 @@
   --jobs-time: 10.625rem; /* "created 14:50, 52 min ago"; a time that shows its date shows no age */
   --jobs-tokens: 5rem; /* "1,402,118" */
   --jobs-cost: 8rem; /* 128px for "10.0184 of 9.9999" in the last column */
-  --jobs-cost-narrow: 5.75rem; /* cost with its USD unit in a two-line row */
+  --jobs-cost-narrow: 6rem; /* "0.0043 USD, est." on one line in a two-line row (94px); a longer cost wraps before its unit */
   --submitter: 10.5rem; /* the submitter’s name and kind */
 }
 

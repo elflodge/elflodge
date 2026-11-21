@@ -3,7 +3,7 @@ import { Show, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
 import { api, hubFailureMessage, readFromHub } from "../api-client.ts";
-import { authClient } from "../auth-client.ts";
+import { authClient, hasAuthCode } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { Field } from "../components/Field.tsx";
 import { Notice } from "../components/Notice.tsx";
@@ -48,7 +48,11 @@ function SignIn() {
         password: fieldText(form, "password"),
       });
     } catch (failure) {
-      setError(hubFailureMessage(failure));
+      setError(
+        hasAuthCode(failure, "INVALID_EMAIL_OR_PASSWORD")
+          ? "That email or password is not right."
+          : hubFailureMessage(failure),
+      );
       return;
     }
     const target = search().redirect;

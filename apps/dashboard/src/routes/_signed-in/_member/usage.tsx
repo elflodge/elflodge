@@ -107,7 +107,7 @@ function Usage() {
             Usage shows what the Organization's jobs cost. Only owners and admins can read it. Each
             Batch's page shows what that Batch has used.
           </p>
-          <p>
+          <p class="prose">
             <Link class="stands-alone" to="/batches">
               Batches
             </Link>

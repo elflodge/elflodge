@@ -93,7 +93,7 @@ function MissingJob(props: { id: string; deleted?: boolean }) {
             jobsLink = element;
           }}
         >
-          See the jobs
+          Jobs
         </Link>
       </p>
     </FallbackPage>

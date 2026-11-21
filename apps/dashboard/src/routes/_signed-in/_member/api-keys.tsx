@@ -172,7 +172,7 @@ function KeyList() {
         when={keys.data.length}
         fallback={
           <div class="empty">
-            <h2>No API keys</h2>
+            <h2>No API keys yet</h2>
             <p>
               A program, a script or a Runner calls the hub with a key. Create one with Create key.
             </p>

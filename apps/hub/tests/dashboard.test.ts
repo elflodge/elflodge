@@ -134,7 +134,7 @@ test("sign-in allows keyboard retry, takes only one submit during navigation and
   const submit = page.getByRole("button", { name: "Sign in" });
   await submit.focus();
   await page.keyboard.press("Enter");
-  await page.getByRole("alert").waitFor();
+  await expectBrowser(page.getByRole("alert")).toHaveText("That email or password is not right.");
   await expectBrowser(submit).toBeFocused();
 
   // Hold the destination's first read after the hub has accepted the password.
@@ -245,7 +245,7 @@ test("in a browser, an address the dashboard has no page for shows that it was n
   // Signed out, it is a page like any other: signing in comes first.
   await signInAt(system, page, "nowhere", await newMember(system, "Lost Reader"));
   // Signed in, the bar stays.
-  await page.getByRole("heading", { name: "Not found" }).waitFor();
+  await page.getByRole("heading", { name: "Page not found" }).waitFor();
   await page.getByRole("navigation", { name: "Destinations" }).waitFor();
 }, 30_000);
 
