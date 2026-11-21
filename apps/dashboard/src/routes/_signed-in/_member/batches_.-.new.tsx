@@ -1,8 +1,13 @@
 import { ORPCError } from "@orpc/client";
 import { isSchemaIssue } from "@orpc/contract";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createFileRoute, useRouter } from "@tanstack/solid-router";
-import { BATCH_ID_PATTERN, BREAKER_DEFAULTS, MAX_BATCH_ID_LENGTH } from "contract";
+import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
+import {
+  BATCH_ID_PATTERN,
+  BREAKER_DEFAULTS,
+  MAX_BATCH_ID_LENGTH,
+  MAX_JOBS_PER_REQUEST,
+} from "contract";
 import {
   For,
   Show,
@@ -18,7 +23,6 @@ import { hubFailureMessage } from "../../../api-client.ts";
 import {
   type BatchDraft,
   type Creation,
-  type DraftJob,
   draftFacts,
   fileProblems,
   repeatedCustomIds,
@@ -34,22 +38,20 @@ import {
 import {
   type DraftRow,
   DraftJobs,
-  RemoveAllDialog,
   jobsOf,
   type RowRefusal,
   rowControlId,
 } from "../../../components/DraftJobs.tsx";
 import {
+  EarlierWords,
   LeaveDialog,
   createDraftSubmission,
-  madeIdUnknownWords,
-  type SentUnder,
 } from "../../../components/DraftSubmission.tsx";
 import { Field, FieldGroup } from "../../../components/Field.tsx";
 import { LabelFields, isLabelsControl, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
-import { createFormAction, fieldText, formRefusal } from "../../../form.ts";
+import { createFormAction, fieldText, issuesRefusal, withoutRefusals } from "../../../form.ts";
 import { formatBytes } from "../../../format-bytes.ts";
 import { USD_BUDGET, formatCount, plural } from "../../../format.ts";
 import { preloadJobLimits, useJobLimits } from "../../../job-limits.ts";
@@ -89,8 +91,14 @@ const AGAIN = "Submit again reads the files again and uploads only what the hub 
  */
 type AlertPart = string | { readonly code: string } | { readonly noBatch: true };
 
-/** What stopped a send at its rows, which the alert counts and links as they stand. */
-type RowsLead = "cannot be sent" | "refused" | "unreadable" | "not uploaded";
+/**
+ * What stops a send at a row: what the page's own check finds, which the row may also have told
+ * when it was added, or what the hub refused, or a file that could not be read or uploaded.
+ */
+type RowsKind = "cannot be sent" | "refused" | "unreadable" | "not uploaded";
+
+/** The order in which the alert tells the rows of each kind. */
+const ROWS_KINDS: readonly RowsKind[] = ["cannot be sent", "refused", "unreadable", "not uploaded"];
 
 /** A row whose words stand, and the part of it that carries them. */
 interface RowTarget {
@@ -102,32 +110,41 @@ interface RowTarget {
 interface Ending {
   readonly fields: ReadonlyMap<string, string>;
   readonly rows: ReadonlyMap<number, RowRefusal>;
-  readonly lead?: RowsLead;
+  /** What stopped the send at the rows of `rows`. */
+  readonly kind?: RowsKind;
   /** The alert's words after the rows'. */
   readonly alert?: readonly AlertPart[];
   readonly stopped?: true;
 }
 
+/** No send has ended, or its ending was settled: nothing is told. */
 const NO_ENDING: Ending = { fields: new Map(), rows: new Map() };
 
-/** That no Batch came of this try: after a lost answer an earlier try may have made it. */
+/** The draft as the page last read it from the form. */
+interface DraftReading {
+  /** Under the Batch ID typed, or one of a made ID's length. */
+  readonly draft: BatchDraft;
+  readonly typedId: string;
+  readonly schemaRefusal?: string;
+  readonly labelControls: Record<string, string[]>;
+}
+
+/** That no Batch came of this try: an earlier try may have made one. */
 function noBatchWords(mayHaveBatch: boolean) {
   return mayHaveBatch ? "This try did not send the Batch." : "No Batch was created.";
 }
 
-/** The sentence that leads to `count` rows stopped by `lead`. */
-function leadWords(lead: RowsLead, count: number, mayHaveBatch: boolean) {
-  const one = count === 1;
-  const jobs = one ? "1 job" : `${formatCount(count)} jobs`;
-  const files = one ? "1 file" : `${formatCount(count)} files`;
-  const noBatch = noBatchWords(mayHaveBatch);
-  const words: Record<RowsLead, string> = {
+/** The sentence that leads to `count` rows stopped by `kind`. */
+function leadWords(kind: RowsKind, count: number, mayHaveBatch: boolean) {
+  const jobs = `${formatCount(count)} ${plural(count, "job", "jobs")}`;
+  const files = `${formatCount(count)} ${plural(count, "file", "files")}`;
+  const words: Record<RowsKind, string> = {
     "cannot be sent": `${jobs} cannot be sent.`,
-    refused: `${jobs} ${one ? "was" : "were"} refused.`,
+    refused: `${jobs} ${plural(count, "was", "were")} refused.`,
     unreadable: `${files} could not be read, so nothing was sent.`,
-    "not uploaded": `${files} ${one ? "was" : "were"} not uploaded, so ${noBatch.charAt(0).toLowerCase()}${noBatch.slice(1)}`,
+    "not uploaded": `${files} ${plural(count, "was", "were")} not uploaded. ${noBatchWords(mayHaveBatch)}`,
   };
-  return words[lead];
+  return words[kind];
 }
 
 /**
@@ -158,29 +175,17 @@ function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
   return { atRows, rest };
 }
 
-/** What the alert adds while the outcome of a send under `sentUnder` is unknown. */
-function unknownWords(sentUnder: SentUnder | undefined) {
-  if (sentUnder === "made ID") return madeIdUnknownWords("Batch");
-  // A create repeated under an existing Batch ID returns that Batch for the same agent, Labels
-  // and breaker, and refuses others at the Batch ID. The hub knows a job by its Custom ID: the
-  // same content returns the job, other content is refused at that Custom ID, a new Custom ID
-  // adds a job, and a job left out stays. So a row renamed here becomes a second job while the
-  // first stays. One conflict refuses the whole request, which then adds no job.
-  if (sentUnder === "typed ID")
-    return "The hub may already have a Batch under this Batch ID. Submit again without changing anything to find out: the same values return that Batch. If it was made, a change here does not edit it: a changed field is refused at Batch ID, a changed job at its Custom ID, and the Batch keeps every job it has and takes any job with a new Custom ID.";
-  return undefined;
-}
-
 function SubmitBatch() {
   const router = useRouter();
   const client = useQueryClient();
   const limits = useJobLimits();
   let nextRow = 0;
   const [rows, setRows] = createSignal<readonly DraftRow[]>([]);
-  // The jobs as the form last gave them: read when a field is left (the form's change), when rows
-  // are added or removed, and at Submit. The form alone holds what is typed, so a keystroke reads
-  // nothing, and the facts and the check for Custom IDs given twice follow each field as it is left.
-  const [jobs, setJobs] = createSignal<readonly DraftJob[]>([]);
+  // The form is the one source of what is typed; the page keeps its last reading for the figures and
+  // the Custom ID checks, read once per committed change: a field left (the form's `change`), rows
+  // or Labels added or removed, and Submit. A keystroke reads nothing.
+  const [read, setRead] = createSignal<DraftReading>();
+  const jobs = () => read()?.draft.jobs ?? [];
   const repeated = createMemo(() => {
     const listed = rows();
     return new Map(
@@ -190,80 +195,68 @@ function SubmitBatch() {
       }),
     );
   });
+  const facts = createMemo(() => {
+    const reading = read();
+    return reading && draftFacts(reading.draft, limits.held());
+  });
   const [breakerOn, setBreakerOn] = createSignal(true);
-  const [askingRemoveAll, setAskingRemoveAll] = createSignal(false);
-  let jobsList: { readonly removeAll: () => void } | undefined;
   const [ending, setEnding] = createSignal<Ending>(NO_ENDING);
   // Optimistic, as the form's pending state is: a send is one action, whose other writes show once
   // it settles, while its progress must show as it goes.
   const [progress, setProgress] = createOptimistic<SendProgress | undefined>(undefined);
-  // Changes when any field changes, so the facts read the form again.
-  const [edits, setEdits] = createSignal(0);
-  let formElement: HTMLFormElement | undefined;
+  let formElement!: HTMLFormElement;
   let sendController: AbortController | undefined;
   // A send still reading or uploading stops when the page goes.
   onCleanup(() => sendController?.abort());
 
   const submission = createDraftSubmission(
-    () =>
-      rows().length > 0 ||
-      Array.from(formElement?.elements ?? []).some((control) =>
-        control instanceof HTMLInputElement && control.type === "checkbox"
-          ? control.checked !== control.defaultChecked
-          : (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) &&
-            (control.value !== control.defaultValue || control.validity.badInput),
-      ),
+    () => formElement,
+    () => rows().length > 0,
   );
 
   function breakerOf(form: HTMLFormElement): Creation["breaker"] {
-    if (!breakerOn()) return false;
+    const on = form.elements.namedItem("breaker");
+    if (on instanceof HTMLInputElement && !on.checked) return false;
     return {
       canary: figureIn(form, breakerFields.canary),
       maxFailurePercent: figureIn(form, breakerFields.maxFailurePercent),
     };
   }
-  /** The draft the form holds, read from `data`, its one snapshot, with the ID to send it under. */
-  function draftOf(form: HTMLFormElement, data: FormData, id: string) {
-    const { agent, schemaRefusal } = agentOf(form, data);
+  /** Reads the draft from the form into the page's last reading, and returns it. */
+  function updateDraft(): DraftReading {
+    const data = new FormData(formElement);
+    const typedId = fieldText(data, "id");
+    const { agent, schemaRefusal } = agentOf(formElement, data);
     const labels = labelsOf(data);
-    const draft: BatchDraft = {
-      id,
-      agent,
-      labels: labels.labels,
-      breaker: breakerOf(form),
-      jobs: jobsOf(form, rows()),
+    const reading: DraftReading = {
+      draft: {
+        id: typedId || MADE_ID_FORM,
+        agent,
+        labels: labels.labels,
+        breaker: breakerOf(formElement),
+        jobs: jobsOf(data, rows()),
+      },
+      typedId,
+      schemaRefusal,
+      labelControls: labels.controls,
     };
-    return { draft, schemaRefusal, labelControls: labels.controls };
+    setRead(reading);
+    return reading;
   }
-  const facts = createMemo(() => {
-    edits();
-    const form = formElement;
-    if (!form) {
-      const blank = { id: MADE_ID_FORM, agent: { outputContract: { schema: {} } }, jobs: jobs() };
-      return draftFacts(blank, limits.held());
-    }
-    const data = new FormData(form);
-    const id = fieldText(data, "id") || (submission.madeId() ?? MADE_ID_FORM);
-    return draftFacts(draftOf(form, data, id).draft, limits.held());
-  });
   onSettled(() => {
-    setEdits((count) => count + 1);
+    updateDraft();
   });
 
-  /** Reads the jobs from the form, and has the facts read it again. */
-  function readForm() {
-    if (formElement) setJobs(jobsOf(formElement, rows()));
-    setEdits((count) => count + 1);
+  function clearRefusal(name: string) {
+    setEnding((previous) => withoutRefusals(previous, (refused) => refused === name));
   }
-  /** Sets the rows, then reads the form once their fields are in it. */
+  /** Sets the rows, then reads the draft once their fields are in the form. */
   function setDraftRows(next: readonly DraftRow[]) {
     setRows(next);
     flush();
-    readForm();
-  }
-  function changed() {
-    submission.changed(false);
-    readForm();
+    updateDraft();
+    // A refusal of the jobs as a whole is of their count, which stands only while past a limit.
+    if (next.length >= 1 && next.length <= MAX_JOBS_PER_REQUEST) clearRefusal("jobs");
   }
   /**
    * Changes the rows' refusals by `update`, which says whether it changed any. Otherwise the ending
@@ -276,35 +269,40 @@ function SubmitBatch() {
     });
   }
 
-  const { pending, onSubmit } = createFormAction(async (form) => {
+  const { pending, onSubmit } = createFormAction(async () => {
     submission.sending();
     // Read here too: Enter can submit before a field's change.
-    readForm();
-    const data = new FormData(form);
-    const { id, sentUnder } = submission.takeId(fieldText(data, "id"));
-    const { draft, schemaRefusal, labelControls } = draftOf(form, data, id);
-    if (schemaRefusal) {
-      setEnding({ ...NO_ENDING, fields: new Map([[agentFields.outputSchema, schemaRefusal]]) });
+    const reading = updateDraft();
+    const id = submission.takeId(reading.typedId);
+    if (reading.schemaRefusal) {
+      setEnding({
+        ...NO_ENDING,
+        fields: new Map([[agentFields.outputSchema, reading.schemaRefusal]]),
+      });
       return;
     }
-    const placed = { ...controls, ...labelControls };
+    const draft: BatchDraft = { ...reading.draft, id };
+    const placed = { ...controls, ...reading.labelControls };
     const sent = rows();
     const keyOf = (index: number) => sent[index]?.key ?? -1;
     sendController = new AbortController();
     const outcome = await sendBatch(draft, {
       signal: sendController.signal,
-      onProgress: setProgress,
+      onProgress: (step) => {
+        setProgress(step);
+        if (step.step === "creating") submission.creating();
+      },
     }).finally(() => {
       sendController = undefined;
       setProgress(undefined);
     });
-    function refusedBy(issues: readonly unknown[]): Ending {
+    function refusedBy(issues: readonly unknown[], kind: RowsKind): Ending {
       const { atRows, rest } = splitRowIssues(issues, sent);
-      const refusal = formRefusal(new ORPCError("BAD_REQUEST", { data: { issues: rest } }), placed);
+      const refusal = issuesRefusal(rest, placed);
       return {
         fields: refusal.fields,
         rows: atRows,
-        lead: "refused",
+        kind,
         alert: refusal.alert ? [refusal.alert] : [],
       };
     }
@@ -319,17 +317,13 @@ function SubmitBatch() {
         void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
         void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
         void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
-        if (submission.markSucceeded(form, sentUnder))
+        if (submission.markSucceeded(id))
           await router.navigate({ to: "/batches/$id", params: { id: batch.id } });
         else setEnding(NO_ENDING);
         return;
       }
       case "stopped":
         setEnding({ ...NO_ENDING, stopped: true });
-        return;
-      case "refusedAtAdd":
-        // The rows' words are what they were told when added, which stand until fixed.
-        setEnding({ ...NO_ENDING, lead: "cannot be sent" });
         return;
       case "unreadable":
         setEnding({
@@ -340,11 +334,12 @@ function SubmitBatch() {
               { file: `The file could not be read: ${message}\nRemove it and add it again.` },
             ]),
           ),
-          lead: "unreadable",
+          kind: "unreadable",
         });
         return;
       case "invalid":
-        setEnding(refusedBy(outcome.issues));
+        // The page's own check: nothing was sent, so its rows cannot be sent rather than refused.
+        setEnding(refusedBy(outcome.issues, "cannot be sent"));
         return;
       case "tooLarge":
         setEnding({
@@ -367,15 +362,14 @@ function SubmitBatch() {
           rows: new Map(
             outcome.jobs.map(({ index, message }) => [keyOf(index), { file: message }]),
           ),
-          lead: "not uploaded",
-          alert: [AGAIN],
+          kind: "not uploaded",
         });
         return;
       case "createFailed": {
         const { error } = outcome;
-        submission.markFailed(error, sentUnder);
+        submission.markFailed(error, id);
         if (error instanceof ORPCError && Array.isArray(error.data?.issues))
-          setEnding(refusedBy(error.data.issues));
+          setEnding(refusedBy(error.data.issues, "refused"));
         else setEnding({ ...NO_ENDING, alert: [hubFailureMessage(error)] });
         return;
       }
@@ -385,48 +379,47 @@ function SubmitBatch() {
   // The previous ending belongs to the last attempt while the next one is pending.
   const shown = () => (pending() ? NO_ENDING : ending());
   const refused = (name: string) => shown().fields.get(name);
-  const mayHaveBatch = () => submission.unknownOutcome() !== undefined;
-  /** The rows whose words stand now, in the list's order, each at the part that carries them. */
-  const standing = (): RowTarget[] => {
-    const { lead, rows: refusals } = shown();
-    if (!lead) return [];
-    return rows().flatMap((row): RowTarget[] => {
-      if (lead === "cannot be sent") {
-        if (repeated().has(row.key)) return [{ key: row.key, part: "customId" }];
-        return row.problems.length ? [{ key: row.key, part: "file" }] : [];
-      }
-      const refusal = refusals.get(row.key);
+  const mayHaveBatch = () => submission.earlier() !== undefined;
+  /**
+   * The rows whose words stand now, by what stops them, each at the part that carries its words: a
+   * refusal of the last send that no edit has ended, and, once a send has ended, what a row has told
+   * since it was added. Empty before any send ends, as each row tells its own then.
+   */
+  const standing = () => {
+    const end = shown();
+    if (end === NO_ENDING) return [];
+    const byKind = new Map<RowsKind, RowTarget[]>();
+    const add = (kind: RowsKind, target: RowTarget) => {
+      const targets = byKind.get(kind) ?? [];
+      targets.push(target);
+      byKind.set(kind, targets);
+    };
+    for (const row of rows()) {
+      const refusal = end.rows.get(row.key);
       const part = refusal?.file
         ? "file"
         : refusal?.input
           ? "input"
           : refusal?.customId && "customId";
-      return part ? [{ key: row.key, part }] : [];
+      if (part && end.kind) add(end.kind, { key: row.key, part });
+      else if (repeated().has(row.key)) add("cannot be sent", { key: row.key, part: "customId" });
+      else if (row.problems.length) add("cannot be sent", { key: row.key, part: "file" });
+    }
+    return ROWS_KINDS.flatMap((kind) => {
+      const targets = byKind.get(kind);
+      return targets ? [{ kind, targets }] : [];
     });
   };
-  // Derived from the refusals that stand, so an edit or a removal changes the count and links.
+  // Derived from what stands, so an edit, an addition or a removal changes the counts and links.
   const alert = () => {
     if (pending()) return undefined;
-    const { lead, alert: after = [] } = ending();
-    const targets = standing();
-    const rowsLead =
-      lead && targets.length
-        ? `${leadWords(lead, targets.length, mayHaveBatch())} ${targets.length === 1 ? "It says" : "Each says"} why at its row: `
-        : undefined;
-    const unknown = unknownWords(submission.unknownOutcome());
-    if (!rowsLead && !after.length && !unknown) return undefined;
-    return { rowsLead, targets, after, unknown };
+    const groups = standing();
+    const after = ending().alert ?? [];
+    const earlier = submission.earlier();
+    if (!groups.length && !after.length && !earlier) return undefined;
+    return { groups, after, earlier };
   };
   const rowNumber = (key: number) => rows().findIndex((row) => row.key === key) + 1;
-
-  function clearRefusal(name: string) {
-    setEnding((previous) => {
-      if (!previous.fields.has(name)) return previous;
-      const fields = new Map(previous.fields);
-      fields.delete(name);
-      return { ...previous, fields };
-    });
-  }
 
   return (
     <>
@@ -445,10 +438,12 @@ function SubmitBatch() {
           const control = event.target;
           if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement))
             return;
-          submission.changed(control.name === "id");
+          if (control.name === "id") submission.idEdited(control.value);
           clearRefusal(control.name);
         }}
-        onChange={readForm}
+        onChange={() => {
+          updateDraft();
+        }}
       >
         <p class="note">
           A Batch runs one agent on many jobs. Say what the agent does, then add the jobs.
@@ -488,11 +483,8 @@ function SubmitBatch() {
           pending={pending()}
           refused={refused}
           onChange={() => {
-            changed();
-            setEnding((previous) => ({
-              ...previous,
-              fields: new Map([...previous.fields].filter(([name]) => !isLabelsControl(name))),
-            }));
+            updateDraft();
+            setEnding((previous) => withoutRefusals(previous, isLabelsControl));
           }}
         />
         <FieldGroup
@@ -561,6 +553,7 @@ function SubmitBatch() {
           refusals={shown().rows}
           error={refused("jobs")}
           pending={pending()}
+          mayHaveBatch={mayHaveBatch()}
           after="submit-facts"
           hint={
             <>
@@ -585,8 +578,6 @@ function SubmitBatch() {
                   : { key: nextRow++, kind: "typed", customId: job.customId, problems: [] },
               ),
             ]);
-            changed();
-            clearRefusal("jobs");
           }}
           onRemove={(which) => {
             setDraftRows(which === "all" ? [] : rows().filter((row) => row.key !== which));
@@ -596,7 +587,6 @@ function SubmitBatch() {
               refusals.clear();
               return any;
             });
-            changed();
           }}
           onEdited={(key, part) => {
             setRowRefusals((refusals) => {
@@ -606,12 +596,10 @@ function SubmitBatch() {
               return true;
             });
           }}
-          onAskRemoveAll={() => setAskingRemoveAll(true)}
-          ref={(handle) => {
-            jobsList = handle;
-          }}
         />
-        <Facts facts={facts()} limitsFailed={limits.failed()} />
+        <Show when={facts()}>
+          {(known) => <Facts facts={known()} limitsFailed={limits.failed()} />}
+        </Show>
         <Show when={shown().stopped}>
           <Notice role="status">
             Stopped. {noBatchWords(mayHaveBatch())} {AGAIN}
@@ -620,23 +608,51 @@ function SubmitBatch() {
         <Show when={alert()}>
           {(words) => (
             <Notice role="alert">
-              <Show when={words().rowsLead}>
-                {(lead) => (
+              <For each={words().groups}>
+                {(group, index) => (
                   <>
-                    {lead()}
-                    <RowLinks targets={words().targets} numberOf={rowNumber} />
+                    {index() > 0 ? "\n" : ""}
+                    {`${leadWords(group.kind, group.targets.length, mayHaveBatch())} ${plural(group.targets.length, "It says", "Each says")} why at its row: `}
+                    <RowLinks targets={group.targets} numberOf={rowNumber} />
+                    {/* Said only while a row it concerns stands. */}
+                    {group.kind === "not uploaded" ? `\n${AGAIN}` : ""}
                   </>
                 )}
-              </Show>
+              </For>
               <Show when={words().after.length}>
-                {words().rowsLead ? "\n" : ""}
+                {words().groups.length ? "\n" : ""}
                 <AlertWords parts={words().after} mayHaveBatch={mayHaveBatch()} />
               </Show>
-              <Show when={words().unknown}>
-                {(unknown) => (
+              <Show when={words().earlier}>
+                {(earlier) => (
                   <>
-                    {words().rowsLead || words().after.length ? "\n" : ""}
-                    {unknown()}
+                    {words().groups.length || words().after.length ? "\n" : ""}
+                    <EarlierWords
+                      earlier={earlier()}
+                      record="Batch"
+                      records="Batches"
+                      link={(id) => (
+                        <Link to="/batches/$id" params={{ id }}>
+                          {id}
+                        </Link>
+                      )}
+                      // A create repeated under an existing Batch ID returns that Batch for the
+                      // same agent, Labels and breaker, and refuses others at the Batch ID. The hub
+                      // knows a job by its Custom ID: the same content returns the job, other
+                      // content is refused at that Custom ID, a new Custom ID adds a job, and a job
+                      // left out stays. So a row renamed here becomes a second job while the first
+                      // stays. One conflict refuses the whole request, which then adds no job.
+                      repeat={(link) => (
+                        <>
+                          The hub may already have a Batch under this Batch ID: {link}. Submit again
+                          to find out: the same values return that Batch. If it was made, a change
+                          here does not edit it: a changed field is refused at Batch ID, a changed
+                          job at its Custom ID, and the Batch keeps every job it has and takes any
+                          job with a new Custom ID. To submit this as another Batch, change the
+                          Batch ID or clear it.
+                        </>
+                      )}
+                    />
                   </>
                 )}
               </Show>
@@ -655,23 +671,9 @@ function SubmitBatch() {
         </div>
         <Sending progress={progress()} />
       </form>
-      {/* Outside the form, as the leave dialog is: its own form must not submit the Batch's. */}
-      <Show when={askingRemoveAll()}>
-        <RemoveAllDialog
-          jobs={rows().length}
-          mayHaveBatch={mayHaveBatch()}
-          typedInputs={jobs().filter((job) => job.kind === "typed" && job.input !== "").length}
-          files={rows().some((row) => row.kind === "file")}
-          onClose={() => setAskingRemoveAll(false)}
-          onConfirm={() => jobsList?.removeAll()}
-        />
-      </Show>
       <Show when={submission.blocker().status === "blocked"}>
         <LeaveDialog
           submission={submission}
-          mayHaveRecord={
-            progress()?.step === "creating" || submission.unknownOutcome() !== undefined
-          }
           record="Batch"
           list="Batches"
           loses="what you typed and the jobs you added"
@@ -815,25 +817,24 @@ function Facts(props: { facts: ReturnType<typeof draftFacts>; limitsFailed: bool
   );
 }
 
+/** The words for each step a send shows; the page's own check is quick, and shows nothing. */
+const stepWords: Record<SendProgress["step"], string> = {
+  checking: "",
+  reading: "Reading the files",
+  uploading: "Uploading the files the hub does not hold",
+  creating: "Creating the Batch…",
+};
+
 /** What the form is doing while it sends: the step, how far, and the figures. */
 function Sending(props: { progress: SendProgress | undefined }) {
   const reading = () => (props.progress?.step === "reading" ? props.progress : undefined);
-  const uploading = () => (props.progress?.step === "uploading" ? props.progress : undefined);
-  const words = () => {
-    switch (props.progress?.step) {
-      case "reading":
-        return "Reading the files";
-      case "uploading":
-        return "Uploading the files the hub does not hold";
-      case "creating":
-        return "Creating the Batch…";
-      default:
-        return "";
-    }
-  };
+  // Its figures come once the hub has said which contents it holds.
+  const uploading = () =>
+    props.progress?.step === "uploading" ? props.progress.figures : undefined;
+  const words = () => (props.progress ? stepWords[props.progress.step] : "");
   return (
-    <div class={props.progress ? "sending" : undefined}>
-      <p role="status" class={props.progress ? "note" : "vh"}>
+    <div class={words() ? "sending" : undefined}>
+      <p role="status" class={words() ? "note" : "vh"}>
         {words()}
       </p>
       <Show when={reading()}>

@@ -217,7 +217,7 @@ test("Submit again after a stop and after a failed upload uploads only what is m
   });
   await submit.click();
   await expectBrowser(page.getByRole("alert")).toHaveText(
-    "1 file was not uploaded, so no Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
+    "1 file was not uploaded. No Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
   );
   await expectBrowser(page.getByRole("cell", { name: /^b\.txt \d/ })).toHaveAccessibleDescription(
     /The hub is busy\./,
@@ -237,11 +237,11 @@ test("Submit again after a stop and after a failed upload uploads only what is m
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("3");
 }, 30_000);
 
-test("a send whose answer was lost, repeated unchanged, lands on the Batch it made", async () => {
+test("after a lost answer the Batch ID field holds the ID sent: an edit cannot make a second Batch, and another ID says one may exist", async () => {
   const page = await openSubmitBatch("Batch retrier");
   await page.getByRole("button", { name: "Add a job" }).click();
   await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
-  let sentId: unknown;
+  let sentId = "";
   let firstStatus: number | undefined;
   await page.route("**/batches", async (route) => {
     if (!isCreate(route.request())) return route.continue();
@@ -255,12 +255,19 @@ test("a send whose answer was lost, repeated unchanged, lands on the Batch it ma
     await route.abort("connectionreset");
   });
   const submit = page.getByRole("button", { name: "Submit Batch" });
+  const batchId = page.getByLabel("Batch ID");
+  const alert = page.getByRole("alert");
   await submit.click();
-  await expectBrowser(page.getByRole("alert")).toContainText(
-    "The hub may already have this Batch. Submit again without changing anything to find out: the same request returns the Batch if it was made.",
+  await expectBrowser(alert).toContainText(
+    `The hub may already have a Batch under this Batch ID: ${sentId}. Submit again to find out: the same values return that Batch.`,
   );
-  // The first create made the Batch, so the repeat can only find it.
+  // The first create made the Batch, under the ID the page made, which the field now holds.
   expect(firstStatus).toBe(200);
+  await expectBrowser(batchId).toHaveValue(sentId);
+  await expectBrowser(alert.getByRole("link", { name: sentId })).toHaveAttribute(
+    "href",
+    new RegExp(`/batches/${sentId}$`),
+  );
   // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
   await page.getByRole("button", { name: "Remove all" }).click();
   const dialog = page.getByRole("dialog", { name: "Remove the job?" });
@@ -268,18 +275,60 @@ test("a send whose answer was lost, repeated unchanged, lands on the Batch it ma
   await expectBrowser(dialog).not.toContainText("not been submitted");
   await dialog.getByRole("button", { name: "Keep it" }).click();
   await page.unrouteAll({ behavior: "wait" });
+
+  // An edit keeps the ID, so the hub refuses the changed Batch instead of making a second one.
+  const instructions = page.getByLabel("Instructions");
+  await instructions.fill("Add up the receipt.");
   await submit.click();
-  expect(typeof sentId).toBe("string");
-  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(String(sentId));
+  await expectBrowser(batchId).toHaveAttribute("aria-invalid", "true");
+  // Another ID would make another Batch, which the alert says.
+  await batchId.fill("receipts-again");
+  await expectBrowser(alert).toHaveText(
+    `The hub may already have a Batch from an earlier submission: ${sentId}. Submitting now makes another.`,
+  );
+  await batchId.fill(sentId);
+  await instructions.fill("");
+  await submit.click();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(sentId);
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
+}, 30_000);
+
+test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it", async () => {
+  const page = await openSubmitBatch("Batch waiter");
+  await page.getByLabel("Batch ID").fill("typed-only");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 1").fill("Receipt 4: 9.10 EUR.");
+  const held = Promise.withResolvers<void>();
+  await page.route("**/batches", async (route) => {
+    if (!isCreate(route.request())) return route.continue();
+    await held.promise;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Creating" })).toHaveText(
+    "Creating the Batch…",
+  );
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Leave this page?" });
+  await expectBrowser(dialog).toContainText(
+    "The hub may already have a Batch from this page: look for it in Batches before submitting it again.",
+  );
+  await dialog.getByRole("button", { name: "Stay" }).click();
+  held.resolve();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("typed-only");
 }, 30_000);
 
 test("Remove all asks first: keeping keeps every job, and removing sends nothing and leaves focus on Add files", async () => {
   const page = await openSubmitBatch("Batch tidier");
-  const sent: string[] = [];
-  page.on("request", (request) => {
-    if (isCreate(request) || isUpload(request)) sent.push(request.url());
-  });
+  // A submission of the page's form starts in the click that causes it, so counting them needs no
+  // wait. A string, as these tests are typed without the DOM's names.
+  await page.evaluate(`(() => {
+    window.submissions = 0;
+    document.querySelector("form.fields").addEventListener("submit", () => window.submissions++);
+  })()`);
   await addFiles(page, [["note.txt", "A note."]]);
   await page.getByRole("button", { name: "Add a job" }).click();
   await page.getByLabel("Input of job 2").fill("Typed.");
@@ -297,9 +346,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
   await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
   await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
-  // A send would have shown its step; give a stray one time to leave.
-  await page.waitForTimeout(500);
-  expect(sent).toEqual([]);
+  expect(await page.evaluate("window.submissions")).toBe(0);
 }, 30_000);
 
 test("files alike in name, size and time but not in content are each sent as their own", async () => {

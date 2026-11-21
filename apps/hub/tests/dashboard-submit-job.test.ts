@@ -1,6 +1,6 @@
 import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, onTestFinished, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
 import { startSystem } from "./harness.ts";
@@ -103,4 +103,47 @@ test("a member leaving typed input can stay with the draft or discard it", async
   await jobs.click();
   await dialog.getByRole("button", { name: "Leave the page" }).click();
   await expectBrowser(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+}, 30_000);
+
+test("after a lost answer the Custom ID field holds the ID sent: an edit cannot make a second job, and another ID says one may exist", async () => {
+  const page = await openSubmitJob("Job retrier");
+  const input = page.getByLabel("Input", { exact: true });
+  await input.fill("Count the receipts.");
+  let sentId = "";
+  let firstStatus: number | undefined;
+  await page.route("**/batches", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    sentId = route.request().postDataJSON()?.id;
+    // The hub makes the job; its answer never reaches the page. The browser alone resolves the
+    // hub's name, so the request goes to the hub's address.
+    const answer = await route.fetch({
+      url: route.request().url().replace(system.origin, system.url().origin),
+    });
+    firstStatus = answer.status();
+    await route.abort("connectionreset");
+  });
+  const submit = page.getByRole("button", { name: "Submit job" });
+  const customId = page.getByLabel("Custom ID");
+  const alert = page.getByRole("alert");
+  await submit.click();
+  await expectBrowser(alert).toContainText(
+    `The hub may already have a job under this Custom ID: ${sentId}. Submit again to find out`,
+  );
+  expect(firstStatus).toBe(200);
+  await expectBrowser(customId).toHaveValue(sentId);
+  await page.unrouteAll({ behavior: "wait" });
+
+  // An edit keeps the ID, so the hub refuses the changed job instead of making a second one.
+  await input.fill("Count the receipts twice.");
+  await submit.click();
+  await expectBrowser(customId).toHaveAttribute("aria-invalid", "true");
+  await customId.fill("receipts-again");
+  await expectBrowser(alert).toHaveText(
+    `The hub may already have a job from an earlier submission: ${sentId}. Submitting now makes another.`,
+  );
+  await customId.fill(sentId);
+  await input.fill("Count the receipts.");
+  await submit.click();
+  await expectBrowser(page).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(sentId);
 }, 30_000);

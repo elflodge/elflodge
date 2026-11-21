@@ -104,16 +104,11 @@ export function repeatedCustomIds(jobs: readonly DraftJob[]): Map<number, string
 }
 
 /**
- * The indexes of the jobs of `jobs` that are refused before anything is read: a file the hub would
- * refuse, or a Custom ID another job has. A Batch with any of them is not sent.
+ * The files of `jobs`, each `File` once however many jobs hold it. A `Set` of objects compares
+ * them by identity, so two files alike in name, size and time but not in content are both kept.
  */
-export function jobsRefusedAtAdd(jobs: readonly DraftJob[]): number[] {
-  const repeated = repeatedCustomIds(jobs);
-  return jobs.flatMap((job, index) =>
-    repeated.has(index) || (job.kind === "file" && fileProblems(job.file).length > 0)
-      ? [index]
-      : [],
-  );
+export function draftFiles(jobs: readonly DraftJob[]): File[] {
+  return [...new Set(jobs.flatMap((job) => (job.kind === "file" ? [job.file] : [])))];
 }
 
 /** A digest's form, for the size of a request whose files are not read yet: all have one length. */
@@ -155,10 +150,7 @@ export interface DraftFacts {
   };
   /** The request's body, the files named by digest and the rest as typed. */
   readonly request: { readonly bytes: number; readonly max: number };
-  /**
-   * The files, each `File` counted once however many rows hold it (a `Set` of objects compares them
-   * by identity), and how many are over the most one may hold.
-   */
+  /** The files, each counted once however many rows hold it, and how many are over the most one may hold. */
   readonly files: {
     readonly count: number;
     readonly bytes: number;
@@ -181,7 +173,7 @@ export interface DraftFacts {
  */
 export function draftFacts(draft: BatchDraft, limits: JobLimits | undefined): DraftFacts {
   const count = draft.jobs.length;
-  const files = [...new Set(draft.jobs.flatMap((job) => (job.kind === "file" ? [job.file] : [])))];
+  const files = draftFiles(draft.jobs);
   const set = draft.agent.modelBudgetUsd;
   const eachUsd = set ?? limits?.modelBudgetUsd.default;
   return {

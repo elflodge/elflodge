@@ -7,26 +7,65 @@ import { action, createEffect, createOptimistic } from "solid-js";
 
 import { hubFailureMessage } from "./api-client.ts";
 
-/** One control can edit several input paths. Keep every unmatched issue in the form alert. */
-export function formRefusal(error: unknown, controls: Record<string, readonly string[]>) {
+/** A refusal as a form shows it: the words at each control, by its name, and the alert's. */
+type FormRefusal = { fields: Map<string, string>; alert: string | undefined };
+
+/**
+ * The refusal `issues` make, located as the hub locates them, each at the control of `controls` that
+ * edits its path. One control can edit several input paths. Every unmatched issue stays in the alert.
+ */
+export function issuesRefusal(
+  issues: readonly unknown[],
+  controls: Record<string, readonly string[]>,
+): FormRefusal {
   const fields = new Map<string, string>();
   const alerts: string[] = [];
-  if (error instanceof ORPCError && Array.isArray(error.data?.issues)) {
-    // getIssueMessage returns the first match. Looking up each issue separately also preserves
-    // repeated issues at one field and identical messages belonging to different fields.
-    for (const issue of error.data.issues.filter(isSchemaIssue)) {
-      const singleIssueError = { data: { issues: [issue] } };
-      const control = Object.entries(controls).find(([, paths]) =>
-        paths.some((path) => getIssueMessage(singleIssueError, path) !== undefined),
-      );
-      if (control) {
-        const [name] = control;
-        const previous = fields.get(name);
-        fields.set(name, previous ? [previous, issue.message].join("\n") : issue.message);
-      } else alerts.push(issue.message);
-    }
-  } else alerts.push(hubFailureMessage(error));
+  // getIssueMessage returns the first match. Looking up each issue separately also preserves
+  // repeated issues at one field and identical messages belonging to different fields.
+  for (const issue of issues.filter(isSchemaIssue)) {
+    const singleIssueError = { data: { issues: [issue] } };
+    const control = Object.entries(controls).find(([, paths]) =>
+      paths.some((path) => getIssueMessage(singleIssueError, path) !== undefined),
+    );
+    if (control) {
+      const [name] = control;
+      const previous = fields.get(name);
+      fields.set(name, previous ? [previous, issue.message].join("\n") : issue.message);
+    } else alerts.push(issue.message);
+  }
   return { fields, alert: alerts.join("\n") || undefined };
+}
+
+/** The refusal `error` makes: its issues at their controls, or the hub's words in the alert. */
+export function formRefusal(
+  error: unknown,
+  controls: Record<string, readonly string[]>,
+): FormRefusal {
+  if (error instanceof ORPCError && Array.isArray(error.data?.issues))
+    return issuesRefusal(error.data.issues, controls);
+  return { fields: new Map(), alert: hubFailureMessage(error) };
+}
+
+/**
+ * `refusal` without the words at the controls `drop` names, which an edit there ends; `refusal`
+ * itself when there are none, so what reads it is not told of a change.
+ */
+export function withoutRefusals<T extends { readonly fields: ReadonlyMap<string, string> }>(
+  refusal: T,
+  drop: (name: string) => boolean,
+): T {
+  const kept = [...refusal.fields].filter(([name]) => !drop(name));
+  return kept.length === refusal.fields.size ? refusal : { ...refusal, fields: new Map(kept) };
+}
+
+/**
+ * Before the draft record holding `button` goes: focus moves to the Remove of the row that takes its
+ * place, or of the one before, or else to `fallback`.
+ */
+export function focusNextRemove(button: HTMLElement, fallback: HTMLElement | undefined) {
+  const line = button.closest("tr");
+  const next = line?.nextElementSibling ?? line?.previousElementSibling;
+  (next?.querySelector<HTMLElement>("td.is-act button") ?? fallback)?.focus();
 }
 
 /** Restore keyboard focus when it is lost or the focused element is hidden. */

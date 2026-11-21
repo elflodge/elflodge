@@ -6,6 +6,7 @@ import {
   type CreatedBatch,
   MAX_BODY_BYTES,
   MAX_FILES_PER_CHECK,
+  SUGGESTED_AT_ONCE,
 } from "contract";
 import { Array, Cause, Effect, Exit, Result, Stream } from "effect";
 import * as z from "zod/mini";
@@ -17,31 +18,32 @@ import {
   creationOf,
   type DraftCreation,
   type DraftJob,
-  jobsRefusedAtAdd,
+  draftFiles,
   requestBytes,
 } from "./batch-draft.ts";
 
-/**
- * How many files are read, and how many uploaded, at once: five, as the CLI's `batches submit` does
- * for the same reason. Each upload holds one of the hub's database connections while it writes.
- */
-const AT_ONCE = 5;
+/** How far the uploads are, once the hub has said which contents it holds. */
+export interface UploadFigures {
+  readonly uploaded: number;
+  readonly uploadedBytes: number;
+  /** The contents to upload, each once, and their bytes. */
+  readonly files: number;
+  readonly bytes: number;
+  /** The files whose content the hub already holds, which are not uploaded. */
+  readonly held: number;
+  /** The files whose content another file being uploaded has, which is uploaded once. */
+  readonly same: number;
+}
 
-/** How far a send is, for the page to show the step and its figures. */
+/**
+ * How far a send is, for the page to show the step and its figures: checking the request, reading
+ * the files, asking the hub which contents it holds and uploading the others (`uploading`, its
+ * figures once the hub has answered), then creating the Batch.
+ */
 export type SendProgress =
+  | { readonly step: "checking" }
   | { readonly step: "reading"; readonly read: number; readonly files: number }
-  | {
-      readonly step: "uploading";
-      readonly uploaded: number;
-      readonly uploadedBytes: number;
-      /** The contents to upload, each once, and their bytes. */
-      readonly files: number;
-      readonly bytes: number;
-      /** The files whose content the hub already holds, which are not uploaded. */
-      readonly held: number;
-      /** The files whose content another file being uploaded has, which is uploaded once. */
-      readonly same: number;
-    }
+  | { readonly step: "uploading"; readonly figures?: UploadFigures }
   | { readonly step: "creating" };
 
 /** A job, by its index in the draft, and why it stopped the send. */
@@ -59,11 +61,13 @@ export type SendOutcome =
   | { readonly kind: "created"; readonly answer: CreatedBatch }
   /** Stopped before the create was sent. */
   | { readonly kind: "stopped" }
-  /** Jobs refused when they were added: a file the hub would refuse, or a Custom ID given twice. */
-  | { readonly kind: "refusedAtAdd"; readonly indexes: readonly number[] }
   /** Files the browser could not read, each with the browser's reason, after the others were read. */
   | { readonly kind: "unreadable"; readonly jobs: readonly JobProblem[]; readonly files: number }
-  /** The request as the contract refuses it, its issues placed as the hub's are, by path. */
+  /**
+   * The request as the contract refuses it, before anything is read, its issues placed as the hub's
+   * are, by path: among them a Custom ID given twice and a file the hub would refuse by its name or
+   * size, which each row also tells when it is added.
+   */
   | { readonly kind: "invalid"; readonly issues: readonly z.core.$ZodIssue[] }
   /** The request's body is over the most one request takes. */
   | { readonly kind: "tooLarge"; readonly bytes: number; readonly max: number }
@@ -123,8 +127,6 @@ const prepare = Effect.fnUntraced(function* (
   draft: BatchDraft,
   onProgress: (progress: SendProgress) => void,
 ) {
-  const refused = jobsRefusedAtAdd(draft.jobs);
-  if (refused.length > 0) return { kind: "refusedAtAdd", indexes: refused } as const;
   // The request's count, form and size do not depend on what the files hold, as an unread file's
   // digest has a read one's length: what the contract refuses is told before anything is read.
   const unread = creationOf(draft, new Map());
@@ -136,7 +138,7 @@ const prepare = Effect.fnUntraced(function* (
   // Every file is read each time, so a file changed since the last try is named by what it holds.
   // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
   // time may differ in what they hold.
-  const files = [...new Set(draft.jobs.flatMap((job) => (job.kind === "file" ? [job.file] : [])))];
+  const files = draftFiles(draft.jobs);
   let read: readonly { readonly file: File; readonly digest: string }[] = [];
   if (files.length > 0) {
     let count = 0;
@@ -154,7 +156,7 @@ const prepare = Effect.fnUntraced(function* (
             }),
           ),
         ),
-      { concurrency: AT_ONCE },
+      { concurrency: SUGGESTED_AT_ONCE },
     );
     if (unreadable.length > 0) {
       const reasons = new Map(unreadable.map(({ file, reason }) => [file, reason]));
@@ -169,13 +171,12 @@ const prepare = Effect.fnUntraced(function* (
 
   const digests = new Map(read.map(({ file, digest }) => [file, digest]));
   const creation = creationOf(draft, digests);
-  // Checked again with the digests read, to send the request the contract takes; their form is
-  // the unread one's, so this refuses nothing the first check let through.
-  const checked = z.safeParse(batchCreationSchema, creation);
-  if (!isCreation(creation, checked)) {
-    return { kind: "invalid", issues: checked.error?.issues ?? [] } as const;
-  }
+  // The contract took the unread request, and a digest read has an unread one's form, so it takes
+  // this one too, unchecked again.
+  if (!isCreation(creation, early)) return { kind: "invalid", issues: [] } as const;
   if (files.length === 0) return { kind: "ready", creation } as const;
+
+  onProgress({ step: "uploading" });
 
   // Each content once, however many files hold it.
   const contents = Array.dedupeWith(
@@ -210,7 +211,8 @@ const prepare = Effect.fnUntraced(function* (
   };
   let uploaded = 0;
   let uploadedBytes = 0;
-  if (missing.length > 0) onProgress({ step: "uploading", uploaded, uploadedBytes, ...toUpload });
+  if (missing.length > 0)
+    onProgress({ step: "uploading", figures: { uploaded, uploadedBytes, ...toUpload } });
   // Every upload runs, one failing or not, so one try tells about every file.
   const [, failed] = yield* Effect.partition(
     missing,
@@ -228,11 +230,11 @@ const prepare = Effect.fnUntraced(function* (
           Effect.sync(() => {
             uploaded += 1;
             uploadedBytes += sizeBytes;
-            onProgress({ step: "uploading", uploaded, uploadedBytes, ...toUpload });
+            onProgress({ step: "uploading", figures: { uploaded, uploadedBytes, ...toUpload } });
           }),
         ),
       ),
-    { concurrency: AT_ONCE },
+    { concurrency: SUGGESTED_AT_ONCE },
   );
   if (failed.length > 0) {
     const messages = new Map(failed.map(({ digest, message }) => [digest, message]));
@@ -258,6 +260,9 @@ export async function sendBatch(
   options: { readonly signal: AbortSignal; readonly onProgress: (progress: SendProgress) => void },
 ): Promise<SendOutcome> {
   const { signal, onProgress } = options;
+  // Before anything is awaited: Solid keeps an optimistic write made after an await only in a lane
+  // a write in the action's first slice opened, so the page's progress reports its later steps.
+  onProgress({ step: "checking" });
   const prepared = await Effect.runPromiseExit(prepare(draft, onProgress), { signal });
   if (Exit.isFailure(prepared)) {
     if (Exit.hasInterrupts(prepared)) return { kind: "stopped" };

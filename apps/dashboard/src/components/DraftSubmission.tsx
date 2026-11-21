@@ -1,34 +1,58 @@
+import type { JSX } from "@solidjs/web";
 import { useBlocker, useRouter } from "@tanstack/solid-router";
 import { problemOf } from "contract";
-import { createSignal, createUniqueId, onSettled } from "solid-js";
+import { For, Show, createOptimistic, createSignal, createUniqueId, onSettled } from "solid-js";
 // Not crypto.randomUUID, which is undefined outside a secure context: the dashboard may be served
 // over plain HTTP on a private network (docs/deploy.md, "Runners on other machines",
 // "A private network").
 import { v4 as uuid } from "uuid";
 
+import { plural } from "../format.ts";
 import { isLeavingDocument } from "../member-document.ts";
 
-/** Which ID a creation was sent under: one the page made, or one the member typed. */
-export type SentUnder = "made ID" | "typed ID";
+/**
+ * What the hub may hold from an earlier send of the page: a record under the ID the field holds,
+ * which sending again would return or refuse, or records under other IDs, beside which sending
+ * makes another.
+ */
+export type Earlier = { readonly repeats: string } | { readonly others: readonly string[] };
+
+/** Whether `form` holds a value other than the one it started with. */
+function formChanged(form: HTMLFormElement | undefined) {
+  return Array.from(form?.elements ?? []).some((control) =>
+    control instanceof HTMLInputElement && control.type === "checkbox"
+      ? control.checked !== control.defaultChecked
+      : (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) &&
+        (control.value !== control.defaultValue || control.validity.badInput),
+  );
+}
 
 /**
- * What a page that submits a draft keeps about its sends: the ID it made, whether a send's outcome
- * is unknown, and whether the member may leave. `dirty` says whether leaving would lose anything.
+ * What a page that submits a draft keeps about its sends: the IDs whose outcome is unknown, whether
+ * a create is on its way, and whether the member may leave. The draft is `form`'s, whose field `id`
+ * names the record, and leaving loses it when a value changed or `held` says the page holds more.
  */
-export function createDraftSubmission(dirty: () => boolean) {
+export function createDraftSubmission(
+  form: () => HTMLFormElement | undefined,
+  held: () => boolean = () => false,
+) {
   const router = useRouter();
-  // Kept so that a retry after a lost answer sends the same ID, and the hub answers with what it
-  // made instead of making a second one.
-  let madeId: string | undefined;
-  // A request was sent, and got no answer that says what the hub did, or its success came after
-  // the member chose to leave. Holds which kind of ID it was sent under. A later refusal of the
-  // same draft says nothing of that request, so only a change that gives the next send another ID
-  // or a success the page follows settles it.
-  const [unknownOutcome, setUnknownOutcome] = createSignal<SentUnder>();
+  // The IDs of creates that got no answer saying what the hub did, or whose success came after the
+  // member chose to leave: the hub may hold a record under each. Kept until a send under that ID
+  // succeeds or the page goes, whatever is edited meanwhile, since a refusal of a later send says
+  // nothing of an earlier one. A second answer can be lost under another ID, so there may be several.
+  const [possiblyMade, setPossiblyMade] = createSignal<ReadonlySet<string>>(new Set());
+  // What the field `id` holds, which decides whether the next send repeats one of them.
+  const [idInField, setIdInField] = createSignal("");
+  // Optimistic, as the form's pending state is: a send is one action, whose other writes show once
+  // it settles. `sending` writes it in the action's first slice, which Solid needs to keep the write
+  // `creating` makes after an await.
+  const [stage, setStage] = createOptimistic<"preparing" | "creating" | undefined>(undefined);
   let submitted = false;
   // The member confirmed leaving while this request was pending: its answer must not take them
   // back. A new send clears it, so it covers only the request pending at Leave.
   let leaveConfirmed = false;
+  const dirty = () => held() || formChanged(form());
   const blocker = useBlocker({
     // A change of fragment alone, such as the skip link's, does not leave the page.
     shouldBlockFn: ({ current, next }) =>
@@ -37,53 +61,67 @@ export function createDraftSubmission(dirty: () => boolean) {
     enableBeforeUnload: () => !isLeavingDocument() && !submitted && dirty(),
     withResolver: true,
   });
+  /**
+   * The hub may hold a record under `id`. A made ID is written into the empty field, so the page
+   * holds the ID that may be taken: sending again repeats it, and another record takes a deliberate
+   * change of it.
+   */
+  function markPossiblyMade(id: string) {
+    setPossiblyMade((previous) => new Set(previous).add(id));
+    const field = form()?.elements.namedItem("id");
+    if (field instanceof HTMLInputElement && field.value === "") {
+      field.value = id;
+      setIdInField(id);
+    }
+  }
   return {
     blocker,
-    unknownOutcome,
-    /**
-     * Takes the ID to send: the one typed, or the one made and kept since the last change, making
-     * and keeping one when none is.
-     */
-    takeId(typed: string): { id: string; sentUnder: SentUnder } {
-      if (typed) return { id: typed, sentUnder: "typed ID" };
-      madeId ??= uuid();
-      return { id: madeId, sentUnder: "made ID" };
+    /** A create is on its way, or one may have made a record: leaving says the hub may have it. */
+    mayHaveRecord: () => stage() === "creating" || possiblyMade().size > 0,
+    /** What the hub may hold from an earlier send, if anything. */
+    earlier: (): Earlier | undefined => {
+      const ids = possiblyMade();
+      if (!ids.size) return undefined;
+      const typed = idInField();
+      return ids.has(typed) ? { repeats: typed } : { others: [...ids] };
     },
-    /** The made ID the next send would use, if one is kept. */
-    madeId: () => madeId,
-    /**
-     * Something on the page changed. A made ID gets a new one, so the next send can make a second
-     * record. Under a typed ID only an edit of that ID does: the hub refuses other content under it.
-     */
-    changed(ofId: boolean) {
-      madeId = undefined;
-      setUnknownOutcome((sentUnder) => (sentUnder === "typed ID" && !ofId ? sentUnder : undefined));
+    /** The field `id` now holds `value`. */
+    idEdited(value: string) {
+      setIdInField(value);
+    },
+    /** The ID to send: the one in the field, or a new one, which the hub's answer will name. */
+    takeId(typed: string) {
+      return typed || uuid();
     },
     /** A send begins. */
     sending() {
       leaveConfirmed = false;
+      setStage("preparing");
+    },
+    /** The create is sent, which cannot be recalled. */
+    creating() {
+      setStage("creating");
     },
     /**
-     * Marks that the hub made or returned the record, so leaving no longer asks. True when the page
-     * is to follow it; a member who left
-     * meanwhile finds the form, if they come back, as after a lost answer, so sending it unchanged
-     * opens the record.
+     * Marks that the hub made or returned the record under `id`, so leaving no longer asks. True
+     * when the page is to follow it; a member who left meanwhile finds the form, if they come back,
+     * as after a lost answer, so sending it unchanged opens the record.
      */
-    markSucceeded(form: HTMLFormElement, sentUnder: SentUnder) {
-      if (form.isConnected && !leaveConfirmed) {
+    markSucceeded(id: string) {
+      if (form()?.isConnected && !leaveConfirmed) {
         submitted = true;
         // A navigation held by an open leave dialog gives way, so the member lands on the record.
         blocker().reset?.();
         return true;
       }
-      if (leaveConfirmed) setUnknownOutcome(sentUnder);
+      if (leaveConfirmed) markPossiblyMade(id);
       return false;
     },
-    /** Marks that the send failed with `error`, which may leave its outcome unknown. */
-    markFailed(error: unknown, sentUnder: SentUnder) {
+    /** Marks that the send under `id` failed with `error`, which may leave its outcome unknown. */
+    markFailed(error: unknown, id: string) {
       const status = problemOf(error)?.status;
       // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
-      if (!(status !== undefined && status >= 400 && status < 500)) setUnknownOutcome(sentUnder);
+      if (!(status !== undefined && status >= 400 && status < 500)) markPossiblyMade(id);
       if (status === 403)
         void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
     },
@@ -95,9 +133,51 @@ export function createDraftSubmission(dirty: () => boolean) {
   };
 }
 
-/** What the alert says after a send under a made ID got no answer: `record` is "job" or "Batch". */
-export function madeIdUnknownWords(record: string) {
-  return `The hub may already have this ${record}. Submit again without changing anything to find out: the same request returns the ${record} if it was made.`;
+/**
+ * What the alert says while the hub may hold a record from an earlier send: while the field holds
+ * its ID, the page's own words, `repeat`, around a link to it, as a repeat does different things to
+ * a job and to a Batch; otherwise that sending makes another. `link` leads to what the hub holds
+ * under an ID.
+ */
+export function EarlierWords(props: {
+  earlier: Earlier;
+  /** "job" or "Batch". */
+  record: string;
+  /** "jobs" or "Batches". */
+  records: string;
+  link: (id: string) => JSX.Element;
+  repeat: (link: JSX.Element) => JSX.Element;
+}) {
+  return (
+    <Show
+      when={"repeats" in props.earlier && props.earlier.repeats}
+      fallback={(() => {
+        const ids = () => ("others" in props.earlier ? props.earlier.others : []);
+        return (
+          <>
+            The hub may already have{" "}
+            {plural(
+              ids().length,
+              `a ${props.record} from an earlier submission`,
+              `${props.records} from earlier submissions`,
+            )}
+            :{" "}
+            <For each={ids()}>
+              {(id, index) => (
+                <>
+                  {index() > 0 ? ", " : ""}
+                  {props.link(id)}
+                </>
+              )}
+            </For>
+            . Submitting now makes another.
+          </>
+        );
+      })()}
+    >
+      {(id) => props.repeat(props.link(id()))}
+    </Show>
+  );
 }
 
 /**
@@ -106,8 +186,6 @@ export function madeIdUnknownWords(record: string) {
  */
 export function LeaveDialog(props: {
   submission: ReturnType<typeof createDraftSubmission>;
-  /** A send is pending that may make the record, or one got no answer. */
-  mayHaveRecord: boolean;
   /** "job" or "Batch". */
   record: string;
   /** The list to look in, such as "Jobs". */
@@ -126,12 +204,12 @@ export function LeaveDialog(props: {
     >
       <form method="dialog">
         <h2 class="dialog-h" id={headingId}>
-          {props.mayHaveRecord ? "Leave this page?" : "Leave without submitting?"}
+          {props.submission.mayHaveRecord() ? "Leave this page?" : "Leave without submitting?"}
         </h2>
         <div class="dialog-b">
           <p>
-            {props.mayHaveRecord
-              ? `The hub may already have this ${props.record}: look for it in ${props.list} before submitting it again.`
+            {props.submission.mayHaveRecord()
+              ? `The hub may already have a ${props.record} from this page: look for it in ${props.list} before submitting it again.`
               : `The ${props.record} has not been submitted.`}{" "}
             Leaving this page loses {props.loses}.
           </p>
