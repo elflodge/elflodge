@@ -538,21 +538,6 @@ export const batchesPageSchema = z
   .register(z.globalRegistry, { id: "BatchesPage" });
 export type BatchesPage = z.infer<typeof batchesPageSchema>;
 
-/** A retry after a lost response returns `created: false`, so once-per-job work cannot depend on it. */
-export const addedJobSchema = z.object({ created: z.boolean(), job: jobSchema });
-
-/** The Batch and the jobs requested at creation, in request order. */
-export const createdBatchSchema = z
-  .extend(batchSchema, { jobs: z.array(addedJobSchema) })
-  .register(z.globalRegistry, { id: "CreatedBatch" });
-export type CreatedBatch = z.infer<typeof createdBatchSchema>;
-
-/** The jobs an add asked for, in its order, each with whether the add created it, and their Batch. */
-export const addedJobsSchema = z
-  .object({ batch: batchSchema, jobs: z.array(addedJobSchema) })
-  .register(z.globalRegistry, { id: "AddedJobs" });
-export type AddedJobs = z.infer<typeof addedJobsSchema>;
-
 /** A Batch as a call names it. */
 export const batchRefSchema = z.strictObject({
   id: batchIdSchema.check(z.describe("The Batch's ID.")),
@@ -590,6 +575,26 @@ export const jobsPageSchema = z
   .object({ jobs: z.array(listedJobSchema), hasMore: z.boolean() })
   .register(z.globalRegistry, { id: "JobsPage" });
 export type JobsPage = z.infer<typeof jobsPageSchema>;
+
+/**
+ * A job a creation or an add asked for, as the job list gives it: an exact repeat after the jobs
+ * ended names every one of them, and the whole job would carry each one's Output, failure message
+ * and activity (ADR 0050). A retry after a lost response returns `created: false`, so once-per-job
+ * work cannot depend on it.
+ */
+export const addedJobSchema = z.object({ created: z.boolean(), job: listedJobSchema });
+
+/** The Batch and the jobs requested at creation, in request order. */
+export const createdBatchSchema = z
+  .extend(batchSchema, { jobs: z.array(addedJobSchema) })
+  .register(z.globalRegistry, { id: "CreatedBatch" });
+export type CreatedBatch = z.infer<typeof createdBatchSchema>;
+
+/** The jobs an add asked for, in its order, each with whether the add created it, and their Batch. */
+export const addedJobsSchema = z
+  .object({ batch: batchSchema, jobs: z.array(addedJobSchema) })
+  .register(z.globalRegistry, { id: "AddedJobs" });
+export type AddedJobs = z.infer<typeof addedJobsSchema>;
 
 const jobEventOrderSchema = z
   .enum(["asc", "desc"])
@@ -1069,7 +1074,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "POST",
           path: "/batches",
           description:
-            "Creates a Batch and its optional first jobs, all or nothing. The answer is the Batch with each requested job in order and whether it was created. The hub checks the request shape first. A malformed job is refused before the agent's Output schema is checked, so a malformed job and an array Output schema take two attempts to diagnose. Once the shape is valid, the hub reports job input problems together with Output schemas that are invalid, describe a list or refer outside themselves. When the Output schema is invalid, the same 400 response includes any agent limits above the hub's maxima. A new Batch must meet the current limits. Retrying the same ID, agent, labels and breaker returns the existing Batch even after a maximum is lowered. Different Batch content under the same ID is refused with 422. Each custom ID follows the add's rule: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
+            "Creates a Batch and its optional first jobs, all or nothing. The answer is the Batch with each requested job in order, as the job list gives it, and whether it was created; read a job for its Output, failure message and activity. The hub checks the request shape first. A malformed job is refused before the agent's Output schema is checked, so a malformed job and an array Output schema take two attempts to diagnose. Once the shape is valid, the hub reports job input problems together with Output schemas that are invalid, describe a list or refer outside themselves. When the Output schema is invalid, the same 400 response includes any agent limits above the hub's maxima. A new Batch must meet the current limits. Retrying the same ID, agent, labels and breaker returns the existing Batch even after a maximum is lowered. Different Batch content under the same ID is refused with 422. Each custom ID follows the add's rule: matching content returns the held job even after cancellation, different content is refused with 422, and a cancelled Batch takes no new jobs (409).",
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )
@@ -1085,7 +1090,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, as the job list gives it, with whether this add created it; read a job for its Output, failure message and activity. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )

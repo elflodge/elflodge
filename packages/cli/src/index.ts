@@ -28,6 +28,7 @@ import {
   FINAL_JOB_STATUSES,
   getAccess,
   type Job,
+  type ListedJob,
   jobRefSchema,
   type JobSubmission,
   type KeyPermissions,
@@ -381,7 +382,7 @@ function submitCommand() {
   return os
     .meta({
       description:
-        "Submits one job and prints it. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
+        "Submits one job and prints it as the job list gives it. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
       // The command takes its input as JSON only: a flag per field would include the job's `--input`,
       // which `readInput` reads as the file holding the whole input before trpc-cli sees it.
       jsonInput: "always",
@@ -968,22 +969,22 @@ const prepareOutputDir = Effect.fnUntraced(function* (dir: string) {
 });
 
 /**
- * Reads the line of each of `jobs` and saves them, in order, in `dir`: those that succeeded in
- * `output.jsonl`, the rest in `error.jsonl`, leaving out a file that would hold none, as openai-cli
- * does. Where a person watches, stderr says which it saved.
+ * Reads the line of each of `jobs`, by its custom ID and job ID, and saves them, in order, in
+ * `dir`: those that succeeded in `output.jsonl`, the rest in `error.jsonl`, leaving out a file
+ * that would hold none, as openai-cli does. Where a person watches, stderr says which it saved.
  */
 const saveJobLines = Effect.fnUntraced(function* (
   client: ApiClient,
   dir: string,
-  jobs: readonly (readonly [string, Job])[],
+  jobs: readonly (readonly [string, ListedJob["id"]])[],
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   // One read per job, a few at a time, until the API reads a Batch's outputs a page at a time.
   const lines = yield* Effect.forEach(
     jobs,
-    ([customId, added]) =>
-      hubCall((signal) => client.jobs.get({ id: added.id }, { signal })).pipe(
+    ([customId, id]) =>
+      hubCall((signal) => client.jobs.get({ id }, { signal })).pipe(
         Effect.retry(retryTransient),
         Effect.map((read) => jobLine(customId, read)),
       ),
@@ -1026,7 +1027,7 @@ const saveJobLines = Effect.fnUntraced(function* (
 function waitAndSave(
   client: ApiClient,
   submitted: Batch,
-  jobs: readonly (readonly [string, Job])[],
+  jobs: readonly (readonly [string, ListedJob["id"]])[],
   options: {
     again: string;
     idGiven: boolean;
@@ -1359,7 +1360,8 @@ function submitBatchCommand() {
             );
           });
           const batch = Array.lastNonEmpty(adds).batch;
-          const added = adds.flatMap((add) => add.jobs.map(({ job }) => job));
+          // The answers give each job as the list does, so its line is read after the wait.
+          const added = adds.flatMap((add) => add.jobs.map(({ job }) => job.id));
           const printBatchAndWaitHint = Effect.gen(function* () {
             yield* printStep(batch);
             if (batchWasCancelled(batch)) yield* Effect.fail(new Error("The Batch was cancelled"));

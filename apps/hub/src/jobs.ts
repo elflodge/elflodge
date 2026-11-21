@@ -15,6 +15,7 @@ import {
   type JobCounts,
   type JobEventsPage,
   type JobsPage,
+  type ListedJob,
   type JobRunner,
   type JobLimits,
   type Labels,
@@ -395,9 +396,68 @@ export function jobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date)
   return selectJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
 }
 
-/** Postgres returns timestamps inside a JSON array as strings. */
-export function jobFromJson(row: ShallowDehydrateObject<SelectedJob>) {
-  return toApiJob({
+/** What a list reads of a job's row: its columns without its output and its failure's message. */
+const LISTED_JOB_COLUMNS = [
+  "id",
+  "status",
+  "createdAt",
+  "startedAt",
+  "endedAt",
+  "runTimeoutSeconds",
+  "modelBudgetUsd",
+  "failureReason",
+  "pendingControl",
+  "pendingControlRequestedAt",
+  "customId",
+  "labels",
+  ...SUBMITTER_COLUMNS,
+] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
+
+/** What a list reads of a job's progress: its totals without its activity. */
+const LISTED_PROGRESS_COLUMNS = [
+  "totalTokens",
+  "costUsd",
+  "lastReportedAt",
+] as const satisfies readonly (typeof PROGRESS_COLUMNS)[number][];
+
+type ListedJobRow = Omit<SelectedJob, "output" | "failureMessage" | "activity">;
+
+/**
+ * Jobs as a list reads them, `j` with its progress `p`: without their content, so Postgres reads
+ * neither a job's output nor its failure's message nor its activity.
+ */
+function selectListedJobs(db: Kysely<Database>, now: Date) {
+  return db
+    .selectFrom("job as j")
+    .innerJoin("jobProgress as p", "p.jobId", "j.id")
+    .select((eb) => [
+      ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
+      ...LISTED_PROGRESS_COLUMNS.map((column) => `p.${column}` as const),
+      blockedByOf({
+        status: eb.ref("j.status"),
+        placedAt: eb.ref("j.placedAt"),
+        batchUid: eb.ref("j.batchUid"),
+        inCanary: eb.ref("j.inCanary"),
+      }).as("blockedBy"),
+      batchIdOf(eb.ref("j.batchUid")).as("batchId"),
+      runnerOf(eb.ref("j.runnerId"), now).as("runner"),
+      statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
+    ]);
+}
+
+/** The jobs `ids`, as a list reads them. */
+export function listedJobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
+  return selectListedJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
+}
+
+/** A job as the contract's `ListedJob` gives it, from what `selectListedJobs` read. */
+function toListedJob(row: ListedJobRow): ListedJob {
+  return toApiJob({ ...row, output: null, failureMessage: null, activity: null });
+}
+
+/** A listed job read inside a JSON array, where Postgres gives timestamps as strings. */
+export function listedJobFromJson(row: ShallowDehydrateObject<ListedJobRow>) {
+  return toListedJob({
     ...row,
     createdAt: new Date(row.createdAt),
     startedAt: row.startedAt === null ? null : new Date(row.startedAt),
@@ -1397,25 +1457,7 @@ export function listJobs(query: JobListQuery) {
     database.query(async (db) => {
       const { statuses, labels, batchId, customId, runnerId, statusUnknown, after, limit } = query;
       const now = new Date();
-      let selection = db
-        .selectFrom("job as j")
-        .innerJoin("jobProgress as p", "p.jobId", "j.id")
-        // Without the content a list leaves out.
-        .select((eb) => [
-          ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
-            (column) => `p.${column}` as const,
-          ),
-          blockedByOf({
-            status: eb.ref("j.status"),
-            placedAt: eb.ref("j.placedAt"),
-            batchUid: eb.ref("j.batchUid"),
-            inCanary: eb.ref("j.inCanary"),
-          }).as("blockedBy"),
-          batchIdOf(eb.ref("j.batchUid")).as("batchId"),
-          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
-          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
-        ]);
+      let selection = selectListedJobs(db, now);
       if (statusUnknown !== undefined) {
         selection = selection.where((eb) =>
           statusUnknown
@@ -1443,32 +1485,12 @@ export function listJobs(query: JobListQuery) {
         .limit(limit + 1)
         .execute();
       return {
-        // Read without their content, which the contract's `ListedJob` leaves out of the answer.
-        jobs: rows
-          .slice(0, limit)
-          .map((row) => toApiJob({ ...row, output: null, failureMessage: null, activity: null })),
+        jobs: rows.slice(0, limit).map(toListedJob),
         hasMore: rows.length > limit,
       } satisfies JobsPage;
     }),
   );
 }
-
-/** What a list reads of a job's row: its columns without its output and its failure's message. */
-const LISTED_JOB_COLUMNS = [
-  "id",
-  "status",
-  "createdAt",
-  "startedAt",
-  "endedAt",
-  "runTimeoutSeconds",
-  "modelBudgetUsd",
-  "failureReason",
-  "pendingControl",
-  "pendingControlRequestedAt",
-  "customId",
-  "labels",
-  ...SUBMITTER_COLUMNS,
-] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
 /** A filtered job count for each value, with the value as its column name. */
 export function jobCountsBy<Value extends string, Counted extends Value>(

@@ -11,7 +11,7 @@ import {
   untilStatus,
   uploadContent,
 } from "./harness.ts";
-import { callTool, reply, untilAborted } from "./scripted-model.ts";
+import { callTool, providerError, reply, untilAborted } from "./scripted-model.ts";
 
 // Batches, labels, the job list and status filters on jobs, Batches and usage, against a real hub.
 // The first tests run before any Runner starts and cancel what they leave unfinished.
@@ -833,6 +833,54 @@ test("a Batch's summary counts its jobs by status and adds up their cost, those 
   const afterDelete = await client.batches.get({ id: batch.id });
   expect(afterDelete.jobCounts).toMatchObject({ succeeded: 1 });
   expect(afterDelete.usage.cost.totalUsd).toBeCloseTo(costs.get(kept) ?? Number.NaN, 10);
+});
+
+// A repeat after the jobs ended names every one of them, so its answer leaves out what can be large.
+// The client drops members its contract lacks, so the answers are read as any HTTP client reads them.
+test("a repeat naming ended jobs answers each as the list gives it, without its Output or failure message", async () => {
+  // Text that matches none of pi-ai's retry patterns, so the job fails at once with it.
+  const error = "gateway_concurrency_limit: Concurrency limit reached for this key";
+  system.model.setResponses([callTool("submit_output", { value: 1 }), providerError(error)]);
+  const client = await system.clientWithNewJobsKey();
+  const creation = { id: "ended-repeat", agent: AGENT, breaker: false } as const;
+  const jobs = [jobNamed("one"), jobNamed("two")];
+  const first = await client.batches.create({ ...creation, jobs });
+  await expect
+    .poll(async () => (await client.batches.get({ id: creation.id })).jobCounts, {
+      timeout: 15_000,
+    })
+    .toMatchObject({ succeeded: 1, failed: 1 });
+  // Either job may have taken either answer.
+  const read = await Promise.all(first.jobs.map(({ job }) => client.jobs.get({ id: job.id })));
+  expect(read).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ status: "succeeded", output: 1 }),
+      expect.objectContaining({
+        status: "failed",
+        failure: { reason: "modelFailed", message: error },
+      }),
+    ]),
+  );
+
+  const answerSchema = z.object({
+    jobs: z.array(z.object({ created: z.boolean(), job: z.looseObject({ status: z.string() }) })),
+  });
+  for (const repeat of [
+    () => post("/batches", { ...creation, jobs }),
+    () => post(`/batches/${creation.id}/jobs`, { jobs }),
+  ]) {
+    const response = await repeat();
+    expect(response.status).toBe(200);
+    const answered = z.parse(answerSchema, await response.json()).jobs;
+    expect(answered.map(({ created }) => created)).toEqual([false, false]);
+    expect(new Set(answered.map(({ job }) => job.status))).toEqual(
+      new Set(["succeeded", "failed"]),
+    );
+    for (const { job } of answered) {
+      expect(job).not.toHaveProperty("output");
+      if (job.status === "failed") expect(job["failure"]).toEqual({ reason: "modelFailed" });
+    }
+  }
 });
 
 test("cancelling a Batch waits for the Runners of its running jobs, shown as its pendingControl, and then resumes none of them", async () => {

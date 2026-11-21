@@ -56,8 +56,8 @@ import {
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
-  jobsById,
-  jobFromJson,
+  listedJobFromJson,
+  listedJobsById,
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
@@ -621,8 +621,9 @@ async function addJobsAndReadBatch(
   const entries = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
   const now = new Date();
   // A Runner can update usage while the submission holds the Batch lock. Read both totals
-  // from a single snapshot, including on a retry that only found existing jobs.
-  const requestedJobs = jobsById(
+  // from a single snapshot, including on a retry that only found existing jobs. The jobs are read
+  // as a list reads them, without the content a repeat after they ended would carry (ADR 0050).
+  const requestedJobs = listedJobsById(
     trx,
     entries.map(({ id }) => id),
     now,
@@ -630,7 +631,7 @@ async function addJobsAndReadBatch(
   const row = await selectBatch(trx, { uid }, now)
     .select(jsonArrayFrom(requestedJobs).as("jobs"))
     .executeTakeFirstOrThrow();
-  const byId = new Map(row.jobs.map((job) => [job.id, jobFromJson(job)]));
+  const byId = new Map(row.jobs.map((job) => [job.id, listedJobFromJson(job)]));
   return {
     batch: batchOf(row),
     jobs: entries.map(({ id, created }) => {

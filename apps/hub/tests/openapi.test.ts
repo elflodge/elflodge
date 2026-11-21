@@ -31,7 +31,13 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
             "statusUnknownJobs",
             "jobs",
           ]),
-          properties: { jobs: { type: "array" } },
+          // Each job as the job list gives it, without its Output, failure message or activity.
+          properties: {
+            jobs: {
+              type: "array",
+              items: { properties: { job: { $ref: "#/components/schemas/ListedJob" } } },
+            },
+          },
         },
         ProblemDetails: {
           properties: {
