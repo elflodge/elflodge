@@ -1,5 +1,85 @@
 # Changelog
 
+## [0.11.0](https://github.com/elflodge/elflodge/compare/v0.10.0...v0.11.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** POST /batches/{id}/jobs answers each job by its id and customId alone, and `elflodge jobs submit` and `elflodge batches add-jobs` print only those two for each job; read the rest from GET /jobs/{id} (`jobs get`).
+* GET /runners and GET /api-keys now answer 400 naming an unknown query parameter; v0.10.0 ignored it and returned the listing.
+* **hub:** the hub no longer serves a browsable API reference, which v0.10.0 served at /; / now redirects to the dashboard, and the OpenAPI document at /spec.json still describes every public call and its parameters.
+* GET /jobs refuses `status[]=` and `status[0]=` with 400 instead of ignoring the filter; send one `status` parameter per value, as the API reference shows.
+* this release's migration renames the submitter columns, so stop the previous hub before starting this one; the hub restarts across the upgrade rather than running beside the earlier version.
+
+### Features
+
+* answer usage with ranked groups and daily totals, counting job ends ([#201](https://github.com/elflodge/elflodge/issues/201)) ([7801f35](https://github.com/elflodge/elflodge/commit/7801f3559a4e7c30ccef1c2cc1fc2d86cd701bfc))
+* **api:** say in each refusal which part of the request each problem concerns ([#224](https://github.com/elflodge/elflodge/issues/224)) ([f8e940e](https://github.com/elflodge/elflodge/commit/f8e940e043b149d84b39545f8b10ddc309b7c909))
+* **api:** take up to 1,000 jobs per request and answer each job by its IDs ([#232](https://github.com/elflodge/elflodge/issues/232)) ([6b71b76](https://github.com/elflodge/elflodge/commit/6b71b7648e70ecdfdca84c8341f0e6b581bf38e0))
+* **batches:** say on each Batch how many queued jobs each reason blocks ([#221](https://github.com/elflodge/elflodge/issues/221)) ([ba1ed36](https://github.com/elflodge/elflodge/commit/ba1ed36aaba2bef2f734661da7018ff721f65cfc))
+* count the Organization's unfinished jobs with GET /jobs/counts ([#184](https://github.com/elflodge/elflodge/issues/184)) ([2a6e845](https://github.com/elflodge/elflodge/commit/2a6e845699969767ba97ade8ffacb2cc255273b4))
+* **dashboard:** add the Runners and API keys pages, with Add Runner ([#202](https://github.com/elflodge/elflodge/issues/202)) ([a8dabf2](https://github.com/elflodge/elflodge/commit/a8dabf2f2dc44c1ec4abefdf9dfeb184d6fb6fd4))
+* **dashboard:** follow a job's Events and page through its history ([#216](https://github.com/elflodge/elflodge/issues/216)) ([9f762ee](https://github.com/elflodge/elflodge/commit/9f762ee8e206c3ab9bbaf93738f746ac52a309bb))
+* **dashboard:** give the dashboard its design system ([#183](https://github.com/elflodge/elflodge/issues/183)) ([d55e907](https://github.com/elflodge/elflodge/commit/d55e9071a2a84b846a7538ff0ef0852b6494a460))
+* **dashboard:** lay the groundwork for the dashboard's pages ([#192](https://github.com/elflodge/elflodge/issues/192)) ([969d26e](https://github.com/elflodge/elflodge/commit/969d26ea36898c3621e899a3036f1d0abbcca7f9))
+* **dashboard:** let an invited person join from an invitation link ([#209](https://github.com/elflodge/elflodge/issues/209)) ([7006cca](https://github.com/elflodge/elflodge/commit/7006cca817b32ea6961db9c213a985703dd75425))
+* **dashboard:** let members browse Batches and pause, resume or cancel them ([#220](https://github.com/elflodge/elflodge/issues/220)) ([135c911](https://github.com/elflodge/elflodge/commit/135c9111e69223dc77cb914a97706f70a2b18f66))
+* **dashboard:** let members manage their Organization from the dashboard ([#213](https://github.com/elflodge/elflodge/issues/213)) ([15371d5](https://github.com/elflodge/elflodge/commit/15371d55b5c71e0bb4fc6e9ed0deb1aafcd8d829))
+* **dashboard:** let members open a job and act on it ([#214](https://github.com/elflodge/elflodge/issues/214)) ([4b061c9](https://github.com/elflodge/elflodge/commit/4b061c9c30c2f55eb2f8cf75ef7b98a7c17eb4d0))
+* **dashboard:** let members see and filter the Organization's jobs ([#211](https://github.com/elflodge/elflodge/issues/211)) ([13e0e9b](https://github.com/elflodge/elflodge/commit/13e0e9be258b68932ab97620ea0ce2f82e583cee))
+* **dashboard:** show the Organization's usage by day and by group over a chosen period ([#223](https://github.com/elflodge/elflodge/issues/223)) ([1f5de8d](https://github.com/elflodge/elflodge/commit/1f5de8de20b9bacd67699a3e6b2c157915b4e3bb))
+* **dashboard:** submit a Batch from the Batches page ([#237](https://github.com/elflodge/elflodge/issues/237)) ([28911d6](https://github.com/elflodge/elflodge/commit/28911d62a2987206dcc9344995d1d1990d365ef8))
+* **dashboard:** submit a job from the Jobs page ([#233](https://github.com/elflodge/elflodge/issues/233)) ([b7ea372](https://github.com/elflodge/elflodge/commit/b7ea37273c45b5dcb165d26b454cdcd3c704967e))
+* **dashboard:** title each page and make the pages agree ([#239](https://github.com/elflodge/elflodge/issues/239)) ([35f7855](https://github.com/elflodge/elflodge/commit/35f7855c63f958cc47d4417cc5ded5c65c3140dd))
+* **hub:** count unknown-status jobs by status in the Organization's counts ([#195](https://github.com/elflodge/elflodge/issues/195)) ([3820134](https://github.com/elflodge/elflodge/commit/3820134853ec44f1e6c6b7d26ec0acf241c67067))
+* **hub:** create a Batch with its first jobs atomically ([#229](https://github.com/elflodge/elflodge/issues/229)) ([4cbd13d](https://github.com/elflodge/elflodge/commit/4cbd13d611c40c67ea5d6e26e3cbb7c17295089a))
+* **hub:** let an invited person join the Organization ([#207](https://github.com/elflodge/elflodge/issues/207)) ([81e238b](https://github.com/elflodge/elflodge/commit/81e238b7065d66084035f80fc1cedaed136cce5d))
+* **hub:** let callers read the job limits' defaults and maxima ([#208](https://github.com/elflodge/elflodge/issues/208)) ([a281d97](https://github.com/elflodge/elflodge/commit/a281d97c022be3702eaae009fb5009b5d2160980))
+* **hub:** read a job's events newest first ([#205](https://github.com/elflodge/elflodge/issues/205)) ([e2f4159](https://github.com/elflodge/elflodge/commit/e2f4159ce1a30e48cdce52dd59223887a0d8c111))
+* **hub:** read a member's Organization and role with their session ([#194](https://github.com/elflodge/elflodge/issues/194)) ([2486cc4](https://github.com/elflodge/elflodge/commit/2486cc4d9ded408e25473b470a1366b6a1a45124))
+* **hub:** remove the browsable API reference and keep /spec.json ([#196](https://github.com/elflodge/elflodge/issues/196)) ([9a6e4eb](https://github.com/elflodge/elflodge/commit/9a6e4eba5e3ad14cc658700d12d621875a06ee71))
+* let a key read the Runner listing, and stop the stack signing in on each start ([#198](https://github.com/elflodge/elflodge/issues/198)) ([10ae9c8](https://github.com/elflodge/elflodge/commit/10ae9c8a9d84bef4a4125669f7f3415d09aa323f))
+* let members submit with their session and show who submitted ([#187](https://github.com/elflodge/elflodge/issues/187)) ([9211cc1](https://github.com/elflodge/elflodge/commit/9211cc14c635241bd02dcc194b9ab65bf7b613d8))
+* list a Runner's jobs with GET /jobs?runnerId= ([#180](https://github.com/elflodge/elflodge/issues/180)) ([01369a0](https://github.com/elflodge/elflodge/commit/01369a0ba00b01a32fe2d55037c36ce70fca9b9a))
+* list Batches with GET /batches ([#181](https://github.com/elflodge/elflodge/issues/181)) ([af1cf1c](https://github.com/elflodge/elflodge/commit/af1cf1cfeb548009ae39d0c1fa8208330680a805))
+* read the job with its Events at the newest end of the journal ([#222](https://github.com/elflodge/elflodge/issues/222)) ([e7b9736](https://github.com/elflodge/elflodge/commit/e7b97362de53a445bb8ea6a48ad1995dc6ce1167))
+* read the Organization's usage by day and by group ([#185](https://github.com/elflodge/elflodge/issues/185)) ([f87bc06](https://github.com/elflodge/elflodge/commit/f87bc06367fb02ab7709609725b59cb2e42c1e0e))
+* **runner:** say at start when the Runner's own proxy leaves names unchecked ([#154](https://github.com/elflodge/elflodge/issues/154)) ([8b59a77](https://github.com/elflodge/elflodge/commit/8b59a7729c87048ea27ec2d00f614dd569f5aed3))
+* serve a signed-in dashboard from the hub ([#172](https://github.com/elflodge/elflodge/issues/172)) ([fa55920](https://github.com/elflodge/elflodge/commit/fa559209f701deeea1fb4d84a985ef1e43cd3835))
+* set a new hub up from a link it prints ([#173](https://github.com/elflodge/elflodge/issues/173)) ([6ab5567](https://github.com/elflodge/elflodge/commit/6ab5567a49cc8e47a0d901fd970a3ac2dfaca589))
+* show a job's status as unknown when its Runner goes silent ([#160](https://github.com/elflodge/elflodge/issues/160)) ([04f5023](https://github.com/elflodge/elflodge/commit/04f502328c84c7c1cf5d9f2daaaba8fb047e6cb1))
+* show when Runners registered, and explain a refused registration key ([#177](https://github.com/elflodge/elflodge/issues/177)) ([e7941ad](https://github.com/elflodge/elflodge/commit/e7941adb02975857f8946b57cf5138d61d55b93b))
+
+
+### Bug Fixes
+
+* **cli:** show a Runner image's first pull in place on Compose before 5.7 ([#159](https://github.com/elflodge/elflodge/issues/159)) ([3c3853f](https://github.com/elflodge/elflodge/commit/3c3853f415e02407d5c6e9ea4fe4383a05eaa0ce)), closes [#158](https://github.com/elflodge/elflodge/issues/158)
+* **contract:** read job reasons that a newer hub adds ([#228](https://github.com/elflodge/elflodge/issues/228)) ([95d0a88](https://github.com/elflodge/elflodge/commit/95d0a88cee88e2423e9abf93408e207ce5776144))
+* **contract:** read responses with added members ([#226](https://github.com/elflodge/elflodge/issues/226)) ([20b2310](https://github.com/elflodge/elflodge/commit/20b2310286ea6b4620c03226eb0fd01155b4e2df))
+* **contract:** require the six fields every listed job carries ([#204](https://github.com/elflodge/elflodge/issues/204)) ([be384ef](https://github.com/elflodge/elflodge/commit/be384efcee273ae396647c1f9a04d4946ee63163))
+* **dashboard:** keep a member's focus when a field is refused ([#217](https://github.com/elflodge/elflodge/issues/217)) ([c67e5ba](https://github.com/elflodge/elflodge/commit/c67e5ba310c13b2b33c8a10d910756caf876e910))
+* **dashboard:** keep focus on Apply and read unchanged job filters in place ([#219](https://github.com/elflodge/elflodge/issues/219)) ([ccbfb4b](https://github.com/elflodge/elflodge/commit/ccbfb4b8376a5f245fbaeecf2046056ecbd35bdf))
+* **dashboard:** never read a vanishing value through a Show's accessor ([#236](https://github.com/elflodge/elflodge/issues/236)) ([36b1fe0](https://github.com/elflodge/elflodge/commit/36b1fe051a24cc9f60acd9f84dab0afdc0d96feb))
+* **dashboard:** say a Runner or key is already gone; refuse a long key name at its field ([#206](https://github.com/elflodge/elflodge/issues/206)) ([fb23190](https://github.com/elflodge/elflodge/commit/fb23190973852d38035dafce88ca7efc61e50aa3))
+* **dashboard:** show the not-found page at an unknown address ([#182](https://github.com/elflodge/elflodge/issues/182)) ([67c3118](https://github.com/elflodge/elflodge/commit/67c311843af8cb12bcf581cd0b96dda478dc777a))
+* **hub:** keep auth errors, paged reads and dashboard caching correct ([#191](https://github.com/elflodge/elflodge/issues/191)) ([d9f2927](https://github.com/elflodge/elflodge/commit/d9f2927d76e58484295093f30e19e8204fe5da1c))
+* **hub:** leave answers open to new fields in the OpenAPI document ([#186](https://github.com/elflodge/elflodge/issues/186)) ([aa653f7](https://github.com/elflodge/elflodge/commit/aa653f738d42e92e45943cc0502a901b8d738f24))
+* **hub:** let only those who could grant an invitation replace it ([#212](https://github.com/elflodge/elflodge/issues/212)) ([9b1c30f](https://github.com/elflodge/elflodge/commit/9b1c30f12a37f7aa6248795d6b3f96b939bebaf9))
+* **hub:** list every unexpired API key, past the first 100 rows ([#203](https://github.com/elflodge/elflodge/issues/203)) ([30aa541](https://github.com/elflodge/elflodge/commit/30aa541fecccb089efa7d6372387bc7784600454))
+* **hub:** refuse a removed member's session ([#175](https://github.com/elflodge/elflodge/issues/175)) ([0d3ff26](https://github.com/elflodge/elflodge/commit/0d3ff2623b41d33569f5adf0a86e9ebc2064407f))
+* **hub:** serve the API reference without sending anything to third parties ([#193](https://github.com/elflodge/elflodge/issues/193)) ([86f0277](https://github.com/elflodge/elflodge/commit/86f0277ff0d00e3d3880d09bc478df3c842a96f4))
+* make CLI help and the API reference true on both surfaces ([#190](https://github.com/elflodge/elflodge/issues/190)) ([3b807ec](https://github.com/elflodge/elflodge/commit/3b807ec18d8dd06caf1b1028a8e1949409fb811d))
+* **pi-durable-extension-adapter:** take TypeBox at the version Pi pins ([#167](https://github.com/elflodge/elflodge/issues/167)) ([12828cf](https://github.com/elflodge/elflodge/commit/12828cfb37f1d3ee380870a2a922878925f36547))
+* refuse a signed-in non-member with 403, not 401 ([#176](https://github.com/elflodge/elflodge/issues/176)) ([ea49cca](https://github.com/elflodge/elflodge/commit/ea49ccac21f7a6a37c3de72262573f18e847b544))
+* refuse bracketed status filters instead of ignoring them ([#188](https://github.com/elflodge/elflodge/issues/188)) ([76ea961](https://github.com/elflodge/elflodge/commit/76ea9610c105cb762f6ec359cde189674915154b))
+* refuse unknown query parameters on the reads without input ([#199](https://github.com/elflodge/elflodge/issues/199)) ([e826320](https://github.com/elflodge/elflodge/commit/e8263204ec18736dd6d5e0404f4dd0b79963f79a))
+* **runner:** refuse IP destinations at the host's addresses as they are now ([#156](https://github.com/elflodge/elflodge/issues/156)) ([dac9deb](https://github.com/elflodge/elflodge/commit/dac9debd1221709bccbca51bdaf687fa0a5513f3))
+
+
+### Performance Improvements
+
+* **hub:** lay a Batch's labels beneath each job's own in Postgres, not in the hub ([#234](https://github.com/elflodge/elflodge/issues/234)) ([d718089](https://github.com/elflodge/elflodge/commit/d7180899fe207316c74ceb9b6b746ab12bab815b))
+
 ## [0.10.0](https://github.com/elflodge/elflodge/compare/v0.9.0...v0.10.0) (2026-11-13)
 
 

@@ -33,7 +33,7 @@ The hub and a Runner from their published images on one machine, as a deployment
      set -e
      umask 077
      curl -fsSLO \
-       https://raw.githubusercontent.com/elflodge/elflodge/v0.10.0/compose.yaml
+       https://raw.githubusercontent.com/elflodge/elflodge/v0.11.0/compose.yaml
      auth_secret=$(openssl rand -base64 32)
      db_password=$(openssl rand -hex 24)
      printf 'BETTER_AUTH_SECRET=%s\n' "$auth_secret" > .env
@@ -203,7 +203,7 @@ EOF
     --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
     --security-opt apparmor=unconfined --memory 8g --restart unless-stopped \
     --volume runner-data:/data --env-file runner.env \
-    ghcr.io/elflodge/elflodge-runner:0.10.0
+    ghcr.io/elflodge/elflodge-runner:0.11.0
 )
 ```
 
