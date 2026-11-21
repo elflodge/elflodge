@@ -379,9 +379,9 @@ export const jobSubmissionSchema = z
 export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
 
 /**
- * The most jobs one request, a creation or an add, carries. The body's size does not bound the rows
- * one transaction inserts or the size of the answer, since a job naming its files is small in the
- * request; the count does (ADR 0050).
+ * The most jobs one request, a creation or an add, carries: it bounds the job rows one transaction
+ * inserts and the jobs its answer gives, which the body's size does not, as a job naming its Input
+ * files is small in the request. The rows of those files are bounded by the size alone (ADR 0050).
  */
 export const MAX_JOBS_PER_ADD = 1000;
 
