@@ -4,7 +4,7 @@
 # Base images are pinned by digest for reproducible builds; Dependabot keeps them current.
 
 # --- build stage: the official Vite+ toolchain image ---
-FROM ghcr.io/voidzero-dev/vite-plus:1.6.0@sha256:eefe84f6bf32756307fe1452b49c81e6b3af98edb328a838ac1e90d6faaa7acc AS build
+FROM ghcr.io/voidzero-dev/vite-plus:1.7.0@sha256:dcdbe5282b3c2087fec3f5e38272b8e04939f1ef5c565b8bfec0cbfb66f238ae AS build
 WORKDIR /app
 
 # Install dependencies first so this layer is cached across source changes. Every workspace manifest
