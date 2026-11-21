@@ -200,14 +200,14 @@ function SubmitJob() {
   const alertWords = () => {
     if (pending()) return undefined;
     const sentUnder = unknownOutcome();
-    // Under a typed Custom ID the member may have edited other fields since, so the words point
-    // at the values sent rather than at the form as it stands.
+    // Under a typed Custom ID the member may have edited other fields since, or sent and been
+    // refused other values, so the words point at the submission whose outcome is unknown.
     const words = [
       failure()?.alert,
       sentUnder === "made ID" &&
         "The hub may already have this job. Submit again without changing anything to find out: the same request returns the job if it was made.",
       sentUnder === "Custom ID" &&
-        "The hub may already have this job. Submit the values you sent again to find out: the same request returns the job if it was made. Other content under this Custom ID cannot make a second job: if the first was made, Custom ID shows that the ID was already used for other content.",
+        "The hub may already have this job from an earlier submission. Submit that submission’s values again to find out: the same request returns the job if it was made. If the hub has a job under this Custom ID, other content is refused at Custom ID rather than run as a second job.",
     ];
     return words.filter(Boolean).join("\n") || undefined;
   };
