@@ -91,21 +91,21 @@ function TableHead(props: { columns: string[] }) {
 function Organization() {
   const context = Route.useRouteContext();
   return (
-    <Show when={context().member}>
-      <OrganizationPage />
+    <Show when={context().member?.organization.id} keyed>
+      {(organizationId) => <OrganizationPage organizationId={organizationId} />}
     </Show>
   );
 }
 
-function OrganizationPage() {
+function OrganizationPage(props: { organizationId: string }) {
   const context = Route.useRouteContext();
   const router = useRouter();
   const client = useQueryClient();
-  // The member is read from the route context rather than through the Show's accessor (AGENTS.md).
-  // The context is new on each navigation, so a keyed Show would rebuild the page and drop its focus.
-  // The member is missing only while the Show takes the page away.
+  // The route context gives a new member on each navigation, so the Show is keyed on the
+  // Organization's ID alone and its name and the member's role are read from the context. They are
+  // missing only while the Show takes the page away.
   const org = () => context().member?.organization;
-  const orgId = () => org()?.id ?? "";
+  const orgId = () => props.organizationId;
   const role = () => context().member?.role ?? "";
   const owner = () => rolesOf(role()).includes("owner");
   const manages = () => context().managesKeys;

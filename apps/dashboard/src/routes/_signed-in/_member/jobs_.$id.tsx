@@ -232,13 +232,11 @@ function JobPage() {
               countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
           </Show>
-          {/* Read directly: a deletion takes the Output away and a resume the failure, and their
-              sections hold buttons (AGENTS.md). */}
-          <Show when={output()}>
-            <JobOutputOrFailure text={output() ?? ""} />
+          <Show when={output()} keyed>
+            {(text) => <JobOutputOrFailure text={text} />}
           </Show>
-          <Show when={failure()?.message}>
-            <JobOutputOrFailure text={failure()?.message ?? ""} failure />
+          <Show when={failure()?.message} keyed>
+            {(message) => <JobOutputOrFailure text={message} failure />}
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />

@@ -101,7 +101,9 @@ function Runners() {
           </Notice>
         )}
       </Show>
-      <Show when={actionFailure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+      <Show when={actionFailure()} keyed>
+        {(message) => <Notice role="alert">{message}</Notice>}
+      </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={runners.isError}>
         <FailedReadNotice
@@ -132,12 +134,12 @@ function Runners() {
           shortId={shortId}
         />
       </Show>
-      <Show when={runnersAtOpen()}>
+      <Show when={runnersAtOpen()} keyed>
         {(atOpen) => (
           <AddRunner
             organizationName={context().member?.organization.name}
             managesKeys={context().managesKeys}
-            registered={runners.data.find((runner) => !atOpen().has(runner.id))}
+            registered={runners.data.find((runner) => !atOpen.has(runner.id))}
             readFailed={runners.isError}
             shortId={shortId}
             onClose={() => setRunnersAtOpen(undefined)}

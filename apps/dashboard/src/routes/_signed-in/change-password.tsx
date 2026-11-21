@@ -109,7 +109,6 @@ function ChangePassword() {
           <input name="revoke-other-sessions" type="checkbox" checked />
           Sign out of other sessions
         </label>
-        {/* Read directly: the notice is a live region (AGENTS.md). */}
         <Show when={result()}>
           <Notice role={result()?.role ?? "status"}>{result()?.message}</Notice>
         </Show>

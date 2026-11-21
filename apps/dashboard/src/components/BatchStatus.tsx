@@ -15,39 +15,38 @@ export function BatchStatus(props: { batch: ListedBatch }) {
 }
 
 export function BatchConditions(props: { batch: ListedBatch; detailed?: boolean }) {
+  // The pending control is read directly, not keyed: on the Batch page each poll brings a new Date
+  // in it, which would rebuild a keyed child and drop the tooltip of its title.
+  const control = () => props.batch.pendingControl;
+  const asked = () => {
+    const value = control();
+    return value && `Asked ${FULL.format(value.requestedAt)}`;
+  };
   return (
     <>
-      <Show when={props.batch.pausedBy}>
+      <Show when={props.batch.pausedBy} keyed>
         {(by) => (
           <span class="beside">
-            {props.detailed ? "By" : "by"} {by() === "breaker" ? "its failure breaker" : "a caller"}
+            {props.detailed ? "By" : "by"} {by === "breaker" ? "its failure breaker" : "a caller"}
           </span>
         )}
       </Show>
-      {/* Read directly: each poll brings a new Date in it, and a keyed child would be rebuilt every
-          time, dropping the tooltip of its title (AGENTS.md). */}
-      <Show when={props.batch.pendingControl}>
-        <span
-          class="beside"
-          title={
-            props.batch.pendingControl &&
-            `Asked ${FULL.format(props.batch.pendingControl.requestedAt)}`
-          }
-        >
+      <Show when={control()}>
+        <span class="beside" title={asked()}>
           <span class="mark mark-pending" aria-hidden="true" />
           Cancel asked
           <Show when={props.detailed}>
             {" "}
-            <Instant value={props.batch.pendingControl?.requestedAt} format={TIME_SECONDS} />,
-            waiting for its Runners
+            <Instant value={control()?.requestedAt} format={TIME_SECONDS} />, waiting for its
+            Runners
           </Show>
         </span>
       </Show>
-      <Show when={props.batch.blockedJobCounts.batchCanary}>
+      <Show when={props.batch.blockedJobCounts.batchCanary} keyed>
         {(count) => (
           <span class="beside">
             <span class="mark mark-blocked" aria-hidden="true" />
-            {formatCount(count())} {plural(count(), "job", "jobs")} waiting for its Canary
+            {formatCount(count)} {plural(count, "job", "jobs")} waiting for its Canary
           </span>
         )}
       </Show>

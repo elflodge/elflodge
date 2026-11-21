@@ -341,7 +341,9 @@ function AcceptInvitation(props: {
             </Link>
           </p>
           <form class="fields" onSubmit={onSubmit}>
-            <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+            <Show when={error()} keyed>
+              {(message) => <Notice role="alert">{message}</Notice>}
+            </Show>
             <button type="submit" aria-disabled={pending() ? "true" : undefined}>
               Sign out to use it
             </button>
@@ -409,7 +411,9 @@ function AcceptInvitation(props: {
                 )}
               </Field>
             </Show>
-            <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+            <Show when={error()} keyed>
+              {(message) => <Notice role="alert">{message}</Notice>}
+            </Show>
             <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
               {session() ? join() : "Create account and join"}
             </button>

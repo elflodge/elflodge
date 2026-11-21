@@ -89,7 +89,9 @@ function SignIn() {
             />
           )}
         </Field>
-        <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+        <Show when={error()} keyed>
+          {(message) => <Notice role="alert">{message}</Notice>}
+        </Show>
         <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
           Sign in
         </button>

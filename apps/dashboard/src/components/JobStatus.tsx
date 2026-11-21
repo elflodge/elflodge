@@ -102,71 +102,74 @@ export function FailureReason(props: { reason: OpenFailure["reason"] }) {
 }
 
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
+  // The two conditions are read directly, not keyed: on the job page each poll brings new Dates in
+  // them, which would rebuild a keyed child and drop the tooltip of its title.
+  const unknown = () => props.job.statusUnknown;
+  const unknownWords = (form: "short" | "detail") => {
+    const value = unknown();
+    return value && statusUnknownWords(value.reason, form);
+  };
+  const unknownTitle = () => {
+    const value = unknown();
+    return (
+      value && `${statusUnknownWords(value.reason, "short")}, since ${FULL.format(value.since)}`
+    );
+  };
+  const control = () => props.job.pendingControl;
+  const controlWords = () => {
+    const value = control();
+    return value && CONTROL_WORDS[value.type];
+  };
+  const asked = () => {
+    const value = control();
+    return value && `Asked ${FULL.format(value.requestedAt)}`;
+  };
   return (
     <>
-      {/* These two are read directly. Each poll brings new Dates in them, and a keyed child would
-          be rebuilt every time, dropping the tooltip of their titles (AGENTS.md). */}
-      <Show when={props.job.statusUnknown}>
-        <span
-          class="beside is-unknown"
-          title={
-            props.job.statusUnknown &&
-            `${statusUnknownWords(props.job.statusUnknown.reason, "short")}, since ${FULL.format(props.job.statusUnknown.since)}`
-          }
-        >
+      <Show when={unknown()}>
+        <span class="beside is-unknown" title={unknownTitle()}>
           <span class="mark mark-unknown" aria-hidden="true" />
           <span>
             Status unknown
             <Show
               when={props.detailed}
-              fallback={
-                <span class="condition-detail">
-                  {props.job.statusUnknown &&
-                    statusUnknownWords(props.job.statusUnknown.reason, "short")}
-                </span>
-              }
+              fallback={<span class="condition-detail">{unknownWords("short")}</span>}
             >
               {" "}
-              since <Instant value={props.job.statusUnknown?.since} format={TIME_SECONDS} />:{" "}
-              {props.job.statusUnknown &&
-                statusUnknownWords(props.job.statusUnknown.reason, "detail")}
+              since <Instant value={unknown()?.since} format={TIME_SECONDS} />:{" "}
+              {unknownWords("detail")}
             </Show>
           </span>
         </span>
       </Show>
-      <Show when={props.job.pendingControl}>
-        <span
-          class="beside"
-          title={
-            props.job.pendingControl && `Asked ${FULL.format(props.job.pendingControl.requestedAt)}`
-          }
-        >
+      <Show when={control()}>
+        <span class="beside" title={asked()}>
           <span class="mark mark-pending" aria-hidden="true" />
           <span>
-            {props.job.pendingControl && CONTROL_WORDS[props.job.pendingControl.type]}
+            {controlWords()}
             <Show
               when={props.detailed}
               fallback={
                 <span class="condition-detail">
-                  <Instant value={props.job.pendingControl?.requestedAt} />
+                  <Instant value={control()?.requestedAt} />
                 </span>
               }
             >
               {" "}
-              <Instant value={props.job.pendingControl?.requestedAt} format={TIME_SECONDS} />,
-              waiting for its Runner
-              {props.job.pendingControl?.type === "delete" ? " to delete its files" : ""}
+              <Instant value={control()?.requestedAt} format={TIME_SECONDS} />, waiting for its
+              Runner{control()?.type === "delete" ? " to delete its files" : ""}
             </Show>
           </span>
         </span>
       </Show>
       <Show
         when={props.job.blockedBy === undefined ? undefined : blockedWords(props.job.blockedBy)}
+        keyed
       >
         {(blockedBy) => (
           <span class="beside">
             <span class="mark mark-blocked" aria-hidden="true" />
-            {blockedBy()}
+            {blockedBy}
           </span>
         )}
       </Show>

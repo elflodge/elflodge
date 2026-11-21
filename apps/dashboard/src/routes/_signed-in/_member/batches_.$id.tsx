@@ -205,17 +205,17 @@ function BatchJobs(props: { batch: Batch; current: boolean }) {
             </tr>
           </tfoot>
         </table>
+        {/* Read directly: the count changes while its link may hold the focus. */}
         <Show when={props.batch.statusUnknownJobs}>
-          {(n) => (
-            <p class="note is-unknown">
-              <span class="mark mark-unknown" aria-hidden="true" /> {formatCount(n())} of these{" "}
-              {plural(n(), "has", "have")} status unknown: each is counted under its last recorded
-              status.{" "}
-              <Link to="/jobs" search={{ batchId: props.batch.id, statusUnknown: true }}>
-                See them<span class="vh">: its jobs with status unknown</span>
-              </Link>
-            </p>
-          )}
+          <p class="note is-unknown">
+            <span class="mark mark-unknown" aria-hidden="true" />{" "}
+            {formatCount(props.batch.statusUnknownJobs ?? 0)} of these{" "}
+            {plural(props.batch.statusUnknownJobs ?? 0, "has", "have")} status unknown: each is
+            counted under its last recorded status.{" "}
+            <Link to="/jobs" search={{ batchId: props.batch.id, statusUnknown: true }}>
+              See them<span class="vh">: its jobs with status unknown</span>
+            </Link>
+          </p>
         </Show>
       </Show>
     </section>

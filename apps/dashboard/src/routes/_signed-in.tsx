@@ -176,7 +176,9 @@ function SignedIn() {
         <HubStrip />
       </Show>
       <main id="main" class="page">
-        <Show when={error()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+        <Show when={error()} keyed>
+          {(message) => <Notice role="alert">{message}</Notice>}
+        </Show>
         <InShell value={true}>
           <Outlet />
         </InShell>

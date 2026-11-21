@@ -6,10 +6,13 @@ import { DATE_TIME, DATE_TIME_SECONDS, FULL, TIME_SECONDS, elapsedSince } from "
  * full, to the second and with the zone, for a reader who points at it. It is empty without a
  * value, which happens only while a `Show` that tests an optional field takes it away.
  */
-export function Instant(props: { value: Date | undefined; format?: Intl.DateTimeFormat }) {
+export function Instant(props: { value: Date | null | undefined; format?: Intl.DateTimeFormat }) {
   return (
-    <time datetime={props.value?.toISOString()} title={props.value && FULL.format(props.value)}>
-      {props.value && (props.format ?? DATE_TIME).format(props.value)}
+    <time
+      datetime={props.value?.toISOString()}
+      title={props.value ? FULL.format(props.value) : undefined}
+    >
+      {props.value ? (props.format ?? DATE_TIME).format(props.value) : ""}
     </time>
   );
 }

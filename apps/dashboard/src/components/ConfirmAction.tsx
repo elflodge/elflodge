@@ -112,7 +112,9 @@ export function ConfirmAction(props: {
             <p role="status" class={pending() ? "note" : "vh"}>
               {pending() ? "Working…" : ""}
             </p>
-            <Show when={failure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+            <Show when={failure()} keyed>
+              {(message) => <Notice role="alert">{message}</Notice>}
+            </Show>
           </div>
           <div class="dialog-f">
             <button

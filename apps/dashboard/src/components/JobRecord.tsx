@@ -62,12 +62,12 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             </>
           )}
         </Show>
-        <Show when={props.job.submitter}>
+        <Show when={props.job.submitter} keyed>
           {(sender) => (
             <>
               <dt>Submitter</dt>
               <dd>
-                <JobSubmitter submitter={sender()} />
+                <JobSubmitter submitter={sender} />
               </dd>
             </>
           )}
@@ -131,13 +131,13 @@ export function JobFacts(props: { job: Job; readAt: number }) {
         <Show when={props.job.endedAt}>
           <dt>Ended</dt>
           <dd>
-            <Instant value={props.job.endedAt ?? undefined} format={DATE_TIME_SECONDS} />
+            <Instant value={props.job.endedAt} format={DATE_TIME_SECONDS} />
           </dd>
         </Show>
         <Show when={props.job.lastReportedAt}>
           <dt>Last recorded report</dt>
           <dd>
-            <Instant value={props.job.lastReportedAt ?? undefined} format={DATE_TIME_SECONDS} />
+            <Instant value={props.job.lastReportedAt} format={DATE_TIME_SECONDS} />
           </dd>
         </Show>
         <Show when={props.job.deletedAt}>
@@ -240,12 +240,12 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
                     <Instant value={timesOutAt()} format={TIME_SECONDS} />
                   </dd>
                 </dl>
-                <Show when={countedFrom()?.kind !== JOB_STARTED}>
+                <Show when={countedFrom() && countedFrom()?.kind !== JOB_STARTED}>
                   <p class="note">
                     Counted from <Instant value={countedFrom()?.at} format={TIME_SECONDS} />
                     {countedFrom()?.kind === JOB_RESUMED
                       ? ", its resume."
-                      : ", its Runner’s restart."}
+                      : countedFrom() && ", its Runner’s restart."}
                   </p>
                 </Show>
               </Show>

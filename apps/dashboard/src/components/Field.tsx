@@ -37,16 +37,18 @@ function fieldParts(props: FieldProps) {
       },
     },
     hint: () => (
-      <Show when={props.hint}>
+      <Show when={props.hint} keyed>
         {(hint) => (
           <p id={hintId} class="note">
-            {hint()}
+            {hint}
           </p>
         )}
       </Show>
     ),
     refusal: () => (
-      <Show when={props.error}>{(words) => <FieldError id={errorId}>{words()}</FieldError>}</Show>
+      <Show when={props.error} keyed>
+        {(words) => <FieldError id={errorId}>{words}</FieldError>}
+      </Show>
     ),
   };
 }

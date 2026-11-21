@@ -348,7 +348,9 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
           </button>
         </span>
       </div>
-      <Show when={refusal()?.alert}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+      <Show when={refusal()?.alert} keyed>
+        {(message) => <Notice role="alert">{message}</Notice>}
+      </Show>
     </form>
   );
 }

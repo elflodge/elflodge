@@ -156,7 +156,9 @@ function KeyList() {
           </Notice>
         )}
       </Show>
-      <Show when={actionFailure()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+      <Show when={actionFailure()} keyed>
+        {(message) => <Notice role="alert">{message}</Notice>}
+      </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
         <FailedReadNotice
@@ -307,8 +309,8 @@ function CreateKey(props: { onClose: () => void }) {
                   </select>
                 )}
               </Field>
-              <Show when={failure()?.alert}>
-                {(message) => <Notice role="alert">{message()}</Notice>}
+              <Show when={failure()?.alert} keyed>
+                {(message) => <Notice role="alert">{message}</Notice>}
               </Show>
             </div>
             <div class="dialog-f">

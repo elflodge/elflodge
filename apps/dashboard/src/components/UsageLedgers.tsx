@@ -188,12 +188,18 @@ export function UsageLedgers(props: {
         id="usage-groups"
         heading={
           <>
-            {words().heading} <Show when={label()}>{(key) => <code>{key()}</code>}</Show>
+            {words().heading}{" "}
+            <Show when={label()} keyed>
+              {(key) => <code>{key}</code>}
+            </Show>
           </>
         }
         column={
           <>
-            {words().column} <Show when={label()}>{(key) => <code>{key()}</code>}</Show>
+            {words().column}{" "}
+            <Show when={label()} keyed>
+              {(key) => <code>{key}</code>}
+            </Show>
           </>
         }
         footer="Total"
