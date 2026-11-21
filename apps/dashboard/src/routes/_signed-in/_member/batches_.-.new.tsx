@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/client";
 import { isSchemaIssue } from "@orpc/contract";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute, useRouter } from "@tanstack/solid-router";
-import { BATCH_ID_PATTERN, BREAKER_DEFAULTS } from "contract";
+import { BATCH_ID_PATTERN, BREAKER_DEFAULTS, MAX_BATCH_ID_LENGTH } from "contract";
 import {
   For,
   Show,
@@ -32,6 +32,7 @@ import {
 import {
   type DraftRow,
   DraftJobs,
+  RemoveAllDialog,
   type RowRefusal,
   rowControlId,
 } from "../../../components/DraftJobs.tsx";
@@ -42,7 +43,7 @@ import {
   type SentUnder,
 } from "../../../components/DraftSubmission.tsx";
 import { Field, FieldGroup } from "../../../components/Field.tsx";
-import { LabelFields, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, isLabelsControl, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import { createFormAction, fieldText, formRefusal } from "../../../form.ts";
@@ -51,8 +52,9 @@ import { USD_BUDGET, formatCount, plural } from "../../../format.ts";
 import { preloadJobLimits, useJobLimits } from "../../../job-limits.ts";
 import { orpc } from "../../../query.ts";
 
-// "-" is a segment no Batch ID can be, so no Batch's page has this address, and the bar marks
-// Batches. The router ignores a file name's leading "-" only, so this one is routed.
+// Not /batches/new, which is the page of a Batch named "new". "-" is a segment no Batch ID can be,
+// so no Batch's page has this address, and the bar marks Batches. The router ignores a file name's
+// leading "-" only, so this one is routed.
 export const Route = createFileRoute("/_signed-in/_member/batches_/-/new")({
   loader: ({ context }) => preloadJobLimits(context),
   component: SubmitBatch,
@@ -78,22 +80,51 @@ const MADE_ID_FORM = "00000000-0000-4000-8000-000000000000";
 
 const AGAIN = "Submit again reads the files again and uploads only what the hub does not hold.";
 
-/** Part of an alert's words: text, the rows to link to by their keys, or a command. */
-type AlertPart = string | { readonly rows: readonly number[] } | { readonly code: string };
+/**
+ * Part of an alert's words: text, a command, or the sentence that no Batch came of this try, whose
+ * words depend on whether an earlier try may have made one.
+ */
+type AlertPart = string | { readonly code: string } | { readonly noBatch: true };
+
+/** What stopped a send at its rows, which the alert counts and links as they stand. */
+type RowsLead = "cannot be sent" | "refused" | "unreadable" | "not uploaded";
+
+/** A row whose words stand, and the part of it that carries them. */
+interface RowTarget {
+  readonly key: number;
+  readonly part: keyof RowRefusal;
+}
 
 /** How the last send ended, where the page tells it. */
 interface Ending {
   readonly fields: ReadonlyMap<string, string>;
   readonly rows: ReadonlyMap<number, RowRefusal>;
+  readonly lead?: RowsLead;
+  /** The alert's words after the rows'. */
   readonly alert?: readonly AlertPart[];
   readonly stopped?: true;
 }
 
 const NO_ENDING: Ending = { fields: new Map(), rows: new Map() };
 
-/** `count` rows, each saying why at its row, after `lead`: "2 jobs were refused." */
-function rowsSentence(count: number, lead: string, rows: readonly number[]): AlertPart[] {
-  return [`${lead} ${count === 1 ? "It says" : "Each says"} why at its row: `, { rows }];
+/** That no Batch came of this try: after a lost answer an earlier try may have made it. */
+function noBatchWords(mayHaveBatch: boolean) {
+  return mayHaveBatch ? "This try did not send the Batch." : "No Batch was created.";
+}
+
+/** The sentence that leads to `count` rows stopped by `lead`. */
+function leadWords(lead: RowsLead, count: number, mayHaveBatch: boolean) {
+  const one = count === 1;
+  const jobs = one ? "1 job" : `${formatCount(count)} jobs`;
+  const files = one ? "1 file" : `${formatCount(count)} files`;
+  const noBatch = noBatchWords(mayHaveBatch);
+  const words: Record<RowsLead, string> = {
+    "cannot be sent": `${jobs} cannot be sent.`,
+    refused: `${jobs} ${one ? "was" : "were"} refused.`,
+    unreadable: `${files} could not be read, so nothing was sent.`,
+    "not uploaded": `${files} ${one ? "was" : "were"} not uploaded, so ${noBatch.charAt(0).toLowerCase()}${noBatch.slice(1)}`,
+  };
+  return words[lead];
 }
 
 /**
@@ -128,12 +159,12 @@ function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
 function unknownWords(sentUnder: SentUnder | undefined) {
   if (sentUnder === "made ID") return madeIdUnknownWords("Batch");
   // A create repeated under an existing Batch ID returns that Batch for the same agent, Labels
-  // and breaker, and refuses others at the Batch ID; it returns a job for the same content
-  // under its Custom ID, and refuses other content at that job's Custom ID. A job under a new
-  // Custom ID is added to the Batch, and a job left out stays in it: the answer names only the
-  // jobs sent. All or nothing, so a refusal adds no job.
+  // and breaker, and refuses others at the Batch ID. The hub knows a job by its Custom ID: the
+  // same content returns the job, other content is refused at that Custom ID, a new Custom ID
+  // adds a job, and a job left out stays. So a row renamed here becomes a second job while the
+  // first stays. One conflict refuses the whole request, which then adds no job.
   if (sentUnder === "typed ID")
-    return "The hub may already have a Batch under this Batch ID. Submit again to find out: the same values return that Batch. If it was made, a changed field or job is refused where it stands, a job added here joins it, and a job removed here stays in it.";
+    return "The hub may already have a Batch under this Batch ID. Submit again without changing anything to find out: the same values return that Batch. If it was made, a change here does not edit it: a changed field is refused at Batch ID, a changed job at its Custom ID, and the Batch keeps every job it has and takes any job with a new Custom ID.";
   return undefined;
 }
 
@@ -156,6 +187,8 @@ function SubmitBatch() {
     );
   });
   const [breakerOn, setBreakerOn] = createSignal(true);
+  const [askingRemoveAll, setAskingRemoveAll] = createSignal(false);
+  let jobsList: { readonly removeAll: () => void } | undefined;
   const [ending, setEnding] = createSignal<Ending>(NO_ENDING);
   // Optimistic, as the form's pending state is: a send is one action, whose other writes show once
   // it settles, while its progress must show as it goes.
@@ -185,23 +218,29 @@ function SubmitBatch() {
       maxFailurePercent: figureIn(form, breakerFields.maxFailurePercent),
     };
   }
-  /** The draft the form holds, with the ID it would be sent under. */
-  function draftOf(form: HTMLFormElement, id: string): BatchDraft {
-    return {
+  /** The draft the form holds, read from `data`, its one snapshot, with the ID to send it under. */
+  function draftOf(form: HTMLFormElement, data: FormData, id: string) {
+    const { agent, schemaRefusal } = agentOf(form, data);
+    const labels = labelsOf(data);
+    const draft: BatchDraft = {
       id,
-      agent: agentOf(form).agent,
-      labels: labelsOf(form).labels,
+      agent,
+      labels: labels.labels,
       breaker: breakerOf(form),
       jobs: rows(),
     };
+    return { draft, schemaRefusal, labelControls: labels.controls };
   }
   const facts = createMemo(() => {
     edits();
     const form = formElement;
-    const draft: BatchDraft = form
-      ? draftOf(form, fieldText(new FormData(form), "id") || (submission.madeId() ?? MADE_ID_FORM))
-      : { id: MADE_ID_FORM, agent: { outputContract: { schema: {} } }, jobs: rows() };
-    return draftFacts(draft, limits.held());
+    if (!form) {
+      const blank = { id: MADE_ID_FORM, agent: { outputContract: { schema: {} } }, jobs: rows() };
+      return draftFacts(blank, limits.held());
+    }
+    const data = new FormData(form);
+    const id = fieldText(data, "id") || (submission.madeId() ?? MADE_ID_FORM);
+    return draftFacts(draftOf(form, data, id).draft, limits.held());
   });
   onSettled(() => {
     setEdits((count) => count + 1);
@@ -227,22 +266,15 @@ function SubmitBatch() {
   const { pending, onSubmit } = createFormAction(async (form) => {
     submission.sending();
     setCheckedRows(rows());
-    const { agent, schemaRefusal } = agentOf(form);
+    const data = new FormData(form);
+    const { id, sentUnder } = submission.takeId(fieldText(data, "id"));
+    const { draft, schemaRefusal, labelControls } = draftOf(form, data, id);
     if (schemaRefusal) {
       setEnding({ ...NO_ENDING, fields: new Map([[agentFields.outputSchema, schemaRefusal]]) });
       return;
     }
-    const labels = labelsOf(form);
-    const placed = { ...controls, ...labels.controls };
-    const { id, sentUnder } = submission.idFor(fieldText(new FormData(form), "id"));
+    const placed = { ...controls, ...labelControls };
     const sent = rows();
-    const draft: BatchDraft = {
-      id,
-      agent,
-      labels: labels.labels,
-      breaker: breakerOf(form),
-      jobs: sent,
-    };
     const keyOf = (index: number) => sent[index]?.key ?? -1;
     sendController = new AbortController();
     const outcome = await sendBatch(draft, {
@@ -255,34 +287,25 @@ function SubmitBatch() {
     function refusedBy(issues: readonly unknown[]): Ending {
       const { atRows, rest } = splitRowIssues(issues, sent);
       const refusal = formRefusal(new ORPCError("BAD_REQUEST", { data: { issues: rest } }), placed);
-      const keys = [...atRows.keys()];
       return {
         fields: refusal.fields,
         rows: atRows,
-        alert: [
-          ...(keys.length
-            ? rowsSentence(
-                keys.length,
-                keys.length === 1
-                  ? "1 job was refused."
-                  : `${formatCount(keys.length)} jobs were refused.`,
-                keys,
-              )
-            : []),
-          ...(keys.length && refusal.alert ? ["\n"] : []),
-          ...(refusal.alert ? [refusal.alert] : []),
-        ],
+        lead: "refused",
+        alert: refusal.alert ? [refusal.alert] : [],
       };
     }
     switch (outcome.kind) {
       case "created": {
         const { jobs: _jobs, ...batch } = outcome.answer;
-        // The answer names each job by its IDs alone, so the Batch's page reads its jobs.
-        client.setQueryData(orpc.batches.get.queryKey({ input: { id: batch.id } }), batch);
+        // The answer names each job by its IDs alone, so the Batch's page reads its jobs. An older
+        // read of a Batch under a reused ID must not overwrite the answer.
+        const batchKey = orpc.batches.get.queryKey({ input: { id: batch.id } });
+        await client.cancelQueries({ queryKey: batchKey, exact: true });
+        client.setQueryData(batchKey, batch);
         void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
         void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
         void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
-        if (submission.succeeded(form, sentUnder))
+        if (submission.markSucceeded(form, sentUnder))
           await router.navigate({ to: "/batches/$id", params: { id: batch.id } });
         else setEnding(NO_ENDING);
         return;
@@ -290,21 +313,11 @@ function SubmitBatch() {
       case "stopped":
         setEnding({ ...NO_ENDING, stopped: true });
         return;
-      case "refusedAtAdd": {
-        const keys = outcome.indexes.map(keyOf);
-        const count = keys.length;
-        setEnding({
-          ...NO_ENDING,
-          alert: rowsSentence(
-            count,
-            count === 1 ? "1 job cannot be sent." : `${formatCount(count)} jobs cannot be sent.`,
-            keys,
-          ),
-        });
+      case "refusedAtAdd":
+        // The rows' words are what they were told when added, which stand until fixed.
+        setEnding({ ...NO_ENDING, lead: "cannot be sent" });
         return;
-      }
-      case "unreadable": {
-        const count = outcome.jobs.length;
+      case "unreadable":
         setEnding({
           ...NO_ENDING,
           rows: new Map(
@@ -313,14 +326,9 @@ function SubmitBatch() {
               { file: `The file could not be read: ${message}\nRemove it and add it again.` },
             ]),
           ),
-          alert: rowsSentence(
-            count,
-            `${formatCount(count)} of ${formatCount(outcome.files)} ${plural(outcome.files, "file", "files")} could not be read, so nothing was sent.`,
-            outcome.jobs.map(({ index }) => keyOf(index)),
-          ),
+          lead: "unreadable",
         });
         return;
-      }
       case "invalid":
         setEnding(refusedBy(outcome.issues));
         return;
@@ -336,30 +344,22 @@ function SubmitBatch() {
       case "checkFailed":
         setEnding({
           ...NO_ENDING,
-          alert: [`${hubFailureMessage(outcome.error)}\nNo Batch was created. ${AGAIN}`],
+          alert: [`${hubFailureMessage(outcome.error)}\n`, { noBatch: true }, ` ${AGAIN}`],
         });
         return;
-      case "notUploaded": {
-        const count = outcome.jobs.length;
+      case "notUploaded":
         setEnding({
           ...NO_ENDING,
           rows: new Map(
             outcome.jobs.map(({ index, message }) => [keyOf(index), { file: message }]),
           ),
-          alert: [
-            ...rowsSentence(
-              count,
-              `${formatCount(count)} of ${formatCount(outcome.files)} ${plural(outcome.files, "file", "files")} ${count === 1 ? "was" : "were"} not uploaded, so no Batch was created.`,
-              outcome.jobs.map(({ index }) => keyOf(index)),
-            ),
-            `\n${AGAIN}`,
-          ],
+          lead: "not uploaded",
+          alert: [AGAIN],
         });
         return;
-      }
       case "createFailed": {
         const { error } = outcome;
-        submission.failed(error, sentUnder);
+        submission.markFailed(error, sentUnder);
         if (error instanceof ORPCError && Array.isArray(error.data?.issues))
           setEnding(refusedBy(error.data.issues));
         else setEnding({ ...NO_ENDING, alert: [hubFailureMessage(error)] });
@@ -371,12 +371,37 @@ function SubmitBatch() {
   // The previous ending belongs to the last attempt while the next one is pending.
   const shown = () => (pending() ? NO_ENDING : ending());
   const refused = (name: string) => shown().fields.get(name);
-  const alert = (): AlertPart[] | undefined => {
+  const mayHaveBatch = () => submission.unknownOutcome() !== undefined;
+  /** The rows whose words stand now, in the list's order, each at the part that carries them. */
+  const standing = (): RowTarget[] => {
+    const { lead, rows: refusals } = shown();
+    if (!lead) return [];
+    return rows().flatMap((row): RowTarget[] => {
+      if (lead === "cannot be sent") {
+        if (repeated().has(row.key)) return [{ key: row.key, part: "customId" }];
+        return row.problems.length ? [{ key: row.key, part: "file" }] : [];
+      }
+      const refusal = refusals.get(row.key);
+      const part = refusal?.file
+        ? "file"
+        : refusal?.input
+          ? "input"
+          : refusal?.customId && "customId";
+      return part ? [{ key: row.key, part }] : [];
+    });
+  };
+  // Derived from the refusals that stand, so an edit or a removal changes the count and links.
+  const alert = () => {
     if (pending()) return undefined;
-    const parts = [...(ending().alert ?? [])];
-    const words = unknownWords(submission.unknownOutcome());
-    if (words) parts.push(...(parts.length ? ["\n"] : []), words);
-    return parts.length ? parts : undefined;
+    const { lead, alert: after = [] } = ending();
+    const targets = standing();
+    const rowsLead =
+      lead && targets.length
+        ? `${leadWords(lead, targets.length, mayHaveBatch())} ${targets.length === 1 ? "It says" : "Each says"} why at its row: `
+        : undefined;
+    const unknown = unknownWords(submission.unknownOutcome());
+    if (!rowsLead && !after.length && !unknown) return undefined;
+    return { rowsLead, targets, after, unknown };
   };
   const rowNumber = (key: number) => rows().findIndex((row) => row.key === key) + 1;
 
@@ -423,8 +448,9 @@ function SubmitBatch() {
               label="Batch ID"
               hint={
                 <>
-                  Optional. Names the Batch: 1 to 100 letters, digits, <code>_</code> and{" "}
-                  <code>-</code>, not beginning with <code>-</code>. Left empty, one is made.
+                  Optional. Names the Batch: 1 to {MAX_BATCH_ID_LENGTH} letters, digits,{" "}
+                  <code>_</code> and <code>-</code>, not beginning with <code>-</code>. Left empty,
+                  one is made.
                 </>
               }
               error={refused("id")}
@@ -451,7 +477,7 @@ function SubmitBatch() {
             changed();
             setEnding((previous) => ({
               ...previous,
-              fields: new Map([...previous.fields].filter(([name]) => !name.startsWith("labels"))),
+              fields: new Map([...previous.fields].filter(([name]) => !isLabelsControl(name))),
             }));
           }}
         />
@@ -560,15 +586,40 @@ function SubmitBatch() {
             });
           }}
           onIdChanged={() => setCheckedRows(rows())}
+          onAskRemoveAll={() => setAskingRemoveAll(true)}
+          ref={(handle) => {
+            jobsList = handle;
+          }}
         />
         <Facts facts={facts()} limitsFailed={limits.failed()} />
         <Show when={shown().stopped}>
-          <Notice role="status">Stopped. No Batch was created. {AGAIN}</Notice>
+          <Notice role="status">
+            Stopped. {noBatchWords(mayHaveBatch())} {AGAIN}
+          </Notice>
         </Show>
         <Show when={alert()}>
-          {(parts) => (
+          {(words) => (
             <Notice role="alert">
-              <AlertWords parts={parts()} numberOf={rowNumber} />
+              <Show when={words().rowsLead}>
+                {(lead) => (
+                  <>
+                    {lead()}
+                    <RowLinks targets={words().targets} numberOf={rowNumber} />
+                  </>
+                )}
+              </Show>
+              <Show when={words().after.length}>
+                {words().rowsLead ? "\n" : ""}
+                <AlertWords parts={words().after} mayHaveBatch={mayHaveBatch()} />
+              </Show>
+              <Show when={words().unknown}>
+                {(unknown) => (
+                  <>
+                    {words().rowsLead || words().after.length ? "\n" : ""}
+                    {unknown()}
+                  </>
+                )}
+              </Show>
             </Notice>
           )}
         </Show>
@@ -584,6 +635,17 @@ function SubmitBatch() {
         </div>
         <Sending progress={progress()} />
       </form>
+      {/* Outside the form, as the leave dialog is: its own form must not submit the Batch's. */}
+      <Show when={askingRemoveAll()}>
+        <RemoveAllDialog
+          jobs={rows().length}
+          mayHaveBatch={mayHaveBatch()}
+          typedInputs={rows().filter((row) => row.kind === "typed" && row.input !== "").length}
+          files={rows().some((row) => row.kind === "file")}
+          onClose={() => setAskingRemoveAll(false)}
+          onConfirm={() => jobsList?.removeAll()}
+        />
+      </Show>
       <Show when={submission.blocker().status === "blocked"}>
         <LeaveDialog
           submission={submission}
@@ -599,56 +661,64 @@ function SubmitBatch() {
   );
 }
 
-/** An alert's words, with its links to rows and its commands. */
-function AlertWords(props: { parts: readonly AlertPart[]; numberOf: (key: number) => number }) {
+/** An alert's words, with its commands. */
+function AlertWords(props: { parts: readonly AlertPart[]; mayHaveBatch: boolean }) {
   return (
     <For each={props.parts}>
       {(value) => {
         if (typeof value === "string") return value;
         if ("code" in value) return <code>{value.code}</code>;
-        return <RowLinks keys={value.rows} numberOf={props.numberOf} />;
+        return noBatchWords(props.mayHaveBatch);
       }}
     </For>
   );
 }
 
-/** Links to the rows `keys`, numbered as the list numbers them now: ten, then how many more. */
-function RowLinks(props: { keys: readonly number[]; numberOf: (key: number) => number }) {
-  // A row removed since is no longer linked.
-  const listed = () => props.keys.filter((key) => props.numberOf(key) > 0);
+/**
+ * Links to the rows `targets`, each to the control that carries its words, numbered as the list
+ * numbers them now: ten, then how many more. Ten is a choice of what an alert can hold and still be
+ * read, not a measured limit.
+ */
+function RowLinks(props: { targets: readonly RowTarget[]; numberOf: (key: number) => number }) {
   return (
     <>
-      <For each={listed().slice(0, 10)}>
-        {(key, index) => (
+      <For each={props.targets.slice(0, 10)}>
+        {(target, index) => (
           <>
             {index() > 0 ? ", " : ""}
             <a
-              href={`#${rowControlId(key)}`}
+              href={`#${rowControlId(target.key, target.part)}`}
               onClick={(event) => {
                 event.preventDefault();
-                const field = document.getElementById(rowControlId(key));
-                field?.focus();
-                field?.scrollIntoView({ block: "center" });
+                const control = document.getElementById(rowControlId(target.key, target.part));
+                control?.focus();
+                control?.scrollIntoView({ block: "center" });
               }}
             >
-              {formatCount(props.numberOf(key))}
+              {formatCount(props.numberOf(target.key))}
             </a>
           </>
         )}
       </For>
-      {listed().length > 10 ? ` and ${formatCount(listed().length - 10)} more` : ""}
+      {props.targets.length > 10 ? ` and ${formatCount(props.targets.length - 10)} more` : ""}
     </>
   );
 }
 
-/** A figure beside its limit, past it in the failed colour with the error mark. */
-function AgainstLimit(props: { over: boolean; children: string }) {
+/**
+ * A figure beside its limit. Past it, in the failed colour with the error mark, followed by
+ * `over`, how far past it in words: the mark is not read, and a rounded figure can hide a small
+ * excess, as 16 MiB and 100 bytes reads "16 MiB".
+ */
+function AgainstLimit(props: { over: string | undefined; children: string }) {
   return (
     <Show when={props.over} fallback={props.children}>
-      <span class="is-over">
-        <span class="mark mark-error" aria-hidden="true" />
-        {props.children}
-      </span>
+      {(over) => (
+        <span class="is-over">
+          <span class="mark mark-error" aria-hidden="true" />
+          {`${props.children}, ${over()}`}
+        </span>
+      )}
     </Show>
   );
 }
@@ -663,7 +733,11 @@ function Facts(props: { facts: ReturnType<typeof draftFacts>; limitsFailed: bool
     <dl id="submit-facts" tabindex="-1" aria-label="What Submit sends">
       <dt>Jobs</dt>
       <dd>
-        <AgainstLimit over={jobs().count > jobs().max}>
+        <AgainstLimit
+          over={
+            jobs().count > jobs().max ? `${formatCount(jobs().count - jobs().max)} over` : undefined
+          }
+        >
           {`${formatCount(jobs().count)} of at most ${formatCount(jobs().max)}`}
         </AgainstLimit>
         {jobs().count
@@ -672,15 +746,29 @@ function Facts(props: { facts: ReturnType<typeof draftFacts>; limitsFailed: bool
       </dd>
       <dt>Text</dt>
       <dd>
-        <AgainstLimit over={request().bytes > request().max}>
+        <AgainstLimit
+          over={
+            request().bytes > request().max
+              ? `${formatBytes(request().bytes - request().max)} over`
+              : undefined
+          }
+        >
           {`${formatBytes(request().bytes)} of at most ${formatBytes(request().max)}`}
         </AgainstLimit>
         : everything sent but the files’ contents
       </dd>
       <dt>Files</dt>
       <dd>
-        {files().count ? `${formatCount(files().count)}, ${formatBytes(files().bytes)}` : "None"};
-        each at most {formatBytes(files().maxEach)}
+        {files().count ? `${formatCount(files().count)}, ${formatBytes(files().bytes)}` : "None"};{" "}
+        <AgainstLimit
+          over={
+            files().overMax
+              ? `${formatCount(files().overMax)} ${plural(files().overMax, "file", "files")} over`
+              : undefined
+          }
+        >
+          {`each at most ${formatBytes(files().maxEach)}`}
+        </AgainstLimit>
       </dd>
       <dt>Model budgets</dt>
       <dd>
@@ -748,7 +836,7 @@ function Sending(props: { progress: SendProgress | undefined }) {
                 `Uploaded ${formatCount(upload().uploaded)} of ${formatCount(upload().files)} ${plural(upload().files, "file", "files")}, ${formatBytes(upload().uploadedBytes)} of ${formatBytes(upload().bytes)}.`,
                 upload().held > 0 && `The hub already holds ${formatCount(upload().held)}.`,
                 upload().same > 0 &&
-                  `${formatCount(upload().same)} ${plural(upload().same, "has", "have")} the same content as another file here.`,
+                  `${formatCount(upload().same)} ${plural(upload().same, "has", "have")} the same content as another file being uploaded.`,
               ]
                 .filter(Boolean)
                 .join(" ")}

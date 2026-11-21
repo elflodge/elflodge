@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/client";
 import { useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
-import { BATCH_ID_PATTERN, batchCreationSchema } from "contract";
+import { BATCH_ID_PATTERN, MAX_BATCH_ID_LENGTH, batchCreationSchema } from "contract";
 import { Show, createSignal } from "solid-js";
 
 import { api } from "../../../api-client.ts";
@@ -17,7 +17,7 @@ import {
   madeIdUnknownWords,
 } from "../../../components/DraftSubmission.tsx";
 import { Field } from "../../../components/Field.tsx";
-import { LabelFields, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, isLabelsControl, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import { createFormAction, fieldText, formRefusal } from "../../../form.ts";
@@ -57,7 +57,7 @@ function SubmitJob() {
   const { pending, onSubmit } = createFormAction(async (form) => {
     submission.sending();
     const data = new FormData(form);
-    const { agent, schemaRefusal } = agentOf(form);
+    const { agent, schemaRefusal } = agentOf(form, data);
     if (schemaRefusal) {
       setFailure({
         fields: new Map([[agentFields.outputSchema, schemaRefusal]]),
@@ -65,9 +65,9 @@ function SubmitJob() {
       });
       return;
     }
-    const labels = labelsOf(form);
+    const labels = labelsOf(data);
     const placed = { ...controls, ...labels.controls };
-    const { id, sentUnder } = submission.idFor(fieldText(data, "id"));
+    const { id, sentUnder } = submission.takeId(fieldText(data, "id"));
     // Checked here, not by oRPC's RequestValidationPlugin, which would check every dashboard call:
     // the schema's text is parsed first, and the page must know whether anything was sent.
     const checked = batchCreationSchema.safeParse({
@@ -99,7 +99,7 @@ function SubmitJob() {
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.get.queryKey({ input: { id } }) });
-      if (submission.succeeded(form, sentUnder)) {
+      if (submission.markSucceeded(form, sentUnder)) {
         // A repeat names a job the member may have opened before, and its page's loader takes a
         // cached copy of any age, so the copy goes and the job is read as it stands now. Only here:
         // a member who left may already be reading that page.
@@ -110,7 +110,7 @@ function SubmitJob() {
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
       } else setFailure(undefined);
     } catch (error) {
-      submission.failed(error, sentUnder);
+      submission.markFailed(error, sentUnder);
       setFailure(formRefusal(error, placed));
     }
   });
@@ -190,9 +190,9 @@ function SubmitJob() {
               label="Custom ID"
               hint={
                 <>
-                  Optional. Names the job and its Batch of one: 1 to 100 letters, digits,{" "}
-                  <code>_</code> and <code>-</code>, not beginning with <code>-</code>. Left empty,
-                  one is made.
+                  Optional. Names the job and its Batch of one: 1 to {MAX_BATCH_ID_LENGTH} letters,
+                  digits, <code>_</code> and <code>-</code>, not beginning with <code>-</code>. Left
+                  empty, one is made.
                 </>
               }
               error={refused("id")}
@@ -221,9 +221,7 @@ function SubmitJob() {
               (previous) =>
                 previous && {
                   ...previous,
-                  fields: new Map(
-                    [...previous.fields].filter(([name]) => !name.startsWith("labels")),
-                  ),
+                  fields: new Map([...previous.fields].filter(([name]) => !isLabelsControl(name))),
                 },
             );
           }}

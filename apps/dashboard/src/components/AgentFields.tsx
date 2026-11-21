@@ -43,14 +43,17 @@ export function figureIn(form: HTMLFormElement, name: string) {
 }
 
 /**
- * The agent `form`'s fields give, with its Output schema parsed. When the schema's text is not JSON,
- * `schemaRefusal` says why, and the agent holds the text as typed, which is what it would send.
+ * The agent `form`'s fields give, read from `data`, a snapshot of it, with its Output schema parsed.
+ * When the schema's text is not JSON, `schemaRefusal` says why, and the agent holds the text as
+ * typed, which is what it would send.
  */
-export function agentOf(form: HTMLFormElement): {
+export function agentOf(
+  form: HTMLFormElement,
+  data: FormData,
+): {
   agent: DraftAgent;
   schemaRefusal?: string;
 } {
-  const data = new FormData(form);
   const text = fieldText(data, agentFields.outputSchema);
   let schema: unknown = text;
   let schemaRefusal: string | undefined;
@@ -100,12 +103,16 @@ export function AgentFields(props: {
       ? "Left empty, the hub’s default applies; the hub’s limits could not be read."
       : "Left empty, the hub’s default applies.";
   }
-  const each = () => (props.of === "Batch" ? "each job’s" : "the job’s");
+  // What the words say of the jobs the agent runs: one job, or each of a Batch's.
+  const words = () =>
+    props.of === "Batch"
+      ? { output: "each job’s", input: "each job’s", budget: "USD, each job over its life" }
+      : { output: "the job’s", input: "the", budget: "USD, over its life" };
   return (
     <>
       <Field
         label="Instructions"
-        hint={`Optional. What the agent is told before ${props.of === "Batch" ? "each job’s" : "the"} input, after its Runner’s own instructions.`}
+        hint={`Optional. What the agent is told before ${words().input} input, after its Runner’s own instructions.`}
         error={props.refused(agentFields.instructions)}
       >
         {(control) => (
@@ -121,7 +128,7 @@ export function AgentFields(props: {
       {props.afterInstructions}
       <Field
         label="Output schema"
-        hint={`A JSON Schema ${each()} Output must match: one value, not a list. A starting schema: one text answer. Replace it with yours.`}
+        hint={`A JSON Schema ${words().output} Output must match: one value, not a list. A starting schema: one text answer. Replace it with yours.`}
         error={props.refused(agentFields.outputSchema)}
       >
         {(control) => (
@@ -142,7 +149,7 @@ export function AgentFields(props: {
       {props.afterSchema}
       <Field
         label="Model budget"
-        unit={props.of === "Batch" ? "USD, each job over its life" : "USD, over its life"}
+        unit={words().budget}
         hint={
           <>
             {limitHint(limits.held()?.modelBudgetUsd, (value) => USD_THRESHOLD.format(value))} A

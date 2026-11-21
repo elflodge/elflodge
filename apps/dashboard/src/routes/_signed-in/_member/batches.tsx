@@ -5,7 +5,7 @@ import {
   useChildMatches,
   useLocation,
 } from "@tanstack/solid-router";
-import { batchStatusSchema, LABEL_KEY_PATTERN } from "contract";
+import { batchStatusSchema, LABEL_KEY_PATTERN, MAX_LABEL_NAME_LENGTH } from "contract";
 import { createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -92,7 +92,7 @@ function Batches() {
                 {...control}
                 name="labelKey"
                 pattern={LABEL_KEY_PATTERN.source}
-                title="Use a name of up to 63 letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash."
+                title={`Use a name of up to ${MAX_LABEL_NAME_LENGTH} letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash.`}
                 defaultValue={appliedFilters().labelKey ?? ""}
                 required={!!(draftValue() ?? appliedFilters().labelValue)}
               />

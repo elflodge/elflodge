@@ -40,8 +40,11 @@ export function createDraftSubmission(dirty: () => boolean) {
   return {
     blocker,
     unknownOutcome,
-    /** The ID to send: the one typed, or the one made and kept since the last change. */
-    idFor(typed: string): { id: string; sentUnder: SentUnder } {
+    /**
+     * Takes the ID to send: the one typed, or the one made and kept since the last change, making
+     * and keeping one when none is.
+     */
+    takeId(typed: string): { id: string; sentUnder: SentUnder } {
       if (typed) return { id: typed, sentUnder: "typed ID" };
       madeId ??= uuid();
       return { id: madeId, sentUnder: "made ID" };
@@ -61,11 +64,12 @@ export function createDraftSubmission(dirty: () => boolean) {
       leaveConfirmed = false;
     },
     /**
-     * The hub made or returned the record. True when the page is to follow it; a member who left
+     * Marks that the hub made or returned the record, so leaving no longer asks. True when the page
+     * is to follow it; a member who left
      * meanwhile finds the form, if they come back, as after a lost answer, so sending it unchanged
      * opens the record.
      */
-    succeeded(form: HTMLFormElement, sentUnder: SentUnder) {
+    markSucceeded(form: HTMLFormElement, sentUnder: SentUnder) {
       if (form.isConnected && !leaveConfirmed) {
         submitted = true;
         // A navigation held by an open leave dialog gives way, so the member lands on the record.
@@ -75,8 +79,8 @@ export function createDraftSubmission(dirty: () => boolean) {
       if (leaveConfirmed) setUnknownOutcome(sentUnder);
       return false;
     },
-    /** The send failed with `error`. */
-    failed(error: unknown, sentUnder: SentUnder) {
+    /** Marks that the send failed with `error`, which may leave its outcome unknown. */
+    markFailed(error: unknown, sentUnder: SentUnder) {
       const status = problemOf(error)?.status;
       // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
       if (!(status !== undefined && status >= 400 && status < 500)) setUnknownOutcome(sentUnder);
