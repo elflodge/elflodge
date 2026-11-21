@@ -10,26 +10,27 @@ import { FallbackPage } from "./FallbackPage.tsx";
 import { Instant } from "./Instant.tsx";
 import { Notice } from "./Notice.tsx";
 
+function dateOf(time: number | undefined) {
+  return time === undefined ? undefined : new Date(time);
+}
+
 export function FailedReadNotice(props: {
   what: string;
   detail: string;
-  failedAt: number;
+  /** Missing only while a `Show` that tests an optional failure takes this away. */
+  failedAt: number | undefined;
   readAt?: number;
   format?: Intl.DateTimeFormat;
 }) {
   return (
     <Notice role="alert">
       {props.what} could not be read at{" "}
-      <Instant value={new Date(props.failedAt)} format={props.format ?? TIME_SECONDS} />
+      <Instant value={dateOf(props.failedAt)} format={props.format ?? TIME_SECONDS} />
       {failureDetailSuffix(props.detail)}
       <Show when={props.readAt}>
-        {(readAt) => (
-          <>
-            {" "}
-            What is shown is from the read at{" "}
-            <Instant value={new Date(readAt())} format={props.format ?? TIME_SECONDS} />.
-          </>
-        )}
+        {" "}
+        What is shown is from the read at{" "}
+        <Instant value={dateOf(props.readAt)} format={props.format ?? TIME_SECONDS} />.
       </Show>
     </Notice>
   );

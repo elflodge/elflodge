@@ -91,7 +91,7 @@ export function BatchControls(props: { batch: Batch }) {
           <p class="note">Working…</p>
         </Show>
       </div>
-      <Show when={failure()}>
+      <Show when={failure()} keyed>
         {(message) => (
           <Notice
             role="alert"
@@ -99,7 +99,7 @@ export function BatchControls(props: { batch: Batch }) {
               alert = element;
             }}
           >
-            {message()}
+            {message}
           </Notice>
         )}
       </Show>
@@ -170,12 +170,12 @@ export function BatchControls(props: { batch: Batch }) {
               </Show>
               {finality}
             </p>
-            <Show when={props.batch.statusUnknownJobs}>
+            <Show when={props.batch.statusUnknownJobs} keyed>
               {(n) => (
                 <p>
-                  {formatCount(n())} of its jobs {plural(n(), "has", "have")} status unknown: the
-                  cancel waits until{" "}
-                  {n() === 1 ? "its Runner reports or is" : "their Runners report or are"} removed.
+                  {formatCount(n)} of its jobs {plural(n, "has", "have")} status unknown: the cancel
+                  waits until {n === 1 ? "its Runner reports or is" : "their Runners report or are"}{" "}
+                  removed.
                 </p>
               )}
             </Show>
@@ -188,12 +188,12 @@ export function BatchControls(props: { batch: Batch }) {
           fallback={
             <p class="note" id="resume-note">
               {resumeExplanation()}
-              <Show when={props.batch.jobCounts.paused}>
+              <Show when={props.batch.jobCounts.paused} keyed>
                 {(n) => (
                   <>
                     {" "}
-                    Its {formatCount(n())} paused {plural(n(), "job", "jobs")}{" "}
-                    {plural(n(), "stays", "stay")} paused.
+                    Its {formatCount(n)} paused {plural(n, "job", "jobs")}{" "}
+                    {plural(n, "stays", "stay")} paused.
                   </>
                 )}
               </Show>

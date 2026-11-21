@@ -247,11 +247,11 @@ function JobRow(props: { job: ListedJob; runnerIds: Map<string, string>; readAt:
         <Labels labels={props.job.labels} />
       </td>
       <td role="cell" class="c-runner">
-        <Show when={props.job.runner}>
+        <Show when={props.job.runner} keyed>
           {(runner) => (
             <RunnerReference
-              runner={runner()}
-              shortId={props.runnerIds.get(runner().id) ?? runner().id}
+              runner={runner}
+              shortId={props.runnerIds.get(runner.id) ?? runner.id}
             />
           )}
         </Show>

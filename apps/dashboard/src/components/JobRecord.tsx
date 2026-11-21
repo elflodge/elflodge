@@ -39,35 +39,35 @@ export function JobFacts(props: { job: Job; readAt: number }) {
       <dl>
         <dt>ID</dt>
         <dd class="mono selectable">{props.job.id}</dd>
-        <Show when={props.job.customId}>
+        <Show when={props.job.customId} keyed>
           {(name) => (
             <>
               <dt>Custom ID</dt>
-              <dd class="mono whole-id">{name()}</dd>
+              <dd class="mono whole-id">{name}</dd>
             </>
           )}
         </Show>
-        <Show when={props.job.batchId}>
+        <Show when={props.job.batchId} keyed>
           {(batch) => (
             <>
               <dt>Batch</dt>
               <dd>
-                <Link class="mono stands-alone" to="/batches/$id" params={{ id: batch() }}>
-                  {batch()}
+                <Link class="mono stands-alone" to="/batches/$id" params={{ id: batch }}>
+                  {batch}
                 </Link>{" "}
-                <Link class="stands-alone" to="/jobs" search={{ batchId: batch() }}>
+                <Link class="stands-alone" to="/jobs" search={{ batchId: batch }}>
                   its jobs
                 </Link>
               </dd>
             </>
           )}
         </Show>
-        <Show when={props.job.submitter}>
+        <Show when={props.job.submitter} keyed>
           {(sender) => (
             <>
               <dt>Submitter</dt>
               <dd>
-                <JobSubmitter submitter={sender()} />
+                <JobSubmitter submitter={sender} />
               </dd>
             </>
           )}
@@ -100,14 +100,16 @@ export function JobFacts(props: { job: Job; readAt: number }) {
                   : "None"
               }
             >
-              {(runner) => (
-                <>
-                  <RunnerReference linked runner={runner()} shortId={runnerId() ?? runner().id} />
-                  <span class="sub">
-                    last seen <LastContact at={runner().lastSeenAt} readAt={props.readAt} />
-                  </span>
-                </>
-              )}
+              {/* Read directly: each poll changes when the Runner was last seen, and its link keeps
+                  the focus. */}
+              <RunnerReference
+                linked
+                runner={props.job.runner}
+                shortId={runnerId() ?? props.job.runner?.id}
+              />
+              <span class="sub">
+                last seen <LastContact at={props.job.runner?.lastSeenAt} readAt={props.readAt} />
+              </span>
             </Show>
           </dd>
         </Show>
@@ -125,25 +127,18 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             </>
           )}
         </Show>
+        {/* Read directly: a resume clears these, and each poll brings a new Date. */}
         <Show when={props.job.endedAt}>
-          {(at) => (
-            <>
-              <dt>Ended</dt>
-              <dd>
-                <Instant value={at()} format={DATE_TIME_SECONDS} />
-              </dd>
-            </>
-          )}
+          <dt>Ended</dt>
+          <dd>
+            <Instant value={props.job.endedAt} format={DATE_TIME_SECONDS} />
+          </dd>
         </Show>
         <Show when={props.job.lastReportedAt}>
-          {(at) => (
-            <>
-              <dt>Last recorded report</dt>
-              <dd>
-                <Instant value={at()} format={DATE_TIME_SECONDS} />
-              </dd>
-            </>
-          )}
+          <dt>Last recorded report</dt>
+          <dd>
+            <Instant value={props.job.lastReportedAt} format={DATE_TIME_SECONDS} />
+          </dd>
         </Show>
         <Show when={props.job.deletedAt}>
           {(at) => (
@@ -171,6 +166,15 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
     // The Runner timestamps the opening Event. The hub timestamps receipt of the report.
     return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
   });
+  // The count is new on each report, so its Show's child reads it directly.
+  const counted = () => measured()?.seconds ?? 0;
+  const countedFrom = () => measured()?.start;
+  const recountedFrom = () => (countedFrom()?.kind === JOB_STARTED ? undefined : countedFrom());
+  const timesOutAt = () => {
+    const from = countedFrom();
+    const limit = props.job.runTimeoutSeconds;
+    return from && limit ? new Date(from.at.getTime() + limit * 1000) : undefined;
+  };
   return (
     <section aria-labelledby="job-limits">
       <h2 id="job-limits">
@@ -178,23 +182,23 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
       </h2>
       <div class="limits">
         <div class="limit">
-          <Show when={props.job.modelBudgetUsd}>
+          <Show when={props.job.modelBudgetUsd} keyed>
             {(budget) => (
               <>
                 <h3>
                   Model budget <span class="unit">over its life</span>
                 </h3>
                 <p class="limit-value">
-                  {USD_BUDGET.format(budget())} <span class="unit">USD</span>
+                  {USD_BUDGET.format(budget)} <span class="unit">USD</span>
                 </p>
                 <Show when={props.job.startedAt}>
-                  <div class={["scale", { "is-over": cost() >= budget() }]}>
+                  <div class={["scale", { "is-over": cost() >= budget }]}>
                     <meter
                       aria-label="Model budget used"
                       min={0}
-                      max={budget()}
-                      value={Math.min(cost(), budget())}
-                      aria-valuetext={`${formatUsd(cost())} of ${USD_BUDGET.format(budget())} USD, estimated`}
+                      max={budget}
+                      value={Math.min(cost(), budget)}
+                      aria-valuetext={`${formatUsd(cost())} of ${USD_BUDGET.format(budget)} USD, estimated`}
                     />
                   </div>
                 </Show>
@@ -212,46 +216,39 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
             </dl>
           </Show>
         </div>
-        <Show when={props.job.runTimeoutSeconds}>
+        <Show when={props.job.runTimeoutSeconds} keyed>
           {(limit) => (
             <div class="limit">
               <h3>
                 Run timeout <span class="unit">each run</span>
               </h3>
-              <p class="limit-value">{duration(limit())}</p>
+              <p class="limit-value">{duration(limit)}</p>
               <Show when={measured()}>
-                {(count) => (
-                  <>
-                    <div class="scale">
-                      <meter
-                        aria-label="Run timeout counted so far"
-                        min={0}
-                        max={limit()}
-                        value={Math.min(count().seconds, limit())}
-                        aria-valuetext={`about ${duration(count().seconds)} of ${duration(limit())} at the report`}
-                      />
-                    </div>
-                    <dl>
-                      <dt>Counted so far</dt>
-                      <dd>about {duration(count().seconds)} at the report</dd>
-                      <dt>Times out at about</dt>
-                      <dd>
-                        <Instant
-                          value={new Date(count().start.at.getTime() + limit() * 1000)}
-                          format={TIME_SECONDS}
-                        />
-                      </dd>
-                    </dl>
-                    <Show when={count().start.kind !== JOB_STARTED}>
-                      <p class="note">
-                        Counted from <Instant value={count().start.at} format={TIME_SECONDS} />
-                        {count().start.kind === JOB_RESUMED
-                          ? ", its resume."
-                          : ", its Runner’s restart."}
-                      </p>
-                    </Show>
-                  </>
-                )}
+                <div class="scale">
+                  <meter
+                    aria-label="Run timeout counted so far"
+                    min={0}
+                    max={limit}
+                    value={Math.min(counted(), limit)}
+                    aria-valuetext={`about ${duration(counted())} of ${duration(limit)} at the report`}
+                  />
+                </div>
+                <dl>
+                  <dt>Counted so far</dt>
+                  <dd>about {duration(counted())} at the report</dd>
+                  <dt>Times out at about</dt>
+                  <dd>
+                    <Instant value={timesOutAt()} format={TIME_SECONDS} />
+                  </dd>
+                </dl>
+                <Show when={recountedFrom()}>
+                  <p class="note">
+                    Counted from <Instant value={recountedFrom()?.at} format={TIME_SECONDS} />
+                    {recountedFrom()?.kind === JOB_RESUMED
+                      ? ", its resume."
+                      : ", its Runner’s restart."}
+                  </p>
+                </Show>
               </Show>
               <Show
                 when={
@@ -264,8 +261,8 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
                   <meter
                     aria-label="Run timeout reached"
                     min={0}
-                    max={limit()}
-                    value={limit()}
+                    max={limit}
+                    value={limit}
                     aria-valuetext="Run timeout reached"
                   />
                 </div>

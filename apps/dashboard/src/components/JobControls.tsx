@@ -165,7 +165,9 @@ export function JobControls(props: {
             </Show>
           </p>
         </Show>
-        <Show when={props.cannotResume}>{(reason) => <p class="note">{reason()}</p>}</Show>
+        <Show when={props.cannotResume} keyed>
+          {(reason) => <p class="note">{reason}</p>}
+        </Show>
         <Show when={pending()}>
           <p class="note">Working…</p>
         </Show>
@@ -180,7 +182,7 @@ export function JobControls(props: {
           Deleted. Its Usage record stays.
         </Notice>
       </Show>
-      <Show when={pageFailure()}>
+      <Show when={pageFailure()} keyed>
         {(message) => (
           <Notice
             role="alert"
@@ -188,7 +190,7 @@ export function JobControls(props: {
               failureNotice = element;
             }}
           >
-            {message()}
+            {message}
           </Notice>
         )}
       </Show>
@@ -264,8 +266,8 @@ export function JobControls(props: {
                   Working…
                 </p>
               </Show>
-              <Show when={budgetFailure()?.alert}>
-                {(message) => <Notice role="alert">{message()}</Notice>}
+              <Show when={budgetFailure()?.alert} keyed>
+                {(message) => <Notice role="alert">{message}</Notice>}
               </Show>
             </div>
             <div class="dialog-f">
@@ -326,8 +328,8 @@ export function JobControls(props: {
           <Show when={deleteAvailable()} fallback={<p>This job can no longer be deleted.</p>}>
             <p>
               Its input, Input files, Events and Output go from the hub now
-              <Show when={props.job.runner}>
-                {(runner) => <>, and from {runner().name} once that Runner has deleted its files</>}
+              <Show when={props.job.runner} keyed>
+                {(runner) => <>, and from {runner.name} once that Runner has deleted its files</>}
               </Show>
               . Its Usage record stays.
             </p>

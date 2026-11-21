@@ -102,62 +102,74 @@ export function FailureReason(props: { reason: OpenFailure["reason"] }) {
 }
 
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
+  // The two conditions are read directly, not keyed: on the job page each poll brings new Dates in
+  // them, which would rebuild a keyed child and drop the tooltip of its title.
+  const unknown = () => props.job.statusUnknown;
+  const unknownWords = (form: "short" | "detail") => {
+    const value = unknown();
+    return value && statusUnknownWords(value.reason, form);
+  };
+  const unknownTitle = () => {
+    const value = unknown();
+    return (
+      value && `${statusUnknownWords(value.reason, "short")}, since ${FULL.format(value.since)}`
+    );
+  };
+  const control = () => props.job.pendingControl;
+  const controlWords = () => {
+    const value = control();
+    return value && CONTROL_WORDS[value.type];
+  };
+  const asked = () => {
+    const value = control();
+    return value && `Asked ${FULL.format(value.requestedAt)}`;
+  };
   return (
     <>
-      <Show when={props.job.statusUnknown}>
-        {(unknown) => (
-          <span
-            class="beside is-unknown"
-            title={`${statusUnknownWords(unknown().reason, "short")}, since ${FULL.format(unknown().since)}`}
-          >
-            <span class="mark mark-unknown" aria-hidden="true" />
-            <span>
-              Status unknown
-              <Show
-                when={props.detailed}
-                fallback={
-                  <span class="condition-detail">
-                    {statusUnknownWords(unknown().reason, "short")}
-                  </span>
-                }
-              >
-                {" "}
-                since <Instant value={unknown().since} format={TIME_SECONDS} />:{" "}
-                {statusUnknownWords(unknown().reason, "detail")}
-              </Show>
-            </span>
+      <Show when={unknown()}>
+        <span class="beside is-unknown" title={unknownTitle()}>
+          <span class="mark mark-unknown" aria-hidden="true" />
+          <span>
+            Status unknown
+            <Show
+              when={props.detailed}
+              fallback={<span class="condition-detail">{unknownWords("short")}</span>}
+            >
+              {" "}
+              since <Instant value={unknown()?.since} format={TIME_SECONDS} />:{" "}
+              {unknownWords("detail")}
+            </Show>
           </span>
-        )}
+        </span>
       </Show>
-      <Show when={props.job.pendingControl}>
-        {(control) => (
-          <span class="beside" title={`Asked ${FULL.format(control().requestedAt)}`}>
-            <span class="mark mark-pending" aria-hidden="true" />
-            <span>
-              {CONTROL_WORDS[control().type]}
-              <Show
-                when={props.detailed}
-                fallback={
-                  <span class="condition-detail">
-                    <Instant value={control().requestedAt} />
-                  </span>
-                }
-              >
-                {" "}
-                <Instant value={control().requestedAt} format={TIME_SECONDS} />, waiting for its
-                Runner{control().type === "delete" ? " to delete its files" : ""}
-              </Show>
-            </span>
+      <Show when={control()}>
+        <span class="beside" title={asked()}>
+          <span class="mark mark-pending" aria-hidden="true" />
+          <span>
+            {controlWords()}
+            <Show
+              when={props.detailed}
+              fallback={
+                <span class="condition-detail">
+                  <Instant value={control()?.requestedAt} />
+                </span>
+              }
+            >
+              {" "}
+              <Instant value={control()?.requestedAt} format={TIME_SECONDS} />, waiting for its
+              Runner{control()?.type === "delete" ? " to delete its files" : ""}
+            </Show>
           </span>
-        )}
+        </span>
       </Show>
       <Show
         when={props.job.blockedBy === undefined ? undefined : blockedWords(props.job.blockedBy)}
+        keyed
       >
         {(blockedBy) => (
           <span class="beside">
             <span class="mark mark-blocked" aria-hidden="true" />
-            {blockedBy()}
+            {blockedBy}
           </span>
         )}
       </Show>

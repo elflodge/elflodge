@@ -52,7 +52,10 @@ export function ListEnd(props: ListAddressState & { length: number; older?: stri
       <Show when={props.after}>
         <PagingLink to={props.to} />
       </Show>
-      <Show when={props.older}>{(after) => <PagingLink to={props.to} after={after()} />}</Show>
+      {/* Read directly: the cursor moves as the list is read again, and the link keeps the focus. */}
+      <Show when={props.older}>
+        <PagingLink to={props.to} after={props.older} />
+      </Show>
     </p>
   );
 }

@@ -110,7 +110,7 @@ function ChangePassword() {
           Sign out of other sessions
         </label>
         <Show when={result()}>
-          {(shown) => <Notice role={shown().role}>{shown().message}</Notice>}
+          <Notice role={result()?.role ?? "status"}>{result()?.message}</Notice>
         </Show>
         <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
           Change password

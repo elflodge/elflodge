@@ -29,51 +29,54 @@ export function JobActivity(props: { job: Job }) {
         Latest activity
       </h2>
       <Show when={props.job.lastReportedAt} fallback={<p>No report recorded yet for this run.</p>}>
+        {/* Read directly: keyed, a change to one conversation would rebuild them all. */}
         <Show when={props.job.activity} fallback={<p>No activity has been reported.</p>}>
-          {(activity) => (
-            <For
-              keyed={(part) => part.conversationId}
-              each={activity()}
-              fallback={<p>Between steps when last observed.</p>}
-            >
-              {(conversation) => (
-                <div>
-                  <h3>Conversation {conversation().conversationId}</h3>
-                  <ul class="plain">
-                    <Show when={conversation().generation}>
-                      {(call) => (
-                        <li>
-                          Model call, attempt {call().attempt}
-                          <Show when={call().retry}>{(retry) => <Retry retry={retry()} />}</Show>
-                          <ObservedChange changedAt={call().changedAt} />
-                        </li>
-                      )}
-                    </Show>
-                    <For keyed={(tool) => tool.callId} each={conversation().tools}>
-                      {(tool) => (
-                        <li>
-                          Tool <code>{tool().name}</code>{" "}
-                          {tool().status === "pending" ? "waiting" : "running"}{" "}
-                          <span class="sid">{tool().callId}</span>
-                          <ObservedChange changedAt={tool().changedAt} />
-                        </li>
-                      )}
-                    </For>
-                    <For each={conversation().compactions}>
-                      {(step) => (
-                        <li>
-                          Compaction ({step.reason}), attempt {step.attempt}
-                          {step.blocking && ", the model call waits for it"}
-                          <Show when={step.retry}>{(retry) => <Retry retry={retry()} />}</Show>
-                          <ObservedChange changedAt={step.changedAt} />
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </div>
-              )}
-            </For>
-          )}
+          <For
+            keyed={(part) => part.conversationId}
+            each={props.job.activity}
+            fallback={<p>Between steps when last observed.</p>}
+          >
+            {(conversation) => (
+              <div>
+                <h3>Conversation {conversation().conversationId}</h3>
+                <ul class="plain">
+                  <Show when={conversation().generation} keyed>
+                    {(call) => (
+                      <li>
+                        Model call, attempt {call.attempt}
+                        <Show when={call.retry} keyed>
+                          {(retry) => <Retry retry={retry} />}
+                        </Show>
+                        <ObservedChange changedAt={call.changedAt} />
+                      </li>
+                    )}
+                  </Show>
+                  <For keyed={(tool) => tool.callId} each={conversation().tools}>
+                    {(tool) => (
+                      <li>
+                        Tool <code>{tool().name}</code>{" "}
+                        {tool().status === "pending" ? "waiting" : "running"}{" "}
+                        <span class="sid">{tool().callId}</span>
+                        <ObservedChange changedAt={tool().changedAt} />
+                      </li>
+                    )}
+                  </For>
+                  <For each={conversation().compactions}>
+                    {(step) => (
+                      <li>
+                        Compaction ({step.reason}), attempt {step.attempt}
+                        {step.blocking && ", the model call waits for it"}
+                        <Show when={step.retry} keyed>
+                          {(retry) => <Retry retry={retry} />}
+                        </Show>
+                        <ObservedChange changedAt={step.changedAt} />
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </div>
+            )}
+          </For>
         </Show>
       </Show>
     </section>

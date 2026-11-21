@@ -147,8 +147,8 @@ export function AddRunner(props: {
                   The Runner registers with a registration key. Create one that expires in a day, or
                   put in one you hold.
                 </p>
-                <Show when={failure()}>
-                  {(message) => <Notice role="alert">{message()}</Notice>}
+                <Show when={failure()} keyed>
+                  {(message) => <Notice role="alert">{message}</Notice>}
                 </Show>
                 <form onSubmit={onSubmit}>
                   <button type="submit" aria-disabled={pending() ? "true" : undefined}>
@@ -226,6 +226,7 @@ export function AddRunner(props: {
             />
             <Show
               when={props.registered}
+              keyed
               fallback={
                 <span>
                   Waiting for a Runner to register. It will be listed here under its machine's name.
@@ -234,8 +235,8 @@ export function AddRunner(props: {
             >
               {(runner) => (
                 <span>
-                  <span class="mono">{runner().name}</span>{" "}
-                  <span class="sid">{props.shortId(runner())}</span> has registered.
+                  <span class="mono">{runner.name}</span>{" "}
+                  <span class="sid">{props.shortId(runner)}</span> has registered.
                 </span>
               )}
             </Show>

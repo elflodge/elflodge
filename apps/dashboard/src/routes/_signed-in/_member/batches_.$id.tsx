@@ -88,7 +88,9 @@ function BatchPage() {
       refetchInterval: REFRESH_INTERVAL_MS,
     }),
   );
-  // Keep the ledger readable and let its live indication expire while a poll is held.
+  // To keep the ledger readable and let its live indication expire while a poll is held, `deep`
+  // reads every field inside `latest`. A changed field gives its object a new identity, as on the
+  // job page.
   const batch = createMemo(() => latest(() => deep(read.data)));
   const online = browserOnline();
   const fresh = readIsFresh(() => read.dataUpdatedAt);
@@ -205,17 +207,17 @@ function BatchJobs(props: { batch: Batch; current: boolean }) {
             </tr>
           </tfoot>
         </table>
+        {/* Read directly: the count changes while its link may hold the focus. */}
         <Show when={props.batch.statusUnknownJobs}>
-          {(n) => (
-            <p class="note is-unknown">
-              <span class="mark mark-unknown" aria-hidden="true" /> {formatCount(n())} of these{" "}
-              {plural(n(), "has", "have")} status unknown: each is counted under its last recorded
-              status.{" "}
-              <Link to="/jobs" search={{ batchId: props.batch.id, statusUnknown: true }}>
-                See them<span class="vh">: its jobs with status unknown</span>
-              </Link>
-            </p>
-          )}
+          <p class="note is-unknown">
+            <span class="mark mark-unknown" aria-hidden="true" />{" "}
+            {formatCount(props.batch.statusUnknownJobs)} of these{" "}
+            {plural(props.batch.statusUnknownJobs, "has", "have")} status unknown: each is counted
+            under its last recorded status.{" "}
+            <Link to="/jobs" search={{ batchId: props.batch.id, statusUnknown: true }}>
+              See them<span class="vh">: its jobs with status unknown</span>
+            </Link>
+          </p>
         </Show>
       </Show>
     </section>

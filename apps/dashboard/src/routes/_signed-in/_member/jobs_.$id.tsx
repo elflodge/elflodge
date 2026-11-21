@@ -119,7 +119,10 @@ function JobPage() {
   const fresh = readIsFresh(() => read.dataUpdatedAt);
   const waitingForRead = () => !fresh() || read.isPaused;
   const current = () => online() && !waitingForRead() && !read.isRefetchError;
-  // A stalled poll must leave the last answer readable while its live indication expires.
+  // A stalled poll must leave the last answer readable while its live indication expires, so
+  // `deep` reads every field inside `latest`. A changed field, a Date included, gives its object a
+  // new identity. Keeping it with a projection froze this page on a resume, so a child holding
+  // focus, a title or a live region reads such a value directly.
   const job = createMemo(() => latest(() => deep(read.data)));
   const lastRecorded = () => !current() || !!job().statusUnknown;
   const running = () => job().status === "running" && !lastRecorded() && !job().deletedAt;
@@ -185,7 +188,7 @@ function JobPage() {
           groups().sentenceRun
         }
       >
-        {(run) => <RunSentence run={run()} status={job().status} />}
+        <RunSentence run={groups().sentenceRun} status={job().status} />
       </Show>
       <p class="note">{timeZoneNote()}</p>
       <Switch>
@@ -232,9 +235,11 @@ function JobPage() {
               countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
           </Show>
-          <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>
-          <Show when={failure()?.message}>
-            {(message) => <JobOutputOrFailure text={message()} failure />}
+          <Show when={output()} keyed>
+            {(text) => <JobOutputOrFailure text={text} />}
+          </Show>
+          <Show when={failure()?.message} keyed>
+            {(message) => <JobOutputOrFailure text={message} failure />}
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />

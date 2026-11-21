@@ -150,13 +150,13 @@ function Read<T>(props: {
           </Loading>
         </Errored>
       </Match>
-      <Match when={props.query.dataUpdatedAt}>
+      <Match when={props.query.dataUpdatedAt} keyed>
         {(answeredAt) => (
           <li class="hub-unknown">
             <span class="mark mark-unknown" aria-hidden="true" />
             <span>
               {props.what} have not been read since{" "}
-              <Instant value={new Date(answeredAt())} format={TIME_ZONED} />.
+              <Instant value={new Date(answeredAt)} format={TIME_ZONED} />.
             </span>
           </li>
         )}

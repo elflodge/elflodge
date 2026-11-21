@@ -13,17 +13,12 @@ export function RecordCrumbs(props: { to: keyof typeof listPages; batchId?: stri
             {listPages[props.to].title}
           </Link>
         </li>
-        <Show when={props.batchId}>
+        <Show when={props.batchId} keyed>
           {(id) => (
             <li>
               <span aria-hidden="true">/</span>
-              <Link
-                class="cut mono stands-alone"
-                title={id()}
-                to="/batches/$id"
-                params={{ id: id() }}
-              >
-                {id()}
+              <Link class="cut mono stands-alone" title={id} to="/batches/$id" params={{ id: id }}>
+                {id}
               </Link>
             </li>
           )}

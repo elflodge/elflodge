@@ -65,7 +65,7 @@ export function TextPreview(props: {
           <span>{content()}</span>
         </p>
       </Show>
-      <Show when={limitExceeded()}>
+      <Show when={limitExceeded()} keyed>
         {(limit) => (
           <button
             type="button"
@@ -82,7 +82,7 @@ export function TextPreview(props: {
           >
             {expanded()
               ? "Show the first lines only"
-              : lines() > limit()
+              : lines() > limit
                 ? `Show all ${formatCount(lines())} lines`
                 : (props.wholeTextLabel ?? "Show the whole text")}
           </button>

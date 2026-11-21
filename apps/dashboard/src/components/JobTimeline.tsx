@@ -80,6 +80,10 @@ function PageEdge(props: {
   const hasPage = () => props.events.hasPage(props.direction);
   const error = () => props.events.pageError(props.direction);
   const retryJump = () => error()?.jump;
+  const errorDetail = () => {
+    const failure = error();
+    return failure ? failureDetailSuffix(hubFailureDetail(failure.error)) : "";
+  };
   const jumpLabel = () => (earlier() ? "Start" : "Latest");
   const usedUp = () => props.events.usedUp(props.direction) && !retryJump();
   let box: HTMLDivElement | undefined;
@@ -113,14 +117,12 @@ function PageEdge(props: {
               <p>{earlier() ? "Earlier Events are not shown." : "Later Events are not shown."}</p>
             }
           >
-            {(failure) => (
-              <Notice role="alert">
-                {failure().jump
-                  ? `${jumpLabel()} failed`
-                  : `The ${props.direction} Events could not be read`}
-                {failureDetailSuffix(hubFailureDetail(failure().error))}
-              </Notice>
-            )}
+            <Notice role="alert">
+              {error()?.jump
+                ? `${jumpLabel()} failed`
+                : `The ${props.direction} Events could not be read`}
+              {errorDetail()}
+            </Notice>
           </Show>
           <button
             type="button"
@@ -160,6 +162,10 @@ export function JobTimeline(props: {
   const arrivals = events.liveEvents;
   const [unread, setUnread] = createSignal<readonly { id: number }[]>([]);
   let seenThrough = 0;
+  const eventsFailureDetail = () => {
+    const failure = events.failure();
+    return failure ? hubFailureDetail(failure.error) : "";
+  };
   const newestUnreadTime = () => {
     const id = unread().at(-1)?.id;
     return rows().findLast((row) => row.id === id)?.at;
@@ -286,25 +292,21 @@ export function JobTimeline(props: {
         </Show>
       </div>
       <Show when={events.failure()}>
-        {(failure) => (
-          <>
-            <FailedReadNotice
-              what="The Events"
-              detail={hubFailureDetail(failure().error)}
-              failedAt={failure().failedAt}
-              readAt={failure().readAt}
-            />
-            <Show when={!rows().length && failure().follower}>
-              <button
-                type="button"
-                disabled={events.isReadingPage()}
-                onClick={(e) => void jump(false, e.currentTarget)}
-              >
-                Latest
-              </button>
-            </Show>
-          </>
-        )}
+        <FailedReadNotice
+          what="The Events"
+          detail={eventsFailureDetail()}
+          failedAt={events.failure()?.failedAt}
+          readAt={events.failure()?.readAt}
+        />
+        <Show when={!rows().length && events.failure()?.follower}>
+          <button
+            type="button"
+            disabled={events.isReadingPage()}
+            onClick={(e) => void jump(false, e.currentTarget)}
+          >
+            Latest
+          </button>
+        </Show>
       </Show>
       <Show when={events.isLoading()}>
         <div aria-busy="true">
@@ -388,12 +390,11 @@ export function JobTimeline(props: {
         <For each={rows()} keyed={(row) => row.id}>
           {(row) => (
             <>
+              {/* Read directly: going to Latest can drop the Event before, and this line with it. */}
               <Show when={props.groups.dayLines.has(row().id) && row().at}>
-                {(at) => (
-                  <li class="day-line" tabindex="-1">
-                    <Instant value={at()} format={DAY_YEAR} />
-                  </li>
-                )}
+                <li class="day-line" tabindex="-1">
+                  <Instant value={row().at} format={DAY_YEAR} />
+                </li>
               </Show>
               <Show when={props.groups.headings.get(row().id)}>
                 {(run) => (
@@ -458,11 +459,8 @@ export function JobTimeline(props: {
               </strong>{" "}
               below
               <Show when={newestUnreadTime()}>
-                {(at) => (
-                  <>
-                    , Event {unread().at(-1)?.id} at <Instant value={at()} format={TIME_SECONDS} />
-                  </>
-                )}
+                , Event {unread().at(-1)?.id} at{" "}
+                <Instant value={newestUnreadTime()} format={TIME_SECONDS} />
               </Show>
               .
             </span>

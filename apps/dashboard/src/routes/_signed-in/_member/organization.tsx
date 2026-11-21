@@ -91,22 +91,32 @@ function TableHead(props: { columns: string[] }) {
 function Organization() {
   const context = Route.useRouteContext();
   return (
-    <Show when={context().member}>
-      {(member) => <OrganizationPage organization={member().organization} role={member().role} />}
+    <Show when={context().member?.organization.id} keyed>
+      {(organizationId) => <OrganizationPage organizationId={organizationId} />}
     </Show>
   );
 }
 
-function OrganizationPage(props: { organization: { id: string; name: string }; role: string }) {
+function OrganizationPage(props: { organizationId: string }) {
   const context = Route.useRouteContext();
   const router = useRouter();
   const client = useQueryClient();
-  const org = () => props.organization;
-  const role = () => props.role;
-  const owner = () => rolesOf(role()).includes("owner");
+  // The route context gives a new member on each navigation, so the Show is keyed on the
+  // Organization's ID alone and its name and the member's role are read from the context. They are
+  // missing only while the Show takes the page away, when the invitations are not read.
+  const org = () => context().member?.organization;
+  const orgId = () => props.organizationId;
+  const role = () => context().member?.role;
+  const owner = () => {
+    const current = role();
+    return current !== undefined && rolesOf(current).includes("owner");
+  };
   const manages = () => context().managesKeys;
-  const members = useQuery(() => membersOptions(org().id));
-  const invitations = useQuery(() => ({ ...invitationsOptions(role()), enabled: manages() }));
+  const members = useQuery(() => membersOptions(orgId()));
+  const invitations = useQuery(() => ({
+    ...invitationsOptions(role()),
+    enabled: manages() && role() !== undefined,
+  }));
   const keys = useQuery(() =>
     orpc.apiKeys.list.queryOptions({ enabled: manages(), retryOnMount: false }),
   );
@@ -164,7 +174,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
     );
   const onlyOwner = () => owner() && soleOwner(members.data.members, context().user.id);
   const refreshMembers = () =>
-    client.invalidateQueries({ queryKey: membersOptions(org().id).queryKey, exact: true });
+    client.invalidateQueries({ queryKey: membersOptions(orgId()).queryKey, exact: true });
   const refreshInvites = () => client.invalidateQueries({ queryKey: orpc.invitations.list.key() });
   let readingSession: Promise<void> | undefined;
   const refreshSession = () =>
@@ -200,7 +210,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
     const own = isOwn(person);
     const name = person.user.name;
     const listed = () => members.data.members.some((m) => m.id === person.id);
-    const organizationId = org().id;
+    const organizationId = orgId();
     setNotice(undefined);
     try {
       if (next === "leave") await authClient.organization.leave({ organizationId });
@@ -259,7 +269,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
       if (fresh && !available) {
         const action =
           next === "leave"
-            ? `Leave ${org().name}`
+            ? `Leave ${org()?.name}`
             : next === "remove"
               ? `Remove ${name}`
               : "Change role";
@@ -383,7 +393,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         </Show>
       </div>
       <div class="org-name">
-        <strong>{org().name}</strong>
+        <strong>{org()?.name}</strong>
         <Show when={manages()}>
           <button type="button" onClick={() => setForm("rename")}>
             Rename
@@ -490,7 +500,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                           <ConfirmAction
                             trigger="Remove"
                             triggerLabel={`Remove ${name()}`}
-                            heading={`Remove ${name()} from ${org().name}?`}
+                            heading={`Remove ${name()} from ${org()?.name}?`}
                             keep="Keep them"
                             confirm={`Remove ${name()}`}
                             act={(close) => membershipAction(row(), "remove", close)}
@@ -510,13 +520,13 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
                         <Show when={own() && !onlyOwner()}>
                           <ConfirmAction
                             trigger="Leave"
-                            triggerLabel={`Leave ${org().name}`}
-                            heading={`Leave ${org().name}?`}
+                            triggerLabel={`Leave ${org()?.name}`}
+                            heading={`Leave ${org()?.name}?`}
                             keep="Stay"
-                            confirm={`Leave ${org().name}`}
+                            confirm={`Leave ${org()?.name}`}
                             act={(close) => membershipAction(row(), "leave", close)}
                             reportPageFailure={(message) =>
-                              report(`Leave ${org().name}: ${message}`)
+                              report(`Leave ${org()?.name}: ${message}`)
                             }
                           >
                             <p>
@@ -620,7 +630,7 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         <Show when={form() === "invite"}>
           <InviteMember
             owner={owner()}
-            organizationId={org().id}
+            organizationId={orgId()}
             refresh={() => void refreshInvites()}
             refreshSession={refreshSession}
             close={() => setForm(undefined)}
@@ -629,13 +639,13 @@ function OrganizationPage(props: { organization: { id: string; name: string }; r
         </Show>
         <Show when={form() === "rename"}>
           <RenameOrganization
-            name={org().name}
+            name={org()?.name ?? ""}
             close={() => setForm(undefined)}
             report={report}
             rename={async (name) => {
               try {
                 const renamed = await authClient.organization.update({
-                  organizationId: org().id,
+                  organizationId: orgId(),
                   data: { name },
                 });
                 status(`Renamed to ${renamed.name}.`);

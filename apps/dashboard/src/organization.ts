@@ -39,7 +39,7 @@ export type Member = Awaited<
   ReturnType<typeof authClient.organization.listMembers>
 >["members"][number];
 
-export function invitationsOptions(role: string) {
+export function invitationsOptions(role: string | undefined) {
   // Owners and admins receive different lists, even in the same signed-in document.
   return orpc.invitations.list.queryOptions({
     queryKey: [...orpc.invitations.list.queryKey(), role],

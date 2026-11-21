@@ -366,7 +366,9 @@ function SubmitJob() {
             />
           )}
         </Field>
-        <Show when={alertWords()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+        <Show when={alertWords()} keyed>
+          {(message) => <Notice role="alert">{message}</Notice>}
+        </Show>
         <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
           Submit job
         </button>
