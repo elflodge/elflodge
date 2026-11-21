@@ -161,10 +161,11 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
           </span>
         )}
       </Show>
-      {/* Keyed, so the child gets the failure itself rather than an accessor. When the job turns
+      {/* The Show tests the failure, which is truthy even when its reason is an empty string, and is
+          keyed, so the child gets the failure itself rather than an accessor. When the job turns
           from failed to queued, Solid 2.0.0's accessor can return undefined before the Show drops
           its child; reading the reason from that threw, and in our runs the page then kept
-          re-reading it and stopped updating. Keyed also shows a reason that is an empty string. */}
+          re-reading it and stopped updating. */}
       <Show when={props.job.status === "failed" ? props.job.failure : undefined} keyed>
         {(failure) => (
           <span class="beside">
