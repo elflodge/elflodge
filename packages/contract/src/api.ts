@@ -385,11 +385,32 @@ export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
  */
 export const MAX_JOBS_PER_ADD = 1000;
 
+/**
+ * Refuses each item of a list whose `customId` another item has, the first one included. The words
+ * name the repeated ID and no index: the pointer already says where, and callers count items
+ * differently (the CLI's "job N" and a form's rows count from 1), so an index would point some of
+ * them at the wrong item; without one, each place is told.
+ */
+const uniqueCustomIds = z.superRefine((items: readonly { customId: string }[], context) => {
+  const uses = new Map<string, number>();
+  for (const { customId } of items) uses.set(customId, (uses.get(customId) ?? 0) + 1);
+  items.forEach(({ customId }, index) => {
+    if ((uses.get(customId) ?? 0) < 2) return;
+    context.addIssue({
+      code: "custom",
+      message: `Must be unique in the request: ${JSON.stringify(customId)} is given more than once`,
+      path: [index, "customId"],
+      input: customId,
+    });
+  });
+});
+
 const submittedJobsSchema = z
   .array(jobSubmissionSchema)
   .check(
     z.minLength(1),
     z.maxLength(MAX_JOBS_PER_ADD),
+    uniqueCustomIds,
     z.describe(
       "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
     ),

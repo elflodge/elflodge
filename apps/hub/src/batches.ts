@@ -535,21 +535,12 @@ function filesByPath(files: JobSubmission["files"]) {
 
 /**
  * What is wrong with `jobs`, to be added to a Batch with `labels`, that the contract's schemas
- * cannot check, with paths from the request: a custom ID given twice, labels over the limit with
- * the Batch's, and a job with neither an input nor Input files.
+ * cannot check, with paths from the request: labels over the limit with the Batch's, and a job
+ * with neither an input nor Input files.
  */
 function jobProblems(jobs: readonly JobSubmission[], labels: Batch["labels"]) {
-  const firstWithId = new Map<string, number>();
   return jobs.flatMap((job, index) => {
     const problems: { message: string; path: (string | number)[] }[] = [];
-    const first = firstWithId.get(job.customId);
-    if (first === undefined) firstWithId.set(job.customId, index);
-    else {
-      problems.push({
-        message: `Must be unique in the request, as jobs[${first}] has it`,
-        path: ["jobs", index, "customId"],
-      });
-    }
     // The Batch's labels and the job's own each pass, but together may be too many.
     const merged = z.safeParse(labelsSchema, { ...labels, ...job.labels });
     for (const issue of merged.success ? [] : merged.error.issues) {

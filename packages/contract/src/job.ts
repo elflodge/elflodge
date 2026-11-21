@@ -117,8 +117,13 @@ export const digestSchema = z
   .string()
   .check(z.regex(/^sha256:[0-9a-f]{64}$/, "Must be `sha256:` and 64 lowercase hexadecimal digits"));
 
-/** How many bytes a file holds: at most `MAX_FILE_BYTES`. */
-export const fileSizeBytesSchema = z.int().check(z.nonnegative(), z.maximum(MAX_FILE_BYTES));
+/** How many bytes a file holds: at most `MAX_FILE_BYTES`, refused in the unit a person reads. */
+export const fileSizeBytesSchema = z
+  .int()
+  .check(
+    z.nonnegative(),
+    z.maximum(MAX_FILE_BYTES, `Must be at most ${MAX_FILE_BYTES / 1024 / 1024} MiB`),
+  );
 
 /** Stored content as a caller names it: its digest and its size in bytes. */
 export const blobRefSchema = z.object({

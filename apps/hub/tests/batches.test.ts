@@ -215,13 +215,26 @@ test("an add with an invalid job adds none, and its answer names every problem w
   });
   const many = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`l${index}`, "x"]));
 
-  // Problems only the hub sees, with the Batch: a custom ID given twice, labels over the limit with
-  // the Batch's, and a job with neither input nor files.
+  // A custom ID given twice is refused at each of its uses, the first included, in words naming it.
+  const repeated = await post(`/batches/${batch.id}/jobs`, {
+    jobs: [jobNamed("scan.pdf"), jobNamed("b"), jobNamed("scan.pdf")],
+  });
+  expect(repeated.status).toBe(400);
+  const unique = 'Must be unique in the request: "scan.pdf" is given more than once';
+  expect(await repeated.json()).toMatchObject({
+    errors: [
+      { pointer: "/jobs/0/customId", detail: unique },
+      { pointer: "/jobs/2/customId", detail: unique },
+    ],
+  });
+
+  // Problems only the hub sees, with the Batch: labels over the limit with the Batch's, and a job
+  // with neither input nor files.
   const pendingJobAdd = client.batches.addJobs({
     id: batch.id,
-    jobs: [jobNamed("a"), jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
+    jobs: [jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
   });
-  for (const path of ["jobs[1].customId", "jobs[2].labels", "jobs[3].input"]) {
+  for (const path of ["jobs[1].labels", "jobs[2].input"]) {
     await expect(pendingJobAdd).rejects.toMatchObject({
       cause: { status: 400, detail: expect.stringContaining(path) },
     });
