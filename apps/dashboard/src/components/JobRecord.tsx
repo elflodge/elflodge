@@ -101,7 +101,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
               }
             >
               {/* Read directly: each poll changes when the Runner was last seen, and its link keeps
-                  the focus (AGENTS.md). */}
+                  the focus. */}
               <RunnerReference
                 linked
                 runner={props.job.runner}
@@ -127,7 +127,7 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             </>
           )}
         </Show>
-        {/* Read directly: a resume clears these, and each poll brings a new Date (AGENTS.md). */}
+        {/* Read directly: a resume clears these, and each poll brings a new Date. */}
         <Show when={props.job.endedAt}>
           <dt>Ended</dt>
           <dd>
@@ -166,7 +166,7 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
     // The Runner timestamps the opening Event. The hub timestamps receipt of the report.
     return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
   });
-  // The count is new on each report, so its Show's child reads it directly (AGENTS.md).
+  // The count is new on each report, so its Show's child reads it directly.
   const counted = () => measured()?.seconds ?? 0;
   const countedFrom = () => measured()?.start;
   const recountedFrom = () => (countedFrom()?.kind === JOB_STARTED ? undefined : countedFrom());

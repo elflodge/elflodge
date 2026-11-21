@@ -6,7 +6,7 @@ import type { LoadedRun } from "../job-runs.ts";
 import { Instant } from "./Instant.tsx";
 
 // A run and its ends are built anew on each read of the Events, so the Shows here read them
-// directly, guarding for an end that is gone, rather than through the Show's accessor (AGENTS.md).
+// directly, guarding for an end that is gone, rather than through the Show's accessor.
 
 function between(from: Date | undefined, to: Date | undefined) {
   return from && to ? duration((to.getTime() - from.getTime()) / 1000) : "";

@@ -101,7 +101,7 @@ function SignedIn() {
         </Link>
         {/* Removing a member leaves their session, which then has no Organization to name. */}
         {/* Read directly: a keyed child would be rebuilt on each read of the session, dropping
-            the tooltip of its title (AGENTS.md). */}
+            the tooltip of its title. */}
         <Show when={memberOrganization()}>
           <span class="org" title={memberOrganization()?.name}>
             {memberOrganization()?.name}
