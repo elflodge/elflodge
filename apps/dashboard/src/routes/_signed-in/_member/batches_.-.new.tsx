@@ -165,15 +165,9 @@ function leadWords(kind: RowsKind, count: number, mayHaveBatch: boolean) {
 
 /**
  * The issues of `issues` that concern a job, at its row by the job's index in `rows`, under its
- * Custom ID, its input or its file; and the others, for the form's controls. A repeated Custom ID,
- * whose words `repeats` holds by the job's index, is left out: the page tells repeats from the IDs
- * as they stand, so fixing one use ends the words at each.
+ * Custom ID, its input or its file; and the others, for the form's controls.
  */
-function splitRowIssues(
-  issues: readonly unknown[],
-  rows: readonly DraftRow[],
-  repeats: ReadonlyMap<number, string>,
-) {
+function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
   const atRows = new Map<number, RowRefusal>();
   const rest: unknown[] = [];
   for (const issue of issues) {
@@ -188,7 +182,6 @@ function splitRowIssues(
       continue;
     }
     const part = path[2] === "input" ? "input" : path[2] === "files" ? "file" : "customId";
-    if (part === "customId" && repeats.get(index) === issue.message) continue;
     const previous = atRows.get(row.key);
     atRows.set(row.key, {
       ...previous,
@@ -339,7 +332,7 @@ function SubmitBatch() {
     }
 
     function refusedBy(issues: readonly unknown[], kind: RowsKind): Ending {
-      const { atRows, rest } = splitRowIssues(issues, sent, repeatedCustomIds(reading.draft.jobs));
+      const { atRows, rest } = splitRowIssues(issues, sent);
       const refusal = issuesRefusal(rest, placed);
       return {
         fields: refusal.fields,
@@ -381,8 +374,17 @@ function SubmitBatch() {
         });
         return;
       case "invalid":
-        // The page's own check: nothing was sent, so its rows cannot be sent rather than refused.
-        setEnding(refusedBy(outcome.issues, "cannot be sent"));
+        // The page's own check: nothing was sent, so its rows cannot be sent rather than refused. A
+        // repeated Custom ID is left out, as the page tells repeats from the IDs as they stand, so
+        // fixing one use ends the words at each.
+        setEnding(
+          refusedBy(
+            outcome.issues.filter(
+              (issue) => !(issue.code === "custom" && issue.params?.repeats === "customId"),
+            ),
+            "cannot be sent",
+          ),
+        );
         return;
       case "tooLarge":
         setEnding({ ...NO_ENDING, tooLarge: true });

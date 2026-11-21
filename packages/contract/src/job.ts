@@ -164,7 +164,8 @@ const isList = ({ value }: { value: unknown }) => Array.isArray(value);
  * problems, as it runs a list's checks after its items'. The words name the repeated value and no
  * index: the pointer already says where, and callers count items differently (the CLI's "job N"
  * counts from 1), so an index would point some of them at the wrong item; without one, each place
- * is told.
+ * is told. Each issue's `params.repeats` names `key`, so a client tells a repeat by it, never by
+ * its words.
  */
 export function uniqueBy<Item>(key: keyof Item & string, place: string) {
   const textsOf = indexedTextsAt(key);
@@ -179,6 +180,7 @@ export function uniqueBy<Item>(key: keyof Item & string, place: string) {
           message: `Must be unique in ${place}: ${JSON.stringify(text)} is given more than once`,
           path: [index, key],
           input: text,
+          params: { repeats: key },
         });
       }
     },
