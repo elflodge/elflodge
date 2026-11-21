@@ -1,16 +1,10 @@
 import { ORPCError } from "@orpc/client";
-import { JsonSchemaCoercer } from "@orpc/json-schema";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { noop, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute, useBlocker, useRouter } from "@tanstack/solid-router";
-import {
-  BATCH_ID_PATTERN,
-  agentSchema,
-  asError,
-  batchCreationSchema,
-  openOutputSchemaConverter,
-  problemOf,
-} from "contract";
-import { Show, createEffect, createSignal, createUniqueId } from "solid-js";
+import { BATCH_ID_PATTERN, asError, batchCreationSchema, problemOf } from "contract";
+import { Show, createSignal, createUniqueId, onSettled } from "solid-js";
+// Not crypto.randomUUID, which is undefined outside a secure context: the dashboard may be served
+// over plain HTTP on a private network.
 import { v4 as uuid } from "uuid";
 
 import { api } from "../../../api-client.ts";
@@ -18,13 +12,19 @@ import { Field } from "../../../components/Field.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import { createFormAction, fieldText, formRefusal } from "../../../form.ts";
-import { USD_BUDGET, duration, formatCount } from "../../../format.ts";
+import { USD_THRESHOLD, duration, formatCount } from "../../../format.ts";
+import { isLeavingDocument } from "../../../member-document.ts";
 import { orpc } from "../../../query.ts";
 
-// Keep submission outside /jobs/new and /batches/new: "new" is a valid Batch ID.
+// It creates a Batch of one, but cannot be /batches/new: "new" is a valid Batch ID.
 export const Route = createFileRoute("/_signed-in/_member/submit/job")({
   loader: ({ context }) => {
-    if (context.member) void context.queryClient.prefetchQuery(orpc.jobs.limits.queryOptions());
+    // Not awaited: the form works without the limits, which only fill two hints. Preloading on
+    // intent starts the read before the page shows.
+    if (context.member)
+      void context.queryClient
+        .query(orpc.jobs.limits.queryOptions({ staleTime: "static" }))
+        .catch(noop);
   },
   component: SubmitJob,
 });
@@ -37,39 +37,45 @@ const startingSchema = `{
   "required": ["answer"]
 }`;
 
-const instructions = "agent[instructions]";
-const output = "agent[outputContract][schema]";
-const budget = "agent[modelBudgetUsd]";
-const timeout = "agent[runTimeoutSeconds]";
+const instructionsField = "agent[instructions]";
+const outputSchemaField = "agent[outputContract][schema]";
+const budgetField = "agent[modelBudgetUsd]";
+const timeoutField = "agent[runTimeoutSeconds]";
 
-// The two IDs name the same submission. Every part of the Output contract is edited as one field.
-// Other locators have no control and stay in the form alert.
+// The two IDs name the same submission. Both the hub and the contract's check locate a bad Output
+// schema at the schema itself. Other locators have no control and stay in the form alert.
 const controls = {
   id: ["id", "jobs[0][customId]"],
   input: ["jobs[0][input]"],
-  [instructions]: [instructions],
-  [output]: [{ subtree: "agent[outputContract]" }],
-  [budget]: [budget],
-  [timeout]: [timeout],
+  [instructionsField]: [instructionsField],
+  [outputSchemaField]: [outputSchemaField],
+  [budgetField]: [budgetField],
+  [timeoutField]: [timeoutField],
 };
 
-// Only numbers come from text. Coercing the already parsed Output schema could turn [] into {}.
-const coercer = new JsonSchemaCoercer();
-const budgetSchema = openOutputSchemaConverter.convert(agentSchema.shape.modelBudgetUsd, "input");
-const timeoutSchema = openOutputSchemaConverter.convert(
-  agentSchema.shape.runTimeoutSeconds,
-  "input",
-);
-
-function seconds(value: number) {
+function formatSeconds(value: number) {
   return `${formatCount(value)} (${duration(value)})`;
+}
+
+function isTextControl(control: unknown) {
+  return control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement;
+}
+
+/**
+ * The figure a number control holds, read as the browser reads it, so every spelling it accepts,
+ * such as `.5` or `1e3`, counts. Empty is NaN: the browser refuses to submit other text.
+ */
+function figureIn(control: HTMLInputElement) {
+  return Number.isNaN(control.valueAsNumber) ? undefined : control.valueAsNumber;
 }
 
 function SubmitJob() {
   const router = useRouter();
   const client = useQueryClient();
   const limits = useQuery(() => orpc.jobs.limits.queryOptions());
-  const figures = () => (!limits.isError && limits.dataUpdatedAt ? limits.data : undefined);
+  // The figures last read, kept through a failed background read. Reading `data` before the first
+  // answer would suspend the page, which must not wait for the limits.
+  const heldLimits = () => (limits.dataUpdatedAt ? limits.data : undefined);
   function limitHint(
     limit: { default: number; max: number } | undefined,
     format: (value: number) => string,
@@ -81,65 +87,65 @@ function SubmitJob() {
       : "Left empty, the hub’s default applies.";
   }
   const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
+  // Kept so that a retry after a lost answer sends the same ID, and the hub answers with the job
+  // it made instead of making a second one.
   let madeId: string | undefined;
+  // A request was sent since the last change and got no answer that says what the hub did.
+  const [outcomeUnknown, setOutcomeUnknown] = createSignal(false);
   let submitted = false;
-  let element: HTMLFormElement | undefined;
+  let formElement: HTMLFormElement | undefined;
+  let budgetInput!: HTMLInputElement;
+  let timeoutInput!: HTMLInputElement;
   const dirty = () =>
     !submitted &&
-    Array.from(element?.elements ?? []).some(
+    Array.from(formElement?.elements ?? []).some(
       (control) =>
-        (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) &&
+        isTextControl(control) &&
         (control.value !== control.defaultValue || control.validity.badInput),
     );
   const blocker = useBlocker({
     shouldBlockFn: dirty,
-    enableBeforeUnload: dirty,
+    // A document replaced after a sign-out or a change of member must go (ADR 0046).
+    enableBeforeUnload: () => !isLeavingDocument() && dirty(),
     withResolver: true,
   });
-  let dialog: HTMLDialogElement | undefined;
   const heading = createUniqueId();
-  createEffect(
-    () => blocker().status,
-    (status) => {
-      if (status === "blocked") dialog?.showModal();
-      else dialog?.close();
-    },
-  );
 
   const { pending, onSubmit } = createFormAction(async (form) => {
     const data = new FormData(form);
     let schema: unknown;
     try {
-      schema = JSON.parse(fieldText(data, output));
+      schema = JSON.parse(fieldText(data, outputSchemaField));
     } catch (error) {
       setFailure({
-        fields: new Map([[output, `Not valid JSON: ${asError(error).message}`]]),
+        fields: new Map([[outputSchemaField, `Not valid JSON: ${asError(error).message}`]]),
         alert: undefined,
       });
       return;
     }
     const id = fieldText(data, "id") || (madeId ??= uuid());
-    const jobs = [{ customId: id, input: fieldText(data, "input") }];
     const checked = batchCreationSchema.safeParse({
       id,
       breaker: false,
-      jobs,
+      jobs: [{ customId: id, input: fieldText(data, "input") }],
       agent: {
-        instructions: fieldText(data, instructions) || undefined,
+        instructions: fieldText(data, instructionsField) || undefined,
         outputContract: { schema },
-        modelBudgetUsd: coercer.coerce(budgetSchema, fieldText(data, budget) || undefined),
-        runTimeoutSeconds: coercer.coerce(timeoutSchema, fieldText(data, timeout) || undefined),
+        modelBudgetUsd: figureIn(budgetInput),
+        runTimeoutSeconds: figureIn(timeoutInput),
       },
     });
+    if (!checked.success) {
+      setFailure(
+        formRefusal(
+          new ORPCError("BAD_REQUEST", { data: { issues: checked.error.issues } }),
+          controls,
+        ),
+      );
+      return;
+    }
     try {
-      if (!checked.success)
-        throw new ORPCError("BAD_REQUEST", { data: { issues: checked.error.issues } });
-      const result = await api.batches.create({
-        id,
-        agent: checked.data.agent,
-        breaker: false,
-        jobs,
-      });
+      const result = await api.batches.create(checked.data);
       const first = result.jobs[0];
       if (!first) throw new Error("The hub answered without the submitted job.");
       const job = first.job;
@@ -156,13 +162,11 @@ function SubmitJob() {
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
       }
     } catch (error) {
-      const refusal = formRefusal(error, controls);
-      // While the hub was answering, the member may already have edited a refused value.
-      const now = new FormData(form);
-      for (const name of refusal.fields.keys())
-        if (now.get(name) !== data.get(name)) refusal.fields.delete(name);
-      setFailure(refusal);
-      if (problemOf(error)?.status === 403)
+      const status = problemOf(error)?.status;
+      // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
+      setOutcomeUnknown(!(status !== undefined && status >= 400 && status < 500));
+      setFailure(formRefusal(error, controls));
+      if (status === 403)
         void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
     }
   });
@@ -170,6 +174,7 @@ function SubmitJob() {
   // The previous refusal belongs to the last attempt while the next request is pending.
   const displayedFailure = () => (pending() ? undefined : failure());
   const refused = (name: string) => displayedFailure()?.fields.get(name);
+  const mayHaveJob = () => pending() || outcomeUnknown();
 
   return (
     <>
@@ -180,15 +185,15 @@ function SubmitJob() {
       <form
         class="fields is-wide"
         ref={(form) => {
-          element = form;
+          formElement = form;
         }}
         autocomplete="off"
         onSubmit={onSubmit}
         onInput={(event) => {
           madeId = undefined;
+          setOutcomeUnknown(false);
           const control = event.target;
-          if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement))
-            return;
+          if (!isTextControl(control)) return;
           setFailure((previous) => {
             if (!previous?.fields.has(control.name)) return previous;
             const fields = new Map(previous.fields);
@@ -205,27 +210,32 @@ function SubmitJob() {
         <Field
           label="Instructions"
           hint="Optional. What the agent is told before the input, after its Runner’s own instructions."
-          error={refused(instructions)}
+          error={refused(instructionsField)}
         >
-          {(control) => <textarea {...control} name={instructions} rows={4} />}
+          {(control) => (
+            <textarea {...control} name={instructionsField} rows={4} readonly={pending()} />
+          )}
         </Field>
         <Field label="Input" hint="What the agent works on." error={refused("input")}>
-          {(control) => <textarea {...control} name="input" rows={8} required />}
+          {(control) => (
+            <textarea {...control} name="input" rows={8} required readonly={pending()} />
+          )}
         </Field>
         <Field
           label="Output schema"
           hint="A JSON Schema the job’s Output must match: one value, not a list. A starting schema: one text answer. Replace it with yours."
-          error={refused(output)}
+          error={refused(outputSchemaField)}
         >
           {(control) => (
             <textarea
               {...control}
               class="mono"
-              name={output}
+              name={outputSchemaField}
               rows={10}
               required
               spellcheck={false}
               autocapitalize="off"
+              readonly={pending()}
               defaultValue={startingSchema}
             />
           )}
@@ -248,6 +258,7 @@ function SubmitJob() {
               title="Letters, digits, _ and -, not beginning with -"
               spellcheck={false}
               autocapitalize="off"
+              readonly={pending()}
             />
           )}
         </Field>
@@ -256,21 +267,45 @@ function SubmitJob() {
           unit="USD, over its life"
           hint={
             <>
-              {limitHint(figures()?.modelBudgetUsd, (value) => USD_BUDGET.format(value))} A model
-              call in progress completes, so the cost can end a little over.
+              {limitHint(heldLimits()?.modelBudgetUsd, (value) => USD_THRESHOLD.format(value))} A
+              model call in progress completes, so the cost can end a little over.
             </>
           }
-          error={refused(budget)}
+          error={refused(budgetField)}
         >
-          {(control) => <input {...control} name={budget} type="number" min="0" step="any" />}
+          {(control) => (
+            <input
+              {...control}
+              name={budgetField}
+              type="number"
+              min="0"
+              step="any"
+              readonly={pending()}
+              ref={(element) => {
+                budgetInput = element;
+              }}
+            />
+          )}
         </Field>
         <Field
           label="Run timeout"
           unit="seconds, each run"
-          hint={limitHint(figures()?.runTimeoutSeconds, seconds)}
-          error={refused(timeout)}
+          hint={limitHint(heldLimits()?.runTimeoutSeconds, formatSeconds)}
+          error={refused(timeoutField)}
         >
-          {(control) => <input {...control} name={timeout} type="number" min="1" step="1" />}
+          {(control) => (
+            <input
+              {...control}
+              name={timeoutField}
+              type="number"
+              min="1"
+              step="1"
+              readonly={pending()}
+              ref={(element) => {
+                timeoutInput = element;
+              }}
+            />
+          )}
         </Field>
         <Show when={displayedFailure()?.alert}>
           {(message) => <Notice role="alert">{message()}</Notice>}
@@ -282,28 +317,37 @@ function SubmitJob() {
           {pending() ? "Working…" : ""}
         </p>
       </form>
-      <dialog
-        ref={(node) => {
-          dialog = node;
-        }}
-        aria-labelledby={heading}
-        onCancel={() => blocker().reset?.()}
-      >
-        <h2 class="dialog-h" id={heading}>
-          Leave without submitting?
-        </h2>
-        <div class="dialog-b">
-          <p>The job has not been submitted. Leaving this page loses what you typed.</p>
-        </div>
-        <div class="dialog-f">
-          <button type="button" autofocus onClick={() => blocker().reset?.()}>
-            Stay
-          </button>
-          <button type="button" class="danger is-fill" onClick={() => blocker().proceed?.()}>
-            Leave the page
-          </button>
-        </div>
-      </dialog>
+      <Show when={blocker().status === "blocked"}>
+        <dialog
+          aria-labelledby={heading}
+          ref={(element) => {
+            onSettled(() => element.showModal());
+          }}
+          onClose={() => blocker().reset?.()}
+        >
+          <form method="dialog">
+            <h2 class="dialog-h" id={heading}>
+              {mayHaveJob() ? "Leave this page?" : "Leave without submitting?"}
+            </h2>
+            <div class="dialog-b">
+              <p>
+                {mayHaveJob()
+                  ? "The hub may already have this job: look for it in Jobs before submitting it again."
+                  : "The job has not been submitted."}{" "}
+                Leaving this page loses what you typed.
+              </p>
+            </div>
+            <div class="dialog-f">
+              <button value="keep" autofocus>
+                Stay
+              </button>
+              <button type="button" class="danger is-fill" onClick={() => blocker().proceed?.()}>
+                Leave the page
+              </button>
+            </div>
+          </form>
+        </dialog>
+      </Show>
     </>
   );
 }

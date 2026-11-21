@@ -1,6 +1,5 @@
 import { ORPCError } from "@orpc/client";
 import { isSchemaIssue } from "@orpc/contract";
-import { BracketNotationSerializer } from "@orpc/openapi";
 import { getIssueMessage } from "@orpc/openapi/helpers";
 import { useRouter } from "@tanstack/solid-router";
 import { PASSWORD_LENGTH } from "contract";
@@ -9,26 +8,16 @@ import { action, createEffect, createOptimistic } from "solid-js";
 import { hubFailureMessage } from "./api-client.ts";
 
 /** One control can edit several input paths. Keep every unmatched issue in the form alert. */
-export function formRefusal(
-  error: unknown,
-  controls: Record<string, readonly (string | { subtree: string })[]>,
-) {
+export function formRefusal(error: unknown, controls: Record<string, readonly string[]>) {
   const fields = new Map<string, string>();
   const alerts: string[] = [];
   if (error instanceof ORPCError && Array.isArray(error.data?.issues)) {
     // getIssueMessage returns the first match. Looking up each issue separately also preserves
     // repeated issues at one field and identical messages belonging to different fields.
     for (const issue of error.data.issues.filter(isSchemaIssue)) {
+      const singleIssueError = { data: { issues: [issue] } };
       const control = Object.entries(controls).find(([, paths]) =>
-        paths.some((path) => {
-          if (typeof path === "string")
-            return getIssueMessage({ data: { issues: [issue] } }, path) !== undefined;
-          // Match whole path segments, including when a schema property itself contains brackets.
-          const depth = new BracketNotationSerializer().parsePath(path.subtree).length;
-          if (!issue.path || issue.path.length < depth) return false;
-          const root = { ...issue, path: issue.path.slice(0, depth) };
-          return getIssueMessage({ data: { issues: [root] } }, path.subtree) !== undefined;
-        }),
+        paths.some((path) => getIssueMessage(singleIssueError, path) !== undefined),
       );
       if (control) {
         const [name] = control;

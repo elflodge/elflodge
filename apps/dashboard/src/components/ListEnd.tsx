@@ -90,10 +90,7 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
             when={props.runners?.every((runner) => !runner.connected)}
             fallback={
               <p>
-                <Show when={props.to === "/jobs"} fallback="Submit a Batch">
-                  <Link to="/submit/job">Submit a job</Link>, or submit a Batch
-                </Show>{" "}
-                of jobs with the CLI: <code>elflodge batches submit</code>
+                Submit a Batch of jobs with the CLI: <code>elflodge batches submit</code>
               </p>
             }
           >

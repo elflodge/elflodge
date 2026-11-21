@@ -17,16 +17,16 @@ afterAll(async () => {
   await system.stop();
 });
 
-async function openJobs(name: string) {
+async function openSubmitJob(name: string) {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   await signInAt(system, page, "jobs", await newMember(system, name));
-  await page.getByRole("link", { name: "Submit a job", exact: true }).first().click();
+  await page.getByRole("link", { name: "Submit a job", exact: true }).click();
   return page;
 }
 
 test("submitting a job opens its record, including when the same Custom ID is submitted again", async () => {
-  const page = await openJobs("Job submitter");
+  const page = await openSubmitJob("Job submitter");
   async function submit() {
     await page.getByLabel("Input", { exact: true }).fill("Count the invoices.");
     await page.getByLabel("Custom ID").fill("invoice-count");
@@ -46,7 +46,7 @@ test("submitting a job opens its record, including when the same Custom ID is su
 }, 30_000);
 
 test("a member can correct the limits the hub refused without retyping the job", async () => {
-  const page = await openJobs("Job editor");
+  const page = await openSubmitJob("Job editor");
   const values = [
     ["Instructions", "Read each invoice."],
     ["Input", "Invoice 17"],
@@ -66,7 +66,7 @@ test("a member can correct the limits the hub refused without retyping the job",
   );
   for (const [label, value] of values)
     await expectBrowser(page.getByLabel(label)).toHaveValue(value);
-  await budget.fill("0.50");
+  await budget.fill(".5");
   await expectBrowser(budget).not.toHaveAttribute("aria-invalid", "true");
   await expectBrowser(timeout).toHaveAttribute("aria-invalid", "true");
   await timeout.fill("60");
@@ -75,7 +75,7 @@ test("a member can correct the limits the hub refused without retyping the job",
 }, 30_000);
 
 test("a member leaving typed input can stay with the draft or discard it", async () => {
-  const page = await openJobs("Draft writer");
+  const page = await openSubmitJob("Draft writer");
   const input = page.getByLabel("Input", { exact: true });
   const jobs = page
     .getByRole("navigation", { name: "Where this is" })
