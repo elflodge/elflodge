@@ -59,7 +59,7 @@ export type SendOutcome =
   /** Stopped before the create was sent. */
   | { readonly kind: "stopped" }
   /** Files the browser could not read, each with the browser's reason, after the others were read. */
-  | { readonly kind: "unreadable"; readonly jobs: readonly JobProblem[]; readonly files: number }
+  | { readonly kind: "unreadable"; readonly jobs: readonly JobProblem[] }
   /**
    * The request as the contract refuses it, before anything is read, its issues placed as the hub's
    * are, by path: among them a Custom ID given twice and a file the hub would refuse by its name or
@@ -138,7 +138,6 @@ const prepare = Effect.fnUntraced(function* (
       return {
         kind: "unreadable",
         jobs: jobProblems(draft.jobs, (file) => reasons.get(file)),
-        files: files.length,
       } as const;
     }
     read = passes;
