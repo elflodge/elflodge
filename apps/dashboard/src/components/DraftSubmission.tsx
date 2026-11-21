@@ -193,7 +193,7 @@ export function EarlierWords(props: {
           {plural(
             others().length,
             `Submitting now goes under another ${props.idName} and leaves that one as it is.`,
-            "Submitting now makes another.",
+            `Submitting now goes under another ${props.idName} and leaves those as they are.`,
           )}
         </Show>
       </Show>
