@@ -163,8 +163,14 @@ function SubmitJob() {
       const result = await api.batches.create(checked.data);
       const first = result.jobs[0];
       if (!first) throw new Error("The hub answered without the submitted job.");
-      // The answer names the job by its IDs; the job's page reads the job itself.
+      // The answer names the job by its IDs; the job's page reads the job itself. A repeat names a
+      // job the member may have opened before, and that page's loader takes a cached copy of any
+      // age, so the copy goes and the job is read as it stands now.
       const job = first.job;
+      client.removeQueries({
+        queryKey: orpc.jobs.get.queryKey({ input: { id: job.id } }),
+        exact: true,
+      });
       void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
