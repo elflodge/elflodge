@@ -401,7 +401,8 @@ const uniqueCustomIds = z.superRefine(
       return read.success ? [{ index, customId: read.data.customId }] : [];
     });
     const uses = Map.groupBy(ids, (id) => id.customId);
-    // In the request's order, as a caller reads a refusal's problems.
+    // Among themselves in the request's order. Zod reports them after the jobs' own problems, as it
+    // runs a list's checks after its items'.
     for (const { index, customId } of ids) {
       if ((uses.get(customId)?.length ?? 0) < 2) continue;
       context.addIssue({

@@ -216,19 +216,30 @@ test("an add with an invalid job adds none, and each refusal names its problems 
   const many = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`l${index}`, "x"]));
 
   // A custom ID given twice is refused at each of its uses, the first included, in words naming it,
-  // together with another job's malformed member.
+  // in the request's order, together with another job's malformed member.
   const repeated = await post(`/batches/${batch.id}/jobs`, {
-    jobs: [jobNamed("scan.pdf"), { ...jobNamed("b"), files: "bad" }, jobNamed("scan.pdf")],
-  });
-  expect(repeated.status).toBe(400);
-  const unique = 'Must be unique in the request: "scan.pdf" is given more than once';
-  expect(await repeated.json()).toMatchObject({
-    errors: [
-      { pointer: "/jobs/1/files" },
-      { pointer: "/jobs/0/customId", detail: unique },
-      { pointer: "/jobs/2/customId", detail: unique },
+    jobs: [
+      jobNamed("scan.pdf"),
+      jobNamed("rates.csv"),
+      { ...jobNamed("b"), files: "bad" },
+      jobNamed("scan.pdf"),
+      jobNamed("rates.csv"),
     ],
   });
+  expect(repeated.status).toBe(400);
+  const problemsSchema = z.object({
+    errors: z.array(z.object({ pointer: z.string(), detail: z.string() })),
+  });
+  const { errors } = z.parse(problemsSchema, await repeated.json());
+  const scanTwice = 'Must be unique in the request: "scan.pdf" is given more than once';
+  const ratesTwice = 'Must be unique in the request: "rates.csv" is given more than once';
+  expect(errors.filter(({ pointer }) => pointer.endsWith("/customId"))).toEqual([
+    { pointer: "/jobs/0/customId", detail: scanTwice },
+    { pointer: "/jobs/1/customId", detail: ratesTwice },
+    { pointer: "/jobs/3/customId", detail: scanTwice },
+    { pointer: "/jobs/4/customId", detail: ratesTwice },
+  ]);
+  expect(errors).toContainEqual(expect.objectContaining({ pointer: "/jobs/2/files" }));
 
   // Problems only the hub sees, with the Batch: labels over the limit with the Batch's, and a job
   // with neither input nor files.
