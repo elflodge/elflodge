@@ -16,7 +16,7 @@ import {
   createDraftSubmission,
 } from "../../../components/DraftSubmission.tsx";
 import { Field } from "../../../components/Field.tsx";
-import { LabelFields, isLabelsGroupControl, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, endsAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import {
@@ -191,8 +191,10 @@ function SubmitJob() {
           hint="Optional. The job carries them, and Usage can group cost by a key."
           pending={pending()}
           refused={refused}
-          onChange={() => {
-            setFailure((previous) => previous && withoutRefusals(previous, isLabelsGroupControl));
+          onChange={(count) => {
+            setFailure(
+              (previous) => previous && withoutRefusals(previous, endsAtLabelCount(count)),
+            );
           }}
         />
         <Show when={hubWords() || earlier()}>

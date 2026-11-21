@@ -1,4 +1,4 @@
-import { LABEL_KEY_PATTERN, MAX_LABEL_NAME_LENGTH } from "contract";
+import { LABEL_KEY_PATTERN, MAX_LABELS, MAX_LABEL_NAME_LENGTH } from "contract";
 import { For, Show, createSignal, flush } from "solid-js";
 
 import { fieldText, focusNextRemove } from "../form.ts";
@@ -30,11 +30,12 @@ export function labelsOf(data: FormData) {
 }
 
 /**
- * Whether the refusal at the control `name` is of the Labels as a whole, as of their count, which a
- * change of their rows ends; a row's own stays at its row until its value is edited.
+ * Whether the refusal at the control `name` ends once the form holds `count` Labels: one of the
+ * Labels as a whole, of their count, ends when the count fits; a row's own stays at its row until
+ * its value is edited.
  */
-export function isLabelsGroupControl(name: string) {
-  return name === "labels";
+export function endsAtLabelCount(count: number) {
+  return (name: string) => name === "labels" && count <= MAX_LABELS;
 }
 
 /**
@@ -46,8 +47,8 @@ export function LabelFields(props: {
   hint: string;
   pending: boolean;
   refused: (name: string) => string | undefined;
-  /** A row was added or removed, and the form holds the rows as they are now. */
-  onChange: () => void;
+  /** A row was added or removed, and the form holds the rows as they are now, `count` of them. */
+  onChange: (count: number) => void;
 }) {
   let nextRow = 0;
   const [rows, setRows] = createSignal<readonly number[]>([]);
@@ -65,7 +66,7 @@ export function LabelFields(props: {
     const row = nextRow++;
     setRows((previous) => [...previous, row]);
     flush();
-    props.onChange();
+    props.onChange(rows().length);
     document.getElementById(`label-${row}-key`)?.focus();
   }
   function remove(row: number, button: HTMLButtonElement) {
@@ -73,7 +74,7 @@ export function LabelFields(props: {
     setRows((previous) => previous.filter((other) => other !== row));
     flush();
     markRepeatedKeys();
-    props.onChange();
+    props.onChange(rows().length);
   }
   return (
     <FieldGroup label="Labels" hint={props.hint} error={props.refused("labels")}>

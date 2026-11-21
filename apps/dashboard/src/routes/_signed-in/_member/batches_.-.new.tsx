@@ -53,7 +53,7 @@ import {
   createDraftSubmission,
 } from "../../../components/DraftSubmission.tsx";
 import { Field, FieldGroup } from "../../../components/Field.tsx";
-import { LabelFields, isLabelsGroupControl, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, endsAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import { createFormAction, fieldText, issuesRefusal, withoutRefusals } from "../../../form.ts";
@@ -529,9 +529,9 @@ function SubmitBatch() {
           hint="Optional. Every job of the Batch carries them, and Usage can group cost by a key."
           pending={pending()}
           refused={refused}
-          onChange={() => {
+          onChange={(count) => {
             updateDraft();
-            setEnding((previous) => withoutRefusals(previous, isLabelsGroupControl));
+            setEnding((previous) => withoutRefusals(previous, endsAtLabelCount(count)));
           }}
         />
         <FieldGroup
