@@ -4,7 +4,8 @@ import { createFileRoute, useBlocker, useRouter } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, asError, batchCreationSchema, problemOf } from "contract";
 import { Show, createSignal, createUniqueId, onSettled } from "solid-js";
 // Not crypto.randomUUID, which is undefined outside a secure context: the dashboard may be served
-// over plain HTTP on a private network (docs/deploy.md, "Runners on other machines": "A private network").
+// over plain HTTP on a private network (docs/deploy.md, "Runners on other machines",
+// "A private network").
 import { v4 as uuid } from "uuid";
 
 import { api } from "../../../api-client.ts";
@@ -90,8 +91,8 @@ function SubmitJob() {
   // Kept so that a retry after a lost answer sends the same ID, and the hub answers with the job
   // it made instead of making a second one.
   let madeId: string | undefined;
-  // A request was sent, and got no answer that says what the hub did or its success came after
-  // the member chose to leave; by the ID it was sent under, made or typed. A later refusal of the
+  // A request was sent, and got no answer that says what the hub did, or its success came after
+  // the member chose to leave. Holds which kind of ID it was sent under. A later refusal of the
   // same draft says nothing of that request, so only an edit that gives the next send another ID
   // or a success the page follows settles it.
   const [unknownOutcome, setUnknownOutcome] = createSignal<"made ID" | "Custom ID">();
@@ -199,12 +200,14 @@ function SubmitJob() {
   const alertWords = () => {
     if (pending()) return undefined;
     const sentUnder = unknownOutcome();
+    // Under a typed Custom ID the member may have edited other fields since, so the words point
+    // at the values sent rather than at the form as it stands.
     const words = [
       failure()?.alert,
-      sentUnder &&
+      sentUnder === "made ID" &&
         "The hub may already have this job. Submit again without changing anything to find out: the same request returns the job if it was made.",
       sentUnder === "Custom ID" &&
-        "A changed request under the same Custom ID cannot make a second job: if the first was made, the hub refuses it at Custom ID as already used for other content.",
+        "The hub may already have this job. Submit the values you sent again to find out: the same request returns the job if it was made. Other content under this Custom ID cannot make a second job: if the first was made, Custom ID shows that the ID was already used for other content.",
     ];
     return words.filter(Boolean).join("\n") || undefined;
   };
