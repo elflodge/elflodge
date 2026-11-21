@@ -22,7 +22,7 @@ import {
   LiveDoc,
   type ConversationId,
   type Harness,
-  type TaskId,
+  type SubmissionId,
 } from "@earendil-works/pi-durable";
 import type { BirpcReturn } from "birpc";
 
@@ -37,7 +37,7 @@ type Runtime = Pick<
   | "registerNativeProvider"
 >;
 
-function supportsProviders(models: Models): models is Models & Runtime {
+export function supportsProviders(models: Models): models is Models & Runtime {
   return (
     "registerProvider" in models &&
     typeof models.registerProvider === "function" &&
@@ -83,18 +83,14 @@ export class ProviderRequests {
   }
 }
 
-interface Registration {
-  settings: ProviderSettings;
-  /** A function stays on its worker while any attached session uses it. */
-  handler?: number;
-}
-
 interface InstalledProvider {
   readonly runtime: Runtime;
-  readonly previous: ReturnType<Runtime["getRegisteredProviderConfig"]>;
+  readonly previous: ProviderConfig | undefined;
   readonly native: Provider | undefined;
-  current: ReturnType<Runtime["getRegisteredProviderConfig"]>;
-  readonly sessions: Map<ProviderSession, Registration>;
+  current: ProviderConfig | undefined;
+  /** Only instances that registered a stream may receive a model request. */
+  readonly sessions: Map<ProviderSession, boolean>;
+  readonly dispatch: NonNullable<ProviderConfig["streamSimple"]>;
 }
 
 const catalogs = new WeakMap<Models, Map<string, InstalledProvider>>();
@@ -108,8 +104,9 @@ export class ProviderSession {
   readonly #conversation: ConversationId;
   readonly #rpc: WorkerRpc;
   readonly #requests: ProviderRequests;
+  readonly #route: string;
   readonly #life = new AbortController();
-  readonly #parked = new Map<TaskId, { controllers: Set<AbortController> }>();
+  readonly #parked = new Map<SubmissionId, Set<AbortController>>();
 
   constructor(
     models: Models,
@@ -118,6 +115,7 @@ export class ProviderSession {
     conversation: ConversationId,
     rpc: WorkerRpc,
     requests: ProviderRequests,
+    route: string,
   ) {
     this.#models = models;
     this.#catalog = catalogs.get(models) ?? new Map();
@@ -127,121 +125,103 @@ export class ProviderSession {
     this.#conversation = conversation;
     this.#rpc = rpc;
     this.#requests = requests;
+    this.#route = route;
   }
 
-  register(name: string, settings: ProviderSettings, handler?: number) {
+  register(name: string, settings: ProviderSettings, customStream: boolean) {
     this.#life.signal.throwIfAborted();
     const models = this.#models;
     if (!supportsProviders(models))
       throw new Error(
         "registerProvider is not supported by these Harness models; supply a Pi ModelRuntime",
       );
-    const entry = this.#catalog.get(name) ?? {
-      runtime: models,
-      previous: models.getRegisteredProviderConfig(name),
-      native: models.getRegisteredNativeProvider(name),
-      current: models.getRegisteredProviderConfig(name),
-      sessions: new Map<ProviderSession, Registration>(),
-    };
-    if (models.getRegisteredProviderConfig(name) !== entry.current) {
+    const entry = this.#catalog.get(name) ?? this.#createRegistration(name, models);
+    if (models.getRegisteredProviderConfig(name) !== entry.current)
       throw new Error(`Provider "${name}" was replaced outside the extension host`);
-    }
-    const previous = entry.sessions.get(this);
-    const effective = {
-      ...previous?.settings,
-      ...Object.fromEntries(Object.entries(settings).filter(([, value]) => value !== undefined)),
-    };
-    const registration: Registration = {
-      settings: effective,
-      handler: handler ?? previous?.handler,
-    };
-    for (const [peer, other] of entry.sessions) {
-      if (peer === this) continue;
-      if (
-        !isDeepStrictEqual(effective, other.settings) ||
-        (registration.handler === undefined) !== (other.handler === undefined)
-      ) {
-        throw new Error(
-          `Provider "${name}" has different settings in another conversation using these models`,
-        );
-      }
-    }
-    if (
-      !entry.sessions.size ||
-      (previous && !isDeepStrictEqual(previous.settings, effective)) ||
-      (!!previous && (previous.handler === undefined) !== (registration.handler === undefined))
-    ) {
-      const config: ProviderConfig = { ...settings };
-      if (registration.handler !== undefined) {
-        config.streamSimple = (model, context, options = {}) =>
-          lazyStream(
-            model,
-            async () => {
-              const selected = [...entry.sessions].filter(
-                ([session]) =>
-                  options.sessionId === undefined || session.#sessionId === options.sessionId,
-              );
-              const owner = selected.length === 1 ? selected[0] : undefined;
-              if (!owner || owner[1].handler === undefined)
-                throw new Error(
-                  `No unique attached conversation for provider "${name}" and session "${options.sessionId ?? ""}"`,
-                );
-              return owner[0].#stream(owner[1].handler, model, context, options);
-            },
-            undefined,
-            options.signal,
+
+    if (entry.sessions.size > (entry.sessions.has(this) ? 1 : 0)) {
+      // A shared catalog can discover new models. Changing where a peer sends requests or
+      // which credentials it uses requires a separate runtime.
+      for (const field of ["api", "baseUrl", "apiKey", "authHeader", "headers"] as const) {
+        if (
+          settings[field] !== undefined &&
+          !isDeepStrictEqual(settings[field], entry.current?.[field])
+        )
+          throw new Error(
+            `Provider "${name}" has different ${field} settings in another conversation using these models`,
           );
       }
-      models.registerProvider(name, config);
-      entry.current = models.getRegisteredProviderConfig(name);
+      if (customStream && entry.current?.streamSimple !== entry.dispatch)
+        throw new Error(
+          `Provider "${name}" already serves another conversation without this custom stream`,
+        );
     }
-    entry.sessions.set(this, registration);
+    // Pi validates each incoming registration and merges it with the previous one. In particular,
+    // a headers-only update must reach Pi without streamSimple, even on a streaming provider.
+    models.registerProvider(
+      name,
+      customStream ? { ...settings, streamSimple: entry.dispatch } : settings,
+    );
+    entry.current = models.getRegisteredProviderConfig(name);
+    entry.sessions.set(this, customStream || entry.sessions.get(this) === true);
     this.#catalog.set(name, entry);
-    if (previous?.handler !== undefined && previous.handler !== registration.handler)
-      this.#release(entry, previous.handler);
   }
 
-  /** A shared registry can reuse a provider's function on this worker. A different worker must register its own. */
+  #createRegistration(name: string, runtime: Runtime): InstalledProvider {
+    const sessions = new Map<ProviderSession, boolean>();
+    const previous = runtime.getRegisteredProviderConfig(name);
+    return {
+      runtime,
+      previous,
+      current: previous,
+      native: runtime.getRegisteredNativeProvider(name),
+      sessions,
+      dispatch: (model, context, options = {}) =>
+        lazyStream(
+          model,
+          async () => {
+            const matches = [...sessions].filter(
+              ([session, custom]) => custom && session.#sessionId === options.sessionId,
+            );
+            if (matches.length !== 1)
+              throw new Error(
+                `No unique attached conversation for provider "${name}" and session "${options.sessionId ?? ""}"`,
+              );
+            return matches[0][0].#stream(name, model, context, options);
+          },
+          undefined,
+          options.signal,
+        ),
+    };
+  }
+
   get(name: string) {
     const provider = this.#models.getProvider(name);
-    if (!provider) return undefined;
     const entry = this.#catalog.get(name);
+    // A worker closure belongs to its own extension instance. Reporting a peer's closure here
+    // would cause extensions that register on first use to skip this conversation.
     if (
-      entry &&
-      !entry.sessions.has(this) &&
-      entry.runtime.getRegisteredProviderConfig(name) === entry.current
-    ) {
-      const registration = [...entry.sessions].find(
-        ([peer, source]) => source.handler === undefined || peer.#rpc === this.#rpc,
-      )?.[1];
-      if (!registration) return undefined;
-      entry.sessions.set(this, registration);
-    }
+      !provider ||
+      (entry &&
+        entry.runtime.getRegisteredProviderConfig(name)?.streamSimple === entry.dispatch &&
+        !entry.sessions.get(this))
+    )
+      return undefined;
     return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl };
   }
 
   unregister(name: string) {
+    if (!supportsProviders(this.#models))
+      throw new Error(
+        "unregisterProvider is not supported by these Harness models; supply a Pi ModelRuntime",
+      );
     const entry = this.#catalog.get(name);
-    const own = entry?.sessions.get(this);
-    if (!entry || !own) return;
-    entry.sessions.delete(this);
-    if (own.handler !== undefined) this.#release(entry, own.handler);
-    if (entry.sessions.size) return;
+    if (!entry || !entry.sessions.delete(this) || entry.sessions.size) return;
     this.#catalog.delete(name);
     if (entry.runtime.getRegisteredProviderConfig(name) !== entry.current) return;
     entry.runtime.unregisterProvider(name);
     if (entry.native) entry.runtime.registerNativeProvider(entry.native);
     else if (entry.previous) entry.runtime.registerProvider(name, entry.previous);
-  }
-
-  #release(entry: InstalledProvider, id: number) {
-    if (
-      [...entry.sessions].some(
-        ([session, registration]) => session.#rpc === this.#rpc && registration.handler === id,
-      )
-    )
-      return;
-    void this.#rpc.releaseProvider.asEvent(id).catch(() => {});
   }
 
   close() {
@@ -250,7 +230,7 @@ export class ProviderSession {
   }
 
   async #stream(
-    handler: number,
+    name: string,
     model: Model<Api>,
     context: TranscriptContext,
     options: SimpleStreamOptions,
@@ -268,7 +248,8 @@ export class ProviderSession {
       throw new Error("An extension provider running on a worker cannot use a host fetch function");
     const live = this.#life.signal;
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
-    const run = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run;
+    const submission = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run
+      ?.inputs[0];
     live.throwIfAborted();
     const controller = transferableAbortController();
     const cancel = () => controller.abort(signal?.reason);
@@ -282,7 +263,8 @@ export class ProviderSession {
       // A generation invocation retires its signal even on toolUse. Its provider can still be
       // waiting for the tool when the run is aborted between this request and the next one.
       signal?.removeEventListener("abort", cancel);
-      if (message.stopReason === "toolUse" && run) this.#park(run.taskId, controller);
+      if (message.stopReason === "toolUse" && submission !== undefined)
+        this.#park(submission, controller);
     };
     const id = this.#requests.add({
       options,
@@ -294,7 +276,7 @@ export class ProviderSession {
     });
     const stop = () => controller.abort(live.reason);
     live.addEventListener("abort", stop, { once: true });
-    const call = this.#rpc.streamProvider(handler, id, model, context, {
+    const call = this.#rpc.streamProvider(this.#route, name, id, model, context, {
       ...plain,
       signal: controller.signal,
       onPayload: !!onPayload,
@@ -318,23 +300,24 @@ export class ProviderSession {
     return { [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](), result: () => result };
   }
 
-  #park(task: TaskId, controller: AbortController) {
-    const held = this.#parked.get(task);
+  #park(submission: SubmissionId, controller: AbortController) {
+    const held = this.#parked.get(submission);
     if (held) {
-      held.controllers.add(controller);
+      held.add(controller);
       return;
     }
     const controllers = new Set([controller]);
-    this.#parked.set(task, { controllers });
-    const abort = () => {
-      for (const signal of controllers) signal.abort();
+    this.#parked.set(submission, controllers);
+    // Successive tool rounds hand the run to new generation tasks. Its first input stays
+    // placed throughout, including when a tool terminates the run without another request.
+    const release = () => {
+      this.#parked.delete(submission);
+      for (const parked of controllers) parked.abort();
     };
     const bound = withAbortSignal(this.#life.signal, BACKGROUND_CONTEXT);
     void this.#harness
-      .waitForTask(task, bound)
-      .then((receipt) => {
-        if (receipt.state.outcome.status !== "completed") abort();
-      }, abort)
-      .finally(() => this.#parked.delete(task));
+      .submission(submission, bound)
+      .then((input) => input?.wait(bound))
+      .then(release, release);
   }
 }

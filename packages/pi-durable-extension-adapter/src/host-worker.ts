@@ -53,6 +53,7 @@ for (const { source, path } of workerData.extensions) {
 interface Opened extends Instance {
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
+  readonly providerStreams: Map<string, NonNullable<ProviderConfig["streamSimple"]>>;
   readonly running: Map<string, AbortController>;
   /** Calls whose `tool_execution_start` was emitted, with the arguments it gave. */
   readonly started: Map<string, unknown>;
@@ -63,9 +64,6 @@ interface Opened extends Instance {
 }
 
 const instances = new Map<string, Opened>();
-// A registry may still use a handler after the conversation that registered it closes.
-const providerStreams = new Map<number, NonNullable<ProviderConfig["streamSimple"]>>();
-let nextProvider = 0;
 type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
 
 const journal = new SyncMessagePort(workerData.journal);
@@ -146,6 +144,7 @@ const functions: WorkerFunctions = {
       if (!life.signal.aborted) act(key, action);
     };
     const prompts = new Set<Promise<void>>();
+    const providerStreams: Opened["providerStreams"] = new Map();
     const instance = await runtime.createInstance(extensions, {
       cwd,
       flags,
@@ -160,14 +159,20 @@ const functions: WorkerFunctions = {
         const { streamSimple, ...settings } = config;
         if (streamSimple !== undefined && typeof streamSimple !== "function")
           throw new TypeError("registerProvider: streamSimple must be a function");
-        const registration = streamSimple && nextProvider++;
-        journalRequest({ type: "registerProvider", key, name, config: settings, registration });
-        if (registration !== undefined && streamSimple)
-          providerStreams.set(registration, streamSimple);
+        journalRequest({
+          type: "registerProvider",
+          key,
+          name,
+          config: settings,
+          customStream: !!streamSimple,
+        });
+        // Pi merges defined fields on re-registration. A settings-only change keeps the handler.
+        if (streamSimple) providerStreams.set(name, streamSimple);
       },
       unregisterProvider(name) {
         life.signal.throwIfAborted();
         journalRequest({ type: "unregisterProvider", key, name });
+        providerStreams.delete(name);
       },
       actions: {
         sendMessage: (...args) => send({ type: "sendMessage", args }),
@@ -243,6 +248,7 @@ const functions: WorkerFunctions = {
     instances.set(key, {
       ...instance,
       life,
+      providerStreams,
       running: new Map(),
       started: new Map(),
       durations: new Map(),
@@ -255,10 +261,10 @@ const functions: WorkerFunctions = {
     };
   },
   registrations: (key) => registrations(instanceFor(key)),
-  async streamProvider(registration, request, model, context, options) {
-    const streamSimple = providerStreams.get(registration);
+  async streamProvider(key, name, request, model, context, options) {
+    const streamSimple = instanceFor(key).providerStreams.get(name);
     if (!streamSimple)
-      throw new Error(`No stream handler registered for provider ${model.provider}`);
+      throw new Error(`No stream handler registered for provider ${name} in this conversation`);
     const { onPayload, onResponse, onProviderStreamEvent, ...settings } = options;
     const stream = streamSimple(model, context, {
       ...settings,
@@ -270,9 +276,6 @@ const functions: WorkerFunctions = {
     });
     for await (const event of stream) await host.providerEvent.asEvent(request, event);
     return stream.result();
-  },
-  releaseProvider(registration) {
-    providerStreams.delete(registration);
   },
   emit: (key, event) => runnerFor(key).emit(event),
   // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
