@@ -154,7 +154,7 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
         <div class="filters-row">
           {props.children}
           <span class="filter-act">
-            <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+            <button type="submit" aria-disabled={pending() ? "true" : undefined}>
               Apply
             </button>
             <Show when={props.applied > 0}>

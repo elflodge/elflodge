@@ -23,6 +23,9 @@
 }
 
 /* ---------- Button variants: the primary action, and a quiet one that is words alone ---------- */
+a:where(.button) {
+  text-decoration: none;
+}
 .primary {
   background: var(--brand-shape);
   color: var(--c-on-shape);
@@ -556,6 +559,7 @@
 }
 /* What failed may be said in the hub's words, which can hold a long address or name with no space to break at. */
 .notice p {
+  white-space: pre-line;
   max-width: var(--measure);
   overflow-wrap: anywhere;
 }
@@ -578,6 +582,12 @@
 .fields {
   display: grid;
   gap: var(--space-3);
+  max-width: 24rem;
+}
+.fields.is-wide {
+  max-width: 44rem;
+}
+.fields.is-wide > .field > :is(input, select) {
   max-width: 24rem;
 }
 .fields > button {
