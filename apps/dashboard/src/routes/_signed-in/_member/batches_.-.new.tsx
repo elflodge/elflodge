@@ -105,6 +105,15 @@ type RowsKind = "cannot be sent" | "refused" | "unreadable" | "not uploaded";
 /** The order in which the alert tells the rows of each kind. */
 const ROWS_KINDS: readonly RowsKind[] = ["cannot be sent", "refused", "unreadable", "not uploaded"];
 
+/**
+ * The alert while the request is over what one request takes, whose Text figure says by how much.
+ * The CLI sends a Batch's jobs in several requests, the first holding the agent.
+ */
+const TOO_LARGE: readonly AlertPart[] = [
+  "The text to send is more than one request takes. Shorten the typed inputs, or submit with the CLI, which sends a Batch's jobs in several requests as long as the agent and the first job fit in one: ",
+  { code: "elflodge batches submit" },
+];
+
 /** A row whose words stand, and the part of it that carries them. */
 interface RowTarget {
   readonly key: number;
@@ -119,6 +128,8 @@ interface Ending {
   readonly kind?: RowsKind;
   /** The alert's words after the rows'. */
   readonly alert?: readonly AlertPart[];
+  /** The request was over what one request takes, said while the figures say it still is. */
+  readonly tooLarge?: true;
   readonly stopped?: true;
 }
 
@@ -374,13 +385,7 @@ function SubmitBatch() {
         setEnding(refusedBy(outcome.issues, "cannot be sent"));
         return;
       case "tooLarge":
-        setEnding({
-          ...NO_ENDING,
-          alert: [
-            `The text to send is ${formatBytes(outcome.bytes)}, and one request takes at most ${formatBytes(outcome.max)}. Shorten the typed inputs, or submit with the CLI, which sends a Batch in several requests: `,
-            { code: "elflodge batches submit" },
-          ],
-        });
+        setEnding({ ...NO_ENDING, tooLarge: true });
         return;
       case "checkFailed":
         setEnding({
@@ -446,7 +451,11 @@ function SubmitBatch() {
   const alert = createMemo(() => {
     if (pending()) return undefined;
     const groups = standing();
-    const after = ending().alert ?? [];
+    const request = facts()?.request;
+    const after =
+      ending().tooLarge && request && request.bytes > request.max
+        ? TOO_LARGE
+        : (ending().alert ?? []);
     const earlier = submission.earlier();
     if (!groups.length && !after.length && !earlier) return undefined;
     return { groups, after, earlier };

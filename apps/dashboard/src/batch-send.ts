@@ -67,7 +67,7 @@ export type SendOutcome =
    */
   | { readonly kind: "invalid"; readonly issues: readonly z.core.$ZodIssue[] }
   /** The request's body is over the most one request takes. */
-  | { readonly kind: "tooLarge"; readonly bytes: number; readonly max: number }
+  | { readonly kind: "tooLarge" }
   /** The hub's check of which files it holds failed. */
   | { readonly kind: "checkFailed"; readonly error: unknown }
   /**
@@ -247,8 +247,7 @@ export async function* prepareBatch(
   const unread = creationOf(draft, new Map());
   const early = z.safeParse(batchCreationSchema, unread);
   if (!early.success) return { kind: "invalid", issues: early.error.issues };
-  const bytes = requestBytes(unread);
-  if (bytes > MAX_BODY_BYTES) return { kind: "tooLarge", bytes, max: MAX_BODY_BYTES };
+  if (requestBytes(unread) > MAX_BODY_BYTES) return { kind: "tooLarge" };
 
   // Every file is read each time, so a file changed since the last try is named by what it holds.
   // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
