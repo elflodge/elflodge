@@ -23,7 +23,6 @@
     "better-auth": "catalog:",
     "contract": "workspace:*",
     "effect": "catalog:",
-    "filesize": "catalog:",
     "solid-js": "catalog:",
     "ufo": "catalog:",
     "uuid": "catalog:",
