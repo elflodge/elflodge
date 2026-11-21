@@ -275,6 +275,13 @@ export interface Reads {
   flush(): null;
 }
 
+export type ReadRequest<M extends keyof Reads = keyof Reads> = {
+  readonly type: "read";
+  readonly key: string;
+  readonly method: M;
+  readonly args: Parameters<Reads[M]>;
+};
+
 /**
  * What a worker sends on its journal channel, in order: actions that write to the conversation and
  * reads that wait for an answer, so a read sees every write an extension made before it.
@@ -289,12 +296,7 @@ export type JournalMessage =
     }
   | { readonly type: "unregisterProvider"; readonly key: string; readonly name: string }
   | { readonly type: "act"; readonly key: string; readonly action: Action }
-  | {
-      readonly type: "read";
-      readonly key: string;
-      readonly method: keyof Reads;
-      readonly args: readonly unknown[];
-    };
+  | { [M in keyof Reads]: ReadRequest<M> }[keyof Reads];
 
 /**
  * The host's answer to a read. A worker waits on each read before it sends anything else, and
