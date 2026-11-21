@@ -108,7 +108,7 @@ catalog:
   testcontainers: ^12.2.1
   tiny-merge-patch: ^1.0.0
   trpc-cli: ^0.17.1
-  type-fest: ^5.10.0
+  type-fest: ^6.0.2
   # Exactly the version Pi pins, so installs share Pi's copy; a range would resolve to a newer one
   # beside it. Follow Pi when it moves: Dependabot leaves it alone, and the adapter's tests fail
   # while the two differ.
