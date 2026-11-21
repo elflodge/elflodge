@@ -400,16 +400,16 @@ const uniqueCustomIds = z.superRefine(
       const read = z.safeParse(withCustomIdSchema, item);
       return read.success ? [{ index, customId: read.data.customId }] : [];
     });
-    for (const [customId, uses] of Map.groupBy(ids, (id) => id.customId)) {
-      if (uses.length < 2) continue;
-      for (const { index } of uses) {
-        context.addIssue({
-          code: "custom",
-          message: `Must be unique in the request: ${JSON.stringify(customId)} is given more than once`,
-          path: [index, "customId"],
-          input: customId,
-        });
-      }
+    const uses = Map.groupBy(ids, (id) => id.customId);
+    // In the request's order, as a caller reads a refusal's problems.
+    for (const { index, customId } of ids) {
+      if ((uses.get(customId)?.length ?? 0) < 2) continue;
+      context.addIssue({
+        code: "custom",
+        message: `Must be unique in the request: ${JSON.stringify(customId)} is given more than once`,
+        path: [index, "customId"],
+        input: customId,
+      });
     }
   },
   // Zod skips a refinement once another part of the list failed to parse; this one reads only the
