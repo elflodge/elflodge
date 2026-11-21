@@ -10,6 +10,7 @@ import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn, isPlainObject, matchesHttpPath, setOwn } from "@orpc/shared";
 import { parseStandardUrl } from "@standard-server/core";
 import {
+  type AddedJobs,
   apiContract,
   errorStatusMap,
   getAccess,
@@ -136,6 +137,10 @@ function hintRunners(hint: RunnerId | "live" | undefined) {
       Effect.sync(() => console.error("Hinting Runners to sync failed", cause)),
     ),
   );
+}
+
+function hintRunnersForNewJobs({ jobs }: Pick<AddedJobs, "jobs">) {
+  return jobs.some(({ created }) => created) ? hintRunners("live") : Effect.void;
 }
 
 /**
@@ -305,17 +310,17 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
+          Effect.tap(hintRunnersForNewJobs),
         );
       }),
       addJobs: os.batches.addJobs.effect(function* ({ input, context, errors }) {
         const submitter = yield* submitterOf(context.caller);
-        const added = yield* addJobs(input.id, input.jobs, submitter).pipe(
+        return yield* addJobs(input.id, input.jobs, submitter).pipe(
           Effect.catchTag("InvalidInput", ({ problems }) =>
             Effect.fail(invalidInput(errors, input, problems)),
           ),
+          Effect.tap(hintRunnersForNewJobs),
         );
-        if (added.jobs.some(({ created }) => created)) yield* hintRunners("live");
-        return added;
       }),
       list: os.batches.list.effect(function* ({ input, errors }) {
         return yield* listBatches({

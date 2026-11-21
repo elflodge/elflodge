@@ -54,10 +54,56 @@ test("the hub applies the defaults and accepts limits up to the maxima it report
     cause: { status: 400, detail: expect.stringContaining("runTimeoutSeconds") },
   });
   await expect(
-    client.batches.create({ agent: { ...agent, modelBudgetUsd: modelBudgetUsd.max + 0.01 } }),
+    client.batches.create({
+      agent: {
+        outputContract: { schema: { type: "array" } },
+        modelBudgetUsd: modelBudgetUsd.max + 0.01,
+      },
+    }),
   ).rejects.toMatchObject({
-    cause: { status: 400, detail: expect.stringContaining("modelBudgetUsd") },
+    cause: {
+      status: 400,
+      errors: [{ pointer: "/agent/outputContract/schema" }, { pointer: "/agent/modelBudgetUsd" }],
+    },
   });
+});
+
+test("a repeat keeps the limits accepted for a Batch before the maximum was lowered", async () => {
+  const agent = { outputContract: SUBMISSION.outputContract, modelBudgetUsd: 5 };
+  const jobs = [{ customId: "count", input: SUBMISSION.input }];
+  system.model.setResponses([callTool("submit_output", { value: 1 })]);
+  const created = await system.owner().batches.create({ agent, jobs });
+  const jobId = created.jobs[0]?.job.id;
+  if (!jobId) throw new Error("The creation returned no job");
+  await untilStatus(system.owner(), jobId, "succeeded");
+
+  const lowered = startSystem({ hubVars: { JOB_MODEL_BUDGET_USD_MAX: "4" } });
+  await lowered.start({ keepDatabase: true });
+  try {
+    const client = lowered.owner();
+    await expect(client.batches.create({ agent })).rejects.toMatchObject({
+      cause: { status: 400 },
+    });
+    await expect(
+      client.batches.create({ id: created.id, agent, jobs: [{ customId: "no-input" }] }),
+    ).rejects.toMatchObject({
+      cause: { status: 400, errors: [{ pointer: "/jobs/0/input" }] },
+    });
+    await expect(
+      client.batches.create({ id: created.id, agent: { ...agent, modelBudgetUsd: 6 } }),
+    ).rejects.toMatchObject({
+      cause: { status: 422, errors: [{ pointer: "/id" }] },
+    });
+    expect(await client.batches.create({ id: created.id, agent })).toMatchObject({
+      id: created.id,
+      jobs: [],
+    });
+    expect(await client.batches.create({ id: created.id, agent, jobs })).toMatchObject({
+      jobs: [{ created: false, job: { id: jobId, modelBudgetUsd: 5 } }],
+    });
+  } finally {
+    await lowered.stop();
+  }
 });
 
 test("a job whose run passes its timeout fails, and a resume with a longer one carries it on", async () => {

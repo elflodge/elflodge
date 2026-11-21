@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
+import { MAX_BODY_BYTES } from "contract";
 import { expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -102,6 +103,7 @@ function fakeHub(
   const held = new Set(stored);
   const uploads: { digest: string; bytes: Uint8Array }[] = [];
   const adds: AddedJob[][] = [];
+  const requestSizes: number[] = [];
   const ids = new Map<string, string>();
   const { promise: batchRead, resolve: readBatch } = Promise.withResolvers<void>();
   let batchReads = 0;
@@ -127,13 +129,13 @@ function fakeHub(
       held.add(uploaded);
       return answer(response, { digest: uploaded, sizeBytes: body.length });
     }
-    if (request.method === "POST" && request.url === "/batches") {
+    const creation = request.url === "/batches";
+    if (request.method === "POST" && creation) {
       const { id } = z.parse(z.object({ id: z.string() }), json());
       batchIds.push(id);
       batchId ||= id;
-      return answer(response, batchOf(batchId));
     }
-    if (request.method === "POST" && request.url === `/batches/${batchId}/jobs`) {
+    if (request.method === "POST" && (creation || request.url === `/batches/${batchId}/jobs`)) {
       const { jobs } = z.parse(addSchema, json());
       if (adds.length + 1 === refusedAdd) {
         response.writeHead(422, { "content-type": "application/problem+json" });
@@ -149,9 +151,11 @@ function fakeHub(
           }),
         );
       }
+      requestSizes.push(body.length);
       adds.push(jobs);
+      const batch = batchOf(batchId, { queued: ids.size + jobs.length });
       return answer(response, {
-        batch: batchOf(batchId, { queued: ids.size + jobs.length }),
+        ...(creation ? batch : { batch }),
         jobs: jobs.map((job) => {
           const id = crypto.randomUUID();
           ids.set(id, job.customId);
@@ -183,7 +187,7 @@ function fakeHub(
     }
     response.writeHead(404).end();
   };
-  return { listener, uploads, adds, batchIds, batchRead };
+  return { listener, uploads, adds, requestSizes, batchIds, batchRead };
 }
 
 /** A new folder holding `files`, by path, and an Output schema. */
@@ -316,6 +320,44 @@ test("batches submit adds the jobs of a JSONL file in its order, at most 100 at 
   expect(hub.adds.flat().map((job) => job.customId)).toEqual(
     lines.map((_, index) => `posting-${index}`),
   );
+});
+
+test.each([0, 1])(
+  "batches submit splits only when the encoded create exceeds 16 MiB (extra bytes: %i)",
+  async (extra) => {
+    const id = "byte-limit";
+    const agent = { outputContract: { schema: {} } };
+    const jobs = [
+      { customId: "one", input: '界"'.repeat(1_000_000), labels: {}, files: [] },
+      { customId: "two", input: "", labels: {}, files: [] },
+    ];
+    const remaining = MAX_BODY_BYTES - Buffer.byteLength(JSON.stringify({ id, agent, jobs }));
+    const lines = jobs.map((job) =>
+      JSON.stringify({ ...job, input: job.input || "a".repeat(remaining + extra) }),
+    );
+    const cwd = await folderWith({ "jobs.jsonl": lines.join("\n") });
+    const hub = fakeHub(() => ({ status: "succeeded", output: {} }));
+
+    const result = await submit(hub.listener, cwd, ["jobs.jsonl", "--id", id]);
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(hub.adds.map((group) => group.map((job) => job.customId))).toEqual(
+      extra === 0 ? [["one", "two"]] : [["one"], ["two"]],
+    );
+    if (extra === 0) expect(hub.requestSizes).toEqual([MAX_BODY_BYTES]);
+    else expect(Math.max(...hub.requestSizes)).toBeLessThanOrEqual(MAX_BODY_BYTES);
+  },
+);
+
+test("batches submit refuses an agent and first job that exceed the create limit together before creating anything", async () => {
+  const cwd = await folderWith({
+    "jobs.jsonl": JSON.stringify({ customId: "one", input: "a".repeat(MAX_BODY_BYTES - 100) }),
+  });
+  const hub = fakeHub(() => ({ status: "succeeded", output: {} }));
+  const result = await submit(hub.listener, cwd, ["jobs.jsonl", "--instructions", "a".repeat(200)]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("agent and first job exceed the request size limit");
+  expect(hub.batchIds).toEqual([]);
 });
 
 // Root reads any folder, so the refusal shows only for another user.

@@ -10,35 +10,16 @@ import { runCli } from "./run-cli.ts";
 // answer with that ID, so the hub accepts the Batch and the job at most once; the hub's own tests
 // check that one ID makes one Batch and one job.
 
-test("jobs submit retries an add whose connection dropped with the ID it created the Batch with, and prints the ID once it gives up", async () => {
+test("jobs submit retries the Batch and its job under one ID and prints that ID if no answer arrives", async () => {
   const created: string[] = [];
   const added: unknown[] = [];
-  // Answers the Batch's creation, then reads each add and drops its connection without answering.
-  const hub: RequestListener = async (request, response) => {
-    const body: unknown = JSON.parse(await text(request));
-    if (request.url === "/batches") {
-      const { id } = z.parse(z.object({ id: z.string() }), body);
-      created.push(id);
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(
-        JSON.stringify({
-          id,
-          createdAt: new Date().toISOString(),
-          status: "active",
-          submitter: { kind: "key", id: "key-1", name: "jobs" },
-          pausedBy: null,
-          labels: {},
-          breaker: false,
-          jobCounts: { queued: 0, running: 0, paused: 0, succeeded: 0, failed: 0, cancelled: 0 },
-          blockedJobCounts: { batchPausedByCaller: 0, batchPausedByBreaker: 0, batchCanary: 0 },
-          statusUnknownJobs: 0,
-          usage: { totalTokens: 0, cost: { totalUsd: 0 } },
-        }),
-      );
-      return;
-    }
-    expect(request.url).toBe(`/batches/${created[0]}/jobs`);
-    const { jobs } = z.parse(z.object({ jobs: z.array(z.object({ customId: z.string() })) }), body);
+  const hub: RequestListener = async (request) => {
+    expect(request.url).toBe("/batches");
+    const { id, jobs } = z.parse(
+      z.object({ id: z.string(), jobs: z.array(z.object({ customId: z.string() })) }),
+      JSON.parse(await text(request)),
+    );
+    created.push(id);
     added.push(...jobs.map((job) => job.customId));
     request.socket.destroy();
   };
@@ -55,9 +36,33 @@ test("jobs submit retries an add whose connection dropped with the ID it created
     { hub },
   );
 
-  expect(created).toHaveLength(1);
+  expect(created).toHaveLength(3);
   expect(added).toHaveLength(3);
   expect(new Set([...created, ...added]).size).toBe(1);
   expect(exitCode).toBe(1);
   expect(stderr).toContain(`The job's custom ID is ${created[0]}`);
+});
+
+test("jobs submit prints the generated ID for recovery when the hub's answer fails output validation", async () => {
+  const receivedIds: string[] = [];
+  const hub: RequestListener = async (request, response) => {
+    const { id } = z.parse(z.object({ id: z.string() }), JSON.parse(await text(request)));
+    receivedIds.push(id);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ id }));
+  };
+  const { exitCode, stderr } = await runCli(
+    [
+      "jobs",
+      "submit",
+      "--json",
+      JSON.stringify({ agent: { outputContract: { schema: {} } }, input: "Count." }),
+    ],
+    { hub },
+  );
+
+  expect(receivedIds).toHaveLength(1);
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("Output validation failed");
+  expect(stderr).toContain(`The job's custom ID is ${receivedIds[0]}`);
 });

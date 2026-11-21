@@ -24,6 +24,15 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       // Clients can look up shared schemas by name.
       schemas: {
         Job: {},
+        CreatedBatch: {
+          required: expect.arrayContaining([
+            "submitter",
+            "blockedJobCounts",
+            "statusUnknownJobs",
+            "jobs",
+          ]),
+          properties: { jobs: { type: "array" } },
+        },
         ProblemDetails: {
           properties: {
             type: {},
@@ -68,6 +77,17 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       },
     },
     paths: {
+      "/batches": {
+        post: {
+          responses: {
+            200: {
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/CreatedBatch" } },
+              },
+            },
+          },
+        },
+      },
       "/jobs/{id}/cancel": {
         post: {
           responses: {
@@ -213,14 +233,11 @@ function clientWithFixedResponse(answer: unknown): ApiClient {
 
 test("the client converts dates when job, list, Batch and Events answers gain members", async () => {
   const owner = system.owner();
-  const batch = await owner.batches.create({
+  const { jobs, ...batch } = await owner.batches.create({
     agent: { outputContract: { schema: { type: "integer" } } },
-  });
-  const added = await owner.batches.addJobs({
-    id: batch.id,
     jobs: [{ customId: "one", input: "Count." }],
   });
-  const { job } = added.jobs[0];
+  const { job } = jobs[0];
   const id = { id: job.id };
   const page = await owner.jobs.list({ batchId: batch.id });
   const events = await owner.jobs.events(id);
