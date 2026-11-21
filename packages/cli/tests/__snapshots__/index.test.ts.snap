@@ -51,7 +51,7 @@ exports[`the commands and their flags 1`] = `
             },
             {
               "attributeName": "jobs",
-              "description": "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at \`GET /jobs/limits\` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 100 array",
+              "description": "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at \`GET /jobs/limits\` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 1000 array",
               "flags": "--jobs [values...]",
               "name": "jobs",
               "negate": false,
@@ -97,7 +97,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Adds jobs to a Batch, at most 100 at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.",
+          "description": "Adds jobs to a Batch, at most 1000 at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, with whether this add created it. An add is all or nothing. An add to a missing Batch is refused with 404 before the hub checks the jobs against the Batch. For an existing Batch, every job is checked and the add is refused with 400 if any is invalid, including when a \`customId\` appears twice in the same call. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.",
           "name": "add-jobs",
           "options": [
             {
@@ -113,7 +113,7 @@ exports[`the commands and their flags 1`] = `
             {
               "attributeName": "jobs",
               "defaultValue": [],
-              "description": "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at \`GET /jobs/limits\` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 100 array",
+              "description": "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at \`GET /jobs/limits\` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.; Min items: 1; Max items: 1000 array",
               "flags": "--jobs [values...]",
               "name": "jobs",
               "negate": false,

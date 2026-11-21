@@ -378,8 +378,12 @@ export const jobSubmissionSchema = z
   .register(z.globalRegistry, { id: "JobSubmission" });
 export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
 
-/** The most jobs one request adds to a Batch. */
-export const MAX_JOBS_PER_ADD = 100;
+/**
+ * The most jobs one request, a creation or an add, carries. The body's size does not bound the rows
+ * one transaction inserts or the size of the answer, since a job naming its files is small in the
+ * request; the count does (ADR 0050).
+ */
+export const MAX_JOBS_PER_ADD = 1000;
 
 const submittedJobsSchema = z
   .array(jobSubmissionSchema)
