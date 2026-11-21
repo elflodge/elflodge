@@ -94,7 +94,7 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
-import { ProviderRequests, ProviderSession } from "./providers.ts";
+import { ProviderRequests, ProviderSession, supportsProviders } from "./providers.ts";
 
 /** How `startExtensionHost` runs extensions. */
 export interface ExtensionHostOptions {
@@ -483,7 +483,7 @@ class Workers {
           const providers = found.providers;
           if (!providers) throw new Error("The extension provider session is closed");
           if (message.type === "registerProvider")
-            providers.register(message.name, message.config, message.registration);
+            providers.register(message.name, message.config, message.customStream);
           else providers.unregister(message.name);
           reply({ value: undefined });
         } catch (error) {
@@ -555,10 +555,12 @@ async function attachConversation(
   // durable ID even when it opens before that request.
   const sessionId =
     provider?.sessionId ??
-    (await conversation.commit(
-      async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
-      context,
-    ));
+    (supportsProviders(options.models)
+      ? await conversation.commit(
+          async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
+          context,
+        )
+      : String(conversation.id));
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
@@ -921,6 +923,7 @@ class AttachedConversation {
       this.id,
       hosted.rpc,
       hosted.requests,
+      route,
     );
     this.#release = () => this.#workers.release(hosted, route, this);
     this.#opening = true;

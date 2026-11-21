@@ -173,13 +173,13 @@ export interface WorkerFunctions extends DispatchFunctions {
   open(key: string, sessionId: string, cwd: string, flags: Flags): Promise<Opened>;
   registrations(key: string): Registrations;
   streamProvider(
-    registration: number,
+    key: string,
+    name: string,
     request: number,
     model: Model<Api>,
     context: TranscriptContext,
     options: ProviderStreamOptions,
   ): Promise<AssistantMessage>;
-  releaseProvider(registration: number): void;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;
   close(key: string): Promise<void>;
@@ -285,7 +285,7 @@ export type JournalMessage =
       readonly key: string;
       readonly name: string;
       readonly config: ProviderSettings;
-      readonly registration?: number;
+      readonly customStream: boolean;
     }
   | { readonly type: "unregisterProvider"; readonly key: string; readonly name: string }
   | { readonly type: "act"; readonly key: string; readonly action: Action }
