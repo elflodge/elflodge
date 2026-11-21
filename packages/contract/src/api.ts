@@ -385,25 +385,38 @@ export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
  */
 export const MAX_JOBS_PER_ADD = 1000;
 
+/** What `uniqueCustomIds` reads of an item: its `customId`, where it is text. */
+const withCustomIdSchema = z.object({ customId: z.string() });
+
 /**
  * Refuses each item of a list whose `customId` another item has, the first one included. The words
  * name the repeated ID and no index: the pointer already says where, and callers count items
- * differently (the CLI's "job N" and a form's rows count from 1), so an index would point some of
- * them at the wrong item; without one, each place is told.
+ * differently (the CLI's "job N" counts from 1), so an index would point some of them at the wrong
+ * item; without one, each place is told.
  */
-const uniqueCustomIds = z.superRefine((items: readonly { customId: string }[], context) => {
-  const uses = new Map<string, number>();
-  for (const { customId } of items) uses.set(customId, (uses.get(customId) ?? 0) + 1);
-  items.forEach(({ customId }, index) => {
-    if ((uses.get(customId) ?? 0) < 2) return;
-    context.addIssue({
-      code: "custom",
-      message: `Must be unique in the request: ${JSON.stringify(customId)} is given more than once`,
-      path: [index, "customId"],
-      input: customId,
+const uniqueCustomIds = z.superRefine(
+  (items: readonly unknown[], context) => {
+    const ids = items.flatMap((item, index) => {
+      const read = z.safeParse(withCustomIdSchema, item);
+      return read.success ? [{ index, customId: read.data.customId }] : [];
     });
-  });
-});
+    for (const [customId, uses] of Map.groupBy(ids, (id) => id.customId)) {
+      if (uses.length < 2) continue;
+      for (const { index } of uses) {
+        context.addIssue({
+          code: "custom",
+          message: `Must be unique in the request: ${JSON.stringify(customId)} is given more than once`,
+          path: [index, "customId"],
+          input: customId,
+        });
+      }
+    }
+  },
+  // Zod skips a refinement once another part of the list failed to parse; this one reads only the
+  // IDs it can, so a repeat is answered with the request's other problems. Zod hands it the list as
+  // parsed so far, malformed items included.
+  { when: ({ value }) => Array.isArray(value) },
+);
 
 const submittedJobsSchema = z
   .array(jobSubmissionSchema)

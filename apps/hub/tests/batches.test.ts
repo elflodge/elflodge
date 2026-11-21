@@ -206,7 +206,7 @@ test(`a request creates up to ${MAX_JOBS_PER_ADD} jobs together, and one more is
   await client.batches.cancel({ id });
 });
 
-test("an add with an invalid job adds none, and its answer names every problem with its path", async () => {
+test("an add with an invalid job adds none, and each refusal names its problems with their paths", async () => {
   const client = await system.clientWithNewJobsKey();
   const batch = await client.batches.create({
     agent: AGENT,
@@ -215,14 +215,16 @@ test("an add with an invalid job adds none, and its answer names every problem w
   });
   const many = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`l${index}`, "x"]));
 
-  // A custom ID given twice is refused at each of its uses, the first included, in words naming it.
+  // A custom ID given twice is refused at each of its uses, the first included, in words naming it,
+  // together with another job's malformed member.
   const repeated = await post(`/batches/${batch.id}/jobs`, {
-    jobs: [jobNamed("scan.pdf"), jobNamed("b"), jobNamed("scan.pdf")],
+    jobs: [jobNamed("scan.pdf"), { ...jobNamed("b"), files: "bad" }, jobNamed("scan.pdf")],
   });
   expect(repeated.status).toBe(400);
   const unique = 'Must be unique in the request: "scan.pdf" is given more than once';
   expect(await repeated.json()).toMatchObject({
     errors: [
+      { pointer: "/jobs/1/files" },
       { pointer: "/jobs/0/customId", detail: unique },
       { pointer: "/jobs/2/customId", detail: unique },
     ],
