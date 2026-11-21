@@ -90,13 +90,13 @@ function SubmitJob() {
   // Kept so that a retry after a lost answer sends the same ID, and the hub answers with the job
   // it made instead of making a second one.
   let madeId: string | undefined;
-  // A request was sent since the last change and got no answer that says what the hub did. A
-  // later refusal of the same draft says nothing of that request, so only an edit or a success
-  // settles it.
+  // A request was sent since the last change and got no answer that says what the hub did, or
+  // its success came after the member chose to leave. A later refusal of the same draft says
+  // nothing of that request, so only an edit or a success the page follows settles it.
   const [outcomeUnknown, setOutcomeUnknown] = createSignal(false);
   let submitted = false;
   // The member confirmed leaving while this request was pending: its answer must not take them
-  // back. A new send clears it, as a member who came back before leaving sends anew.
+  // back. A new send clears it, so it covers only the request pending at Leave.
   let leaveConfirmed = false;
   let formElement: HTMLFormElement | undefined;
   let budgetInput!: HTMLInputElement;
@@ -177,6 +177,7 @@ function SubmitJob() {
         // A member who comes back to the form finds it as after a lost answer: the made ID is kept,
         // so sending it unchanged opens this job.
         setOutcomeUnknown(true);
+        setFailure(undefined);
       }
     } catch (error) {
       const status = problemOf(error)?.status;
