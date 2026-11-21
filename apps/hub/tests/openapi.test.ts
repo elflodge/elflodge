@@ -271,8 +271,10 @@ test("the client converts dates when job, list, Batch and Events answers gain me
 });
 
 test("the client keeps unfamiliar reasons on jobs, listed jobs and Events", async () => {
-  const job = await submitJob(system.owner(), { input: "Count.", outputContract: { schema: {} } });
-  const ref = { id: job.id };
+  const client = system.owner();
+  const { id } = await submitJob(client, { input: "Count.", outputContract: { schema: {} } });
+  const ref = { id };
+  const job = await client.jobs.get(ref);
   for (const snapshot of [
     { ...job, blockedBy: "capacityHeld" },
     {
