@@ -87,6 +87,7 @@ import type {
   JournalMessage,
   Opened,
   ReadReply,
+  ReadRequest,
   Reads,
   Registrations,
   ToolDescriptor,
@@ -94,6 +95,7 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
+import { ProviderRequests, ProviderSession, supportsProviders } from "./providers.ts";
 
 /** How `startExtensionHost` runs extensions. */
 export interface ExtensionHostOptions {
@@ -271,6 +273,7 @@ const workerModule = fileURLToPath(
 );
 
 interface HostedWorker {
+  readonly requests: ProviderRequests;
   readonly worker: Worker;
   readonly rpc: BirpcReturn<WorkerFunctions, HostFunctions>;
   readonly conversations: Map<string, AttachedConversation>;
@@ -417,7 +420,9 @@ class Workers {
       if (!found) throw new Error(`No conversation ${key} on this worker`);
       return found;
     };
+    const requests = new ProviderRequests();
     const functions: HostFunctions = {
+      ...requests.callbacks,
       setModel: (key, model) => attached(key).setModel(model),
       exec: (key, id, command, args, options) => attached(key).exec(id, command, args, options),
       cancelExec: (key, id) => conversations.get(key)?.cancelExec(id),
@@ -435,7 +440,10 @@ class Workers {
     };
     const port = rpc.port1;
     const client = createBirpc<WorkerFunctions, HostFunctions>(functions, {
-      post: (message) => port.postMessage(message),
+      post: (message) => {
+        const options = message.m === "streamProvider" ? message.a.at(-1) : undefined;
+        port.postMessage(message, options?.signal ? [options.signal] : []);
+      },
       on: (handler) => port.on("message", handler),
       // No time limit: tools and hooks run as long as they need; the worker's exit rejects what is
       // pending.
@@ -471,12 +479,26 @@ class Workers {
         reply({ error: new Error(`No conversation ${message.key} on this worker`) });
         return;
       }
-      found.read(message.method, message.args).then(
+      if (message.type !== "read") {
+        try {
+          const providers = found.providers;
+          if (!providers) throw new Error("The extension provider session is closed");
+          if (message.type === "registerProvider")
+            providers.register(message.name, message.config, message.customStream);
+          else providers.unregister(message.name);
+          reply({ value: undefined });
+        } catch (error) {
+          reply({ error: ensureError(error) });
+        }
+        return;
+      }
+      found.read(message).then(
         (value) => reply({ value }),
         (error: unknown) => reply({ error: ensureError(error) }),
       );
     });
     const hosted: HostedWorker = {
+      requests,
       worker,
       rpc: client,
       conversations,
@@ -530,9 +552,16 @@ async function attachConversation(
 ): Promise<AttachedExtensions> {
   const { harness, conversation } = options;
   const provider = await harness.snapshot(ProviderDoc, conversation.id, context);
-  // A conversation gets its provider session ID when it is created; one from before that gets
-  // it at its first request, so it uses its own ID until then.
-  const sessionId = provider?.sessionId ?? `${conversation.id}`;
+  // A legacy conversation gets its ID at its first request. Give its worker the same
+  // durable ID even when it opens before that request.
+  const sessionId =
+    provider?.sessionId ??
+    (supportsProviders(options.models)
+      ? await conversation.commit(
+          async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
+          context,
+        )
+      : String(conversation.id));
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
@@ -805,6 +834,7 @@ class AttachedConversation {
    * such as one still shutting down after the time limit, never reaches a later one.
    */
   #route = "";
+  providers: ProviderSession | undefined;
   readonly models: Models;
   readonly #options: AttachOptions;
   #hosted: HostedWorker | undefined;
@@ -887,6 +917,15 @@ class AttachedConversation {
     const hosted = this.#workers.acquire(route, this);
     this.#route = route;
     this.#hosted = hosted;
+    this.providers = new ProviderSession(
+      this.models,
+      this.sessionId,
+      this.#options.harness,
+      this.id,
+      hosted.rpc,
+      hosted.requests,
+      route,
+    );
     this.#release = () => this.#workers.release(hosted, route, this);
     this.#opening = true;
     // Its own awaits stop at the limit too.
@@ -1524,58 +1563,65 @@ class AttachedConversation {
     }
   }
 
-  /** Answers a worker's synchronous read, after the writes sent before it. */
-  async read(method: keyof Reads, args: readonly unknown[]): Promise<unknown> {
+  static readonly #reads: {
+    [M in keyof Reads]: (
+      session: AttachedConversation,
+      ...args: Parameters<Reads[M]>
+    ) => ReturnType<Reads[M]> | Promise<ReturnType<Reads[M]>>;
+  } = {
+    flush: () => null,
+    async getBranch(session, fromId) {
+      const entries = await session.#entries();
+      const end = fromId === undefined ? -1 : entries.findIndex((entry) => entry.id === fromId);
+      return end === -1 ? entries : entries.slice(0, end + 1);
+    },
+    getEntries: (session) => session.#entries(),
+    getEntry: async (session, id) => (await session.#entries()).find((entry) => entry.id === id),
+    getLeafId: async (session) => (await session.#entries()).at(-1)?.id ?? null,
+    getModel: (session) => session.#model(),
+    getContextUsage: (session) => session.#contextUsage(),
+    getThinkingLevel: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).thinkingLevel,
+    isIdle: async (session) =>
+      (
+        await session.#options.harness.snapshot(
+          LiveDoc,
+          session.conversation.id,
+          BACKGROUND_CONTEXT,
+        )
+      )?.run === undefined,
+    getActiveTools: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).tools.map((tool) => tool.name),
+    getAllTools: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).tools.map((tool): ToolInfo => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        exposure: "direct",
+        sourceInfo: {
+          path: "<pi-durable>",
+          source: "pi-durable",
+          scope: "temporary",
+          origin: "top-level",
+        },
+      })),
+    getProvider: (session, name) => session.providers?.get(name),
+    async getModels(session) {
+      const available = await session.models.getAvailable().then(
+        (list) => list.map((each) => `${each.provider}/${each.id}`),
+        () => [],
+      );
+      return { models: [...session.models.getModels()], available };
+    },
+  };
+
+  /** Answers a worker's synchronous read after all preceding writes. */
+  async read<M extends keyof Reads>({
+    method,
+    args,
+  }: ReadRequest<M>): Promise<ReturnType<Reads[M]>> {
     await this.#writes;
-    const { conversation, harness } = this.#options;
-    const context = BACKGROUND_CONTEXT;
-    switch (method) {
-      case "flush":
-        return null;
-      case "getBranch": {
-        const entries = await this.#entries();
-        const end = typeof args[0] === "string" ? entries.findIndex((e) => e.id === args[0]) : -1;
-        return end === -1 ? entries : entries.slice(0, end + 1);
-      }
-      case "getEntries":
-        return this.#entries();
-      case "getEntry":
-        return (await this.#entries()).find((entry) => entry.id === args[0]);
-      case "getLeafId":
-        return (await this.#entries()).at(-1)?.id ?? null;
-      case "getModel":
-        return this.#model();
-      case "getContextUsage":
-        return this.#contextUsage();
-      case "getThinkingLevel":
-        return (await conversation.agent(context)).thinkingLevel;
-      case "isIdle":
-        return (await harness.snapshot(LiveDoc, conversation.id, context))?.run === undefined;
-      case "getActiveTools":
-        return (await conversation.agent(context)).tools.map((tool) => tool.name);
-      case "getAllTools":
-        return (await conversation.agent(context)).tools.map((tool): ToolInfo => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-          exposure: "direct",
-          sourceInfo: {
-            path: "<pi-durable>",
-            source: "pi-durable",
-            scope: "temporary",
-            origin: "top-level",
-          },
-        }));
-      case "getModels": {
-        const available = await this.models.getAvailable().then(
-          (list) => list.map((each) => `${each.provider}/${each.id}`),
-          () => [],
-        );
-        return { models: [...this.models.getModels()], available };
-      }
-    }
-    const unknown: never = method;
-    throw new Error(`Unknown read ${String(unknown)}`);
+    return AttachedConversation.#reads[method](this, ...args);
   }
 
   /** The conversation's model, from the `models` given to `attach`. */
@@ -1698,6 +1744,8 @@ class AttachedConversation {
    * nothing, and a `tool_call` gate blocks.
    */
   lost() {
+    this.providers?.close();
+    this.providers = undefined;
     this.#hosted = undefined;
     // Its end can no longer reach them, so `close` waits no longer.
     this.#runEnd?.delivered.resolve();
@@ -1751,6 +1799,8 @@ class AttachedConversation {
       // answers; what extensions do after it, or after the time limit, is dropped.
       await awaitWithContext(hosted.rpc.close(this.#route), limited).catch(() => {});
     }
+    this.providers?.close();
+    this.providers = undefined;
     this.#closed = true;
     this.#release?.();
   }

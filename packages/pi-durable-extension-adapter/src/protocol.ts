@@ -1,6 +1,15 @@
 import type { MessagePort } from "node:worker_threads";
 
-import type { Api, Message, Model } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  AssistantMessageEvent,
+  Message,
+  Model,
+  Provider,
+  SimpleStreamOptions,
+  TranscriptContext,
+} from "@earendil-works/pi-ai";
 import type {
   ContextUsage,
   ExecOptions,
@@ -9,6 +18,7 @@ import type {
   ExtensionRunner,
   MessageEndEvent,
   ModelRegistry,
+  ProviderConfig,
   SessionEntry,
   ToolInfo,
   TurnEndEvent,
@@ -145,11 +155,31 @@ export type CompactDecision = { readonly cancel: true } | { readonly summary: st
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;
 
+/** Pi composes these provider settings on the host. Executable implementations stay in the worker. */
+export type ProviderSettings = Omit<
+  ProviderConfig,
+  "streamSimple" | "images" | "classifiers" | "oauth" | "refreshModels"
+>;
+
+type StreamHook = "onPayload" | "onResponse" | "onProviderStreamEvent";
+
+/** The host transfers the signal and serves each requested hook over the same RPC channel. */
+export type ProviderStreamOptions = Omit<SimpleStreamOptions, StreamHook | "fetch" | "telemetry"> &
+  Partial<Record<StreamHook, boolean>>;
+
 /** What the worker serves to the host. */
 export interface WorkerFunctions extends DispatchFunctions {
   /** `key` names this instance in later calls; `sessionId` is what `ctx.sessionManager` gives. */
   open(key: string, sessionId: string, cwd: string, flags: Flags): Promise<Opened>;
   registrations(key: string): Registrations;
+  streamProvider(
+    key: string,
+    name: string,
+    request: number,
+    model: Model<Api>,
+    context: TranscriptContext,
+    options: ProviderStreamOptions,
+  ): Promise<AssistantMessage>;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;
   close(key: string): Promise<void>;
@@ -185,6 +215,19 @@ export type Action =
 
 /** What the host serves to a worker, asynchronously. */
 export interface HostFunctions {
+  providerEvent(request: number, event: AssistantMessageEvent): void;
+  providerPayload(
+    request: number,
+    ...args: Parameters<NonNullable<SimpleStreamOptions["onPayload"]>>
+  ): Promise<unknown>;
+  providerResponse(
+    request: number,
+    ...args: Parameters<NonNullable<SimpleStreamOptions["onResponse"]>>
+  ): Promise<void>;
+  providerStreamEvent(
+    request: number,
+    ...args: Parameters<NonNullable<SimpleStreamOptions["onProviderStreamEvent"]>>
+  ): Promise<void>;
   setModel(key: string, model: Model<Api>): Promise<boolean>;
   /** `pi.exec`; `id` names the command for `cancelExec`, as an `AbortSignal` cannot cross. */
   exec(
@@ -224,24 +267,36 @@ export interface Reads {
   isIdle(): boolean;
   getActiveTools(): string[];
   getAllTools(): ToolInfo[];
+  /** Public metadata for a provider. Credentials are read through the registry’s auth methods. */
+  getProvider(name: string): Pick<Provider, "id" | "name" | "baseUrl"> | undefined;
   /** The models of the host's catalog, and which of them have credentials, as `provider/id`. */
   getModels(): { models: Model<Api>[]; available: string[] };
   /** Nothing, once the writes sent before it are done. */
   flush(): null;
 }
 
+export type ReadRequest<M extends keyof Reads = keyof Reads> = {
+  readonly type: "read";
+  readonly key: string;
+  readonly method: M;
+  readonly args: Parameters<Reads[M]>;
+};
+
 /**
  * What a worker sends on its journal channel, in order: actions that write to the conversation and
  * reads that wait for an answer, so a read sees every write an extension made before it.
  */
 export type JournalMessage =
-  | { readonly type: "act"; readonly key: string; readonly action: Action }
   | {
-      readonly type: "read";
+      readonly type: "registerProvider";
       readonly key: string;
-      readonly method: keyof Reads;
-      readonly args: readonly unknown[];
-    };
+      readonly name: string;
+      readonly config: ProviderSettings;
+      readonly customStream: boolean;
+    }
+  | { readonly type: "unregisterProvider"; readonly key: string; readonly name: string }
+  | { readonly type: "act"; readonly key: string; readonly action: Action }
+  | { [M in keyof Reads]: ReadRequest<M> }[keyof Reads];
 
 /**
  * The host's answer to a read. A worker waits on each read before it sends anything else, and

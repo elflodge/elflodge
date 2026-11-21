@@ -4,6 +4,7 @@ import { workerData as startData } from "node:worker_threads";
 
 import type {
   ExecOptions,
+  ProviderConfig,
   SessionBeforeCompactEvent,
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
@@ -16,6 +17,7 @@ import type {
   ExtensionError,
   HostFunctions,
   JournalMessage,
+  ReadRequest,
   Reads,
   Registrations,
   ToolResult,
@@ -52,6 +54,7 @@ for (const { source, path } of workerData.extensions) {
 interface Opened extends Instance {
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
+  readonly providerStreams: Map<string, NonNullable<ProviderConfig["streamSimple"]>>;
   readonly running: Map<string, AbortController>;
   /** Calls whose `tool_execution_start` was emitted, with the arguments it gave. */
   readonly started: Map<string, unknown>;
@@ -86,7 +89,14 @@ function read<M extends keyof Reads>(
   method: M,
   ...args: Parameters<Reads[M]>
 ): ReturnType<Reads[M]> {
-  const message: JournalMessage = { type: "read", key, method, args };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
+  return journalRequest<M>({ type: "read", key, method, args }) as ReturnType<Reads[M]>;
+}
+
+/** Registrations and reads wait for a reply, so either succeeds or throws inside the Pi call. */
+function journalRequest<M extends keyof Reads>(
+  message: Exclude<JournalMessage, { type: "act" | "read" }> | ReadRequest<M>,
+): unknown {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   journal.postMessage(message);
   // The next message is the answer to this read (`ReadReply`).
@@ -94,9 +104,7 @@ function read<M extends keyof Reads>(
   if (typeof reply !== "object" || reply === null)
     throw new Error("The host's reply is not an object");
   if ("error" in reply) throw ensureError(reply.error);
-  const value: unknown = "value" in reply ? reply.value : undefined;
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
-  return value as ReturnType<Reads[M]>;
+  return "value" in reply ? reply.value : undefined;
 }
 
 function instanceFor(key: string): Opened {
@@ -139,9 +147,36 @@ const functions: WorkerFunctions = {
       if (!life.signal.aborted) act(key, action);
     };
     const prompts = new Set<Promise<void>>();
+    const providerStreams: Opened["providerStreams"] = new Map();
     const instance = await runtime.createInstance(extensions, {
       cwd,
       flags,
+      registerProvider(name, config) {
+        life.signal.throwIfAborted();
+        for (const field of ["oauth", "refreshModels", "images", "classifiers"] as const) {
+          if (config[field] !== undefined)
+            throw new Error(
+              `registerProvider: ${field} is not supported by pi-durable-extension-adapter`,
+            );
+        }
+        const { streamSimple, ...settings } = config;
+        if (streamSimple !== undefined && typeof streamSimple !== "function")
+          throw new TypeError("registerProvider: streamSimple must be a function");
+        journalRequest({
+          type: "registerProvider",
+          key,
+          name,
+          config: settings,
+          customStream: !!streamSimple,
+        });
+        // Pi merges defined fields on re-registration. A settings-only change keeps the handler.
+        if (streamSimple) providerStreams.set(name, streamSimple);
+      },
+      unregisterProvider(name) {
+        life.signal.throwIfAborted();
+        journalRequest({ type: "unregisterProvider", key, name });
+        providerStreams.delete(name);
+      },
       actions: {
         sendMessage: (...args) => send({ type: "sendMessage", args }),
         sendUserMessage: (content, options) => {
@@ -216,6 +251,7 @@ const functions: WorkerFunctions = {
     instances.set(key, {
       ...instance,
       life,
+      providerStreams,
       running: new Map(),
       started: new Map(),
       durations: new Map(),
@@ -228,6 +264,22 @@ const functions: WorkerFunctions = {
     };
   },
   registrations: (key) => registrations(instanceFor(key)),
+  async streamProvider(key, name, request, model, context, options) {
+    const streamSimple = instanceFor(key).providerStreams.get(name);
+    if (!streamSimple)
+      throw new Error(`No stream handler registered for provider ${name} in this conversation`);
+    const { onPayload, onResponse, onProviderStreamEvent, ...settings } = options;
+    const stream = streamSimple(model, context, {
+      ...settings,
+      ...(onPayload && { onPayload: (...args) => host.providerPayload(request, ...args) }),
+      ...(onResponse && { onResponse: (...args) => host.providerResponse(request, ...args) }),
+      ...(onProviderStreamEvent && {
+        onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
+      }),
+    });
+    for await (const event of stream) await host.providerEvent.asEvent(request, event);
+    return stream.result();
+  },
   emit: (key, event) => runnerFor(key).emit(event),
   // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
   // `tool_call`, as a copy that `tool_call` handlers' edits leave alone; `tool_execution_end` with the result `tool_result` handlers made.
@@ -569,6 +621,7 @@ function modelRegistry(key: string): ModelRegistryFacade {
   const available = (model: { provider: string; id: string }) =>
     models().available.includes(`${model.provider}/${model.id}`);
   return {
+    getProvider: (name) => read(key, "getProvider", name),
     find: (provider, modelId) =>
       models().models.find((m) => m.provider === provider && m.id === modelId),
     getAll: () => models().models,
