@@ -13,7 +13,9 @@ import * as z from "zod/mini";
 import { api, hubFailureMessage } from "./api-client.ts";
 import {
   type BatchDraft,
+  type Creation,
   creationOf,
+  type DraftCreation,
   type DraftJob,
   jobsRefusedAtAdd,
   requestBytes,
@@ -36,6 +38,8 @@ export type SendProgress =
       readonly bytes: number;
       /** The files the hub already holds, which are not uploaded. */
       readonly held: number;
+      /** The files with the same content as another file of the draft, which is uploaded once. */
+      readonly same: number;
     }
   | { readonly step: "creating" };
 
@@ -61,11 +65,13 @@ export type SendOutcome =
   | { readonly kind: "tooLarge"; readonly bytes: number; readonly max: number }
   /** The hub's check of which files it holds failed. */
   | { readonly kind: "checkFailed"; readonly error: unknown }
-  /** Uploads that failed, each with the hub's words, after the others finished. */
+  /**
+   * Uploads that failed, each with the hub's words at every job whose file holds that content, after
+   * the others finished; `files` is the jobs whose content was to be uploaded.
+   */
   | {
       readonly kind: "notUploaded";
       readonly jobs: readonly JobProblem[];
-      readonly failed: number;
       readonly files: number;
     }
   /** The create failed or got no answer: the hub's error, to place as its refusals are. */
@@ -80,6 +86,18 @@ const digestOf = (file: File) =>
     ),
     Effect.map((hash) => `sha256:${bytesToHex(hash.digest())}`),
   );
+
+/**
+ * Whether the contract took `creation` as it is, by its check `checked`. The creation is sent as
+ * given, not as the check gives it with its defaults, so the request is the one whose size the page
+ * stated.
+ */
+function isCreation(
+  creation: DraftCreation,
+  checked: { readonly success: boolean },
+): creation is DraftCreation & Creation {
+  return checked.success;
+}
 
 /** Each job of `jobs` whose file has a message in `messages`, with it, by the job's index. */
 function jobProblems(
@@ -140,7 +158,9 @@ const prepare = Effect.fnUntraced(function* (
 
   const creation = creationOf(draft, digests);
   const checked = z.safeParse(batchCreationSchema, creation);
-  if (!checked.success) return { kind: "invalid", issues: checked.error.issues } as const;
+  if (!isCreation(creation, checked)) {
+    return { kind: "invalid", issues: checked.error?.issues ?? [] } as const;
+  }
   const bytes = requestBytes(creation);
   if (bytes > MAX_BODY_BYTES) return { kind: "tooLarge", bytes, max: MAX_BODY_BYTES } as const;
 
@@ -170,6 +190,7 @@ const prepare = Effect.fnUntraced(function* (
     files: missing.length,
     bytes: missing.reduce((sum, { sizeBytes }) => sum + sizeBytes, 0),
     held: contents.length - missing.length,
+    same: files.length - contents.length,
   };
   let uploaded = 0;
   let uploadedBytes = 0;
@@ -203,11 +224,12 @@ const prepare = Effect.fnUntraced(function* (
   );
   if (failed.length > 0) {
     const messages = new Map(failed.map(({ digest, message }) => [digest, message]));
+    const sent = new Set(missing.map(({ digest }) => digest));
     return {
       kind: "notUploaded",
       jobs: jobProblems(draft.jobs, (file) => messages.get(digests.get(file) ?? "")),
-      failed: failed.length,
-      files: missing.length,
+      files: jobProblems(draft.jobs, (file) => (sent.has(digests.get(file) ?? "") ? "" : undefined))
+        .length,
     } as const;
   }
   return { kind: "ready", creation } as const;

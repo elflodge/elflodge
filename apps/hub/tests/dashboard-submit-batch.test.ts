@@ -1,0 +1,258 @@
+import type { Browser, Page, Request } from "playwright";
+import { expect as expectBrowser } from "playwright/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
+
+import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
+import { blobRef, startSystem } from "./harness.ts";
+
+const system = startSystem({ hubVars: { JOB_MODEL_BUDGET_USD_MAX: "5" } });
+let browser: Browser;
+
+beforeAll(async () => {
+  await system.start();
+  browser = await launchDashboardBrowser(system);
+});
+afterAll(async () => {
+  await browser?.close();
+  await system.stop();
+});
+
+/** The Output schema the form starts with. */
+const STARTING_SCHEMA = {
+  type: "object",
+  properties: { answer: { type: "string" } },
+  required: ["answer"],
+};
+
+async function openSubmitBatch(name: string) {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await signInAt(system, page, "batches", await newMember(system, name));
+  await page.getByRole("link", { name: "Submit a Batch", exact: true }).click();
+  await page.getByRole("heading", { name: "Submit a Batch" }).waitFor();
+  return page;
+}
+
+/** Chooses files of these names and texts with Add files. */
+async function addFiles(page: Page, files: readonly (readonly [string, string])[]) {
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Add files" }).click();
+  await (
+    await chooser
+  ).setFiles(
+    files.map(([name, text]) => ({ name, mimeType: "text/plain", buffer: Buffer.from(text) })),
+  );
+}
+
+const isUpload = (request: Request) =>
+  request.method() === "PUT" && new URL(request.url()).pathname.includes("/blobs/");
+const isCreate = (request: Request) =>
+  request.method() === "POST" && new URL(request.url()).pathname.endsWith("/batches");
+/** The file of `files` an upload sends, by the digest in its address. */
+function uploadedFile(request: Request, files: readonly (readonly [string, string])[]) {
+  const address = decodeURIComponent(request.url());
+  return files.find(([, text]) => address.includes(blobRef(text).digest))?.[0];
+}
+
+test("a Batch of typed jobs and jobs from files is created whole, and the member lands on it", async () => {
+  const page = await openSubmitBatch("Batch submitter");
+  const files = [
+    ["invoice-117.pdf", "Invoice 117: 3 oak shelves, 405.00 EUR."],
+    ["invoice-118.pdf", "Invoice 118: 12 hinges, 54.00 EUR."],
+  ] as const;
+  await page.getByLabel("Instructions").fill("Say whether the invoice's lines add up.");
+  await page.getByLabel("Batch ID").fill("invoices-2026-11");
+  await page.getByRole("button", { name: "Add a Label" }).click();
+  await page.getByLabel("Key of Label 1").fill("customer");
+  await page.getByLabel("Value of Label 1").fill("Harbor & Pine");
+  await addFiles(page, files);
+  await page.getByRole("button", { name: "Add a job" }).click();
+  const typed = page.getByLabel("Input of job 3");
+  await expectBrowser(typed).toBeFocused();
+  await typed.fill("Invoice 119, by phone: 64.80 EUR.");
+  await expectBrowser(page.getByRole("group", { name: "Jobs" })).toBeVisible();
+  await expectBrowser(page.getByLabel("What Submit sends")).toContainText(
+    "3 of at most 1,000: 2 from files, 1 typed",
+  );
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("invoices-2026-11");
+  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("3");
+  await expectBrowser(page.getByRole("complementary")).toContainText("customer=Harbor & Pine");
+  const listed = await system.owner().jobs.list({ batchId: "invoices-2026-11" });
+  expect(new Set(listed.jobs.map(({ customId }) => customId))).toEqual(
+    new Set(["invoice-117.pdf", "invoice-118.pdf", "job-1"]),
+  );
+  const held = await system.owner().blobs.check({ files: files.map(([, text]) => blobRef(text)) });
+  expect(held.files.map(({ stored }) => stored)).toEqual([true, true]);
+}, 30_000);
+
+test("the hub's refusals stand at the field or row concerned, with every value kept", async () => {
+  await system.owner().batches.create({
+    id: "receipts-2026-11",
+    agent: { outputContract: { schema: STARTING_SCHEMA } },
+    jobs: [{ customId: "job-1", input: "Receipt 1: 12.00 EUR." }],
+  });
+  const page = await openSubmitBatch("Batch corrector");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 1").fill("Receipt 1: 21.00 EUR.");
+  await addFiles(page, [["receipt-2.txt", "Receipt 2: 8.50 EUR."]]);
+  await page.getByLabel("Batch ID").fill("receipts-2026-11-new");
+  const budget = page.getByLabel("Model budget");
+  await budget.fill("6");
+  const submit = page.getByRole("button", { name: "Submit Batch" });
+  await submit.click();
+  await expectBrowser(budget).toBeFocused();
+  await expectBrowser(budget).toHaveAccessibleDescription(/Must be at most 5, the hub's maximum/);
+  await expectBrowser(page.getByLabel("Input of job 1")).toHaveValue("Receipt 1: 21.00 EUR.");
+  await expectBrowser(page.getByRole("cell", { name: /^receipt-2\.txt \d/ })).toBeVisible();
+
+  await budget.fill("");
+  await page.getByLabel("Batch ID").fill("receipts-2026-11");
+  await submit.click();
+  const customId = page.getByLabel("Custom ID of job 1");
+  await expectBrowser(customId).toBeFocused();
+  await expectBrowser(customId).toHaveAccessibleDescription(
+    /Already used in the Batch for a job with other content/,
+  );
+  await expectBrowser(page.getByRole("alert")).toHaveText(
+    "1 job was refused. It says why at its row: 1",
+  );
+  await expectBrowser(page.getByLabel("Input of job 1")).toHaveValue("Receipt 1: 21.00 EUR.");
+  await expectBrowser(page.getByLabel("Batch ID")).toHaveValue("receipts-2026-11");
+}, 30_000);
+
+test("what a row cannot send is told when it is added, and stops Submit before anything is sent", async () => {
+  const page = await openSubmitBatch("Batch gatherer");
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    if (isUpload(request) || isCreate(request)) sent.push(request.url());
+  });
+  await addFiles(page, [
+    ["Report: Q3.pdf", "Q3"],
+    ["scan.pdf", "first scan"],
+    ["scan.pdf", "second scan"],
+  ]);
+  await expectBrowser(
+    page.getByRole("cell", { name: /^Report: Q3\.pdf \d/ }),
+  ).toHaveAccessibleDescription(
+    /Must be a relative path of file names valid on Linux, macOS and Windows/,
+  );
+  for (const job of [2, 3])
+    await expectBrowser(page.getByLabel(`Custom ID of job ${job}`)).toHaveAccessibleDescription(
+      'Must be unique in the request: "scan.pdf" is given more than once',
+    );
+  await expectBrowser(page.getByRole("status").filter({ hasText: "added" })).toHaveText(
+    "3 files added as jobs 1 to 3. 3 cannot be sent: each says why at its row.",
+  );
+
+  await page.getByLabel("Custom ID of job 3").fill("scan-2.pdf");
+  await page.getByLabel("Custom ID of job 3").blur();
+  for (const job of [2, 3])
+    await expectBrowser(page.getByLabel(`Custom ID of job ${job}`)).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await expectBrowser(page.getByRole("alert")).toHaveText(
+    "1 job cannot be sent. It says why at its row: 1",
+  );
+  expect(sent).toEqual([]);
+}, 30_000);
+
+test("Submit again after a stop and after a failed upload uploads only what is missing and creates one Batch", async () => {
+  const page = await openSubmitBatch("Batch sender");
+  const files = [
+    ["a.txt", "alpha"],
+    ["b.txt", "bravo"],
+    ["c.txt", "charlie"],
+  ] as const;
+  const creates: string[] = [];
+  page.on("request", (request) => {
+    if (isCreate(request)) creates.push(request.url());
+  });
+  await page.getByLabel("Batch ID").fill("letters");
+  await addFiles(page, files);
+  const submit = page.getByRole("button", { name: "Submit Batch" });
+
+  // First: a.txt is uploaded, the others are held until Stop.
+  const held = Promise.withResolvers<void>();
+  await page.route("**/blobs/**", async (route) => {
+    if (!isUpload(route.request()) || uploadedFile(route.request(), files) === "a.txt")
+      return route.continue();
+    await held.promise;
+    await route.abort().catch(() => undefined);
+  });
+  await submit.click();
+  await page.getByText("Uploaded 1 of 3 files", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toHaveText(
+    "Stopped. No Batch was created. Submit again reads the files again and uploads only what the hub does not hold.",
+  );
+  held.resolve();
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  // Then: b.txt fails, c.txt is uploaded, and a.txt, which the hub holds, is not sent.
+  let tried: (string | undefined)[] = [];
+  await page.route("**/blobs/**", async (route) => {
+    if (!isUpload(route.request())) return route.continue();
+    const name = uploadedFile(route.request(), files);
+    tried.push(name);
+    if (name !== "b.txt") return route.continue();
+    await route.fulfill({
+      status: 503,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        type: "about:blank",
+        title: "Service Unavailable",
+        status: 503,
+        detail: "The hub is busy.",
+      }),
+    });
+  });
+  await submit.click();
+  await expectBrowser(page.getByRole("alert")).toHaveText(
+    "1 of 2 files was not uploaded, so no Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
+  );
+  await expectBrowser(page.getByRole("cell", { name: /^b\.txt \d/ })).toHaveAccessibleDescription(
+    /The hub is busy\./,
+  );
+  expect(new Set(tried)).toEqual(new Set(["b.txt", "c.txt"]));
+  expect(tried).toHaveLength(2);
+  await page.unrouteAll({ behavior: "wait" });
+
+  tried = [];
+  page.on("request", (request) => {
+    if (isUpload(request)) tried.push(uploadedFile(request, files));
+  });
+  await submit.click();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("letters");
+  expect(tried).toEqual(["b.txt"]);
+  expect(creates).toHaveLength(1);
+  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("3");
+}, 30_000);
+
+test("a send whose answer was lost, repeated unchanged, lands on the Batch it made", async () => {
+  const page = await openSubmitBatch("Batch retrier");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
+  let sentId: unknown;
+  await page.route("**/batches", async (route) => {
+    if (!isCreate(route.request())) return route.continue();
+    sentId = route.request().postDataJSON()?.id;
+    // The hub makes the Batch; its answer never reaches the page. The browser alone resolves the
+    // hub's name, so the request goes to the hub's address.
+    await route.fetch({ url: route.request().url().replace(system.origin, system.url().origin) });
+    await route.abort("connectionreset");
+  });
+  const submit = page.getByRole("button", { name: "Submit Batch" });
+  await submit.click();
+  await expectBrowser(page.getByRole("alert")).toContainText(
+    "The hub may already have this Batch. Submit again without changing anything to find out: the same request returns the Batch if it was made.",
+  );
+  await page.unrouteAll({ behavior: "wait" });
+  await submit.click();
+  expect(typeof sentId).toBe("string");
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(String(sentId));
+  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
+}, 30_000);

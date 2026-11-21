@@ -1,4 +1,10 @@
-import { Outlet, createFileRoute, useChildMatches, useLocation } from "@tanstack/solid-router";
+import {
+  Link,
+  Outlet,
+  createFileRoute,
+  useChildMatches,
+  useLocation,
+} from "@tanstack/solid-router";
 import { batchStatusSchema, LABEL_KEY_PATTERN } from "contract";
 import { createSignal } from "solid-js";
 import * as z from "zod/mini";
@@ -58,6 +64,11 @@ function Batches() {
       <div hidden={failed()}>
         <div class="head">
           <h1>Batches</h1>
+          <div class="controls">
+            <Link class="button primary" to="/batches/-/new">
+              Submit a Batch
+            </Link>
+          </div>
         </div>
         <ListFilters
           to="/batches"

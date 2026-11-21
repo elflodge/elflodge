@@ -29,6 +29,7 @@ import { Route as SignedInMemberJobsIndexRouteImport } from './routes/_signed-in
 import { Route as SignedInMemberJobsIdRouteImport } from './routes/_signed-in/_member/jobs_.$id'
 import { Route as SignedInMemberJobsNewRouteImport } from './routes/_signed-in/_member/jobs_.new'
 import { Route as SignedInMemberUsageIndexRouteImport } from './routes/_signed-in/_member/usage.index'
+import { Route as SignedInMemberBatchesNewRouteImport } from './routes/_signed-in/_member/batches_.-.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -131,6 +132,12 @@ const SignedInMemberUsageIndexRoute =
     path: '/',
     getParentRoute: () => SignedInMemberUsageRoute,
   } as any)
+const SignedInMemberBatchesNewRoute =
+  SignedInMemberBatchesNewRouteImport.update({
+    id: '/batches_/-/new',
+    path: '/batches/-/new',
+    getParentRoute: () => SignedInMemberRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/batches/': typeof SignedInMemberBatchesIndexRoute
   '/jobs/': typeof SignedInMemberJobsIndexRoute
   '/usage/': typeof SignedInMemberUsageIndexRoute
+  '/batches/-/new': typeof SignedInMemberBatchesNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -168,6 +176,7 @@ export interface FileRoutesByTo {
   '/batches': typeof SignedInMemberBatchesIndexRoute
   '/jobs': typeof SignedInMemberJobsIndexRoute
   '/usage': typeof SignedInMemberUsageIndexRoute
+  '/batches/-/new': typeof SignedInMemberBatchesNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -191,6 +200,7 @@ export interface FileRoutesById {
   '/_signed-in/_member/batches/': typeof SignedInMemberBatchesIndexRoute
   '/_signed-in/_member/jobs/': typeof SignedInMemberJobsIndexRoute
   '/_signed-in/_member/usage/': typeof SignedInMemberUsageIndexRoute
+  '/_signed-in/_member/batches_/-/new': typeof SignedInMemberBatchesNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -213,6 +223,7 @@ export interface FileRouteTypes {
     | '/batches/'
     | '/jobs/'
     | '/usage/'
+    | '/batches/-/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -230,6 +241,7 @@ export interface FileRouteTypes {
     | '/batches'
     | '/jobs'
     | '/usage'
+    | '/batches/-/new'
   id:
     | '__root__'
     | '/'
@@ -252,6 +264,7 @@ export interface FileRouteTypes {
     | '/_signed-in/_member/batches/'
     | '/_signed-in/_member/jobs/'
     | '/_signed-in/_member/usage/'
+    | '/_signed-in/_member/batches_/-/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -404,6 +417,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberUsageIndexRouteImport
       parentRoute: typeof SignedInMemberUsageRoute
     }
+    '/_signed-in/_member/batches_/-/new': {
+      id: '/_signed-in/_member/batches_/-/new'
+      path: '/batches/-/new'
+      fullPath: '/batches/-/new'
+      preLoaderRoute: typeof SignedInMemberBatchesNewRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
   }
 }
 
@@ -452,6 +472,7 @@ interface SignedInMemberRouteChildren {
   SignedInMemberBatchesIdRoute: typeof SignedInMemberBatchesIdRoute
   SignedInMemberJobsIdRoute: typeof SignedInMemberJobsIdRoute
   SignedInMemberJobsNewRoute: typeof SignedInMemberJobsNewRoute
+  SignedInMemberBatchesNewRoute: typeof SignedInMemberBatchesNewRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
@@ -464,6 +485,7 @@ const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberBatchesIdRoute: SignedInMemberBatchesIdRoute,
   SignedInMemberJobsIdRoute: SignedInMemberJobsIdRoute,
   SignedInMemberJobsNewRoute: SignedInMemberJobsNewRoute,
+  SignedInMemberBatchesNewRoute: SignedInMemberBatchesNewRoute,
 }
 
 const SignedInMemberRouteWithChildren = SignedInMemberRoute._addFileChildren(

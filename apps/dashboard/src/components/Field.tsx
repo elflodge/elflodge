@@ -86,10 +86,13 @@ export function Field(
   );
 }
 
-/** Several controls under a legend. Other attributes go to the focusable fieldset. */
+/**
+ * Several controls under a legend. Other attributes go to the focusable fieldset; a `class` is added
+ * to its own.
+ */
 export function FieldGroup(
   props: Omit<FieldProps, "unit"> &
-    Omit<JSX.FieldsetHTMLAttributes<HTMLFieldSetElement>, "class" | "tabindex"> & {
+    Omit<JSX.FieldsetHTMLAttributes<HTMLFieldSetElement>, "tabindex"> & {
       /** Derived from the presence of a refusal. */
       "aria-invalid"?: never;
       /** Derived from the hint and refusal. */
@@ -101,9 +104,9 @@ export function FieldGroup(
   const { control, hint, refusal } = fieldParts(props);
   return (
     <fieldset
-      {...omit(props, "label", "hint", "error", "children")}
+      {...omit(props, "label", "hint", "error", "children", "class")}
       {...omit(control, "id")}
-      class="field"
+      class={["field", props.class]}
       tabindex="-1"
     >
       <legend>{props.label}</legend>
