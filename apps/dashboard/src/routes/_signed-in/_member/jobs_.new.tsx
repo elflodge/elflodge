@@ -95,7 +95,8 @@ function SubmitJob() {
   // settles it.
   const [outcomeUnknown, setOutcomeUnknown] = createSignal(false);
   let submitted = false;
-  // The member confirmed leaving while a request was pending: its answer must not take them back.
+  // The member confirmed leaving while this request was pending: its answer must not take them
+  // back. A new send clears it, as a member who came back before leaving sends anew.
   let leaveConfirmed = false;
   let formElement: HTMLFormElement | undefined;
   let budgetInput!: HTMLInputElement;
@@ -117,6 +118,7 @@ function SubmitJob() {
   const headingId = createUniqueId();
 
   const { pending, onSubmit } = createFormAction(async (form) => {
+    leaveConfirmed = false;
     const data = new FormData(form);
     let schema: unknown;
     try {
@@ -133,8 +135,9 @@ function SubmitJob() {
     // the schema's text is parsed first, and the page must know whether anything was sent.
     const checked = batchCreationSchema.safeParse({
       id,
-      // As `jobs submit` sends it: a breaker means nothing for one job and would leave the Batch
-      // paused. A repeat under the same ID, from the CLI or this page, matches while both send this.
+      // As `jobs submit` sends it: a breaker means nothing for one job, which would be its Canary,
+      // and would pause the Batch if that job failed. A repeat under the same ID, from the CLI or
+      // this page, matches while both send this.
       breaker: false,
       jobs: [{ customId: id, input: fieldText(data, "input") }],
       agent: {
@@ -223,14 +226,25 @@ function SubmitJob() {
           error={refused(instructionsField)}
         >
           {(control) => (
-            // Four rows: a few sentences.
-            <textarea {...control} name={instructionsField} rows={4} readonly={pending()} />
+            <textarea
+              {...control}
+              name={instructionsField}
+              // Four rows: a few sentences.
+              rows={4}
+              readonly={pending()}
+            />
           )}
         </Field>
         <Field label="Input" hint="What the agent works on." error={refused("input")}>
           {(control) => (
-            // Eight rows: a short document, such as an invoice's lines and a question about them.
-            <textarea {...control} name="input" rows={8} required readonly={pending()} />
+            <textarea
+              {...control}
+              name="input"
+              // Eight rows: a short document, such as an invoice's lines and a question about them.
+              rows={8}
+              required
+              readonly={pending()}
+            />
           )}
         </Field>
         <Field
