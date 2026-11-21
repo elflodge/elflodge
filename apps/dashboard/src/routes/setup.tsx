@@ -15,10 +15,12 @@ import {
   focusIfLost,
   formRefusal,
 } from "../form.ts";
+import { pageHead } from "../page-title.ts";
 
 // Setting up a new hub: creating its owner with the setup link the hub printed (ADR 0015). The
 // link's token comes after `#`, so it never reaches the hub's request logs.
 export const Route = createFileRoute("/setup")({
+  head: () => pageHead("Set up"),
   loader: async () => {
     const { needed } = await readFromHub("Whether the hub is set up", () => api.setup.get());
     if (!needed) throw redirect({ to: "/sign-in" });

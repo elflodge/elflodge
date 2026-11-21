@@ -29,9 +29,11 @@ import {
   type Member,
   type MemberRole,
 } from "../../../organization.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/organization")({
+  head: ({ match }) => memberPageHead(match.context, "Organization"),
   loader: async ({ context: { member, queryClient, managesKeys } }) => {
     if (!member) return;
     await Promise.all([

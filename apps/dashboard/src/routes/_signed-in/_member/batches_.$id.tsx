@@ -19,10 +19,12 @@ import {
   plural,
   timeZoneNote,
 } from "../../../format.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc, REFRESH_INTERVAL_MS } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
+  head: ({ match, params }) => memberPageHead(match.context, `Batch ${params.id}`),
   loader: async ({ context, params }) => {
     if (!context.member) return;
     if (!batchRefSchema.safeParse(params).success) throw notFound({ data: params.id });

@@ -24,6 +24,7 @@ import { Field } from "../../../components/Field.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { fieldText, formRefusal } from "../../../form.ts";
 import { UTC_MONTH } from "../../../format.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { canReadUsage } from "../../../permissions.ts";
 import { orpc } from "../../../query.ts";
 import { createSearchForm, optionalText } from "../../../search-form.ts";
@@ -46,6 +47,7 @@ const searchSchema = z.object({
 type UsageSearch = z.infer<typeof searchSchema>;
 
 export const Route = createFileRoute("/_signed-in/_member/usage")({
+  head: ({ match }) => memberPageHead(match.context, "Usage"),
   validateSearch: searchSchema,
   search: {
     middlewares: [

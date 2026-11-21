@@ -6,8 +6,10 @@ import { authClient, hasAuthCode } from "../../auth-client.ts";
 import { Field } from "../../components/Field.tsx";
 import { Notice } from "../../components/Notice.tsx";
 import { NEW_PASSWORD, createFormAction, fieldText } from "../../form.ts";
+import { pageHead } from "../../page-title.ts";
 
 export const Route = createFileRoute("/_signed-in/change-password")({
+  head: () => pageHead("Change password"),
   component: ChangePassword,
 });
 

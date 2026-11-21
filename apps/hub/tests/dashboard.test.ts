@@ -187,6 +187,27 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   await expectBrowser(jobs).toBeVisible();
 }, 30_000);
 
+test("in a browser, the document title names the page across a navigation and back", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const member = await newMember(system, "Title Reader");
+  await page.goto(`${system.origin}/dashboard/change-password`);
+  await expectBrowser(page).toHaveTitle("Sign in · Elflodge");
+  await page.getByLabel("Email").fill(member.email);
+  await page.getByLabel("Password").fill(member.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expectBrowser(page).toHaveTitle("Change password · Elflodge");
+  await page
+    .getByRole("navigation", { name: "Destinations" })
+    .getByRole("link", { name: "Runners" })
+    .click();
+  await expectBrowser(page).toHaveTitle("Runners · Elflodge");
+  await page.goBack();
+  await expectBrowser(page).toHaveTitle("Change password · Elflodge");
+  await page.goForward();
+  await expectBrowser(page).toHaveTitle("Runners · Elflodge");
+}, 30_000);
+
 test.each([
   ["jobs", "Jobs"],
   ["runners", "Runners"],

@@ -28,6 +28,7 @@ import { TIME_ZONED, timeZoneNote } from "../../../format.ts";
 import { readJobEvent } from "../../../job-event-record.ts";
 import { useJobEvents } from "../../../job-events.ts";
 import { groupJobEvents } from "../../../job-runs.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
@@ -37,6 +38,7 @@ function jobQuery(id: string) {
 }
 
 export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
+  head: ({ match, params }) => memberPageHead(match.context, `Job ${params.id}`),
   loader: async ({ context, params }) => {
     if (!context.member) return;
     if (!jobRefSchema.safeParse(params).success) throw notFound({ data: params.id });

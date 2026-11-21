@@ -31,9 +31,11 @@ import {
   signOutTo,
   watchDocumentMember,
 } from "../member-document.ts";
+import { pageHead } from "../page-title.ts";
 import { orpc } from "../query.ts";
 
 export const Route = createFileRoute("/invitation")({
+  head: () => pageHead("Invitation"),
   beforeLoad: async ({ location }) => {
     if (!location.hash) return { session: null };
     return { session: await readFromHub("The session", readInvitationSession) };

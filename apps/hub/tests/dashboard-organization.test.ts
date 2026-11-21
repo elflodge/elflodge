@@ -169,6 +169,7 @@ test("a member can leave the Organization and immediately sees their remaining a
   await page.getByRole("button", { name: "Leave Organization" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Leave Organization" }).click();
   await expectBrowser(page.getByRole("heading", { name: "Organization access" })).toBeFocused();
+  await expectBrowser(page).toHaveTitle("Organization access · Elflodge");
 }, 30_000);
 
 test.each(["last-owner refusal", "server error"])(

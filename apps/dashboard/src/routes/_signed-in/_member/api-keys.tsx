@@ -14,9 +14,11 @@ import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { formRefusal, createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
+import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/api-keys")({
+  head: ({ match }) => memberPageHead(match.context, "API keys"),
   loader: async ({ context }) => {
     if (!context.managesKeys) return;
     await readFromHub("The API keys", () =>

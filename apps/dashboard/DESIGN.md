@@ -190,6 +190,8 @@ When the action leads to another page, it is a link drawn as a button:
 </div>
 ```
 
+Each page names itself in its document title, the name first so a narrow tab keeps it, then the product: "Jobs · Elflodge". Its route sets it with the router's `head` option through `pageHead` (`src/page-title.ts`), or, for a page about the Organization, `memberPageHead` with the route context `_member` gives. A list or form takes its heading's words. A record page takes what its address holds, "Job <ID>" or "Batch <ID>", since its loader only warms the cache. An address no page has reads "Page not found". A page shown in place of a member page, as for an account that is no member, carries its own heading as the title: "Organization access · Elflodge". The router takes the title of the deepest match it shows, so a page that failed to read keeps its own, and the root's "Elflodge" stands for the rest, as when the session could not be read.
+
 Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line of supporting text. In a field, the note gives a hint above the control. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
 
 `ul.plain` lists items one under another, without bullets, as several values of one fact.

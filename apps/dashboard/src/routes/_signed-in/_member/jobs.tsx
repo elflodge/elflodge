@@ -13,6 +13,7 @@ import * as z from "zod/mini";
 import { Field } from "../../../components/Field.tsx";
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
 import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
+import { memberPageHead } from "../../../page-title.ts";
 import { availableRunners, orpc } from "../../../query.ts";
 import { optionalText } from "../../../search-form.ts";
 import { shortIds } from "../../../short-ids.ts";
@@ -51,6 +52,7 @@ export function filterCount(search: JobsSearch) {
 }
 
 export const Route = createFileRoute("/_signed-in/_member/jobs")({
+  head: ({ match }) => memberPageHead(match.context, "Jobs"),
   validateSearch: jobsSearchSchema,
   component: Jobs,
 });
