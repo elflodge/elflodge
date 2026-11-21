@@ -139,31 +139,72 @@ export const strictBlobRefSchema = z.strictObject(blobRefSchema.shape);
  */
 export const inputFileSchema = z.extend(strictBlobRefSchema, { path: filePathSchema });
 
+/** Each item of `items` whose member `key` is text, with its index, in their order. */
+function textAt(items: readonly unknown[], key: string) {
+  const withKey = z.object({ [key]: z.string() });
+  return items.flatMap((item, index) => {
+    const read = z.safeParse(withKey, item);
+    const value = read.success ? read.data[key] : undefined;
+    return value === undefined ? [] : [{ index, value }];
+  });
+}
+
+// Zod skips a refinement once another part of the list failed to parse. The checks of a list's
+// members read only the values they can, so they run on any list, and their problems are answered
+// with the list's others. Zod hands them the list as parsed so far, malformed items included.
+const isList = ({ value }: { value: unknown }) => Array.isArray(value);
+
+/**
+ * Refuses each item of a list whose member `key` another item has, the first one included, as not
+ * unique in `place`, in the list's order among themselves; Zod reports them after the items' own
+ * problems, as it runs a list's checks after its items'. The words name the repeated value and no
+ * index: the pointer already says where, and callers count items differently (the CLI's "job N"
+ * counts from 1), so an index would point some of them at the wrong item; without one, each place
+ * is told.
+ */
+export function uniqueBy(key: string, place: string) {
+  return z.superRefine(
+    (items: readonly unknown[], context) => {
+      const given = textAt(items, key);
+      const uses = Map.groupBy(given, ({ value }) => value);
+      for (const { index, value } of given) {
+        if ((uses.get(value)?.length ?? 0) < 2) continue;
+        context.addIssue({
+          code: "custom",
+          message: `Must be unique in ${place}: ${JSON.stringify(value)} is given more than once`,
+          path: [index, key],
+          input: value,
+        });
+      }
+    },
+    { when: isList },
+  );
+}
+
 /**
  * Files written into the job's `inputs` folder before its agent starts, as sandbox APIs take them: a
  * list of paths and contents, so a path, folders included, is a value rather than a key. No two may
  * collide, as the same path or as a file and a folder.
  */
 export const inputFilesSchema = z.array(inputFileSchema).check(
-  z.superRefine((files, context) => {
-    const first = new Map<string, number>();
-    files.forEach(({ path }, index) => {
-      if (!first.has(path)) first.set(path, index);
-    });
-    files.forEach(({ path }, index) => {
-      const same = first.get(path);
-      const folder = foldersOf(path).find((name) => first.has(name));
-      const message =
-        same !== undefined && same < index
-          ? `Must be unique, as files[${same}] has it`
-          : folder !== undefined
-            ? `Must not be in a folder that files[${first.get(folder)}] is as a file`
-            : undefined;
-      if (message !== undefined) {
-        context.addIssue({ code: "custom", message, path: [index, "path"], input: path });
+  uniqueBy("path", "the job"),
+  z.superRefine(
+    (files: readonly unknown[], context) => {
+      const given = textAt(files, "path");
+      const paths = new Set(given.map(({ value }) => value));
+      for (const { index, value } of given) {
+        const folder = foldersOf(value).find((name) => paths.has(name));
+        if (folder === undefined) continue;
+        context.addIssue({
+          code: "custom",
+          message: `Must not be in ${JSON.stringify(folder)}, which is given as a file in the job`,
+          path: [index, "path"],
+          input: value,
+        });
       }
-    });
-  }),
+    },
+    { when: isList },
+  ),
 );
 
 /**

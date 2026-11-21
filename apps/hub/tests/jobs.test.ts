@@ -208,15 +208,24 @@ test("an invalid Output contract or Input file path is refused with 400", async 
       client.batches.addJobs({ id: batch.id, jobs: [{ ...JOB, files }] }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   }
-  // A path cannot be given twice, nor be a file and a folder in one request.
-  for (const paths of [
-    ["a.txt", "a.txt"],
-    ["photos", "photos/front.jpg"],
-    ["photos/front.jpg", "photos"],
-  ]) {
+  // A path cannot be given twice, nor be a file and a folder in one job: each use of a repeated path
+  // is refused, the first too, and a path inside one given as a file names that file.
+  const twice = 'Must be unique in the job: "a.txt" is given more than once';
+  const inPhotos = 'Must not be in "photos", which is given as a file in the job';
+  for (const [paths, errors] of [
+    [
+      ["a.txt", "a.txt"],
+      [
+        { pointer: "/jobs/0/files/0/path", detail: twice },
+        { pointer: "/jobs/0/files/1/path", detail: twice },
+      ],
+    ],
+    [["photos", "photos/front.jpg"], [{ pointer: "/jobs/0/files/1/path", detail: inPhotos }]],
+    [["photos/front.jpg", "photos"], [{ pointer: "/jobs/0/files/0/path", detail: inPhotos }]],
+  ] as const) {
     await expect(
       client.batches.addJobs({ id: batch.id, jobs: [{ ...JOB, files: paths.map(fileAt) }] }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    ).rejects.toMatchObject({ cause: { status: 400, errors } });
   }
 
   // The answer names the problem, so a caller can correct the request.
