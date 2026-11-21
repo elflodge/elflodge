@@ -6,6 +6,8 @@ export const listPages = {
     plural: "jobs",
     end: "jobs-end",
     filters: "jobs-filters",
+    /** What an empty list says to do, before the CLI's command. */
+    empty: "Submit a Batch of jobs with the CLI: ",
   },
   "/batches": {
     title: "Batches",
@@ -13,5 +15,6 @@ export const listPages = {
     plural: "Batches",
     end: "batches-end",
     filters: "batches-filters",
+    empty: "A Batch runs one agent on many jobs. Submit one with Submit a Batch, or with the CLI: ",
   },
 } as const;
