@@ -14,8 +14,8 @@ const KEY_NAME = /^labels\[(\d+)\]\[key\]$/;
 /**
  * The Labels a form's rows give, read from `data`, a snapshot of it, in the rows' order: by key, or
  * undefined for none, as the creation leaves them out; and each row's value, as `formRefusal` takes
- * its controls: a refusal of a Label is located by its key, and a key the browser lets through, by
- * the pattern, is refused only for its value's length.
+ * its controls: the hub locates a refusal of a Label by its key, whatever its cause, and the page
+ * places it at that row's value, as the browser's own check refuses a key the hub would.
  */
 export function labelsOf(data: FormData) {
   const labels: Record<string, string> = {};
