@@ -185,7 +185,7 @@ When the action leads to another page, it is a link drawn as a button:
 <div class="head">
   <h1>Jobs</h1>
   <div class="controls">
-    <Link class="button primary" to="/submit/job">
+    <Link class="button primary" to="/jobs/new">
       Submit a job
     </Link>
   </div>
