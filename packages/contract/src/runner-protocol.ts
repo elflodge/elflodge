@@ -183,23 +183,15 @@ export const FAILURE_MESSAGE_MAX_LENGTH = 4096;
  * every reason but `runnerRemoved`, which the hub records.
  */
 export const failureSchema = z.object({
-  // Described rather than only commented, so that callers reading the OpenAPI document learn to
-  // expect new reasons.
-  reason: z
-    .enum([
-      "noOutput",
-      "runTimedOut",
-      "modelBudgetExceeded",
-      "modelFailed",
-      "runFaulted",
-      "runnerRemoved",
-      "journalLost",
-    ])
-    .check(
-      z.describe(
-        "What failed the job: `noOutput` when its agent ended without an accepted output; `runTimedOut` when a run went past its `runTimeoutSeconds`; `modelBudgetExceeded` when its model calls' cost reached its `modelBudgetUsd`; `modelFailed` when generating the agent's next step failed, as when the model's provider refused the call; `runFaulted` when its run broke on its Runner; `runnerRemoved` when its Runner was removed before it ended; `journalLost` when its Runner's journal of it was missing or lacked the last of its events the hub holds, as after its files were lost or restored from an older backup, so it was not carried on, which would have repeated its work: resuming it carries on only once the journal is restored, and submitting it again under a new `customId` starts it over. New reasons may be added: treat one you do not know as a fault.",
-      ),
-    ),
+  reason: z.enum([
+    "noOutput",
+    "runTimedOut",
+    "modelBudgetExceeded",
+    "modelFailed",
+    "runFaulted",
+    "runnerRemoved",
+    "journalLost",
+  ]),
   message: z.optional(
     textSchema.check(
       z.maxLength(FAILURE_MESSAGE_MAX_LENGTH),

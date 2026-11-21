@@ -627,3 +627,70 @@ test("a member following an ended job sees another member resume it before its n
   await expectBrowser(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expectBrowser(page.locator("ol.timeline .ev-id").last()).toHaveText("11");
 }, 30_000);
+
+test("a member can read a failure reason added by a newer hub on the job and its Event", async () => {
+  const { id, report } = await jobWithHistory(1);
+  await report([
+    {
+      id: 11,
+      type: "entry",
+      record: {
+        id: 11,
+        conversationId: 1,
+        kind: JOB_FAILED,
+        data: { timestamp: Date.now(), reason: "modelFailed", message: "Provider unavailable." },
+      },
+    },
+  ]);
+  const page = await browser.newPage({ viewport: { width: 320, height: 780 } });
+  const reason = "providerUnavailableAfterExhaustingAllConfiguredRecoveryAttempts";
+  onTestFinished(() => page.close());
+  // Serve the seeded job and journal as a hub with one more failure reason would.
+  await page.route(
+    (url) => url.pathname === `/jobs/${id}` || url.pathname === `/jobs/${id}/events`,
+    async (route) => {
+      const { pathname, search } = new URL(route.request().url());
+      // Only Chromium resolves the member-facing origin to the test hub's loopback port.
+      const response = await route.fetch({
+        url: new URL(pathname + search, system.url()).href,
+        headers: await route.request().allHeaders(),
+      });
+      const json = await response.json();
+      if (pathname.endsWith("/events")) {
+        if (json.job) json.job.failure.reason = reason;
+        for (const event of json.events) {
+          if (event.record.kind === JOB_FAILED) event.record.data.reason = reason;
+        }
+      } else {
+        json.failure.reason = reason;
+      }
+      await route.fulfill({ response, json });
+    },
+  );
+  await signInAt(system, page, `jobs/${id}`, await newMember(system, "Failure reader"));
+  const quoted = JSON.stringify(reason);
+  const words = `${quoted} (unknown to this dashboard version)`;
+  const beside = page.locator(".beside").filter({ hasText: words });
+  await expectBrowser(beside.locator("code")).toHaveText(quoted);
+  await expectBrowser(beside).toBeVisible();
+  const event = page.getByRole("listitem").filter({ has: page.locator("#event-11") });
+  const full = event.locator(".ev-body");
+  await expectBrowser(full).toBeVisible();
+  await expectBrowser(full).toContainText(words);
+  const fullReason = full.locator("code.failure-reason");
+  await full.scrollIntoViewIfNeeded();
+  await expectBrowser(fullReason).toHaveText(quoted);
+  await expectBrowser(fullReason).toBeInViewport({ ratio: 1 });
+  await expectBrowser(
+    full.getByText("(unknown to this dashboard version)", { exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+  await expectBrowser(full).toContainText("Provider unavailable.");
+  await page.getByText("One line each", { exact: true }).click();
+  const summary = event.locator(".ev-line");
+  await expectBrowser(summary).toBeVisible();
+  await summary.scrollIntoViewIfNeeded();
+  await expectBrowser(summary.getByText("Unknown failure reason", { exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await expectBrowser(summary.locator("[title]")).toHaveAttribute("title", words);
+}, 30_000);

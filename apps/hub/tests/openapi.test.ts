@@ -5,7 +5,7 @@ import { apiContract, createProblemDetailsLink } from "contract";
 import { compileSchema } from "json-schema-library";
 import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 
-import { type ApiClient, startSystem } from "./harness.ts";
+import { type ApiClient, startSystem, submitJob } from "./harness.ts";
 
 // The public API as described by the OpenAPI document and read by the TypeScript client.
 
@@ -268,4 +268,26 @@ test("the client converts dates when job, list, Batch and Events answers gain me
   await expect(
     clientWithFixedResponse({ ...events, ...extra, job: futureJob }).jobs.events(id),
   ).resolves.toMatchObject(events);
+});
+
+test("the client keeps unfamiliar reasons on jobs, listed jobs and Events", async () => {
+  const job = await submitJob(system.owner(), { input: "Count.", outputContract: { schema: {} } });
+  const ref = { id: job.id };
+  for (const snapshot of [
+    { ...job, blockedBy: "capacityHeld" },
+    {
+      ...job,
+      status: "running",
+      statusUnknown: { reason: "awaitingHeartbeat", since: job.createdAt },
+    },
+    { ...job, status: "failed", failure: { reason: "providerUnavailable" } },
+  ]) {
+    await expect(clientWithFixedResponse(snapshot).jobs.get(ref)).resolves.toMatchObject(snapshot);
+
+    const list = { jobs: [snapshot], hasMore: false };
+    await expect(clientWithFixedResponse(list).jobs.list({})).resolves.toMatchObject(list);
+
+    const events = { status: snapshot.status, job: snapshot, events: [], hasMore: false };
+    await expect(clientWithFixedResponse(events).jobs.events(ref)).resolves.toMatchObject(events);
+  }
 });

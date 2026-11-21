@@ -37,7 +37,9 @@ import {
   MAX_FILES_PER_CHECK,
   MAX_JOBS_PER_ADD,
   problemOf,
+  type OpenStatusUnknownReason,
   type StatusUnknownReason,
+  statusUnknownReasonSchema,
 } from "contract";
 import {
   Array,
@@ -520,18 +522,22 @@ function waitCommand() {
  * Runner that reports again carries on from where it was, so the wait goes on.
  */
 function statusUnknownNotice() {
-  let shown: StatusUnknownReason | undefined;
+  let shown: OpenStatusUnknownReason | undefined;
   return {
-    announceChange: (reason: StatusUnknownReason | undefined) =>
+    announceChange: (reason: OpenStatusUnknownReason | undefined) =>
       Effect.sync(() => {
         if (reason === shown) return;
         if (reason === undefined) {
           process.stderr.write("The job's status is known again.\n");
         } else {
-          const why =
-            reason === "runnerDisconnected"
-              ? "the hub has not heard from its Runner"
-              : "its Runner has not reported it";
+          const known = statusUnknownReasonSchema.safeParse(reason);
+          const words = {
+            runnerDisconnected: "the hub has not heard from its Runner",
+            notReported: "its Runner has not reported it",
+          } satisfies Record<StatusUnknownReason, string>;
+          const why = known.success
+            ? words[known.data]
+            : `${JSON.stringify(reason)} (unknown to this CLI version)`;
           process.stderr.write(
             `The job's status is unknown: ${why}. It may still be running; waiting goes on.\n`,
           );

@@ -1,9 +1,12 @@
 import type {
   BlockedBy,
+  OpenBlockedBy,
   Failure,
   Job,
   JobStatus as Status,
   ListedJob,
+  OpenFailure,
+  OpenStatusUnknownReason,
   StatusUnknownReason,
 } from "contract";
 import { Show } from "solid-js";
@@ -21,16 +24,28 @@ export const STATUS_WORDS: Record<Status, string> = {
   cancelled: "Cancelled",
 };
 
-const BLOCKED_WORDS: Record<BlockedBy, string> = {
-  batchPausedByCaller: "Blocked: Batch paused",
-  batchPausedByBreaker: "Blocked: failure breaker",
-  batchCanary: "Waiting for Canary",
-};
+const BLOCKED_WORDS = new Map(
+  Object.entries({
+    batchPausedByCaller: "Blocked: Batch paused",
+    batchPausedByBreaker: "Blocked: failure breaker",
+    batchCanary: "Waiting for Canary",
+  } satisfies Record<BlockedBy, string>),
+);
 
-const UNKNOWN_WORDS: Record<StatusUnknownReason, string> = {
-  runnerDisconnected: "Runner not connected",
-  notReported: "not reported",
-};
+const UNKNOWN_WORDS = new Map(
+  Object.entries({
+    runnerDisconnected: { short: "Runner not connected", detail: "its Runner is not connected" },
+    notReported: { short: "not reported", detail: "its Runner has not reported it" },
+  } satisfies Record<StatusUnknownReason, { short: string; detail: string }>),
+);
+
+function statusUnknownWords(reason: OpenStatusUnknownReason, form: "short" | "detail") {
+  return UNKNOWN_WORDS.get(reason)?.[form] ?? unknownWord(reason);
+}
+
+function blockedWords(reason: OpenBlockedBy) {
+  return BLOCKED_WORDS.get(reason) ?? `Blocked: ${unknownWord(reason)}`;
+}
 
 const CONTROL_WORDS: Record<NonNullable<Job["pendingControl"]>["type"], string> = {
   pause: "Pause asked",
@@ -55,15 +70,36 @@ export function JobStatus(props: { status: Status; lastRecorded: boolean }) {
   );
 }
 
-export const FAILURE_WORDS: Record<Failure["reason"], string> = {
-  modelFailed: "Generating the next step failed.",
-  noOutput: "its agent ended without an accepted Output",
-  runTimedOut: "a run went past its run timeout",
-  modelBudgetExceeded: "its model calls’ cost reached its model budget",
-  runFaulted: "its run broke on its Runner",
-  runnerRemoved: "its Runner was removed before it ended",
-  journalLost: "its Runner’s journal of it was lost",
-};
+export const FAILURE_WORDS = new Map(
+  Object.entries({
+    modelFailed: "Generating the next step failed.",
+    noOutput: "its agent ended without an accepted Output",
+    runTimedOut: "a run went past its run timeout",
+    modelBudgetExceeded: "its model calls’ cost reached its model budget",
+    runFaulted: "its run broke on its Runner",
+    runnerRemoved: "its Runner was removed before it ended",
+    journalLost: "its Runner’s journal of it was lost",
+  } satisfies Record<Failure["reason"], string>),
+);
+
+const UNKNOWN_TO_DASHBOARD = "(unknown to this dashboard version)";
+
+export function unknownWord(value: string) {
+  return `${JSON.stringify(value)} ${UNKNOWN_TO_DASHBOARD}`;
+}
+
+export function FailureReason(props: { reason: OpenFailure["reason"] }) {
+  const known = () => FAILURE_WORDS.has(props.reason);
+  return (
+    <>
+      <code class="failure-reason">{known() ? props.reason : JSON.stringify(props.reason)}</code>
+      <Show when={!known()}>
+        {" "}
+        <span>{UNKNOWN_TO_DASHBOARD}</span>
+      </Show>
+    </>
+  );
+}
 
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
   return (
@@ -72,20 +108,22 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
         {(unknown) => (
           <span
             class="beside is-unknown"
-            title={`${UNKNOWN_WORDS[unknown().reason]}, since ${FULL.format(unknown().since)}`}
+            title={`${statusUnknownWords(unknown().reason, "short")}, since ${FULL.format(unknown().since)}`}
           >
             <span class="mark mark-unknown" aria-hidden="true" />
             <span>
               Status unknown
               <Show
                 when={props.detailed}
-                fallback={<span class="condition-detail">{UNKNOWN_WORDS[unknown().reason]}</span>}
+                fallback={
+                  <span class="condition-detail">
+                    {statusUnknownWords(unknown().reason, "short")}
+                  </span>
+                }
               >
                 {" "}
                 since <Instant value={unknown().since} format={TIME_SECONDS} />:{" "}
-                {unknown().reason === "runnerDisconnected"
-                  ? "its Runner is not connected"
-                  : "its Runner has not reported it"}
+                {statusUnknownWords(unknown().reason, "detail")}
               </Show>
             </span>
           </span>
@@ -113,21 +151,30 @@ export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }
           </span>
         )}
       </Show>
-      <Show when={props.job.blockedBy}>
+      <Show
+        when={props.job.blockedBy === undefined ? undefined : blockedWords(props.job.blockedBy)}
+      >
         {(blockedBy) => (
           <span class="beside">
             <span class="mark mark-blocked" aria-hidden="true" />
-            {BLOCKED_WORDS[blockedBy()]}
+            {blockedBy()}
           </span>
         )}
       </Show>
-      <Show when={props.job.status === "failed" ? props.job.failure.reason : undefined}>
-        {(reason) => (
+      {/* The Show tests the failure, which is truthy even when its reason is an empty string, and is
+          keyed, so the child gets the failure itself rather than an accessor. When the job turns
+          from failed to queued, Solid 2.0.0's accessor can return undefined before the Show drops
+          its child; reading the reason from that threw, and in our runs the page then kept
+          re-reading it and stopped updating. */}
+      <Show when={props.job.status === "failed" ? props.job.failure : undefined} keyed>
+        {(failure) => (
           <span class="beside">
-            <code>{reason()}</code>
-            <Show when={props.detailed && FAILURE_WORDS[reason()]}>
-              {(words) => <>: {words()}</>}
-            </Show>
+            <span>
+              <FailureReason reason={failure.reason} />
+              <Show when={props.detailed && FAILURE_WORDS.get(failure.reason)}>
+                {(words) => <>: {words()}</>}
+              </Show>
+            </span>
           </span>
         )}
       </Show>

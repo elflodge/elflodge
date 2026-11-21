@@ -8,10 +8,20 @@ To implement ADR 0010, the TypeScript client link and the OpenAPI document share
 
 A typed map still constrains each value. For example, a new Label must have a string value. Removing or retyping a known member, or adding a value to a closed enum, can also break a client. A union that chooses a branch by which members are present needs a discriminator before its members are extended. For example, adding a valid `batchId` to a Runner usage group makes the Batch branch match first, and the client drops `runner`.
 
+On public reads, `Job.blockedBy`, `Job.statusUnknown.reason` and `failure.reason` explain what happened. A newer hub can give a reason an older client has no words for. The client shows the hub's word and marks it as unknown to that version. An unfamiliar failure reason still describes a fault. The contract's `openEnum` helper pairs the known enum with a string branded on input and output. Producers can type-check the values they send, and an exhaustive map of known values can return their words or signal an unfamiliar value. The OpenAPI document follows the extensible enum recipe in [OAI/OpenAPI-Specification#1552](https://github.com/OAI/OpenAPI-Specification/issues/1552#issuecomment-382640465). It uses `anyOf` with the known enum and a string. A known value matches both branches, so `oneOf` would reject it. Runner reports use the known failure reasons the hub can store.
+
+Job and Batch statuses, controls and `Submitter.kind` stay closed because callers use them to decide what they may do.
+
+Reconsider this representation if OpenAPI standardizes an extensible enum with generator support, or if a caller needs to decide what action is safe from one of these reasons.
+
 We start on the newest major line of each dependency even before it is stable, pinning exact versions while pre-release: oRPC 2 changed its wire format, so clients on version 1 could not talk to a version 2 hub, and starting on the line going forward avoids a coordinated migration later.
 
 ## Considered options
 
+- The `x-extensible-enum` vendor extension: interpreting it depends on each generator recognizing it. Standard JSON Schema keywords describe both branches to any validator.
+- A plain `string`: it accepts new reasons but omits the known vocabulary from the document and gives producers no check on its spelling.
+- Close these enums and drop the promise of new values: that would let an additional explanation hide an otherwise readable job during an upgrade.
+- Make the existing schema names open: that would silently widen the Runner protocol and the vocabulary used for counts and word maps. Explicit open schemas put that choice at public reads.
 - One contract, each tool filtering out the Runner's calls: oRPC's `generate(router, { filter })` reaches only the OpenAPI document, OpenAPI tags and an `x-internal` extension only label operations for tools that read them, trpc-cli has no option to leave a procedure out, and the TypeScript client would still carry the calls. The CLI filtered by the permissions a call needs, which a future person's key holding a `runner` permission would break.
 - Hono alone, with its validators and typed client: the client is tied to the server's route types, and OpenAPI needs another package.
 - Elysia: its Cloudflare Workers adapter is experimental, OpenAPI type generation does not work there, and its client is typed from the server instead of a separate contract.
