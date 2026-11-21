@@ -58,23 +58,21 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
   const added = z.parse(
     z.object({
       batch: z.looseObject({ id: z.string() }),
-      jobs: z.array(
-        z.object({
-          created: z.boolean(),
-          job: z.looseObject({ id: z.string(), createdAt: z.string() }),
-        }),
-      ),
+      jobs: z.array(z.looseObject({ job: z.looseObject({ id: z.string() }) })),
     }),
     await response.json(),
   );
   expect(added.batch).toMatchObject({ id: batch.id, jobCounts: { queued: 1 } });
   const [first] = added.jobs;
   assert(first, "The add answered without the job");
+  // The answer names the job; a read gives the rest.
+  expect(first).toEqual({ created: true, job: { id: first.job.id, customId: "report-q3" } });
   const unused = { totalTokens: 0, cost: { totalUsd: 0 } };
   // The hub's default limits.
   const limits = { runTimeoutSeconds: 30 * 60, modelBudgetUsd: 1 };
   const job = {
     id: first.job.id,
+    createdAt: expect.any(Date),
     status: "queued",
     startedAt: null,
     endedAt: null,
@@ -87,10 +85,8 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
     lastReportedAt: null,
     submitter: { kind: "key", id: keyId, name: "jobs" },
   };
-  expect(first).toEqual({ created: true, job: { ...job, createdAt: expect.any(String) } });
-
-  const read = { ...job, createdAt: new Date(first.job.createdAt) };
-  expect(await client.jobs.get({ id: job.id })).toEqual(read);
+  const read = await client.jobs.get({ id: job.id });
+  expect(read).toEqual(job);
   expect(await system.owner().jobs.get({ id: job.id })).toEqual(read);
 });
 
@@ -162,7 +158,6 @@ test("a member's session submits as a key does: Blobs, a Batch and its jobs, sho
   });
   const [added] = jobs;
   assert(added, "The add answered without the job");
-  expect(added.job.submitter).toEqual(submitter);
   const owner = system.owner();
   expect((await owner.jobs.get({ id: added.job.id })).submitter).toEqual(submitter);
   expect((await owner.batches.get({ id: batch.id })).submitter).toEqual(submitter);
@@ -213,15 +208,32 @@ test("an invalid Output contract or Input file path is refused with 400", async 
       client.batches.addJobs({ id: batch.id, jobs: [{ ...JOB, files }] }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   }
-  // A path cannot be given twice, nor be a file and a folder in one request.
-  for (const paths of [
-    ["a.txt", "a.txt"],
-    ["photos", "photos/front.jpg"],
-    ["photos/front.jpg", "photos"],
-  ]) {
+  // A path cannot be given twice, nor be both a file and a folder in one job. Each use of a repeated
+  // path is refused, the first included, and a path inside a file is refused once for each such file.
+  const twice = 'Must be unique in the job: "a.txt" is given more than once';
+  const inPhotos = 'Must not be in "photos", which is given as a file in the job';
+  const inYear = 'Must not be in "photos/2026", which is given as a file in the job';
+  for (const [paths, errors] of [
+    [
+      ["a.txt", "a.txt"],
+      [
+        { pointer: "/jobs/0/files/0/path", detail: twice },
+        { pointer: "/jobs/0/files/1/path", detail: twice },
+      ],
+    ],
+    [["photos", "photos/front.jpg"], [{ pointer: "/jobs/0/files/1/path", detail: inPhotos }]],
+    [
+      ["photos/2026/front.jpg", "photos", "photos/2026"],
+      [
+        { pointer: "/jobs/0/files/0/path", detail: inPhotos },
+        { pointer: "/jobs/0/files/0/path", detail: inYear },
+        { pointer: "/jobs/0/files/2/path", detail: inPhotos },
+      ],
+    ],
+  ] as const) {
     await expect(
       client.batches.addJobs({ id: batch.id, jobs: [{ ...JOB, files: paths.map(fileAt) }] }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    ).rejects.toMatchObject({ cause: { status: 400, errors } });
   }
 
   // The answer names the problem, so a caller can correct the request.

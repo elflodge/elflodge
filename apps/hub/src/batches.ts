@@ -26,7 +26,6 @@ import {
   sql,
   type Transaction,
 } from "kysely";
-import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { v7 as uuidv7 } from "uuid";
 import * as z from "zod/mini";
 
@@ -56,8 +55,6 @@ import {
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
-  jobsById,
-  jobFromJson,
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
@@ -534,22 +531,14 @@ function filesByPath(files: JobSubmission["files"]) {
 }
 
 /**
- * What is wrong with `jobs`, to be added to a Batch with `labels`, that the contract's schemas
- * cannot check, with paths from the request: a custom ID given twice, labels over the limit with
- * the Batch's, and a job with neither an input nor Input files.
+ * What is wrong with `jobs`, to be added to a Batch with `labels`, that the hub checks once the
+ * request's shape is valid, with paths from the request: labels over the limit with the Batch's, and
+ * a job with neither an input nor Input files. A creation refuses these in one answer with its
+ * agent's Output schema problems, which the hub also checks.
  */
 function jobProblems(jobs: readonly JobSubmission[], labels: Batch["labels"]) {
-  const firstWithId = new Map<string, number>();
   return jobs.flatMap((job, index) => {
     const problems: { message: string; path: (string | number)[] }[] = [];
-    const first = firstWithId.get(job.customId);
-    if (first === undefined) firstWithId.set(job.customId, index);
-    else {
-      problems.push({
-        message: `Must be unique in the request, as jobs[${first}] has it`,
-        path: ["jobs", index, "customId"],
-      });
-    }
     // The Batch's labels and the job's own each pass, but together may be too many.
     const merged = z.safeParse(labelsSchema, { ...labels, ...job.labels });
     for (const issue of merged.success ? [] : merged.error.issues) {
@@ -619,25 +608,12 @@ async function addJobsAndReadBatch(
   submitter: Submitter,
 ): Promise<AddedJobs> {
   const entries = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
-  const now = new Date();
-  // A Runner can update usage while the submission holds the Batch lock. Read both totals
-  // from a single snapshot, including on a retry that only found existing jobs.
-  const requestedJobs = jobsById(
-    trx,
-    entries.map(({ id }) => id),
-    now,
-  );
-  const row = await selectBatch(trx, { uid }, now)
-    .select(jsonArrayFrom(requestedJobs).as("jobs"))
-    .executeTakeFirstOrThrow();
-  const byId = new Map(row.jobs.map((job) => [job.id, jobFromJson(job)]));
+  // The answer's `jobs` follow the request, a job's IDs for each, and the Batch beside them is one
+  // record (ADR 0050).
+  const row = await selectBatch(trx, { uid }, new Date()).executeTakeFirstOrThrow();
   return {
     batch: batchOf(row),
-    jobs: entries.map(({ id, created }) => {
-      const job = byId.get(id);
-      if (!job) throw new Error(`The job ${id} was not read back`);
-      return { created, job };
-    }),
+    jobs: entries.map(({ id, created, job }) => ({ created, job: { id, customId: job.customId } })),
   };
 }
 
@@ -665,8 +641,8 @@ async function addJobsInTransaction(
     .forUpdate()
     .executeTakeFirstOrThrow();
   // The jobs the Batch already has under these custom IDs, locked in the order of their IDs
-  // against their deletion, so the answer can read them back; before their blobs, as a
-  // deletion locks a job and then its blobs.
+  // against their deletion, so each job the answer names still exists when the add commits; before
+  // their blobs, as a deletion locks a job and then its blobs.
   const existing = await trx
     .selectFrom("job")
     .select(["id", "customId", "contentHash"])

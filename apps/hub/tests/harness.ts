@@ -195,9 +195,9 @@ async function uploaded(client: ApiClient, files: readonly FileContent[]) {
 }
 
 /**
- * Submits `job` as the CLI's `jobs submit` does, after uploading its files: a Batch of one, without
- * a failure breaker, running the job's agent, and the job added to it; returns the job as the add
- * answers it.
+ * Submits `job` as the only job of a new Batch, after uploading its files. The Batch is created
+ * empty, with the job's agent and no failure breaker, and the job is then added, since tests exercise
+ * the add. Returns the job's IDs from the add's answer, with the Batch's ID.
  */
 export async function submitJob(client: ApiClient, job: OneJob) {
   const { instructions, outputContract, runTimeoutSeconds, modelBudgetUsd, files, ...rest } = job;
@@ -215,7 +215,7 @@ export async function submitJob(client: ApiClient, job: OneJob) {
   });
   const [added] = jobs;
   if (!added) throw new Error("The add answered without the job");
-  return added.job;
+  return { ...added.job, batchId: batch.id };
 }
 
 /** Waits until the job `id` has `status`. */
