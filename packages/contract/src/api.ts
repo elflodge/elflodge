@@ -427,12 +427,18 @@ export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
  */
 export const MAX_JOBS_PER_REQUEST = 1000;
 
+/**
+ * The check that no two jobs of one request share a `customId`, in the words the hub refuses them
+ * with, so a caller can run it on its list of jobs before the list is complete enough to send.
+ */
+export const uniqueCustomIds = uniqueBy<Pick<JobSubmission, "customId">>("customId", "the request");
+
 const submittedJobsSchema = z
   .array(jobSubmissionSchema)
   .check(
     z.minLength(1, "Must have at least 1 job"),
     z.maxLength(MAX_JOBS_PER_REQUEST, `Must have at most ${MAX_JOBS_PER_REQUEST} jobs`),
-    uniqueBy<JobSubmission>("customId", "the request"),
+    uniqueCustomIds,
     z.describe(
       "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
     ),

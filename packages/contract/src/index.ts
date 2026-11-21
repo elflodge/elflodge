@@ -5,6 +5,8 @@ export {
   batchIdSchema,
   blobRefSchema,
   digestSchema,
+  filePathSchema,
+  fileSizeBytesSchema,
   inputFileSchema,
   MAX_FILE_BYTES,
   MAX_LABELS,
