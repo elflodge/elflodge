@@ -208,8 +208,8 @@ test("an invalid Output contract or Input file path is refused with 400", async 
       client.batches.addJobs({ id: batch.id, jobs: [{ ...JOB, files }] }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   }
-  // A path cannot be given twice, nor be a file and a folder in one job: each use of a repeated path
-  // is refused, the first too, and a path inside files names each of them.
+  // A path cannot be given twice, nor be both a file and a folder in one job. Each use of a repeated
+  // path is refused, the first included, and a path inside a file is refused once for each such file.
   const twice = 'Must be unique in the job: "a.txt" is given more than once';
   const inPhotos = 'Must not be in "photos", which is given as a file in the job';
   const inYear = 'Must not be in "photos/2026", which is given as a file in the job';

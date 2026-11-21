@@ -160,7 +160,7 @@ test("an ID used again with the same content returns what it named, whoever repe
     const repeat = await post(path, body);
     expect(repeat.status).toBe(200);
     expect(z.parse(answeredJobs, await repeat.json()).jobs).toEqual(
-      answered.map(({ job }) => ({ created: false, job })),
+      answered.map(({ job }) => ({ created: false, job: { id: job.id, customId: job.customId } })),
     );
   }
 
