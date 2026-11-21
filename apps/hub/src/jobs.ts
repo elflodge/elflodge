@@ -30,7 +30,6 @@ import {
   type ExpressionBuilder,
   expressionBuilder,
   type Kysely,
-  type ShallowDehydrateObject,
   type Nullable,
   type QueryCreator,
   type SqlBool,
@@ -391,21 +390,9 @@ function selectJobs(db: Kysely<Database>, now = new Date()) {
     ]);
 }
 
-export function jobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
-  return selectJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
-}
-
-/** Postgres returns timestamps inside a JSON array as strings. */
-export function jobFromJson(row: ShallowDehydrateObject<SelectedJob>) {
-  return toApiJob({
-    ...row,
-    createdAt: new Date(row.createdAt),
-    startedAt: row.startedAt === null ? null : new Date(row.startedAt),
-    endedAt: row.endedAt === null ? null : new Date(row.endedAt),
-    lastReportedAt: row.lastReportedAt === null ? null : new Date(row.lastReportedAt),
-    pendingControlRequestedAt:
-      row.pendingControlRequestedAt === null ? null : new Date(row.pendingControlRequestedAt),
-  });
+/** The job `id`, read whole. */
+function jobById(db: Kysely<Database>, id: JobId, now: Date) {
+  return selectJobs(db, now).where("j.id", "=", id);
 }
 
 /** What every job reports whatever its status. */
@@ -569,7 +556,7 @@ export function contentHashOf(content: object) {
 export function getJob(jobId: JobId) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const job = yield* database.query((db) => jobsById(db, [jobId], new Date()).executeTakeFirst());
+    const job = yield* database.query((db) => jobById(db, jobId, new Date()).executeTakeFirst());
     if (job) return toApiJob(job);
     const deleted = yield* database.query((db) => readDeletedJob(db, jobId));
     if (!deleted) return yield* Effect.fail(new NotFound());

@@ -1,4 +1,4 @@
-import { PROBLEM_DETAILS_CONTENT_TYPE } from "contract";
+import { MAX_JOBS_PER_REQUEST, PROBLEM_DETAILS_CONTENT_TYPE, problemDetailsSchema } from "contract";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -29,9 +29,13 @@ function jobNamed(customId: string, extra: Partial<JobInput> = {}): JobInput {
   return { customId, input: `Answer for ${customId}.`, ...extra };
 }
 
-/** What blocks each job an add answered with, or "none". */
-function blockedBy(added: Awaited<ReturnType<ApiClient["batches"]["addJobs"]>>) {
-  return added.jobs.map(({ job }) => job.blockedBy ?? "none");
+/** What blocks each job an add answered with, or "none", as a read of the job gives it. */
+async function blockedBy(
+  client: ApiClient,
+  added: Awaited<ReturnType<ApiClient["batches"]["addJobs"]>>,
+) {
+  const jobs = await Promise.all(added.jobs.map(({ job }) => client.jobs.get({ id: job.id })));
+  return jobs.map((job) => job.blockedBy ?? "none");
 }
 
 /** Waits until the Batch `id` has `status`. */
@@ -134,13 +138,31 @@ test("an ID used again with the same content returns what it named, whoever repe
     ["b", false],
   ]);
   expect(again.jobs[0]?.job.id).toBe(first.jobs[0]?.job.id);
-  expect(again.jobs.map(({ job }) => job.submitter)).toEqual([
+  const readAgain = await Promise.all(again.jobs.map(({ job }) => member.jobs.get({ id: job.id })));
+  expect(readAgain.map((job) => job.submitter)).toEqual([
     byKey,
     { kind: "member", id: userId, name: "Rae Retrier" },
     byKey,
   ]);
   expect(again.batch.submitter).toEqual(byKey);
   expect(again.batch.jobCounts).toMatchObject({ queued: 3 });
+  // An exact repeat of each answers every job by its IDs alone, in request order, none created; read
+  // raw, as the client drops members its contract lacks.
+  const answeredJobs = z.looseObject({ jobs: z.unknown() });
+  for (const [path, body, answered] of [
+    ["/batches", { ...creation, jobs: [jobNamed("a"), jobNamed("b")] }, first.jobs],
+    [
+      `/batches/${batch.id}/jobs`,
+      { jobs: [jobNamed("a"), jobNamed("c"), jobNamed("b")] },
+      again.jobs,
+    ],
+  ] as const) {
+    const repeat = await post(path, body);
+    expect(repeat.status).toBe(200);
+    expect(z.parse(answeredJobs, await repeat.json()).jobs).toEqual(
+      answered.map(({ job }) => ({ created: false, job: { id: job.id, customId: job.customId } })),
+    );
+  }
 
   // A custom ID used for a job with other content refuses the whole add, naming each such job.
   const response = await post(`/batches/${batch.id}/jobs`, {
@@ -184,7 +206,32 @@ test("a refused creation leaves the Batch ID free, including when a job names an
   });
 });
 
-test("an add with an invalid job adds none, and its answer names every problem with its path", async () => {
+// Each job names a file, so the request inserts a file row with every job as well.
+test(`a request creates up to ${MAX_JOBS_PER_REQUEST} jobs together, and one more is refused with nothing made`, async () => {
+  const client = await system.clientWithNewJobsKey();
+  const rates = await uploadContent(client, "2.2");
+  const id = "most-jobs";
+  const jobs = Array.from({ length: MAX_JOBS_PER_REQUEST + 1 }, (_, index) =>
+    jobNamed(`job-${index}`, { files: [{ path: "rates.csv", ...rates }] }),
+  );
+  await expect(client.batches.create({ id, agent: AGENT, jobs })).rejects.toMatchObject({
+    cause: {
+      status: 400,
+      errors: [{ pointer: "/jobs", detail: `Must have at most ${MAX_JOBS_PER_REQUEST} jobs` }],
+    },
+  });
+  await expect(client.batches.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+  const most = jobs.slice(0, MAX_JOBS_PER_REQUEST);
+  const batch = await client.batches.create({ id, agent: AGENT, jobs: most });
+  expect(batch.jobs.map(({ created, job }) => [created, job.customId])).toEqual(
+    most.map(({ customId }) => [true, customId]),
+  );
+  expect(batch.jobCounts.queued).toBe(MAX_JOBS_PER_REQUEST);
+  await client.batches.cancel({ id });
+});
+
+test("an add with an invalid job adds none, and each refusal names its problems with their paths", async () => {
   const client = await system.clientWithNewJobsKey();
   const batch = await client.batches.create({
     agent: AGENT,
@@ -193,13 +240,36 @@ test("an add with an invalid job adds none, and its answer names every problem w
   });
   const many = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`l${index}`, "x"]));
 
-  // Problems only the hub sees, with the Batch: a custom ID given twice, labels over the limit with
-  // the Batch's, and a job with neither input nor files.
+  // A custom ID given twice is refused at each of its uses, the first included, in words naming it,
+  // in the request's order, together with another job's malformed member.
+  const repeated = await post(`/batches/${batch.id}/jobs`, {
+    jobs: [
+      jobNamed("scan.pdf"),
+      jobNamed("rates.csv"),
+      { ...jobNamed("b"), files: "bad" },
+      jobNamed("scan.pdf"),
+      jobNamed("rates.csv"),
+    ],
+  });
+  expect(repeated.status).toBe(400);
+  const { errors = [] } = problemDetailsSchema.parse(await repeated.json());
+  const scanTwice = 'Must be unique in the request: "scan.pdf" is given more than once';
+  const ratesTwice = 'Must be unique in the request: "rates.csv" is given more than once';
+  expect(errors.filter(({ pointer }) => pointer?.endsWith("/customId") ?? false)).toEqual([
+    { pointer: "/jobs/0/customId", detail: scanTwice },
+    { pointer: "/jobs/1/customId", detail: ratesTwice },
+    { pointer: "/jobs/3/customId", detail: scanTwice },
+    { pointer: "/jobs/4/customId", detail: ratesTwice },
+  ]);
+  expect(errors).toContainEqual(expect.objectContaining({ pointer: "/jobs/2/files" }));
+
+  // Problems only the hub sees, with the Batch: labels over the limit with the Batch's, and a job
+  // with neither input nor files.
   const pendingJobAdd = client.batches.addJobs({
     id: batch.id,
-    jobs: [jobNamed("a"), jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
+    jobs: [jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
   });
-  for (const path of ["jobs[1].customId", "jobs[2].labels", "jobs[3].input"]) {
+  for (const path of ["jobs[1].labels", "jobs[2].input"]) {
     await expect(pendingJobAdd).rejects.toMatchObject({
       cause: { status: 400, detail: expect.stringContaining(path) },
     });
@@ -425,12 +495,14 @@ test("a paused Batch blocks the jobs not yet sent and those added later, without
     status: "paused",
     pausedBy: "caller",
   });
-  const added = await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("b")] });
-  expect(added.jobs[0]?.job).toMatchObject({ status: "queued", blockedBy: "batchPausedByCaller" });
-  expect(await client.jobs.get({ id: first.job.id })).toMatchObject({
-    status: "queued",
-    blockedBy: "batchPausedByCaller",
-  });
+  const [later] = (await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("b")] })).jobs;
+  if (!later) throw new Error("The add answered without the job");
+  for (const { job } of [first, later]) {
+    expect(await client.jobs.get({ id: job.id })).toMatchObject({
+      status: "queued",
+      blockedBy: "batchPausedByCaller",
+    });
+  }
 
   expect(await client.batches.resume({ id: batch.id })).toMatchObject({ status: "active" });
   const [listed] = (await client.jobs.list({ batchId: batch.id, customId: "b" })).jobs;
@@ -459,9 +531,10 @@ test("a cancel is final: the Batch takes no new jobs and resumes none, even with
       client.batches.create({ id: batch.id, agent: AGENT, breaker: false, jobs }),
     (jobs: JobInput[]) => client.batches.addJobs({ id: batch.id, jobs }),
   ]) {
-    expect(await submit([jobNamed("a")])).toMatchObject({
-      jobs: [{ created: false, job: { customId: "a", status: "cancelled" } }],
-    });
+    const [recovered] = (await submit([jobNamed("a")])).jobs;
+    expect(recovered).toMatchObject({ created: false, job: { customId: "a" } });
+    if (!recovered) throw new Error("The answer named no job");
+    expect(await client.jobs.get({ id: recovered.job.id })).toMatchObject({ status: "cancelled" });
     await expect(
       submit([jobNamed("b"), jobNamed("a", { input: "Changed." })]),
     ).rejects.toMatchObject({
@@ -493,12 +566,18 @@ test("a Batch's Canary, its first jobs, those added later included, runs before 
     id: batch.id,
     jobs: [jobNamed("1"), jobNamed("2")],
   });
-  expect(blockedBy(first)).toEqual(["none", "none"]);
+  expect(await blockedBy(client, first)).toEqual(["none", "none"]);
   const rest = await client.batches.addJobs({
     id: batch.id,
     jobs: ["3", "4", "5", "6", "7"].map((customId) => jobNamed(customId)),
   });
-  expect(blockedBy(rest)).toEqual(["none", "none", "none", "batchCanary", "batchCanary"]);
+  expect(await blockedBy(client, rest)).toEqual([
+    "none",
+    "none",
+    "none",
+    "batchCanary",
+    "batchCanary",
+  ]);
   await client.batches.cancel({ id: batch.id });
 
   // A Canary of none releases every job at once.
@@ -510,7 +589,7 @@ test("a Batch's Canary, its first jobs, those added later included, runs before 
     id: uncautious.id,
     jobs: [jobNamed("1"), jobNamed("2")],
   });
-  expect(blockedBy(all)).toEqual(["none", "none"]);
+  expect(await blockedBy(client, all)).toEqual(["none", "none"]);
   await client.batches.cancel({ id: uncautious.id });
 });
 
@@ -638,7 +717,7 @@ test("a failure in the Canary pauses the Batch, and resuming it runs a new Canar
   await untilStatus(client, second, "running");
   expect(await client.jobs.get({ id: third })).toMatchObject({ blockedBy: "batchCanary" });
   const late = await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("4")] });
-  expect(late.jobs[0]?.job.blockedBy).toBe("batchCanary");
+  expect(await blockedBy(client, late)).toEqual(["batchCanary"]);
 
   await client.batches.cancel({ id: batch.id });
   await untilBatchStatus(client, batch.id, "cancelled");
@@ -770,7 +849,7 @@ test("a Batch without a breaker releases every job at once and never pauses itse
     id: batch.id,
     jobs: ["1", "2", "3"].map((customId) => jobNamed(customId)),
   });
-  expect(blockedBy(added)).toEqual(["none", "none", "none"]);
+  expect(await blockedBy(client, added)).toEqual(["none", "none", "none"]);
 
   await expect
     .poll(async () => (await client.batches.get({ id: batch.id })).jobCounts.failed, {

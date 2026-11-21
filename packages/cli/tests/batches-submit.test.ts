@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
-import { MAX_BODY_BYTES } from "contract";
+import { MAX_BODY_BYTES, MAX_JOBS_PER_REQUEST } from "contract";
 import { expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -159,7 +159,7 @@ function fakeHub(
         jobs: jobs.map((job) => {
           const id = crypto.randomUUID();
           ids.set(id, job.customId);
-          return { created: true, job: jobOf(id, job.customId, { status: "queued" }) };
+          return { created: true, job: { id, customId: job.customId } };
         }),
       });
     }
@@ -283,7 +283,7 @@ test.each([true, false])(
     onTestFinished(() => {
       process.stderr.isTTY = tty;
     });
-    const lines = Array.from({ length: 101 }, (_, index) =>
+    const lines = Array.from({ length: MAX_JOBS_PER_REQUEST + 1 }, (_, index) =>
       JSON.stringify({ customId: `posting-${index}`, input: `Posting ${index}.` }),
     );
     const cwd = await folderWith({ "jobs.jsonl": `${lines.join("\n")}\n` });
@@ -292,12 +292,13 @@ test.each([true, false])(
     const { exitCode, stderr } = await submit(hub.listener, cwd, ["jobs.jsonl"]);
 
     expect(exitCode).toBe(1);
-    expect(hub.adds.map((jobs) => jobs.length)).toEqual([100]);
+    expect(hub.adds.map((jobs) => jobs.length)).toEqual([MAX_JOBS_PER_REQUEST]);
     expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
+    const refused = `job ${MAX_JOBS_PER_REQUEST + 1}:`;
     if (isTTY) {
-      expect(stderr).toContain("job 101: /customId: Already used\njob 101: Job refused");
+      expect(stderr).toContain(`${refused} /customId: Already used\n${refused} Job refused`);
     } else {
-      expect(stderr).not.toContain("job 101:");
+      expect(stderr).not.toContain(refused);
       expect(JSON.parse(stderr.split("\n").slice(1).join("\n"))).toMatchObject({
         status: 422,
         errors: [{ pointer: "/jobs/0/customId" }, { pointer: "/jobs/0" }],
@@ -306,8 +307,8 @@ test.each([true, false])(
   },
 );
 
-test("batches submit adds the jobs of a JSONL file in its order, at most 100 at a time", async () => {
-  const lines = Array.from({ length: 101 }, (_, index) =>
+test(`batches submit adds the jobs of a JSONL file in its order, at most ${MAX_JOBS_PER_REQUEST} at a time`, async () => {
+  const lines = Array.from({ length: MAX_JOBS_PER_REQUEST + 1 }, (_, index) =>
     JSON.stringify({ customId: `posting-${index}`, input: `Posting ${index}.` }),
   );
   const cwd = await folderWith({ "jobs.jsonl": `${lines.join("\n")}\n` });
@@ -316,7 +317,7 @@ test("batches submit adds the jobs of a JSONL file in its order, at most 100 at 
   const { exitCode } = await submit(hub.listener, cwd, ["jobs.jsonl"]);
 
   expect(exitCode).toBe(0);
-  expect(hub.adds.map((jobs) => jobs.length)).toEqual([100, 1]);
+  expect(hub.adds.map((jobs) => jobs.length)).toEqual([MAX_JOBS_PER_REQUEST, 1]);
   expect(hub.adds.flat().map((job) => job.customId)).toEqual(
     lines.map((_, index) => `posting-${index}`),
   );

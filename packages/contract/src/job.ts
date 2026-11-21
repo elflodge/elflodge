@@ -76,7 +76,7 @@ export const jsonTextSchema = z.pipe(
 export const runTimeoutSecondsSchema = z.int32().check(z.positive());
 
 /** The most a job's model calls may cost over its whole life, in US dollars: above zero. */
-export const modelBudgetUsdSchema = z.number().check(z.positive());
+export const modelBudgetUsdSchema = z.number().check(z.positive("Must be above 0"));
 
 /** File systems limit a file name to 255 bytes of UTF-8; `valid-filename` counts UTF-16 units. */
 const MAX_NAME_BYTES = 255;
@@ -117,8 +117,13 @@ export const digestSchema = z
   .string()
   .check(z.regex(/^sha256:[0-9a-f]{64}$/, "Must be `sha256:` and 64 lowercase hexadecimal digits"));
 
-/** How many bytes a file holds: at most `MAX_FILE_BYTES`. */
-export const fileSizeBytesSchema = z.int().check(z.nonnegative(), z.maximum(MAX_FILE_BYTES));
+/** How many bytes a file holds: at most `MAX_FILE_BYTES`, refused in the unit a person reads. */
+export const fileSizeBytesSchema = z
+  .int()
+  .check(
+    z.nonnegative(),
+    z.maximum(MAX_FILE_BYTES, `Must be at most ${MAX_FILE_BYTES / 1024 / 1024} MiB`),
+  );
 
 /** Stored content as a caller names it: its digest and its size in bytes. */
 export const blobRefSchema = z.object({
@@ -135,30 +140,79 @@ export const strictBlobRefSchema = z.strictObject(blobRefSchema.shape);
 export const inputFileSchema = z.extend(strictBlobRefSchema, { path: filePathSchema });
 
 /**
+ * A reader of a list's texts at the member `key`: of each item that has one, the text with the
+ * item's index, in the list's order. Its schema is built once, here, as a check reads every list.
+ */
+function indexedTextsAt(key: string) {
+  const withKey = z.object({ [key]: z.string() });
+  return (items: readonly unknown[]) =>
+    items.flatMap((item, index) => {
+      const read = z.safeParse(withKey, item);
+      const text = read.success ? read.data[key] : undefined;
+      return text === undefined ? [] : [{ index, text }];
+    });
+}
+
+// Zod skips a refinement once another part of the list failed to parse. The checks of a list's
+// members read only the values they can, so they run on any list, and their problems are answered
+// with the list's others. Zod hands them the list as parsed so far, malformed items included.
+const isList = ({ value }: { value: unknown }) => Array.isArray(value);
+
+/**
+ * Refuses each item of a list whose member `key` another item has, the first one included, as not
+ * unique in `place`, in the list's order among themselves; Zod reports them after the items' own
+ * problems, as it runs a list's checks after its items'. The words name the repeated value and no
+ * index: the pointer already says where, and callers count items differently (the CLI's "job N"
+ * counts from 1), so an index would point some of them at the wrong item; without one, each place
+ * is told.
+ */
+export function uniqueBy<Item>(key: keyof Item & string, place: string) {
+  const textsOf = indexedTextsAt(key);
+  return z.superRefine(
+    (items: readonly Item[], context) => {
+      const given = textsOf(items);
+      const uses = Map.groupBy(given, ({ text }) => text);
+      for (const { index, text } of given) {
+        if ((uses.get(text)?.length ?? 0) < 2) continue;
+        context.addIssue({
+          code: "custom",
+          message: `Must be unique in ${place}: ${JSON.stringify(text)} is given more than once`,
+          path: [index, key],
+          input: text,
+        });
+      }
+    },
+    { when: isList },
+  );
+}
+
+const pathsOf = indexedTextsAt("path");
+
+/**
  * Files written into the job's `inputs` folder before its agent starts, as sandbox APIs take them: a
  * list of paths and contents, so a path, folders included, is a value rather than a key. No two may
  * collide, as the same path or as a file and a folder.
  */
 export const inputFilesSchema = z.array(inputFileSchema).check(
-  z.superRefine((files, context) => {
-    const first = new Map<string, number>();
-    files.forEach(({ path }, index) => {
-      if (!first.has(path)) first.set(path, index);
-    });
-    files.forEach(({ path }, index) => {
-      const same = first.get(path);
-      const folder = foldersOf(path).find((name) => first.has(name));
-      const message =
-        same !== undefined && same < index
-          ? `Must be unique, as files[${same}] has it`
-          : folder !== undefined
-            ? `Must not be in a folder that files[${first.get(folder)}] is as a file`
-            : undefined;
-      if (message !== undefined) {
-        context.addIssue({ code: "custom", message, path: [index, "path"], input: path });
+  uniqueBy<z.infer<typeof inputFileSchema>>("path", "the job"),
+  // A problem for each folder of a path that is given as a file, so one answer names them all.
+  z.superRefine(
+    (files: readonly unknown[], context) => {
+      const given = pathsOf(files);
+      const paths = new Set(given.map(({ text }) => text));
+      for (const { index, text } of given) {
+        for (const folder of foldersOf(text).filter((name) => paths.has(name))) {
+          context.addIssue({
+            code: "custom",
+            message: `Must not be in ${JSON.stringify(folder)}, which is given as a file in the job`,
+            path: [index, "path"],
+            input: text,
+          });
+        }
       }
-    });
-  }),
+    },
+    { when: isList },
+  ),
 );
 
 /**

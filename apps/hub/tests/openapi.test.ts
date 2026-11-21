@@ -31,8 +31,15 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
             "statusUnknownJobs",
             "jobs",
           ]),
-          properties: { jobs: { type: "array" } },
+          // Each job by its IDs alone.
+          properties: {
+            jobs: {
+              type: "array",
+              items: { properties: { job: { $ref: "#/components/schemas/JobIds" } } },
+            },
+          },
         },
+        JobIds: { required: expect.arrayContaining(["id", "customId"]) },
         ProblemDetails: {
           properties: {
             type: {},
@@ -237,8 +244,8 @@ test("the client converts dates when job, list, Batch and Events answers gain me
     agent: { outputContract: { schema: { type: "integer" } } },
     jobs: [{ customId: "one", input: "Count." }],
   });
-  const { job } = jobs[0];
-  const id = { id: job.id };
+  const id = { id: jobs[0].job.id };
+  const job = await owner.jobs.get(id);
   const page = await owner.jobs.list({ batchId: batch.id });
   const events = await owner.jobs.events(id);
   const extra = { addedLater: true };

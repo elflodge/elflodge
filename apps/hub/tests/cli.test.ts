@@ -73,14 +73,16 @@ function elflodgeIn(cwd: string | undefined, argv: readonly string[]) {
   }).pipe(Effect.scoped, Effect.provide(NodeServices));
 }
 
-test("jobs submit prints the job it accepted from a file, and jobs wait prints it once it has ended", async () => {
+test("jobs submit prints the IDs of the job it accepted from a file, and jobs wait prints the job once it has ended", async () => {
   system.model.setResponses([callTool("submit_output", { value: 1_000_000 })]);
   const dir = await mkdtemp(path.join(tmpdir(), "elflodge-cli-"));
   const file = path.join(dir, "job.json");
   await writeFile(file, JSON.stringify(SUBMISSION));
   const submitted = await elflodge("jobs", "submit", "--input", file);
   await rm(dir, { recursive: true });
-  expect(submitted).toMatchObject({ printed: { status: "queued" }, exitCode: 0 });
+  expect(submitted).toMatchObject({ exitCode: 0 });
+  // The job's IDs alone, its custom ID made for this run.
+  expect(submitted.printed).toEqual({ id: expect.any(String), customId: expect.any(String) });
 
   const { id } = z.parse(z.object({ id: z.string() }), submitted.printed);
   expect(await elflodge("jobs", "wait", "--id", id)).toMatchObject({

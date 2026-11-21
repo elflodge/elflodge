@@ -36,7 +36,7 @@ test("the hub applies the defaults and accepts limits up to the maxima it report
   expect(modelBudgetUsd).toEqual({ default: 0.75, max: 5 });
   system.model.setResponses([callTool("submit_output", { value: 1_000_000 })]);
   const job = await submitJob(client, SUBMISSION);
-  expect(job).toMatchObject({
+  expect(await client.jobs.get({ id: job.id })).toMatchObject({
     runTimeoutSeconds: runTimeoutSeconds.default,
     modelBudgetUsd: modelBudgetUsd.default,
   });
@@ -99,8 +99,9 @@ test("a repeat keeps the limits accepted for a Batch before the maximum was lowe
       jobs: [],
     });
     expect(await client.batches.create({ id: created.id, agent, jobs })).toMatchObject({
-      jobs: [{ created: false, job: { id: jobId, modelBudgetUsd: 5 } }],
+      jobs: [{ created: false, job: { id: jobId } }],
     });
+    expect(await client.jobs.get({ id: jobId })).toMatchObject({ modelBudgetUsd: 5 });
   } finally {
     await lowered.stop();
   }

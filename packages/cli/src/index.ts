@@ -28,6 +28,7 @@ import {
   FINAL_JOB_STATUSES,
   getAccess,
   type Job,
+  type JobIds,
   jobRefSchema,
   type JobSubmission,
   type KeyPermissions,
@@ -35,7 +36,7 @@ import {
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES_PER_CHECK,
-  MAX_JOBS_PER_ADD,
+  MAX_JOBS_PER_REQUEST,
   problemOf,
   type OpenStatusUnknownReason,
   type StatusUnknownReason,
@@ -383,7 +384,7 @@ function submitCommand() {
   return os
     .meta({
       description:
-        "Submits one job and prints it. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
+        "Submits one job and prints its `id` and `customId`, as the hub answers; `jobs get --id` reads how the job stands. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
       // The command takes its input as JSON only: a flag per field would include the job's `--input`,
       // which `readInput` reads as the file holding the whole input before trpc-cli sees it.
       jsonInput: "always",
@@ -423,7 +424,7 @@ function submitCommand() {
               Effect.retry(retryTransient),
               Effect.flatMap((batch) => {
                 const job = batch.jobs[0]?.job;
-                return job?.customId === id && job.batchId === id
+                return batch.id === id && job?.customId === id
                   ? Effect.succeed({ batch, job })
                   : Effect.fail(new Error(`The hub did not return the requested job ${id}`));
               }),
@@ -872,7 +873,7 @@ function submissionGroups(
     const addBytes = encodedBytes({ jobs: [] });
     for (const [index, job] of rest.entries()) {
       const jobBytes = encodedBytes(job);
-      if (current.jobs.length < MAX_JOBS_PER_ADD && bytes + 1 + jobBytes <= MAX_BODY_BYTES) {
+      if (current.jobs.length < MAX_JOBS_PER_REQUEST && bytes + 1 + jobBytes <= MAX_BODY_BYTES) {
         current.jobs.push(job);
         bytes += 1 + jobBytes;
       } else {
@@ -974,22 +975,22 @@ const prepareOutputDir = Effect.fnUntraced(function* (dir: string) {
 });
 
 /**
- * Reads the line of each of `jobs` and saves them, in order, in `dir`: those that succeeded in
- * `output.jsonl`, the rest in `error.jsonl`, leaving out a file that would hold none, as openai-cli
- * does. Where a person watches, stderr says which it saved.
+ * Reads the line of each of `jobs`, by its custom ID and job ID, and saves them, in order, in
+ * `dir`: those that succeeded in `output.jsonl`, the rest in `error.jsonl`, leaving out a file
+ * that would hold none, as openai-cli does. Where a person watches, stderr says which it saved.
  */
 const saveJobLines = Effect.fnUntraced(function* (
   client: ApiClient,
   dir: string,
-  jobs: readonly (readonly [string, Job])[],
+  jobs: readonly JobIds[],
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   // One read per job, a few at a time, until the API reads a Batch's outputs a page at a time.
   const lines = yield* Effect.forEach(
     jobs,
-    ([customId, added]) =>
-      hubCall((signal) => client.jobs.get({ id: added.id }, { signal })).pipe(
+    ({ customId, id }) =>
+      hubCall((signal) => client.jobs.get({ id }, { signal })).pipe(
         Effect.retry(retryTransient),
         Effect.map((read) => jobLine(customId, read)),
       ),
@@ -1032,7 +1033,7 @@ const saveJobLines = Effect.fnUntraced(function* (
 function waitAndSave(
   client: ApiClient,
   submitted: Batch,
-  jobs: readonly (readonly [string, Job])[],
+  jobs: readonly JobIds[],
   options: {
     again: string;
     idGiven: boolean;
@@ -1166,13 +1167,14 @@ function waitAndSave(
 /**
  * `batches submit`: one Batch running the agent its flags give, with the jobs of a JSONL file, as
  * `openai batches submit` takes one, or a job for each path `--each` gives, whose files it uploads
- * first, only those the hub lacks. Jobs are added in their order, at most 100 at a time, so the
- * first are its Canary. Each call is retried on a transient failure, under one Batch ID: the
+ * first, only those the hub lacks. Jobs are added in their order, at most `MAX_JOBS_PER_REQUEST` and
+ * `MAX_BODY_BYTES` a request, so the first are its Canary and a Batch within both limits is created
+ * whole or not at all. Each call is retried on a transient failure, under one Batch ID: the
  * caller's, or one made for this run and printed on stderr if the command stops early, or without
- * `--wait` in the hint for following the Batch, which needs it, so running
- * the same command again with it returns the same Batch and adds only the jobs it lacks. With `--wait`,
- * it then follows the Batch until no job is queued, running or paused, saves each job's line with
- * `--output-dir`, and prints the Batch.
+ * `--wait` in the hint for following the Batch, which needs it, so running the same command again
+ * with it returns the same Batch and adds only the jobs it lacks. With `--wait`, it then follows the
+ * Batch until no job is queued, running or paused, saves each job's line with `--output-dir`, and
+ * prints the Batch.
  */
 function submitBatchCommand() {
   return os
@@ -1377,25 +1379,17 @@ function submitBatchCommand() {
             }
           });
           return yield* flags.wait
-            ? waitAndSave(
-                client,
-                batch,
-                Array.zip(
-                  local.jobs.map((job) => job.customId),
-                  added,
-                ),
-                {
-                  again,
-                  idGiven: !runId.made,
-                  // `0` waits without limit; it is a duration until here, so that without --wait it
-                  // is refused as any --wait-timeout is.
-                  timeout:
-                    flags.waitTimeout === undefined || Duration.isZero(flags.waitTimeout)
-                      ? undefined
-                      : flags.waitTimeout,
-                  outputDir: flags.outputDir,
-                },
-              )
+            ? waitAndSave(client, batch, added, {
+                again,
+                idGiven: !runId.made,
+                // `0` waits without limit; it is a duration until here, so that without --wait it
+                // is refused as any --wait-timeout is.
+                timeout:
+                  flags.waitTimeout === undefined || Duration.isZero(flags.waitTimeout)
+                    ? undefined
+                    : flags.waitTimeout,
+                outputDir: flags.outputDir,
+              })
             : printBatchAndWaitHint;
         }).pipe(Effect.mapError(commandError)),
       ),
