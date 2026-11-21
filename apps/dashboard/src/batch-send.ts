@@ -270,8 +270,10 @@ export async function* prepareBatch(
     // `signal` closed the stream before its outcome.
     return { kind: "stopped" };
   } finally {
-    // A caller that stops reading early stops the program too.
-    void reader.cancel();
+    // A caller that stops reading early stops the program too. A failed stream rejects the cancel
+    // with the error its read already threw.
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
 
