@@ -102,7 +102,9 @@ A provider can use a built-in model API or supply its own `streamSimple` functio
 
 `ctx.modelRegistry.getProvider(name)` lets an extension check whether the provider is available and read its ID, name and base URL.
 
-Each model runtime has one catalog. Conversations that share it see model discoveries from any attached extension. Each conversation supplies its own custom stream. Closing an attachment removes its registrations and restores the app’s prior provider when the last registration closes. Configure the app’s providers before attaching extensions. Use separate runtimes when conversations need different endpoints or credentials for the same provider.
+Conversations using the same `ModelRuntime` share provider settings. If an extension changes a provider’s URL or credentials, another conversation’s next request can send its prompt to the new server or use the new credentials. Use separate runtimes for conversations that need independent settings.
+
+Each conversation supplies its own custom stream. Configure the app’s providers before attaching extensions. When the last attachment that registered a provider closes, the adapter restores the app’s prior registration.
 
 A custom stream receives Pi’s request and response hooks. A host-supplied `fetch` function cannot run in the worker. The host’s telemetry object also stays in the host.
 

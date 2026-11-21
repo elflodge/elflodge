@@ -1,4 +1,4 @@
-import { isDeepStrictEqual, transferableAbortController } from "node:util";
+import { transferableAbortController } from "node:util";
 
 import {
   awaitWithContext,
@@ -139,23 +139,15 @@ export class ProviderSession {
     if (models.getRegisteredProviderConfig(name) !== entry.current)
       throw new Error(`Provider "${name}" was replaced outside the extension host`);
 
-    if (entry.sessions.size > (entry.sessions.has(this) ? 1 : 0)) {
-      // A shared catalog can discover new models. Changing where a peer sends requests or
-      // which credentials it uses requires a separate runtime.
-      for (const field of ["api", "baseUrl", "apiKey", "authHeader", "headers"] as const) {
-        if (
-          settings[field] !== undefined &&
-          !isDeepStrictEqual(settings[field], entry.current?.[field])
-        )
-          throw new Error(
-            `Provider "${name}" has different ${field} settings in another conversation using these models`,
-          );
-      }
-      if (customStream && entry.current?.streamSimple !== entry.dispatch)
-        throw new Error(
-          `Provider "${name}" already serves another conversation without this custom stream`,
-        );
-    }
+    // Installing a custom stream would strand a peer that uses Pi's built-in stream.
+    if (
+      customStream &&
+      entry.current?.streamSimple !== entry.dispatch &&
+      entry.sessions.size > (entry.sessions.has(this) ? 1 : 0)
+    )
+      throw new Error(
+        `Provider "${name}" already serves another conversation without this custom stream`,
+      );
     // Pi validates each incoming registration and merges it with the previous one. In particular,
     // a headers-only update must reach Pi without streamSimple, even on a streaming provider.
     models.registerProvider(
