@@ -288,10 +288,11 @@ function EventBody(props: RowProps) {
 export function JobEventRow(props: RowProps) {
   const assistant = () =>
     props.row.record?.kind === "pi.assistant" ? props.row.record.model[0] : undefined;
-  const unknownFailure = () => {
+  // The reason itself, a string, as BesideStatus's failure Show takes it.
+  const unknownFailureReason = () => {
     const record = props.row.record;
     return record?.kind === JOB_FAILED && !FAILURE_WORDS.has(record.data.reason)
-      ? record.data
+      ? record.data.reason
       : undefined;
   };
   return (
@@ -321,7 +322,7 @@ export function JobEventRow(props: RowProps) {
           <span class="mark mark-failed" aria-hidden="true" />{" "}
         </Show>
         <Show
-          when={unknownFailure()}
+          when={unknownFailureReason()}
           fallback={
             <>
               {props.subAgent && "Sub-agent: "}
@@ -330,11 +331,11 @@ export function JobEventRow(props: RowProps) {
             </>
           }
         >
-          {(failure) => (
-            <span title={unknownWord(failure().reason)}>
+          {(reason) => (
+            <span title={unknownWord(reason())}>
               {props.subAgent && "Sub-agent: "}
               <span>Unknown failure reason</span>:{" "}
-              <code class="failure-reason">{JSON.stringify(failure().reason)}</code>
+              <code class="failure-reason">{JSON.stringify(reason())}</code>
             </span>
           )}
         </Show>
