@@ -222,13 +222,14 @@ function SubmitBatch() {
   const [progress, setProgress] = createOptimistic<SendProgress | undefined>(undefined);
   let formElement!: HTMLFormElement;
   let sendController: AbortController | undefined;
-  // A send still reading or uploading stops when the page goes.
-  onCleanup(() => sendController?.abort());
+  // What the send has not yet sent stops at Stop, at a confirmed Leave and when the page goes.
+  const stopPreparing = () => sendController?.abort();
+  onCleanup(stopPreparing);
 
   const submission = createDraftSubmission(
     () => formElement,
     () => rows().length > 0,
-    () => sendController?.abort(),
+    stopPreparing,
   );
 
   function breakerOf(form: HTMLFormElement): Creation["breaker"] {
@@ -706,7 +707,7 @@ function SubmitBatch() {
             Submit Batch
           </button>
           <Show when={progress()?.step === "reading" || progress()?.step === "uploading"}>
-            <button type="button" onClick={() => sendController?.abort()}>
+            <button type="button" onClick={stopPreparing}>
               Stop
             </button>
           </Show>
