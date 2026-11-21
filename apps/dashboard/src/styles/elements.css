@@ -84,7 +84,8 @@ mark {
 }
 
 /* Every link in content is underlined at rest, in a quieter tint of its colour, and at full strength
-   under the pointer or the keyboard. The top bar's links and links drawn as buttons go without. */
+   under the pointer or the keyboard. Only the top bar's links and links drawn as buttons go without
+   (components.css). */
 a {
   color: var(--c-link);
   text-decoration: underline;
@@ -199,8 +200,7 @@ dd {
 }
 
 /* ---- Controls: 32px with a fine pointer, 44px at narrow widths or with a coarse pointer ---- */
-button,
-a:where(.button) {
+button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -258,7 +258,8 @@ textarea {
   line-height: var(--leading);
   width: 100%;
 }
-input[readonly] {
+input[readonly],
+textarea[readonly] {
   background: transparent;
   border-color: var(--c-rule);
 }
@@ -350,7 +351,6 @@ dialog::backdrop {
 
 @media (max-width: 640px), (pointer: coarse) {
   button,
-  a:where(.button),
   input:not([type="checkbox"], [type="radio"], [type="file"]),
   select {
     min-height: var(--control-touch);
@@ -358,8 +358,7 @@ dialog::backdrop {
   summary {
     padding-block: calc((var(--control-touch) - 1lh) / 2);
   }
-  button,
-  a:where(.button) {
+  button {
     padding: 0 var(--space-4);
   }
 }
