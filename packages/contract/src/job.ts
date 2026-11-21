@@ -164,7 +164,9 @@ const isList = ({ value }: { value: unknown }) => Array.isArray(value);
  * problems, as it runs a list's checks after its items'. The words name the repeated value and no
  * index: the pointer already says where, and callers count items differently (the CLI's "job N"
  * counts from 1), so an index would point some of them at the wrong item; without one, each place
- * is told.
+ * is told. Each issue's `params.repeats` names `key`, for a client that runs this check itself to
+ * tell a repeat by it rather than by its words; the hub's answers carry the pointer and the words
+ * only.
  */
 export function uniqueBy<Item>(key: keyof Item & string, place: string) {
   const textsOf = indexedTextsAt(key);
@@ -179,6 +181,7 @@ export function uniqueBy<Item>(key: keyof Item & string, place: string) {
           message: `Must be unique in ${place}: ${JSON.stringify(text)} is given more than once`,
           path: [index, key],
           input: text,
+          params: { repeats: key },
         });
       }
     },
@@ -251,6 +254,9 @@ export const instructionsSchema = textSchema.check(z.minLength(1));
  */
 export const customIdSchema = textSchema.check(z.minLength(1), z.maxLength(255));
 
+/** The longest Batch ID. */
+export const MAX_BATCH_ID_LENGTH = 100;
+
 // Shared with the dashboard's HTML pattern, which uses the Unicode sets flag.
 export const BATCH_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_\-]*$/v;
 
@@ -263,13 +269,19 @@ export const batchIdSchema = z
   .string()
   .check(
     z.minLength(1),
-    z.maxLength(100),
+    z.maxLength(MAX_BATCH_ID_LENGTH),
     z.regex(BATCH_ID_PATTERN, "Must be letters, digits, `_` and `-`, not beginning with `-`"),
   );
 
-// Shared with the dashboard input, whose HTML pattern uses Unicode sets.
-export const LABEL_KEY_PATTERN =
-  /^(?:(?=.{1,253}\/)[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[\-_.A-Za-z0-9]{0,61}[A-Za-z0-9])?$/v;
+/** The longest name a label key has after its optional prefix, as in Kubernetes. */
+export const MAX_LABEL_NAME_LENGTH = 63;
+
+// Shared with the dashboard input, whose HTML pattern uses Unicode sets. The name's first and last
+// characters are outside its repeated middle.
+export const LABEL_KEY_PATTERN = new RegExp(
+  String.raw`^(?:(?=.{1,253}\/)[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[\-_.A-Za-z0-9]{0,${MAX_LABEL_NAME_LENGTH - 2}}[A-Za-z0-9])?$`,
+  "v",
+);
 
 /**
  * A label's key, in Kubernetes's syntax, so it reads as one parameter of a list's
@@ -282,7 +294,7 @@ export const labelKeySchema = z
   .check(
     z.regex(
       LABEL_KEY_PATTERN,
-      "Must be a name of at most 63 letters, digits, `-`, `_` and `.`, beginning and ending with a letter or digit, optionally behind a DNS subdomain and `/`",
+      `Must be a name of at most ${MAX_LABEL_NAME_LENGTH} letters, digits, \`-\`, \`_\` and \`.\`, beginning and ending with a letter or digit, optionally behind a DNS subdomain and \`/\``,
     ),
   );
 

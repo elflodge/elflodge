@@ -16,6 +16,7 @@ import {
   labelKeySchema,
   labelsSchema,
   labelValueSchema,
+  MAX_BATCH_ID_LENGTH,
   MAX_FILE_BYTES,
   MAX_LABELS,
   modelBudgetUsdSchema,
@@ -427,12 +428,18 @@ export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
  */
 export const MAX_JOBS_PER_REQUEST = 1000;
 
+/**
+ * The check that no two jobs of one request share a `customId`, in the words the hub refuses them
+ * with, so a caller can run it on its list of jobs before the list is complete enough to send.
+ */
+export const uniqueCustomIds = uniqueBy<Pick<JobSubmission, "customId">>("customId", "the request");
+
 const submittedJobsSchema = z
   .array(jobSubmissionSchema)
   .check(
     z.minLength(1, "Must have at least 1 job"),
     z.maxLength(MAX_JOBS_PER_REQUEST, `Must have at most ${MAX_JOBS_PER_REQUEST} jobs`),
-    uniqueBy<JobSubmission>("customId", "the request"),
+    uniqueCustomIds,
     z.describe(
       "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
     ),
@@ -444,7 +451,7 @@ export const batchCreationSchema = z
     id: z.optional(
       batchIdSchema.check(
         z.describe(
-          "The Batch's ID, unique in the Organization, which names it in every call; a UUID is made for it when left out. 1 to 100 letters, digits, `_` and `-`, not beginning with `-`, compared exactly, so `Invoices` and `invoices` are two Batches. Creating a Batch again with the same `id` and the same `agent`, `labels` and `breaker` returns the Batch already created, so a creation can be retried safely; with any of them different it is refused. A new Batch needs a new ID.",
+          `The Batch's ID, unique in the Organization, which names it in every call; a UUID is made for it when left out. 1 to ${MAX_BATCH_ID_LENGTH} letters, digits, \`_\` and \`-\`, not beginning with \`-\`, compared exactly, so \`Invoices\` and \`invoices\` are two Batches. Creating a Batch again with the same \`id\` and the same \`agent\`, \`labels\` and \`breaker\` returns the Batch already created, so a creation can be retried safely; with any of them different it is refused. A new Batch needs a new ID.`,
         ),
       ),
     ),
@@ -835,6 +842,16 @@ export const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 /** The most files one check of stored Blobs names. */
 export const MAX_FILES_PER_CHECK = 1000;
+
+/**
+ * How many files a client hashes or uploads, and how many calls it makes, at once, as the CLI's
+ * `batches submit` and the dashboard's Submit a Batch do: a suggestion for clients, not a limit the
+ * hub enforces. Five is a conventional value, as Docker sends five layers at once, not a measured
+ * one, so it is to be tuned from measurement. Each upload holds one of the hub's database
+ * connections while it writes, of the ten a Node hub's pool has, so five leave the hub room for
+ * other callers.
+ */
+export const SUGGESTED_AT_ONCE = 5;
 
 /**
  * Whether the Organization holds a file's Blob, as a check answers it, and if not, where to

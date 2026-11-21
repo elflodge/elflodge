@@ -1,5 +1,11 @@
-import { Outlet, createFileRoute, useChildMatches, useLocation } from "@tanstack/solid-router";
-import { batchStatusSchema, LABEL_KEY_PATTERN } from "contract";
+import {
+  Link,
+  Outlet,
+  createFileRoute,
+  useChildMatches,
+  useLocation,
+} from "@tanstack/solid-router";
+import { batchStatusSchema, LABEL_KEY_PATTERN, MAX_LABEL_NAME_LENGTH } from "contract";
 import { createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -58,6 +64,11 @@ function Batches() {
       <div hidden={failed()}>
         <div class="head">
           <h1>Batches</h1>
+          <div class="controls">
+            <Link class="button primary" to="/batches/-/new">
+              Submit a Batch
+            </Link>
+          </div>
         </div>
         <ListFilters
           to="/batches"
@@ -81,7 +92,7 @@ function Batches() {
                 {...control}
                 name="labelKey"
                 pattern={LABEL_KEY_PATTERN.source}
-                title="Use a name of up to 63 letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash."
+                title={`Use a name of up to ${MAX_LABEL_NAME_LENGTH} letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash.`}
                 defaultValue={appliedFilters().labelKey ?? ""}
                 required={!!(draftValue() ?? appliedFilters().labelValue)}
               />

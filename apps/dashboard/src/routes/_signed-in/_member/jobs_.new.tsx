@@ -1,139 +1,72 @@
-import { ORPCError } from "@orpc/client";
-import { noop, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createFileRoute, useBlocker, useRouter } from "@tanstack/solid-router";
-import { BATCH_ID_PATTERN, asError, batchCreationSchema, problemOf } from "contract";
-import { Show, createSignal, createUniqueId, onSettled } from "solid-js";
-// Not crypto.randomUUID, which is undefined outside a secure context: the dashboard may be served
-// over plain HTTP on a private network (docs/deploy.md, "Runners on other machines",
-// "A private network").
-import { v4 as uuid } from "uuid";
+import { useQueryClient } from "@tanstack/solid-query";
+import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
+import { BATCH_ID_PATTERN, MAX_BATCH_ID_LENGTH, batchCreationSchema } from "contract";
+import { Show, createSignal } from "solid-js";
 
 import { api } from "../../../api-client.ts";
+import {
+  AgentFields,
+  agentControls,
+  agentFields,
+  agentOf,
+} from "../../../components/AgentFields.tsx";
+import {
+  EarlierWords,
+  LeaveDialog,
+  createDraftSubmission,
+} from "../../../components/DraftSubmission.tsx";
 import { Field } from "../../../components/Field.tsx";
+import { LabelFields, isEndedAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
-import { createFormAction, fieldText, formRefusal } from "../../../form.ts";
-import { USD_THRESHOLD, duration, formatCount } from "../../../format.ts";
-import { isLeavingDocument } from "../../../member-document.ts";
+import {
+  createFormAction,
+  fieldText,
+  formRefusal,
+  issuesRefusal,
+  withoutRefusals,
+} from "../../../form.ts";
+import { preloadJobLimits } from "../../../job-limits.ts";
 import { orpc } from "../../../query.ts";
 
 // Under /jobs/, where the bar marks Jobs: job IDs are UUIDs, so "new" cannot name a job.
 export const Route = createFileRoute("/_signed-in/_member/jobs_/new")({
-  loader: ({ context }) => {
-    // Not awaited: the form works without the limits, which only fill two hints. Preloading on
-    // intent starts the read before the page shows.
-    if (context.member)
-      void context.queryClient
-        .query(orpc.jobs.limits.queryOptions({ staleTime: "static" }))
-        .catch(noop);
-  },
+  loader: ({ context }) => preloadJobLimits(context),
   component: SubmitJob,
 });
 
-const startingSchema = `{
-  "type": "object",
-  "properties": {
-    "answer": { "type": "string" }
-  },
-  "required": ["answer"]
-}`;
-
-const instructionsField = "agent[instructions]";
-const outputSchemaField = "agent[outputContract][schema]";
-const budgetField = "agent[modelBudgetUsd]";
-const timeoutField = "agent[runTimeoutSeconds]";
-
-// The two IDs name the same submission. Both the hub and the contract's check locate a bad Output
-// schema at the schema itself. Other locators have no control and stay in the form alert.
+// The two IDs name the same submission. Other locators have no control and stay in the form alert.
 const controls = {
   id: ["id", "jobs[0][customId]"],
   input: ["jobs[0][input]"],
-  [instructionsField]: [instructionsField],
-  [outputSchemaField]: [outputSchemaField],
-  [budgetField]: [budgetField],
-  [timeoutField]: [timeoutField],
+  ...agentControls,
 };
-
-function formatSeconds(value: number) {
-  return `${formatCount(value)} (${duration(value)})`;
-}
 
 function isTextControl(control: unknown) {
   return control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement;
 }
 
-/**
- * The figure a number control holds, read as the browser reads it, so every spelling it accepts,
- * such as `.5` or `1e3`, counts. Empty is NaN: the browser refuses to submit other text.
- */
-function figureIn(control: HTMLInputElement) {
-  return Number.isNaN(control.valueAsNumber) ? undefined : control.valueAsNumber;
-}
-
 function SubmitJob() {
   const router = useRouter();
   const client = useQueryClient();
-  const limits = useQuery(() => orpc.jobs.limits.queryOptions());
-  // The figures last read, kept through a failed background read. Reading `data` before the first
-  // answer would suspend the page, which must not wait for the limits.
-  const heldLimits = () => (limits.dataUpdatedAt ? limits.data : undefined);
-  function limitHint(
-    limit: { default: number; max: number } | undefined,
-    format: (value: number) => string,
-  ) {
-    if (limit)
-      return `Left empty: ${format(limit.default)}, the hub’s default. At most ${format(limit.max)}.`;
-    return limits.isError
-      ? "Left empty, the hub’s default applies; the hub’s limits could not be read."
-      : "Left empty, the hub’s default applies.";
-  }
   const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
-  // Kept so that a retry after a lost answer sends the same ID, and the hub answers with the job
-  // it made instead of making a second one.
-  let madeId: string | undefined;
-  // A request was sent, and got no answer that says what the hub did, or its success came after
-  // the member chose to leave. Holds which kind of ID it was sent under. A later refusal of the
-  // same draft says nothing of that request, so only an edit that gives the next send another ID
-  // or a success the page follows settles it.
-  const [unknownOutcome, setUnknownOutcome] = createSignal<"made ID" | "Custom ID">();
-  let submitted = false;
-  // The member confirmed leaving while this request was pending: its answer must not take them
-  // back. A new send clears it, so it covers only the request pending at Leave.
-  let leaveConfirmed = false;
   let formElement: HTMLFormElement | undefined;
-  let budgetInput!: HTMLInputElement;
-  let timeoutInput!: HTMLInputElement;
-  const dirty = () =>
-    !submitted &&
-    Array.from(formElement?.elements ?? []).some(
-      (control) =>
-        isTextControl(control) &&
-        (control.value !== control.defaultValue || control.validity.badInput),
-    );
-  const blocker = useBlocker({
-    // A change of fragment alone, such as the skip link's, does not leave the page.
-    shouldBlockFn: ({ current, next }) => current.pathname !== next.pathname && dirty(),
-    // A document replaced after a sign-out or a change of member must go (ADR 0046).
-    enableBeforeUnload: () => !isLeavingDocument() && dirty(),
-    withResolver: true,
-  });
-  const headingId = createUniqueId();
+  const submission = createDraftSubmission(() => formElement);
 
   const { pending, onSubmit } = createFormAction(async (form) => {
-    leaveConfirmed = false;
+    submission.sending();
     const data = new FormData(form);
-    let schema: unknown;
-    try {
-      schema = JSON.parse(fieldText(data, outputSchemaField));
-    } catch (error) {
+    const { agent, schemaRefusal } = agentOf(form, data);
+    if (schemaRefusal) {
       setFailure({
-        fields: new Map([[outputSchemaField, `Not valid JSON: ${asError(error).message}`]]),
+        fields: new Map([[agentFields.outputSchema, schemaRefusal]]),
         alert: undefined,
       });
       return;
     }
-    const sentUnder = fieldText(data, "id") ? "Custom ID" : "made ID";
-    const id = fieldText(data, "id") || (madeId ??= uuid());
+    const labels = labelsOf(data);
+    const placed = { ...controls, ...labels.controls };
+    const id = submission.takeId(fieldText(data, "id"));
     // Checked here, not by oRPC's RequestValidationPlugin, which would check every dashboard call:
     // the schema's text is parsed first, and the page must know whether anything was sent.
     const checked = batchCreationSchema.safeParse({
@@ -142,23 +75,15 @@ function SubmitJob() {
       // and would pause the Batch if that job failed. A repeat under the same ID, from the CLI or
       // this page, matches while both send this.
       breaker: false,
+      labels: labels.labels,
       jobs: [{ customId: id, input: fieldText(data, "input") }],
-      agent: {
-        instructions: fieldText(data, instructionsField) || undefined,
-        outputContract: { schema },
-        modelBudgetUsd: figureIn(budgetInput),
-        runTimeoutSeconds: figureIn(timeoutInput),
-      },
+      agent,
     });
     if (!checked.success) {
-      setFailure(
-        formRefusal(
-          new ORPCError("BAD_REQUEST", { data: { issues: checked.error.issues } }),
-          controls,
-        ),
-      );
+      setFailure(issuesRefusal(checked.error.issues, placed));
       return;
     }
+    submission.creating();
     try {
       const result = await api.batches.create(checked.data);
       const first = result.jobs[0];
@@ -169,10 +94,7 @@ function SubmitJob() {
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.get.queryKey({ input: { id } }) });
-      if (form.isConnected && !leaveConfirmed) {
-        submitted = true;
-        // A navigation held by an open leave dialog gives way, so the member lands on the job.
-        blocker().reset?.();
+      if (submission.markSucceeded(id)) {
         // A repeat names a job the member may have opened before, and its page's loader takes a
         // cached copy of any age, so the copy goes and the job is read as it stands now. Only here:
         // a member who left may already be reading that page.
@@ -181,41 +103,19 @@ function SubmitJob() {
           exact: true,
         });
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
-      } else if (leaveConfirmed) {
-        // A member who comes back to the form finds it as after a lost answer: the made ID is kept,
-        // so sending it unchanged opens this job.
-        setUnknownOutcome(sentUnder);
-        setFailure(undefined);
-      }
+      } else setFailure(undefined);
     } catch (error) {
-      const status = problemOf(error)?.status;
-      // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
-      if (!(status !== undefined && status >= 400 && status < 500)) setUnknownOutcome(sentUnder);
-      setFailure(formRefusal(error, controls));
-      if (status === 403)
-        void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
+      submission.markFailed(error, id);
+      setFailure(formRefusal(error, placed));
     }
   });
 
   // The previous refusal belongs to the last attempt while the next request is pending.
   const displayedFailure = () => (pending() ? undefined : failure());
   const refused = (name: string) => displayedFailure()?.fields.get(name);
-  const mayHaveJob = () => pending() || unknownOutcome() !== undefined;
-  // What the member can do about an unknown outcome, under the hub's words.
-  const alertWords = () => {
-    if (pending()) return undefined;
-    const sentUnder = unknownOutcome();
-    // Under a typed Custom ID the member may have edited other fields since, or sent and been
-    // refused other values, so the words point at the submission whose outcome is unknown.
-    const words = [
-      failure()?.alert,
-      sentUnder === "made ID" &&
-        "The hub may already have this job. Submit again without changing anything to find out: the same request returns the job if it was made.",
-      sentUnder === "Custom ID" &&
-        "The hub may already have this job from an earlier submission. Submit that submission’s values again to find out; the form keeps them unless you changed them since. The same request returns the job if it was made. If the hub has a job under this Custom ID, other content is refused: Custom ID says the ID was already used for other content.",
-    ];
-    return words.filter(Boolean).join("\n") || undefined;
-  };
+  // The hub's words, then what the member can do about an earlier send whose outcome is unknown.
+  const hubWords = () => (pending() ? undefined : failure()?.alert);
+  const earlier = () => (pending() ? undefined : submission.earlier());
 
   return (
     <>
@@ -231,143 +131,102 @@ function SubmitJob() {
         autocomplete="off"
         onSubmit={onSubmit}
         onInput={(event) => {
-          madeId = undefined;
           const control = event.target;
           if (!isTextControl(control)) return;
-          // An edit gives a made ID a new one, so the next send can make a second job. Under a typed
-          // Custom ID only an edit of that ID does: the hub refuses other content under the same ID.
-          setUnknownOutcome((sentUnder) =>
-            sentUnder === "Custom ID" && control.name !== "id" ? sentUnder : undefined,
+          if (control.name === "id") submission.idEdited(control.value);
+          setFailure(
+            (previous) => previous && withoutRefusals(previous, (name) => name === control.name),
           );
-          setFailure((previous) => {
-            if (!previous?.fields.has(control.name)) return previous;
-            const fields = new Map(previous.fields);
-            fields.delete(control.name);
-            return { ...previous, fields };
-          });
         }}
       >
         <p class="note">
-          This submits one job from typed text, as a Batch of one. Input files and Labels need the
-          CLI: <code>elflodge batches submit --each</code> gives each job a file,{" "}
-          <code>elflodge jobs submit</code> takes Labels.
+          This submits one job from typed text, as a Batch of one. To give jobs files, or to submit
+          several, use <Link to="/batches/-/new">Submit a Batch</Link>.
         </p>
-        <Field
-          label="Instructions"
-          hint="Optional. What the agent is told before the input, after its Runner’s own instructions."
-          error={refused(instructionsField)}
-        >
-          {(control) => (
-            <textarea
-              {...control}
-              name={instructionsField}
-              // Four rows: a few sentences.
-              rows={4}
-              readonly={pending()}
-            />
-          )}
-        </Field>
-        <Field label="Input" hint="What the agent works on." error={refused("input")}>
-          {(control) => (
-            <textarea
-              {...control}
-              name="input"
-              // Eight rows: a short document, such as an invoice's lines and a question about them.
-              rows={8}
-              required
-              readonly={pending()}
-            />
-          )}
-        </Field>
-        <Field
-          label="Output schema"
-          hint="A JSON Schema the job’s Output must match: one value, not a list. A starting schema: one text answer. Replace it with yours."
-          error={refused(outputSchemaField)}
-        >
-          {(control) => (
-            <textarea
-              {...control}
-              class="mono"
-              name={outputSchemaField}
-              // Ten rows: the starting schema's seven lines and a few more properties.
-              rows={10}
-              required
-              spellcheck={false}
-              autocapitalize="off"
-              readonly={pending()}
-              defaultValue={startingSchema}
-            />
-          )}
-        </Field>
-        <Field
-          label="Custom ID"
-          hint={
-            <>
-              Optional. Names the job and its Batch of one: 1 to 100 letters, digits, <code>_</code>{" "}
-              and <code>-</code>, not beginning with <code>-</code>. Left empty, one is made.
-            </>
+        <AgentFields
+          of="job"
+          pending={pending()}
+          refused={refused}
+          afterInstructions={
+            <Field label="Input" hint="What the agent works on." error={refused("input")}>
+              {(control) => (
+                <textarea
+                  {...control}
+                  name="input"
+                  // Eight rows: a short document, such as an invoice's lines and a question about them.
+                  rows={8}
+                  required
+                  readonly={pending()}
+                />
+              )}
+            </Field>
           }
-          error={refused("id")}
-        >
-          {(control) => (
-            <input
-              {...control}
-              name="id"
-              pattern={BATCH_ID_PATTERN.source}
-              title="Letters, digits, _ and -, not beginning with -"
-              spellcheck={false}
-              autocapitalize="off"
-              readonly={pending()}
-            />
-          )}
-        </Field>
-        <Field
-          label="Model budget"
-          unit="USD, over its life"
-          hint={
-            <>
-              {limitHint(heldLimits()?.modelBudgetUsd, (value) => USD_THRESHOLD.format(value))} A
-              model call in progress completes, so the cost can end a little over.
-            </>
+          afterSchema={
+            <Field
+              label="Custom ID"
+              hint={
+                <>
+                  Optional. Names the job and its Batch of one: 1 to {MAX_BATCH_ID_LENGTH} letters,
+                  digits, <code>_</code> and <code>-</code>, not beginning with <code>-</code>. Left
+                  empty, one is made.
+                </>
+              }
+              error={refused("id")}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  name="id"
+                  pattern={BATCH_ID_PATTERN.source}
+                  title="Letters, digits, _ and -, not beginning with -"
+                  spellcheck={false}
+                  autocapitalize="off"
+                  readonly={pending()}
+                />
+              )}
+            </Field>
           }
-          error={refused(budgetField)}
-        >
-          {(control) => (
-            <input
-              {...control}
-              name={budgetField}
-              type="number"
-              min="0"
-              step="any"
-              readonly={pending()}
-              ref={(element) => {
-                budgetInput = element;
-              }}
-            />
-          )}
-        </Field>
-        <Field
-          label="Run timeout"
-          unit="seconds, each run"
-          hint={limitHint(heldLimits()?.runTimeoutSeconds, formatSeconds)}
-          error={refused(timeoutField)}
-        >
-          {(control) => (
-            <input
-              {...control}
-              name={timeoutField}
-              type="number"
-              min="1"
-              step="1"
-              readonly={pending()}
-              ref={(element) => {
-                timeoutInput = element;
-              }}
-            />
-          )}
-        </Field>
-        <Show when={alertWords()} keyed>
-          {(message) => <Notice role="alert">{message}</Notice>}
+        />
+        <LabelFields
+          hint="Optional. The job carries them, and Usage can group cost by a key."
+          pending={pending()}
+          refused={refused}
+          onChange={(count) => {
+            setFailure(
+              (previous) => previous && withoutRefusals(previous, isEndedAtLabelCount(count)),
+            );
+          }}
+        />
+        <Show when={hubWords() || earlier()}>
+          <Notice role="alert">
+            {hubWords()}
+            <Show when={earlier()}>
+              {hubWords() ? "\n" : ""}
+              <EarlierWords
+                earlier={earlier()}
+                record="job"
+                records="jobs"
+                idName="Custom ID"
+                // A job's Batch of one has its Custom ID, so the Jobs list filtered to that Batch
+                // shows the job.
+                link={(id) => (
+                  <Link to="/jobs" search={{ batchId: id }} target="_blank" preload={false}>
+                    {id}
+                  </Link>
+                )}
+                // The Custom ID names the job and its Batch of one, so a changed field and a changed
+                // input are both refused at it: the hub refuses other content under a Batch's ID,
+                // and under a job's Custom ID in its Batch.
+                repeat={(link) => (
+                  <>
+                    The hub may already have a job under this Custom ID: {link}. Submit again to
+                    find out: if it was made, the same values return that job and changed ones are
+                    refused at Custom ID. To submit another job, change the Custom ID or clear it.
+                  </>
+                )}
+              />
+            </Show>
+          </Notice>
         </Show>
         <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
           Submit job
@@ -376,43 +235,8 @@ function SubmitJob() {
           {pending() ? "Working…" : ""}
         </p>
       </form>
-      <Show when={blocker().status === "blocked"}>
-        <dialog
-          aria-labelledby={headingId}
-          ref={(element) => {
-            onSettled(() => element.showModal());
-          }}
-          onClose={() => blocker().reset?.()}
-        >
-          <form method="dialog">
-            <h2 class="dialog-h" id={headingId}>
-              {mayHaveJob() ? "Leave this page?" : "Leave without submitting?"}
-            </h2>
-            <div class="dialog-b">
-              <p>
-                {mayHaveJob()
-                  ? "The hub may already have this job: look for it in Jobs before submitting it again."
-                  : "The job has not been submitted."}{" "}
-                Leaving this page loses what you typed.
-              </p>
-            </div>
-            <div class="dialog-f">
-              <button value="keep" autofocus>
-                Stay
-              </button>
-              <button
-                type="button"
-                class="danger is-fill"
-                onClick={() => {
-                  leaveConfirmed = true;
-                  blocker().proceed?.();
-                }}
-              >
-                Leave the page
-              </button>
-            </div>
-          </form>
-        </dialog>
+      <Show when={submission.blocker().status === "blocked"}>
+        <LeaveDialog submission={submission} record="job" list="Jobs" loses="what you typed" />
       </Show>
     </>
   );

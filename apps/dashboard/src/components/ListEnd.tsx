@@ -93,7 +93,8 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
             when={props.runners?.every((runner) => !runner.connected)}
             fallback={
               <p>
-                Submit a Batch of jobs with the CLI: <code>elflodge batches submit</code>
+                {list().empty}
+                <code>elflodge batches submit</code>
               </p>
             }
           >
