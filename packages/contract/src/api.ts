@@ -16,6 +16,7 @@ import {
   labelKeySchema,
   labelsSchema,
   labelValueSchema,
+  MAX_BATCH_ID_LENGTH,
   MAX_FILE_BYTES,
   MAX_LABELS,
   modelBudgetUsdSchema,
@@ -450,7 +451,9 @@ export const batchCreationSchema = z
     id: z.optional(
       batchIdSchema.check(
         z.describe(
-          "The Batch's ID, unique in the Organization, which names it in every call; a UUID is made for it when left out. 1 to 100 letters, digits, `_` and `-`, not beginning with `-`, compared exactly, so `Invoices` and `invoices` are two Batches. Creating a Batch again with the same `id` and the same `agent`, `labels` and `breaker` returns the Batch already created, so a creation can be retried safely; with any of them different it is refused. A new Batch needs a new ID.",
+          "The Batch's ID, unique in the Organization, which names it in every call; a UUID is made for it when left out. 1 to " +
+            String(MAX_BATCH_ID_LENGTH) +
+            " letters, digits, `_` and `-`, not beginning with `-`, compared exactly, so `Invoices` and `invoices` are two Batches. Creating a Batch again with the same `id` and the same `agent`, `labels` and `breaker` returns the Batch already created, so a creation can be retried safely; with any of them different it is refused. A new Batch needs a new ID.",
         ),
       ),
     ),
