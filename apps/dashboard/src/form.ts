@@ -108,14 +108,20 @@ export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Elemen
 }
 
 /**
- * Keep the form pending until its submission, including any navigation, settles. Then focus a
- * refused field, or return focus to the control that disabling lost it, unless the member moved on.
+ * Keep the form pending until its submission, including any navigation, settles; `submit` is
+ * async, or an async generator to report its steps as it goes. Then focus a refused field, or return focus to the control that disabling lost it, unless the member moved on.
  */
-export function createFormAction(submit: (form: HTMLFormElement) => Promise<void>) {
+export function createFormAction(
+  submit: (form: HTMLFormElement) => Promise<void> | AsyncGenerator<void, void, void>,
+) {
   const [pending, setPending] = createOptimistic(false);
-  const run = action(function* (form: HTMLFormElement) {
+  const run = action(async function* (form: HTMLFormElement) {
     setPending(true);
-    yield submit(form);
+    const submission = submit(form);
+    // A generator's writes after each `yield` are made in the action, as its first ones are, so
+    // optimistic ones show while it is pending.
+    if (Symbol.asyncIterator in submission) yield* submission;
+    else await submission;
   });
   async function onSubmit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();

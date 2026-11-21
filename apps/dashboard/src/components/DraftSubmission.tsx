@@ -45,9 +45,9 @@ export function createDraftSubmission(
   // What the field `id` holds, which decides whether the next send repeats one of them.
   const [idInField, setIdInField] = createSignal("");
   // Optimistic, as the form's pending state is: a send is one action, whose other writes show once
-  // it settles. `sending` writes it in the action's first slice, which Solid needs to keep the write
-  // `creating` makes after an await.
-  const [stage, setStage] = createOptimistic<"preparing" | "creating" | undefined>(undefined);
+  // it settles. A page calls `creating` where its action runs, before its first wait or after a
+  // `yield`, so the stage shows while the create is pending.
+  const [stage, setStage] = createOptimistic<"creating" | undefined>(undefined);
   let submitted = false;
   // The member confirmed leaving while this request was pending: its answer must not take them
   // back. A new send clears it, so it covers only the request pending at Leave.
@@ -96,7 +96,6 @@ export function createDraftSubmission(
     /** A send begins. */
     sending() {
       leaveConfirmed = false;
-      setStage("preparing");
     },
     /** The create is sent, which cannot be recalled. */
     creating() {

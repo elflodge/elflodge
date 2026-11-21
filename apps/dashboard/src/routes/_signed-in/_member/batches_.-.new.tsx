@@ -27,7 +27,7 @@ import {
   fileProblems,
   repeatedCustomIds,
 } from "../../../batch-draft.ts";
-import { type SendProgress, sendBatch } from "../../../batch-send.ts";
+import { type SendOutcome, type SendProgress, sendBatch } from "../../../batch-send.ts";
 import {
   AgentFields,
   agentControls,
@@ -269,7 +269,7 @@ function SubmitBatch() {
     });
   }
 
-  const { pending, onSubmit } = createFormAction(async () => {
+  const { pending, onSubmit } = createFormAction(async function* () {
     submission.sending();
     // Read here too: Enter can submit before a field's change.
     const reading = updateDraft();
@@ -286,16 +286,19 @@ function SubmitBatch() {
     const sent = rows();
     const keyOf = (index: number) => sent[index]?.key ?? -1;
     sendController = new AbortController();
-    const outcome = await sendBatch(draft, {
-      signal: sendController.signal,
-      onProgress: (step) => {
-        setProgress(step);
-        if (step.step === "creating") submission.creating();
-      },
-    }).finally(() => {
+    let outcome: SendOutcome;
+    try {
+      outcome = yield* sendBatch(draft, {
+        signal: sendController.signal,
+        onProgress: (step) => {
+          setProgress(step);
+          if (step.step === "creating") submission.creating();
+        },
+      });
+    } finally {
       sendController = undefined;
       setProgress(undefined);
-    });
+    }
     function refusedBy(issues: readonly unknown[], kind: RowsKind): Ending {
       const { atRows, rest } = splitRowIssues(issues, sent);
       const refusal = issuesRefusal(rest, placed);
@@ -817,9 +820,8 @@ function Facts(props: { facts: ReturnType<typeof draftFacts>; limitsFailed: bool
   );
 }
 
-/** The words for each step a send shows; the page's own check is quick, and shows nothing. */
+/** The words for each step a send shows. */
 const stepWords: Record<SendProgress["step"], string> = {
-  checking: "",
   reading: "Reading the files",
   uploading: "Uploading the files the hub does not hold",
   creating: "Creating the Batch…",

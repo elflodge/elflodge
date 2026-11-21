@@ -16,7 +16,6 @@ import {
   type BatchDraft,
   type Creation,
   creationOf,
-  type DraftCreation,
   type DraftJob,
   draftFiles,
   requestBytes,
@@ -36,12 +35,10 @@ export interface UploadFigures {
 }
 
 /**
- * How far a send is, for the page to show the step and its figures: checking the request, reading
- * the files, asking the hub which contents it holds and uploading the others (`uploading`, its
+ * How far a send is, for the page to show the step and its figures: reading the files, asking the hub which contents it holds and uploading the others (`uploading`, its
  * figures once the hub has answered), then creating the Batch.
  */
 export type SendProgress =
-  | { readonly step: "checking" }
   | { readonly step: "reading"; readonly read: number; readonly files: number }
   | { readonly step: "uploading"; readonly figures?: UploadFigures }
   | { readonly step: "creating" };
@@ -96,18 +93,6 @@ const digestOf = (file: File) =>
     Effect.map((hash) => `sha256:${bytesToHex(hash.digest())}`),
   );
 
-/**
- * Whether the contract took `creation` as it is, by its check `checked`. The creation is sent as
- * given, not as the check gives it with its defaults, so the request is the one whose size the page
- * stated.
- */
-function isCreation(
-  creation: DraftCreation,
-  checked: { readonly success: boolean },
-): creation is DraftCreation & Creation {
-  return checked.success;
-}
-
 /** Each job of `jobs` whose file `messageOf` gives a message for, with it, by the job's index. */
 function jobProblems(
   jobs: readonly DraftJob[],
@@ -120,29 +105,18 @@ function jobProblems(
 }
 
 /**
- * Everything before the create: reads every file, checks the request, asks the hub which contents
- * it holds and uploads the others. Answers the request to send, or how it stopped.
+ * Everything before the create of `draft`, which the contract takes, with `files` its files: reads
+ * every file, asks the hub which contents it holds and uploads the others. Answers the request to
+ * send, or how it stopped.
  */
 const prepare = Effect.fnUntraced(function* (
   draft: BatchDraft,
+  files: readonly File[],
   onProgress: (progress: SendProgress) => void,
 ) {
-  // The request's count, form and size do not depend on what the files hold, as an unread file's
-  // digest has a read one's length: what the contract refuses is told before anything is read.
-  const unread = creationOf(draft, new Map());
-  const early = z.safeParse(batchCreationSchema, unread);
-  if (!early.success) return { kind: "invalid", issues: early.error.issues } as const;
-  const bytes = requestBytes(unread);
-  if (bytes > MAX_BODY_BYTES) return { kind: "tooLarge", bytes, max: MAX_BODY_BYTES } as const;
-
-  // Every file is read each time, so a file changed since the last try is named by what it holds.
-  // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
-  // time may differ in what they hold.
-  const files = draftFiles(draft.jobs);
   let read: readonly { readonly file: File; readonly digest: string }[] = [];
   if (files.length > 0) {
     let count = 0;
-    onProgress({ step: "reading", read: count, files: files.length });
     const [passes, unreadable] = yield* Effect.partition(
       files,
       (file) =>
@@ -170,10 +144,10 @@ const prepare = Effect.fnUntraced(function* (
   }
 
   const digests = new Map(read.map(({ file, digest }) => [file, digest]));
-  const creation = creationOf(draft, digests);
-  // The contract took the unread request, and a digest read has an unread one's form, so it takes
-  // this one too, unchecked again.
-  if (!isCreation(creation, early)) return { kind: "invalid", issues: [] } as const;
+  // Sent as built, not as the contract's check gives it with its defaults, so the request is the one
+  // whose size the page stated.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the contract took the unread request, and a read digest has an unread one's form
+  const creation = creationOf(draft, digests) as Creation;
   if (files.length === 0) return { kind: "ready", creation } as const;
 
   onProgress({ step: "uploading" });
@@ -250,20 +224,35 @@ const prepare = Effect.fnUntraced(function* (
 });
 
 /**
- * Sends `draft` as one Batch creation, which the hub commits whole or not at all: reads every file
- * and names it by its digest, checks the request as the contract does, uploads each content the hub
+ * Sends `draft` as one Batch creation, which the hub commits whole or not at all: checks the request
+ * as the contract does, reads every file and names it by its digest, uploads each content the hub
  * does not hold, then creates the Batch. Reports how far it is with `onProgress`. `signal` stops it
- * until the create is sent, which cannot be recalled. Nothing is tried again by itself.
+ * until the create is sent, which cannot be recalled. Nothing is tried again by itself. A generator
+ * for an action to delegate to, which it re-enters at each `yield`.
  */
-export async function sendBatch(
+export async function* sendBatch(
   draft: BatchDraft,
   options: { readonly signal: AbortSignal; readonly onProgress: (progress: SendProgress) => void },
-): Promise<SendOutcome> {
+): AsyncGenerator<void, SendOutcome, void> {
   const { signal, onProgress } = options;
-  // Before anything is awaited: Solid keeps an optimistic write made after an await only in a lane
-  // a write in the action's first slice opened, so the page's progress reports its later steps.
-  onProgress({ step: "checking" });
-  const prepared = await Effect.runPromiseExit(prepare(draft, onProgress), { signal });
+  // The request's count, form and size do not depend on what the files hold, as an unread file's
+  // digest has a read one's length: what the contract refuses is told before anything is read.
+  const unread = creationOf(draft, new Map());
+  const early = z.safeParse(batchCreationSchema, unread);
+  if (!early.success) return { kind: "invalid", issues: early.error.issues };
+  const bytes = requestBytes(unread);
+  if (bytes > MAX_BODY_BYTES) return { kind: "tooLarge", bytes, max: MAX_BODY_BYTES };
+
+  // Every file is read each time, so a file changed since the last try is named by what it holds.
+  // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
+  // time may differ in what they hold.
+  const files = draftFiles(draft.jobs);
+  // The page shows these reports while its action is pending: Solid keeps an optimistic write made
+  // outside an action only beside one made in it, before its first wait or after a `yield`. So the
+  // first report comes before the wait, the reports while waiting follow it, and the create's step,
+  // which a send of typed jobs reports first, comes after a `yield`.
+  if (files.length > 0) onProgress({ step: "reading", read: 0, files: files.length });
+  const prepared = await Effect.runPromiseExit(prepare(draft, files, onProgress), { signal });
   if (Exit.isFailure(prepared)) {
     if (Exit.hasInterrupts(prepared)) return { kind: "stopped" };
     // Every failure the hub or a file can cause is an outcome, so this is a mistake in the page.
@@ -272,6 +261,7 @@ export async function sendBatch(
   const outcome = prepared.value;
   if (outcome.kind !== "ready") return outcome;
   if (signal.aborted) return { kind: "stopped" };
+  yield;
   onProgress({ step: "creating" });
   try {
     return { kind: "created", answer: await api.batches.create(outcome.creation) };
