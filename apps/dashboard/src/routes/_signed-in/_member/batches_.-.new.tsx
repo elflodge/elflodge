@@ -677,7 +677,7 @@ function SubmitBatch() {
                 records="Batches"
                 idName="Batch ID"
                 link={(id) => (
-                  <Link to="/batches/$id" params={{ id }} target="_blank">
+                  <Link to="/batches/$id" params={{ id }} target="_blank" preload={false}>
                     {id}
                   </Link>
                 )}

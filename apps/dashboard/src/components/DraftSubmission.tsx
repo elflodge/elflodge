@@ -148,7 +148,8 @@ export function createDraftSubmission(
  * What the alert says while the hub may hold records from earlier sends: while the field holds one's
  * ID, the page's own words, `repeat`, around a link to it, as a repeat does different things to a
  * job and to a Batch; then the records under other IDs, which sending leaves as they are. `link`
- * leads to what the hub holds under an ID, in a new tab.
+ * leads to what the hub holds under an ID, in a new tab and not preloaded, as the page reads
+ * nothing of it by itself.
  */
 export function EarlierWords(props: {
   /** Nothing while there is nothing earlier, so a page may read it straight from its source. */

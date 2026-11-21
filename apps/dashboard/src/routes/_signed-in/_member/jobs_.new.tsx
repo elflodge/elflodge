@@ -208,7 +208,7 @@ function SubmitJob() {
                 // A job's Batch of one has its Custom ID, so the Jobs list filtered to that Batch
                 // shows the job.
                 link={(id) => (
-                  <Link to="/jobs" search={{ batchId: id }} target="_blank">
+                  <Link to="/jobs" search={{ batchId: id }} target="_blank" preload={false}>
                     {id}
                   </Link>
                 )}
