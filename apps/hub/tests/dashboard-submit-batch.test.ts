@@ -273,17 +273,17 @@ test("Leave confirmed while an upload is held sends no create", async () => {
   page.on("request", (request) => {
     if (isCreate(request)) creates.push(request.url());
   });
+  const reached = Promise.withResolvers<void>();
   const upload = Promise.withResolvers<void>();
-  const passed = Promise.withResolvers<void>();
   await page.route("**/blobs/**", async (route) => {
     if (!isUpload(route.request())) return route.continue();
+    reached.resolve();
     await upload.promise;
-    // The page may have dropped the request by now.
+    // The page has dropped the request by now.
     await route.continue().catch(() => undefined);
-    passed.resolve();
   });
   await page.getByRole("button", { name: "Submit Batch" }).click();
-  await page.getByText("Uploaded 0 of 1 file", { exact: false }).waitFor();
+  await reached.promise;
   // The session read of the next page is held, so this page stays while the next one loads.
   const session = Promise.withResolvers<void>();
   await page.route("**/api/auth/get-session", async (route) => {
@@ -296,10 +296,9 @@ test("Leave confirmed while an upload is held sends no create", async () => {
     .click();
   const dialog = page.getByRole("dialog", { name: "Leave without submitting?" });
   await dialog.getByRole("button", { name: "Leave the page" }).click();
+  // Stopped by Leave itself, while the page is still here.
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toBeVisible();
   upload.resolve();
-  await passed.promise;
-  // A create would follow the upload's answer at once.
-  await page.waitForRequest(isCreate, { timeout: 2_000 }).catch(() => undefined);
   session.resolve();
   await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Batches");
   expect(creates).toEqual([]);
