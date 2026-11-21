@@ -14,6 +14,7 @@ import {
   type JobSubmission,
   jobStatusSchema,
   labelsSchema,
+  MAX_LABELS,
   NotFound,
 } from "contract";
 import { Array, Effect, Order, Struct } from "effect";
@@ -537,10 +538,17 @@ function filesByPath(files: JobSubmission["files"]) {
  * agent's Output schema problems, which the hub also checks.
  */
 function jobProblems(jobs: readonly JobSubmission[], labels: Batch["labels"]) {
+  const batchLabelCount = Object.keys(labels).length;
   return jobs.flatMap((job, index) => {
     const problems: { message: string; path: (string | number)[] }[] = [];
-    // The Batch's labels and the job's own each pass, but together may be too many.
-    const merged = z.safeParse(labelsSchema, { ...labels, ...job.labels });
+    // The Batch's labels and the job's own each pass, but together may be too many. Only the
+    // count can fail, so the contract's check runs on a job whose count is over the limit, for its
+    // words, and not on every job of a request beneath the Batch's labels.
+    const added = Object.keys(job.labels).filter((key) => !Object.hasOwn(labels, key)).length;
+    const merged =
+      batchLabelCount + added > MAX_LABELS
+        ? z.safeParse(labelsSchema, { ...labels, ...job.labels })
+        : { success: true as const };
     for (const issue of merged.success ? [] : merged.error.issues) {
       problems.push({
         message: `${issue.message}, the Batch's included`,
@@ -636,7 +644,7 @@ async function addJobsInTransaction(
   // its Canary's places are taken once.
   const locked = await trx
     .selectFrom("batch")
-    .select(["labels", "cancelledAt", "canaryPlacesLeft", "organizationId"])
+    .select(["cancelledAt", "canaryPlacesLeft", "organizationId"])
     .where("uid", "=", uid)
     .forUpdate()
     .executeTakeFirstOrThrow();
@@ -699,7 +707,7 @@ async function addJobsInTransaction(
         id,
         customId: job.customId,
         input: job.input,
-        labels: { ...locked.labels, ...job.labels },
+        labels: job.labels,
         contentHash,
         inCanary: order < locked.canaryPlacesLeft,
       })),
@@ -724,7 +732,9 @@ async function addJobsInTransaction(
 /**
  * Inserts the new `jobs` of the Batch whose row is `uid`, given as one JSON parameter, in the transaction
  * `trx`: each queued, with the Batch's limits, copied in SQL, and with the progress row its
- * Runner's reports update, starting from nothing stored and nothing used.
+ * Runner's reports update, starting from nothing stored and nothing used. Each job is given with its
+ * own labels, and its row takes the Batch's beneath them in SQL, so the parameter does not repeat
+ * the Batch's labels for every job.
  */
 async function insertJobs(
   trx: Transaction<Database>,
@@ -770,7 +780,11 @@ async function insertJobs(
                 "batch.uid as batchUid",
                 eb.cast<JobStatus>(eb.val("queued"), jobStatus).as("status"),
                 field("input").as("input"),
-                eb.ref("row.value", "->").key("labels").as("labels"),
+                // `||` and `->` bind alike in Postgres, from the left, so the job's labels take
+                // parentheses to be read before they are laid over the Batch's.
+                eb("batch.labels", "||", eb.parens(eb.ref("row.value", "->").key("labels"))).as(
+                  "labels",
+                ),
                 field("customId").as("customId"),
                 field("contentHash").as("contentHash"),
                 "batch.runTimeoutSeconds",

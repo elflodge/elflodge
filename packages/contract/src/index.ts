@@ -7,6 +7,7 @@ export {
   digestSchema,
   inputFileSchema,
   MAX_FILE_BYTES,
+  MAX_LABELS,
   jsonTextSchema,
   type Labels,
   labelsSchema,

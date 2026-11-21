@@ -263,16 +263,19 @@ test("an add with an invalid job adds none, and each refusal names its problems 
   ]);
   expect(errors).toContainEqual(expect.objectContaining({ pointer: "/jobs/2/files" }));
 
-  // Problems only the hub sees, with the Batch: labels over the limit with the Batch's, and a job
-  // with neither input nor files.
+  // Problems only the hub sees, with the Batch: labels over the limit with the Batch's, a key both
+  // name counting once, and a job with neither input nor files.
+  const atLimit = { ...Object.fromEntries(Object.entries(many).slice(1)), team: "support" };
   const pendingJobAdd = client.batches.addJobs({
     id: batch.id,
-    jobs: [jobNamed("a"), jobNamed("c", { labels: many }), { customId: "d" }],
+    jobs: [jobNamed("a", { labels: atLimit }), jobNamed("c", { labels: many }), { customId: "d" }],
   });
-  for (const path of ["jobs[1].labels", "jobs[2].input"]) {
-    await expect(pendingJobAdd).rejects.toMatchObject({
-      cause: { status: 400, detail: expect.stringContaining(path) },
-    });
+  for (const detail of [
+    expect.stringContaining("jobs[1].labels"),
+    expect.stringContaining("jobs[2].input"),
+    expect.not.stringContaining("jobs[0]"),
+  ]) {
+    await expect(pendingJobAdd).rejects.toMatchObject({ cause: { status: 400, detail } });
   }
 
   // Files whose content the Organization never uploaded, or of a size other than its content's.
@@ -336,15 +339,14 @@ test("a job naming a field the API does not know, such as the old `inputFiles`, 
 
 test("jobs are listed by label, status, Batch and custom ID, newest first, with a Batch's labels beneath their own", async () => {
   const client = await system.clientWithNewJobsKey();
+  // A creation's job and an add's both take the Batch's labels beneath their own.
   const batch = await client.batches.create({
     agent: AGENT,
     labels: { customer: "acme", team: "billing" },
     breaker: false,
+    jobs: [jobNamed("x", { labels: { team: "support" } })],
   });
-  await client.batches.addJobs({
-    id: batch.id,
-    jobs: [jobNamed("x", { labels: { team: "support" } }), jobNamed("y")],
-  });
+  await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("y")] });
   const alone = await submitJob(client, {
     ...AGENT,
     customId: "alone",
