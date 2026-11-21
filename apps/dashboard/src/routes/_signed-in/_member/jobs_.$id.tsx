@@ -1,6 +1,6 @@
 import { skipToken, useQuery } from "@tanstack/solid-query";
 import { Link, createFileRoute, notFound, useLoaderData } from "@tanstack/solid-router";
-import { jobRefSchema, problemOf } from "contract";
+import { jobRefSchema, problemOf, type Job } from "contract";
 import {
   Match,
   Show,
@@ -38,16 +38,17 @@ function jobQuery(id: string) {
 }
 
 /** What names a job in its heading and title: its Custom ID unless blank, else its ID. */
-function jobName(job: { id: string; customId?: string | null }) {
+function jobName(job: Pick<Job, "id" | "customId">) {
   return job.customId?.trim() ? job.customId : job.id;
 }
 
 export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
   head: ({ match, params }) => {
-    // The loader has warmed the cache the page reads; the address names a job it has not.
+    // The loader has warmed the cache the page reads. It holds no job for an account that is no
+    // member and after a failed read, and then the address names the job.
     const job = match.context.queryClient.getQueryData(jobQuery(params.id).queryKey);
     const name =
-      match.status === "notFound" ? "Job not found" : `Job ${jobName(job ?? { id: params.id })}`;
+      match.status === "notFound" ? "Job not found" : `Job ${job ? jobName(job) : params.id}`;
     return memberPageHead(match.context, name);
   },
   loader: async ({ context, params }) => {

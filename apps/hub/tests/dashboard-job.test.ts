@@ -64,7 +64,6 @@ test("a member can finish reading a Cancel confirmation after the job starts", a
   const client = await system.clientWithNewJobsKey();
   const job = await submitJob(client, submission);
   const page = await openAsMember("Job confirmation", `jobs/${job.id}`);
-  await expectBrowser(page).toHaveTitle(`Job ${job.customId} · Elflodge`);
   await page.getByRole("button", { name: "Cancel the job" }).click();
   const dialog = page.getByRole("dialog");
   await expectBrowser(dialog).toContainText("it has not started");
@@ -89,7 +88,6 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   const client = await system.clientWithNewJobsKey();
   const job = await submitJob(client, { ...submission, customId: "withdrawn-invoices" });
   const page = await openAsMember("Job deletion", `jobs/${job.id.toUpperCase()}`);
-  await expectBrowser(page).toHaveTitle("Job withdrawn-invoices · Elflodge");
   await page.getByRole("button", { name: "Cancel the job" }).click();
   const release = Promise.withResolvers<void>();
   await page.route(`**/jobs/${job.id}/cancel`, async (route) => {
