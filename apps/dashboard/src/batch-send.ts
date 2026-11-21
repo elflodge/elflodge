@@ -34,11 +34,12 @@ export type SendProgress =
       readonly step: "uploading";
       readonly uploaded: number;
       readonly uploadedBytes: number;
+      /** The contents to upload, each once, and their bytes. */
       readonly files: number;
       readonly bytes: number;
-      /** The files the hub already holds, which are not uploaded. */
+      /** The files whose content the hub already holds, which are not uploaded. */
       readonly held: number;
-      /** The files with the same content as another file of the draft, which is uploaded once. */
+      /** The files whose content another file being uploaded has, which is uploaded once. */
       readonly same: number;
     }
   | { readonly step: "creating" };
@@ -49,7 +50,10 @@ export interface JobProblem {
   readonly message: string;
 }
 
-/** How a send ended. Each end but `created` and `createFailed` made nothing in the hub. */
+/**
+ * How a send ended. Each end but `created` and `createFailed` created no Batch, though files it
+ * uploaded stay in the hub, where the next try finds them.
+ */
 export type SendOutcome =
   /** The hub created the Batch, or answered a repeat of the same request with it. */
   | { readonly kind: "created"; readonly answer: CreatedBatch }
@@ -67,17 +71,18 @@ export type SendOutcome =
   | { readonly kind: "checkFailed"; readonly error: unknown }
   /**
    * Uploads that failed, each with the hub's words at every job whose file holds that content, after
-   * the others finished; `files` is the jobs whose content was to be uploaded.
+   * the others finished.
    */
-  | {
-      readonly kind: "notUploaded";
-      readonly jobs: readonly JobProblem[];
-      readonly files: number;
-    }
+  | { readonly kind: "notUploaded"; readonly jobs: readonly JobProblem[] }
   /** The create failed or got no answer: the hub's error, to place as its refusals are. */
   | { readonly kind: "createFailed"; readonly error: unknown };
 
-/** The digest the hub names `file`'s content by: `sha256:` and its SHA-256 in hex. */
+/**
+ * The digest the hub names `file`'s content by: `sha256:` and its SHA-256 in hex. Not Web Crypto's
+ * `digest`: it hashes one buffer, so a 100 MiB file would be held in memory whole, and
+ * `crypto.subtle` is undefined outside a secure context, where the dashboard may be served
+ * (docs/deploy.md, "A private network").
+ */
 const digestOf = (file: File) =>
   Stream.fromReadableStream({ evaluate: () => file.stream(), onError: asError }).pipe(
     Stream.runFold(
@@ -99,7 +104,7 @@ function isCreation(
   return checked.success;
 }
 
-/** Each job of `jobs` whose file has a message in `messages`, with it, by the job's index. */
+/** Each job of `jobs` whose file `messageOf` gives a message for, with it, by the job's index. */
 function jobProblems(
   jobs: readonly DraftJob[],
   messageOf: (file: File) => string | undefined,
@@ -120,53 +125,61 @@ const prepare = Effect.fnUntraced(function* (
 ) {
   const refused = jobsRefusedAtAdd(draft.jobs);
   if (refused.length > 0) return { kind: "refusedAtAdd", indexes: refused } as const;
+  // The request's count, form and size do not depend on what the files hold, as an unread file's
+  // digest has a read one's length: what the contract refuses is told before anything is read.
+  const unread = creationOf(draft, new Map());
+  const early = z.safeParse(batchCreationSchema, unread);
+  if (!early.success) return { kind: "invalid", issues: early.error.issues } as const;
+  const bytes = requestBytes(unread);
+  if (bytes > MAX_BODY_BYTES) return { kind: "tooLarge", bytes, max: MAX_BODY_BYTES } as const;
 
   // Every file is read each time, so a file changed since the last try is named by what it holds.
-  const files = Array.dedupe(draft.jobs.flatMap((job) => (job.kind === "file" ? [job.file] : [])));
-  let read = 0;
-  onProgress({ step: "reading", read, files: files.length });
-  const readings = yield* Effect.forEach(
-    files,
-    (file) =>
-      digestOf(file).pipe(
-        Effect.result,
-        Effect.tap(() =>
-          Effect.sync(() => {
-            read += 1;
-            onProgress({ step: "reading", read, files: files.length });
-          }),
+  // A row holds its own `File`, so files are told apart by identity: two alike in name, size and
+  // time may differ in what they hold.
+  const files = [...new Set(draft.jobs.flatMap((job) => (job.kind === "file" ? [job.file] : [])))];
+  let read: readonly { readonly file: File; readonly digest: string }[] = [];
+  if (files.length > 0) {
+    let count = 0;
+    onProgress({ step: "reading", read: count, files: files.length });
+    const [passes, unreadable] = yield* Effect.partition(
+      files,
+      (file) =>
+        digestOf(file).pipe(
+          Effect.map((digest) => ({ file, digest })),
+          Effect.mapError((error) => ({ file, reason: error.message })),
+          Effect.ensuring(
+            Effect.sync(() => {
+              count += 1;
+              onProgress({ step: "reading", read: count, files: files.length });
+            }),
+          ),
         ),
-      ),
-    { concurrency: AT_ONCE },
-  );
-  const unread = Array.zip(files, readings).flatMap(([file, reading]) =>
-    Result.isFailure(reading) ? [{ file, reason: reading.failure.message }] : [],
-  );
-  if (unread.length > 0) {
-    const reasons = new Map(unread.map(({ file, reason }) => [file, reason]));
-    return {
-      kind: "unreadable",
-      jobs: jobProblems(draft.jobs, (file) => reasons.get(file)),
-      files: files.length,
-    } as const;
+      { concurrency: AT_ONCE },
+    );
+    if (unreadable.length > 0) {
+      const reasons = new Map(unreadable.map(({ file, reason }) => [file, reason]));
+      return {
+        kind: "unreadable",
+        jobs: jobProblems(draft.jobs, (file) => reasons.get(file)),
+        files: files.length,
+      } as const;
+    }
+    read = passes;
   }
-  const digests = new Map(
-    Array.zip(files, readings).flatMap(([file, reading]) =>
-      Result.isSuccess(reading) ? [[file, reading.success] as const] : [],
-    ),
-  );
 
+  const digests = new Map(read.map(({ file, digest }) => [file, digest]));
   const creation = creationOf(draft, digests);
+  // Checked again with the digests read, to send the request the contract takes; their form is
+  // the unread one's, so this refuses nothing the first check let through.
   const checked = z.safeParse(batchCreationSchema, creation);
   if (!isCreation(creation, checked)) {
     return { kind: "invalid", issues: checked.error?.issues ?? [] } as const;
   }
-  const bytes = requestBytes(creation);
-  if (bytes > MAX_BODY_BYTES) return { kind: "tooLarge", bytes, max: MAX_BODY_BYTES } as const;
+  if (files.length === 0) return { kind: "ready", creation } as const;
 
   // Each content once, however many files hold it.
   const contents = Array.dedupeWith(
-    files.map((file) => ({ file, digest: digests.get(file) ?? "", sizeBytes: file.size })),
+    read.map(({ file, digest }) => ({ file, digest, sizeBytes: file.size })),
     (a, b) => a.digest === b.digest,
   );
   const answers = yield* Effect.forEach(Array.chunksOf(contents, MAX_FILES_PER_CHECK), (chunk) =>
@@ -186,16 +199,20 @@ const prepare = Effect.fnUntraced(function* (
   const missing = answers.success
     .flat()
     .flatMap(([content, held]) => (held.stored ? [] : [content]));
+  const missingDigests = new Set(missing.map(({ digest }) => digest));
+  // In files throughout, so the three figures add up to the files read.
+  const filesMissing = read.filter(({ digest }) => missingDigests.has(digest)).length;
   const toUpload = {
     files: missing.length,
     bytes: missing.reduce((sum, { sizeBytes }) => sum + sizeBytes, 0),
-    held: contents.length - missing.length,
-    same: files.length - contents.length,
+    held: files.length - filesMissing,
+    same: filesMissing - missing.length,
   };
   let uploaded = 0;
   let uploadedBytes = 0;
-  onProgress({ step: "uploading", uploaded, uploadedBytes, ...toUpload });
-  const uploads = yield* Effect.forEach(
+  if (missing.length > 0) onProgress({ step: "uploading", uploaded, uploadedBytes, ...toUpload });
+  // Every upload runs, one failing or not, so one try tells about every file.
+  const [, failed] = yield* Effect.partition(
     missing,
     ({ file, digest, sizeBytes }) =>
       Effect.tryPromise({
@@ -205,7 +222,7 @@ const prepare = Effect.fnUntraced(function* (
             { params: { digest }, headers: { "content-length": sizeBytes }, body: file },
             { signal },
           ),
-        catch: (error) => error,
+        catch: (error) => ({ digest, message: hubFailureMessage(error) }),
       }).pipe(
         Effect.tap(() =>
           Effect.sync(() => {
@@ -214,22 +231,17 @@ const prepare = Effect.fnUntraced(function* (
             onProgress({ step: "uploading", uploaded, uploadedBytes, ...toUpload });
           }),
         ),
-        // One upload failing lets the others finish, so one try tells about every file.
-        Effect.result,
       ),
     { concurrency: AT_ONCE },
   );
-  const failed = Array.zip(missing, uploads).flatMap(([{ digest }, upload]) =>
-    Result.isFailure(upload) ? [{ digest, message: hubFailureMessage(upload.failure) }] : [],
-  );
   if (failed.length > 0) {
     const messages = new Map(failed.map(({ digest, message }) => [digest, message]));
-    const sent = new Set(missing.map(({ digest }) => digest));
     return {
       kind: "notUploaded",
-      jobs: jobProblems(draft.jobs, (file) => messages.get(digests.get(file) ?? "")),
-      files: jobProblems(draft.jobs, (file) => (sent.has(digests.get(file) ?? "") ? "" : undefined))
-        .length,
+      jobs: jobProblems(draft.jobs, (file) => {
+        const digest = digests.get(file);
+        return digest === undefined ? undefined : messages.get(digest);
+      }),
     } as const;
   }
   return { kind: "ready", creation } as const;

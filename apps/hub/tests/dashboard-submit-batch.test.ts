@@ -154,9 +154,14 @@ test("what a row cannot send is told when it is added, and stops Submit before a
       "true",
     );
   await page.getByRole("button", { name: "Submit Batch" }).click();
-  await expectBrowser(page.getByRole("alert")).toHaveText(
-    "1 job cannot be sent. It says why at its row: 1",
-  );
+  const alert = page.getByRole("alert");
+  await expectBrowser(alert).toHaveText("1 job cannot be sent. It says why at its row: 1");
+  // The link leads to the cell that carries the words.
+  await alert.getByRole("link", { name: "1" }).click();
+  await expectBrowser(page.getByRole("cell", { name: /^Report: Q3\.pdf \d/ })).toBeFocused();
+  // The alert tells what stands now.
+  await page.getByRole("button", { name: "Remove job 1" }).click();
+  await expectBrowser(alert).toBeHidden();
   expect(sent).toEqual([]);
 }, 30_000);
 
@@ -212,7 +217,7 @@ test("Submit again after a stop and after a failed upload uploads only what is m
   });
   await submit.click();
   await expectBrowser(page.getByRole("alert")).toHaveText(
-    "1 of 2 files was not uploaded, so no Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
+    "1 file was not uploaded, so no Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
   );
   await expectBrowser(page.getByRole("cell", { name: /^b\.txt \d/ })).toHaveAccessibleDescription(
     /The hub is busy\./,
@@ -237,12 +242,16 @@ test("a send whose answer was lost, repeated unchanged, lands on the Batch it ma
   await page.getByRole("button", { name: "Add a job" }).click();
   await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
   let sentId: unknown;
+  let firstStatus: number | undefined;
   await page.route("**/batches", async (route) => {
     if (!isCreate(route.request())) return route.continue();
     sentId = route.request().postDataJSON()?.id;
     // The hub makes the Batch; its answer never reaches the page. The browser alone resolves the
     // hub's name, so the request goes to the hub's address.
-    await route.fetch({ url: route.request().url().replace(system.origin, system.url().origin) });
+    const answer = await route.fetch({
+      url: route.request().url().replace(system.origin, system.url().origin),
+    });
+    firstStatus = answer.status();
     await route.abort("connectionreset");
   });
   const submit = page.getByRole("button", { name: "Submit Batch" });
@@ -250,9 +259,67 @@ test("a send whose answer was lost, repeated unchanged, lands on the Batch it ma
   await expectBrowser(page.getByRole("alert")).toContainText(
     "The hub may already have this Batch. Submit again without changing anything to find out: the same request returns the Batch if it was made.",
   );
+  // The first create made the Batch, so the repeat can only find it.
+  expect(firstStatus).toBe(200);
+  // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
+  await page.getByRole("button", { name: "Remove all" }).click();
+  const dialog = page.getByRole("dialog", { name: "Remove the job?" });
+  await expectBrowser(dialog).toContainText("A Batch the hub may already have keeps its jobs.");
+  await expectBrowser(dialog).not.toContainText("not been submitted");
+  await dialog.getByRole("button", { name: "Keep it" }).click();
   await page.unrouteAll({ behavior: "wait" });
   await submit.click();
   expect(typeof sentId).toBe("string");
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(String(sentId));
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
+}, 30_000);
+
+test("Remove all asks first: keeping keeps every job, and removing sends nothing and leaves focus on Add files", async () => {
+  const page = await openSubmitBatch("Batch tidier");
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    if (isCreate(request) || isUpload(request)) sent.push(request.url());
+  });
+  await addFiles(page, [["note.txt", "A note."]]);
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 2").fill("Typed.");
+  const removeAll = page.getByRole("button", { name: "Remove all" });
+  const dialog = page.getByRole("dialog", { name: "Remove all 2 jobs?" });
+  await removeAll.click();
+  await dialog.getByRole("button", { name: "Keep them" }).click();
+  await expectBrowser(dialog).toBeHidden();
+  await removeAll.click();
+  await expectBrowser(dialog.getByRole("button", { name: "Keep them" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  await removeAll.click();
+  await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
+  await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
+  await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  // A send would have shown its step; give a stray one time to leave.
+  await page.waitForTimeout(500);
+  expect(sent).toEqual([]);
+}, 30_000);
+
+test("files alike in name, size and time but not in content are each sent as their own", async () => {
+  const page = await openSubmitBatch("Batch scanner");
+  await page.getByLabel("Batch ID").fill("look-alikes");
+  // Dropped, so the two files can share a modification time, which the chooser does not set.
+  // A string, as these tests are typed without the DOM's names.
+  const transfer = await page.evaluateHandle(`(() => {
+    const dropped = new DataTransfer();
+    for (const text of ["first page", "other page"])
+      dropped.items.add(new File([text], "scan.pdf", { lastModified: 1700000000000 }));
+    return dropped;
+  })()`);
+  await page.getByRole("group", { name: "Jobs" }).dispatchEvent("drop", { dataTransfer: transfer });
+  await page.getByLabel("Custom ID of job 2").fill("scan-2.pdf");
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("look-alikes");
+  const held = await system.owner().blobs.check({
+    files: ["first page", "other page"].map((text) => blobRef(text)),
+  });
+  expect(held.files.map(({ stored }) => stored)).toEqual([true, true]);
 }, 30_000);

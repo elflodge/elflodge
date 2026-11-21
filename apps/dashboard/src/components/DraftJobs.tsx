@@ -26,9 +26,12 @@ export interface RowRefusal {
   readonly file?: string;
 }
 
-/** The ID of the Custom ID field of the row `key`, which a link to the row leads to. */
-export function rowControlId(key: number) {
-  return `draft-job-${key}-id`;
+/**
+ * The ID of the control of the row `key` that carries the words for `part`, which a link to the
+ * row leads to: the Custom ID field, the Input or the file's cell.
+ */
+export function rowControlId(key: number, part: keyof RowRefusal = "customId") {
+  return `draft-job-${key}-${part === "customId" ? "id" : part}`;
 }
 
 /**
@@ -49,15 +52,20 @@ export function DraftJobs(props: {
   /** The hint's words. */
   hint: JSX.Element;
   onAdd: (jobs: DraftJob[]) => void;
-  /** Takes out the rows `keys`, or every row. */
-  onRemove: (keys: "all" | number) => void;
+  /** Takes out the row `key`, or every row. */
+  onRemove: (key: "all" | number) => void;
   onEdit: (key: number, edit: { readonly customId: string } | { readonly input: string }) => void;
   /** A Custom ID was changed, and the field left. */
   onIdChanged: () => void;
+  /**
+   * Remove all was pressed: the page asks with `RemoveAllDialog`, outside its form, and confirms
+   * through the handle given to `ref`.
+   */
+  onAskRemoveAll: () => void;
+  ref: (handle: { readonly removeAll: () => void }) => void;
 }) {
   const [said, setSaid] = createSignal("");
   const [receiving, setReceiving] = createSignal(false);
-  const [askingRemoveAll, setAskingRemoveAll] = createSignal(false);
   let chooser: HTMLInputElement | undefined;
   let addFilesButton: HTMLButtonElement | undefined;
   let addJobButton: HTMLButtonElement | undefined;
@@ -91,7 +99,7 @@ export function DraftJobs(props: {
     const job = typedJob(props.rows);
     add([job], (first) => `Job ${formatCount(first)} added.`);
     const added = props.rows.at(-1);
-    if (added) document.getElementById(`draft-job-${added.key}-input`)?.focus();
+    if (added) document.getElementById(rowControlId(added.key, "input"))?.focus();
   }
   function remove(row: DraftRow, number: number, button: HTMLButtonElement) {
     if (props.pending) return;
@@ -102,8 +110,15 @@ export function DraftJobs(props: {
     props.onRemove(row.key);
     setSaid(`Job ${formatCount(number)} removed.`);
   }
-  const typedInputs = () =>
-    props.rows.filter((row) => row.kind === "typed" && row.input !== "").length;
+  props.ref({
+    removeAll() {
+      const count = props.rows.length;
+      props.onRemove("all");
+      setSaid(count === 1 ? "Job 1 removed." : `All ${formatCount(count)} jobs removed.`);
+      flush();
+      addFilesButton?.focus();
+    },
+  });
 
   return (
     <>
@@ -180,7 +195,7 @@ export function DraftJobs(props: {
               type="button"
               aria-disabled={props.pending ? "true" : undefined}
               onClick={() => {
-                if (!props.pending) setAskingRemoveAll(true);
+                if (!props.pending) props.onAskRemoveAll();
               }}
             >
               Remove all
@@ -248,7 +263,7 @@ export function DraftJobs(props: {
                       </td>
                       <td role="cell" class="is-id" data-l="Custom ID">
                         <input
-                          id={rowControlId(first.key)}
+                          id={rowControlId(first.key, "customId")}
                           name={`jobs[${index()}][customId]`}
                           aria-label={`Custom ID of job ${number()}`}
                           aria-invalid={idError() ? "true" : undefined}
@@ -272,7 +287,7 @@ export function DraftJobs(props: {
                         fallback={
                           <td role="cell" data-l="Input">
                             <textarea
-                              id={`${id}-input`}
+                              id={rowControlId(first.key, "input")}
                               name={`jobs[${index()}][input]`}
                               aria-label={`Input of job ${number()}`}
                               aria-invalid={holdsError() ? "true" : undefined}
@@ -297,6 +312,7 @@ export function DraftJobs(props: {
                         {(job) => (
                           // A refused file's cell holds the focus a refusal moves to it.
                           <td
+                            id={rowControlId(first.key, "file")}
                             role="cell"
                             class="is-file"
                             data-l="File"
@@ -336,28 +352,17 @@ export function DraftJobs(props: {
           </table>
         </Show>
       </FieldGroup>
-      <Show when={askingRemoveAll()}>
-        <RemoveAllDialog
-          jobs={props.rows.length}
-          typedInputs={typedInputs()}
-          files={props.rows.some((row) => row.kind === "file")}
-          onClose={() => setAskingRemoveAll(false)}
-          onConfirm={() => {
-            const count = props.rows.length;
-            props.onRemove("all");
-            setSaid(count === 1 ? "Job 1 removed." : `All ${formatCount(count)} jobs removed.`);
-            flush();
-            addFilesButton?.focus();
-          }}
-        />
-      </Show>
     </>
   );
 }
 
-/** Asks before every row goes, saying what is lost and what is not. */
-function RemoveAllDialog(props: {
+/**
+ * Asks before every row goes, saying what is lost and what is not. `mayHaveBatch`: a send got no
+ * answer, so the hub may have a Batch with these jobs.
+ */
+export function RemoveAllDialog(props: {
   jobs: number;
+  mayHaveBatch: boolean;
   typedInputs: number;
   files: boolean;
   onClose: () => void;
@@ -381,12 +386,16 @@ function RemoveAllDialog(props: {
         </h2>
         <div class="dialog-b">
           <p>
-            {props.jobs === 1 ? "It has" : "They have"} not been submitted. Removing{" "}
-            {props.jobs === 1 ? "it" : "them"} loses{" "}
+            {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
+            {props.mayHaveBatch
+              ? ""
+              : `${props.jobs === 1 ? "It has" : "They have"} not been submitted. `}
+            Removing {props.jobs === 1 ? "it" : "them"} here loses{" "}
             {props.typedInputs
               ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
               : ""}
             every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
+            {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
           </p>
         </div>
         <div class="dialog-f">

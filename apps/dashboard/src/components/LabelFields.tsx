@@ -1,19 +1,20 @@
-import { LABEL_KEY_PATTERN } from "contract";
+import { LABEL_KEY_PATTERN, MAX_LABEL_NAME_LENGTH } from "contract";
 import { For, Show, createSignal, flush } from "solid-js";
 
 import { fieldText } from "../form.ts";
 import { FieldGroup } from "./Field.tsx";
+import { FieldError } from "./FieldError.tsx";
 
 const keyName = (index: number) => `labels[${index}][key]`;
 const valueName = (index: number) => `labels[${index}][value]`;
 
 /**
- * The Labels `form`'s rows give, by key, or undefined for none, as the creation leaves them out; and
- * each row's value, as `formRefusal` takes its controls: a refusal of a Label is located by its
- * key, and a key the browser lets through, by the pattern, is refused only for its value's length.
+ * The Labels a form's rows give, read from `data`, a snapshot of it: by key, or undefined for none,
+ * as the creation leaves them out; and each row's value, as `formRefusal` takes its controls: a
+ * refusal of a Label is located by its key, and a key the browser lets through, by the pattern, is
+ * refused only for its value's length.
  */
-export function labelsOf(form: HTMLFormElement) {
-  const data = new FormData(form);
+export function labelsOf(data: FormData) {
   const labels: Record<string, string> = {};
   const controls: Record<string, string[]> = { labels: ["labels"] };
   for (let index = 0; data.has(keyName(index)); index += 1) {
@@ -22,6 +23,11 @@ export function labelsOf(form: HTMLFormElement) {
     controls[valueName(index)] = [`labels[${key}]`];
   }
   return { labels: Object.keys(labels).length ? labels : undefined, controls };
+}
+
+/** Whether the refusal at the control `name` is of the Labels, which their rows' changes end. */
+export function isLabelsControl(name: string) {
+  return name === "labels" || name.startsWith("labels[");
 }
 
 /**
@@ -104,7 +110,7 @@ export function LabelFields(props: {
                         class="mono"
                         required
                         pattern={LABEL_KEY_PATTERN.source}
-                        title="A name of at most 63 letters, digits, -, _ and ., beginning and ending with a letter or digit, optionally behind a DNS subdomain and /"
+                        title={`A name of at most ${MAX_LABEL_NAME_LENGTH} letters, digits, -, _ and ., beginning and ending with a letter or digit, optionally behind a DNS subdomain and /`}
                         spellcheck={false}
                         autocapitalize="off"
                         readonly={props.pending}
@@ -120,12 +126,7 @@ export function LabelFields(props: {
                         readonly={props.pending}
                       />
                       <Show when={error()}>
-                        {(words) => (
-                          <p class="field-error" id={`label-${row}-error`}>
-                            <span class="mark mark-error" aria-hidden="true" />
-                            <span>{words()}</span>
-                          </p>
-                        )}
+                        {(words) => <FieldError id={`label-${row}-error`}>{words()}</FieldError>}
                       </Show>
                     </td>
                     <td role="cell" class="is-act">

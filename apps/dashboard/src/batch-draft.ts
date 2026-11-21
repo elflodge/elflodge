@@ -94,10 +94,7 @@ const customIdsSchema = z.array(z.object({ customId: z.string() })).check(unique
  * for it, which name the ID and no row. Every use is told, the first one too.
  */
 export function repeatedCustomIds(jobs: readonly DraftJob[]): Map<number, string> {
-  const checked = z.safeParse(
-    customIdsSchema,
-    jobs.map(({ customId }) => ({ customId })),
-  );
+  const checked = z.safeParse(customIdsSchema, jobs);
   const repeated = new Map<number, string>();
   for (const { path, message } of checked.success ? [] : checked.error.issues) {
     const [index] = path;
@@ -158,7 +155,10 @@ export interface DraftFacts {
   };
   /** The request's body, the files named by digest and the rest as typed. */
   readonly request: { readonly bytes: number; readonly max: number };
-  /** The files, each counted once, and how many are over the most one may hold. */
+  /**
+   * The files, each `File` counted once however many rows hold it (a `Set` of objects compares them
+   * by identity), and how many are over the most one may hold.
+   */
   readonly files: {
     readonly count: number;
     readonly bytes: number;
