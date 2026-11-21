@@ -4,7 +4,7 @@ import { createFileRoute, useBlocker, useRouter } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, asError, batchCreationSchema, problemOf } from "contract";
 import { Show, createSignal, createUniqueId, onSettled } from "solid-js";
 // Not crypto.randomUUID, which is undefined outside a secure context: the dashboard may be served
-// over plain HTTP on a private network.
+// over plain HTTP on a private network (docs/deploy.md, "Runners on other machines": "A private network").
 import { v4 as uuid } from "uuid";
 
 import { api } from "../../../api-client.ts";
@@ -90,10 +90,11 @@ function SubmitJob() {
   // Kept so that a retry after a lost answer sends the same ID, and the hub answers with the job
   // it made instead of making a second one.
   let madeId: string | undefined;
-  // A request was sent since the last change and got no answer that says what the hub did, or
-  // its success came after the member chose to leave. A later refusal of the same draft says
-  // nothing of that request, so only an edit or a success the page follows settles it.
-  const [outcomeUnknown, setOutcomeUnknown] = createSignal(false);
+  // A request was sent, and got no answer that says what the hub did or its success came after
+  // the member chose to leave; by the ID it was sent under, made or typed. A later refusal of the
+  // same draft says nothing of that request, so only an edit that gives the next send another ID
+  // or a success the page follows settles it.
+  const [unknownOutcome, setUnknownOutcome] = createSignal<"made ID" | "Custom ID">();
   let submitted = false;
   // The member confirmed leaving while this request was pending: its answer must not take them
   // back. A new send clears it, so it covers only the request pending at Leave.
@@ -130,6 +131,7 @@ function SubmitJob() {
       });
       return;
     }
+    const sentUnder = fieldText(data, "id") ? "Custom ID" : "made ID";
     const id = fieldText(data, "id") || (madeId ??= uuid());
     // Checked here, not by oRPC's RequestValidationPlugin, which would check every dashboard call:
     // the schema's text is parsed first, and the page must know whether anything was sent.
@@ -176,13 +178,13 @@ function SubmitJob() {
       } else if (leaveConfirmed) {
         // A member who comes back to the form finds it as after a lost answer: the made ID is kept,
         // so sending it unchanged opens this job.
-        setOutcomeUnknown(true);
+        setUnknownOutcome(sentUnder);
         setFailure(undefined);
       }
     } catch (error) {
       const status = problemOf(error)?.status;
       // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
-      if (!(status !== undefined && status >= 400 && status < 500)) setOutcomeUnknown(true);
+      if (!(status !== undefined && status >= 400 && status < 500)) setUnknownOutcome(sentUnder);
       setFailure(formRefusal(error, controls));
       if (status === 403)
         void router.invalidate({ filter: (match) => match.routeId === "/_signed-in" });
@@ -192,7 +194,20 @@ function SubmitJob() {
   // The previous refusal belongs to the last attempt while the next request is pending.
   const displayedFailure = () => (pending() ? undefined : failure());
   const refused = (name: string) => displayedFailure()?.fields.get(name);
-  const mayHaveJob = () => pending() || outcomeUnknown();
+  const mayHaveJob = () => pending() || unknownOutcome() !== undefined;
+  // What the member can do about an unknown outcome, under the hub's words.
+  const alertWords = () => {
+    if (pending()) return undefined;
+    const sentUnder = unknownOutcome();
+    const words = [
+      failure()?.alert,
+      sentUnder &&
+        "The hub may already have this job. Submit again without changing anything to find out: the same request returns the job if it was made.",
+      sentUnder === "Custom ID" &&
+        "A changed request under the same Custom ID cannot make a second job: if the first was made, the hub refuses it at Custom ID as already used for other content.",
+    ];
+    return words.filter(Boolean).join("\n") || undefined;
+  };
 
   return (
     <>
@@ -209,9 +224,13 @@ function SubmitJob() {
         onSubmit={onSubmit}
         onInput={(event) => {
           madeId = undefined;
-          setOutcomeUnknown(false);
           const control = event.target;
           if (!isTextControl(control)) return;
+          // An edit gives a made ID a new one, so the next send can make a second job. Under a typed
+          // Custom ID only an edit of that ID does: the hub refuses other content under the same ID.
+          setUnknownOutcome((sentUnder) =>
+            sentUnder === "Custom ID" && control.name !== "id" ? sentUnder : undefined,
+          );
           setFailure((previous) => {
             if (!previous?.fields.has(control.name)) return previous;
             const fields = new Map(previous.fields);
@@ -339,9 +358,7 @@ function SubmitJob() {
             />
           )}
         </Field>
-        <Show when={displayedFailure()?.alert}>
-          {(message) => <Notice role="alert">{message()}</Notice>}
-        </Show>
+        <Show when={alertWords()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
         <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
           Submit job
         </button>
