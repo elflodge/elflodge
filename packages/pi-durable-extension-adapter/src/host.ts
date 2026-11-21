@@ -87,6 +87,7 @@ import type {
   JournalMessage,
   Opened,
   ReadReply,
+  ReadRequest,
   Reads,
   Registrations,
   ToolDescriptor,
@@ -491,7 +492,7 @@ class Workers {
         }
         return;
       }
-      found.read(message.method, message.args).then(
+      found.read(message).then(
         (value) => reply({ value }),
         (error: unknown) => reply({ error: ensureError(error) }),
       );
@@ -1562,60 +1563,65 @@ class AttachedConversation {
     }
   }
 
-  /** Answers a worker's synchronous read, after the writes sent before it. */
-  async read(method: keyof Reads, args: readonly unknown[]): Promise<unknown> {
+  static readonly #reads: {
+    [M in keyof Reads]: (
+      session: AttachedConversation,
+      ...args: Parameters<Reads[M]>
+    ) => ReturnType<Reads[M]> | Promise<ReturnType<Reads[M]>>;
+  } = {
+    flush: () => null,
+    async getBranch(session, fromId) {
+      const entries = await session.#entries();
+      const end = fromId === undefined ? -1 : entries.findIndex((entry) => entry.id === fromId);
+      return end === -1 ? entries : entries.slice(0, end + 1);
+    },
+    getEntries: (session) => session.#entries(),
+    getEntry: async (session, id) => (await session.#entries()).find((entry) => entry.id === id),
+    getLeafId: async (session) => (await session.#entries()).at(-1)?.id ?? null,
+    getModel: (session) => session.#model(),
+    getContextUsage: (session) => session.#contextUsage(),
+    getThinkingLevel: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).thinkingLevel,
+    isIdle: async (session) =>
+      (
+        await session.#options.harness.snapshot(
+          LiveDoc,
+          session.conversation.id,
+          BACKGROUND_CONTEXT,
+        )
+      )?.run === undefined,
+    getActiveTools: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).tools.map((tool) => tool.name),
+    getAllTools: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).tools.map((tool): ToolInfo => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        exposure: "direct",
+        sourceInfo: {
+          path: "<pi-durable>",
+          source: "pi-durable",
+          scope: "temporary",
+          origin: "top-level",
+        },
+      })),
+    getProvider: (session, name) => session.providers?.get(name),
+    async getModels(session) {
+      const available = await session.models.getAvailable().then(
+        (list) => list.map((each) => `${each.provider}/${each.id}`),
+        () => [],
+      );
+      return { models: [...session.models.getModels()], available };
+    },
+  };
+
+  /** Answers a worker's synchronous read after all preceding writes. */
+  async read<M extends keyof Reads>({
+    method,
+    args,
+  }: ReadRequest<M>): Promise<ReturnType<Reads[M]>> {
     await this.#writes;
-    const { conversation, harness } = this.#options;
-    const context = BACKGROUND_CONTEXT;
-    switch (method) {
-      case "flush":
-        return null;
-      case "getBranch": {
-        const entries = await this.#entries();
-        const end = typeof args[0] === "string" ? entries.findIndex((e) => e.id === args[0]) : -1;
-        return end === -1 ? entries : entries.slice(0, end + 1);
-      }
-      case "getEntries":
-        return this.#entries();
-      case "getEntry":
-        return (await this.#entries()).find((entry) => entry.id === args[0]);
-      case "getLeafId":
-        return (await this.#entries()).at(-1)?.id ?? null;
-      case "getModel":
-        return this.#model();
-      case "getContextUsage":
-        return this.#contextUsage();
-      case "getThinkingLevel":
-        return (await conversation.agent(context)).thinkingLevel;
-      case "isIdle":
-        return (await harness.snapshot(LiveDoc, conversation.id, context))?.run === undefined;
-      case "getActiveTools":
-        return (await conversation.agent(context)).tools.map((tool) => tool.name);
-      case "getAllTools":
-        return (await conversation.agent(context)).tools.map((tool): ToolInfo => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-          exposure: "direct",
-          sourceInfo: {
-            path: "<pi-durable>",
-            source: "pi-durable",
-            scope: "temporary",
-            origin: "top-level",
-          },
-        }));
-      case "getProvider":
-        return typeof args[0] === "string" ? this.providers?.get(args[0]) : undefined;
-      case "getModels": {
-        const available = await this.models.getAvailable().then(
-          (list) => list.map((each) => `${each.provider}/${each.id}`),
-          () => [],
-        );
-        return { models: [...this.models.getModels()], available };
-      }
-    }
-    const unknown: never = method;
-    throw new Error(`Unknown read ${String(unknown)}`);
+    return AttachedConversation.#reads[method](this, ...args);
   }
 
   /** The conversation's model, from the `models` given to `attach`. */

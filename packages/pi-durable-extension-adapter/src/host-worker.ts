@@ -17,6 +17,7 @@ import type {
   ExtensionError,
   HostFunctions,
   JournalMessage,
+  ReadRequest,
   Reads,
   Registrations,
   ToolResult,
@@ -89,11 +90,13 @@ function read<M extends keyof Reads>(
   ...args: Parameters<Reads[M]>
 ): ReturnType<Reads[M]> {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
-  return journalRequest({ type: "read", key, method, args }) as ReturnType<Reads[M]>;
+  return journalRequest<M>({ type: "read", key, method, args }) as ReturnType<Reads[M]>;
 }
 
 /** Registrations and reads wait for a reply, so either succeeds or throws inside the Pi call. */
-function journalRequest(message: Exclude<JournalMessage, { type: "act" }>): unknown {
+function journalRequest<M extends keyof Reads>(
+  message: Exclude<JournalMessage, { type: "act" | "read" }> | ReadRequest<M>,
+): unknown {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   journal.postMessage(message);
   // The next message is the answer to this read (`ReadReply`).
