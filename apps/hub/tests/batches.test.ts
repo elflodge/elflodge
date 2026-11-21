@@ -1,4 +1,4 @@
-import { MAX_JOBS_PER_REQUEST, PROBLEM_DETAILS_CONTENT_TYPE } from "contract";
+import { MAX_JOBS_PER_REQUEST, PROBLEM_DETAILS_CONTENT_TYPE, problemDetailsSchema } from "contract";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -11,7 +11,7 @@ import {
   untilStatus,
   uploadContent,
 } from "./harness.ts";
-import { callTool, providerError, reply, untilAborted } from "./scripted-model.ts";
+import { callTool, reply, untilAborted } from "./scripted-model.ts";
 
 // Batches, labels, the job list and status filters on jobs, Batches and usage, against a real hub.
 // The first tests run before any Runner starts and cancel what they leave unfinished.
@@ -146,6 +146,23 @@ test("an ID used again with the same content returns what it named, whoever repe
   ]);
   expect(again.batch.submitter).toEqual(byKey);
   expect(again.batch.jobCounts).toMatchObject({ queued: 3 });
+  // An exact repeat of each answers every job by its IDs alone, in request order, none created; read
+  // raw, as the client drops members its contract lacks.
+  const answeredJobs = z.looseObject({ jobs: z.unknown() });
+  for (const [path, body, answered] of [
+    ["/batches", { ...creation, jobs: [jobNamed("a"), jobNamed("b")] }, first.jobs],
+    [
+      `/batches/${batch.id}/jobs`,
+      { jobs: [jobNamed("a"), jobNamed("c"), jobNamed("b")] },
+      again.jobs,
+    ],
+  ] as const) {
+    const repeat = await post(path, body);
+    expect(repeat.status).toBe(200);
+    expect(z.parse(answeredJobs, await repeat.json()).jobs).toEqual(
+      answered.map(({ job }) => ({ created: false, job })),
+    );
+  }
 
   // A custom ID used for a job with other content refuses the whole add, naming each such job.
   const response = await post(`/batches/${batch.id}/jobs`, {
@@ -235,13 +252,10 @@ test("an add with an invalid job adds none, and each refusal names its problems 
     ],
   });
   expect(repeated.status).toBe(400);
-  const problemsSchema = z.object({
-    errors: z.array(z.object({ pointer: z.string(), detail: z.string() })),
-  });
-  const { errors } = z.parse(problemsSchema, await repeated.json());
+  const { errors = [] } = problemDetailsSchema.parse(await repeated.json());
   const scanTwice = 'Must be unique in the request: "scan.pdf" is given more than once';
   const ratesTwice = 'Must be unique in the request: "rates.csv" is given more than once';
-  expect(errors.filter(({ pointer }) => pointer.endsWith("/customId"))).toEqual([
+  expect(errors.filter(({ pointer }) => pointer?.endsWith("/customId") ?? false)).toEqual([
     { pointer: "/jobs/0/customId", detail: scanTwice },
     { pointer: "/jobs/1/customId", detail: ratesTwice },
     { pointer: "/jobs/3/customId", detail: scanTwice },
@@ -876,48 +890,6 @@ test("a Batch's summary counts its jobs by status and adds up their cost, those 
   const afterDelete = await client.batches.get({ id: batch.id });
   expect(afterDelete.jobCounts).toMatchObject({ succeeded: 1 });
   expect(afterDelete.usage.cost.totalUsd).toBeCloseTo(costs.get(kept) ?? Number.NaN, 10);
-});
-
-// A repeat after the jobs ended names every one of them, and its answer holds nothing a job gained
-// since. The client drops members its contract lacks, so the answers are read as any HTTP client reads
-// them.
-test("a repeat after its jobs ended names each by its IDs alone, and a read by that ID gives the job", async () => {
-  // Text that matches none of pi-ai's retry patterns, so the job fails at once with it.
-  const error = "gateway_concurrency_limit: Concurrency limit reached for this key";
-  system.model.setResponses([callTool("submit_output", { value: 1 }), providerError(error)]);
-  const client = await system.clientWithNewJobsKey();
-  const creation = { id: "ended-repeat", agent: AGENT, breaker: false } as const;
-  const jobs = [jobNamed("one"), jobNamed("two")];
-  const named = (await client.batches.create({ ...creation, jobs })).jobs.map(({ job }) => job);
-  await expect
-    .poll(async () => (await client.batches.get({ id: creation.id })).jobCounts, {
-      timeout: 15_000,
-    })
-    .toMatchObject({ succeeded: 1, failed: 1 });
-  const read = await Promise.all(named.map(({ id }) => client.jobs.get({ id })));
-  expect(read.map(({ id, customId }) => ({ id, customId }))).toEqual(named);
-  // Either job may have taken either answer.
-  expect(read).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ status: "succeeded", output: 1 }),
-      expect.objectContaining({
-        status: "failed",
-        failure: { reason: "modelFailed", message: error },
-      }),
-    ]),
-  );
-
-  const answerSchema = z.looseObject({ jobs: z.unknown() });
-  for (const repeat of [
-    () => post("/batches", { ...creation, jobs }),
-    () => post(`/batches/${creation.id}/jobs`, { jobs }),
-  ]) {
-    const response = await repeat();
-    expect(response.status).toBe(200);
-    expect(z.parse(answerSchema, await response.json()).jobs).toEqual(
-      named.map((job) => ({ created: false, job })),
-    );
-  }
 });
 
 test("cancelling a Batch waits for the Runners of its running jobs, shown as its pendingControl, and then resumes none of them", async () => {

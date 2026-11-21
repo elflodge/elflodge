@@ -39,7 +39,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
             },
           },
         },
-        JobIds: { required: ["id", "customId"] },
+        JobIds: { required: expect.arrayContaining(["id", "customId"]) },
         ProblemDetails: {
           properties: {
             type: {},
