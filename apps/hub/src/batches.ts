@@ -534,9 +534,10 @@ function filesByPath(files: JobSubmission["files"]) {
 }
 
 /**
- * What is wrong with `jobs`, to be added to a Batch with `labels`, that the contract's schemas
- * cannot check, with paths from the request: labels over the limit with the Batch's, and a job
- * with neither an input nor Input files.
+ * What is wrong with `jobs`, to be added to a Batch with `labels`, that the hub checks once the
+ * request's shape is valid, with paths from the request: labels over the limit with the Batch's, and
+ * a job with neither an input nor Input files. A creation refuses these in one answer with its
+ * agent's Output schema problems, which the hub also checks.
  */
 function jobProblems(jobs: readonly JobSubmission[], labels: Batch["labels"]) {
   return jobs.flatMap((job, index) => {
