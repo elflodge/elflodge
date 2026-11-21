@@ -207,7 +207,7 @@ function SubmitJob() {
       sentUnder === "made ID" &&
         "The hub may already have this job. Submit again without changing anything to find out: the same request returns the job if it was made.",
       sentUnder === "Custom ID" &&
-        "The hub may already have this job from an earlier submission. Submit that submission’s values again to find out: the same request returns the job if it was made. If the hub has a job under this Custom ID, other content is refused at Custom ID rather than run as a second job.",
+        "The hub may already have this job from an earlier submission. Submit that submission’s values again to find out; the form keeps them unless you changed them since. The same request returns the job if it was made. If the hub has a job under this Custom ID, other content is refused: Custom ID says the ID was already used for other content.",
     ];
     return words.filter(Boolean).join("\n") || undefined;
   };
