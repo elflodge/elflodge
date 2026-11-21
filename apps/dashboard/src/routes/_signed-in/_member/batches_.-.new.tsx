@@ -107,10 +107,10 @@ const ROWS_KINDS: readonly RowsKind[] = ["cannot be sent", "refused", "unreadabl
 
 /**
  * The alert while the request is over what one request takes, whose Text figure says by how much.
- * The CLI sends a Batch's jobs in several requests, the first holding the agent.
+ * The CLI sends a Batch's jobs in several requests, each job in one, the first with the agent.
  */
 const TOO_LARGE: readonly AlertPart[] = [
-  "The text to send is more than one request takes. Shorten the typed inputs, or submit with the CLI, which sends a Batch's jobs in several requests as long as the agent and the first job fit in one: ",
+  "The text to send is more than one request takes. Shorten the typed inputs, or submit with the CLI, which sends a Batch's jobs in several requests as long as each job fits in one, the first together with the agent: ",
   { code: "elflodge batches submit" },
 ];
 
