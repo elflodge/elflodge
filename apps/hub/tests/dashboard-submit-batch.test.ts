@@ -243,7 +243,8 @@ test("Submit again after a stop and after a failed upload uploads only what is m
 test("Stop pressed as the last upload is told sends no create", async () => {
   const page = await openSubmitBatch("Batch stopper");
   await page.getByLabel("Batch ID").fill("stopped-late");
-  await addFiles(page, [["late.txt", "Stopped as its upload is told."]]);
+  // Contents of this run's own, as a retry against the same Organization would find them held.
+  await addFiles(page, [["late.txt", `Stopped as its upload is told, ${crypto.randomUUID()}.`]]);
   const creates: string[] = [];
   page.on("request", (request) => {
     if (isCreate(request)) creates.push(request.url());
