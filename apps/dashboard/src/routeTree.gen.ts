@@ -27,6 +27,7 @@ import { Route as SignedInMemberBatchesIndexRouteImport } from './routes/_signed
 import { Route as SignedInMemberBatchesIdRouteImport } from './routes/_signed-in/_member/batches_.$id'
 import { Route as SignedInMemberJobsIndexRouteImport } from './routes/_signed-in/_member/jobs.index'
 import { Route as SignedInMemberJobsIdRouteImport } from './routes/_signed-in/_member/jobs_.$id'
+import { Route as SignedInMemberSubmitJobRouteImport } from './routes/_signed-in/_member/submit.job'
 import { Route as SignedInMemberUsageIndexRouteImport } from './routes/_signed-in/_member/usage.index'
 
 const IndexRoute = IndexRouteImport.update({
@@ -119,6 +120,11 @@ const SignedInMemberJobsIdRoute = SignedInMemberJobsIdRouteImport.update({
   path: '/jobs/$id',
   getParentRoute: () => SignedInMemberRoute,
 } as any)
+const SignedInMemberSubmitJobRoute = SignedInMemberSubmitJobRouteImport.update({
+  id: '/submit/job',
+  path: '/submit/job',
+  getParentRoute: () => SignedInMemberRoute,
+} as any)
 const SignedInMemberUsageIndexRoute =
   SignedInMemberUsageIndexRouteImport.update({
     id: '/',
@@ -141,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/usage': typeof SignedInMemberUsageRouteWithChildren
   '/batches/$id': typeof SignedInMemberBatchesIdRoute
   '/jobs/$id': typeof SignedInMemberJobsIdRoute
+  '/submit/job': typeof SignedInMemberSubmitJobRoute
   '/batches/': typeof SignedInMemberBatchesIndexRoute
   '/jobs/': typeof SignedInMemberJobsIndexRoute
   '/usage/': typeof SignedInMemberUsageIndexRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/runners': typeof SignedInMemberRunnersRoute
   '/batches/$id': typeof SignedInMemberBatchesIdRoute
   '/jobs/$id': typeof SignedInMemberJobsIdRoute
+  '/submit/job': typeof SignedInMemberSubmitJobRoute
   '/batches': typeof SignedInMemberBatchesIndexRoute
   '/jobs': typeof SignedInMemberJobsIndexRoute
   '/usage': typeof SignedInMemberUsageIndexRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   '/_signed-in/_member/usage': typeof SignedInMemberUsageRouteWithChildren
   '/_signed-in/_member/batches_/$id': typeof SignedInMemberBatchesIdRoute
   '/_signed-in/_member/jobs_/$id': typeof SignedInMemberJobsIdRoute
+  '/_signed-in/_member/submit/job': typeof SignedInMemberSubmitJobRoute
   '/_signed-in/_member/batches/': typeof SignedInMemberBatchesIndexRoute
   '/_signed-in/_member/jobs/': typeof SignedInMemberJobsIndexRoute
   '/_signed-in/_member/usage/': typeof SignedInMemberUsageIndexRoute
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/batches/$id'
     | '/jobs/$id'
+    | '/submit/job'
     | '/batches/'
     | '/jobs/'
     | '/usage/'
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
     | '/runners'
     | '/batches/$id'
     | '/jobs/$id'
+    | '/submit/job'
     | '/batches'
     | '/jobs'
     | '/usage'
@@ -237,6 +248,7 @@ export interface FileRouteTypes {
     | '/_signed-in/_member/usage'
     | '/_signed-in/_member/batches_/$id'
     | '/_signed-in/_member/jobs_/$id'
+    | '/_signed-in/_member/submit/job'
     | '/_signed-in/_member/batches/'
     | '/_signed-in/_member/jobs/'
     | '/_signed-in/_member/usage/'
@@ -378,6 +390,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof SignedInMemberJobsIdRouteImport
       parentRoute: typeof SignedInMemberRoute
     }
+    '/_signed-in/_member/submit/job': {
+      id: '/_signed-in/_member/submit/job'
+      path: '/submit/job'
+      fullPath: '/submit/job'
+      preLoaderRoute: typeof SignedInMemberSubmitJobRouteImport
+      parentRoute: typeof SignedInMemberRoute
+    }
     '/_signed-in/_member/usage/': {
       id: '/_signed-in/_member/usage/'
       path: '/'
@@ -432,6 +451,7 @@ interface SignedInMemberRouteChildren {
   SignedInMemberUsageRoute: typeof SignedInMemberUsageRouteWithChildren
   SignedInMemberBatchesIdRoute: typeof SignedInMemberBatchesIdRoute
   SignedInMemberJobsIdRoute: typeof SignedInMemberJobsIdRoute
+  SignedInMemberSubmitJobRoute: typeof SignedInMemberSubmitJobRoute
 }
 
 const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
@@ -443,6 +463,7 @@ const SignedInMemberRouteChildren: SignedInMemberRouteChildren = {
   SignedInMemberUsageRoute: SignedInMemberUsageRouteWithChildren,
   SignedInMemberBatchesIdRoute: SignedInMemberBatchesIdRoute,
   SignedInMemberJobsIdRoute: SignedInMemberJobsIdRoute,
+  SignedInMemberSubmitJobRoute: SignedInMemberSubmitJobRoute,
 }
 
 const SignedInMemberRouteWithChildren = SignedInMemberRoute._addFileChildren(

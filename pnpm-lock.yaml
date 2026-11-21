@@ -486,6 +486,9 @@ importers:
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.50
+      '@orpc/json-schema':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))
       '@orpc/openapi':
         specifier: 'catalog:'
         version: 2.0.0-beta.50(crossws@0.4.17(srvx@0.11.22))
@@ -519,6 +522,9 @@ importers:
       ufo:
         specifier: 'catalog:'
         version: 1.6.4
+      uuid:
+        specifier: 'catalog:'
+        version: 14.0.3
       zod:
         specifier: 'catalog:'
         version: 4.6.7

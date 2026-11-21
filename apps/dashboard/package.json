@@ -13,6 +13,7 @@
     "@fontsource-variable/jetbrains-mono": "catalog:",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
+    "@orpc/json-schema": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/tanstack-query": "catalog:",
     "@solidjs/web": "catalog:",
@@ -24,6 +25,7 @@
     "effect": "catalog:",
     "solid-js": "catalog:",
     "ufo": "catalog:",
+    "uuid": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

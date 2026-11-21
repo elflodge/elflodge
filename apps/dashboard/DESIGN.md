@@ -232,7 +232,7 @@ What failed is said in an alert notice above "Try again". A read that fails says
 
 ### Fields
 
-A plain form uses `form.fields` to stack fields up to 24rem wide, with the button at the start of the last line. A checkbox with its words is one `label.check`.
+A plain form uses `form.fields` to stack fields up to 24rem wide, with the button at the start of the last line. A checkbox with its words is one `label.check`. A form that holds typed text uses `form.fields.is-wide`, up to 44rem wide. Its textareas take the full width and its one-line fields keep the plain form’s 24rem.
 
 Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field` it draws the label, an optional hint as `p.note` (pass `undefined` when absent), the control and, when refused, the reason as `p.field-error`. The error mark and words are small and in the failed colour. Several reasons appear on separate lines.
 
@@ -333,7 +333,7 @@ The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and 
 
 `span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. A Runner's short ID is the first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`). A job's short ID is an ellipsis followed by the last eight characters, such as `…3f9a2c1b`. Jobs created together share their UUIDv7 prefix. The ellipsis tells the reader where to look in the whole ID, given in its title.
 
-An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
+An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans. A field that holds code, such as a JSON Schema, is in the mono. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
 ### Times and figures
 
@@ -746,7 +746,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 
 ## Rules
 
-1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the member's name.
+1. **A link is underlined**, except in the top bar and where it is drawn as a button (`a.button`), which a page's one action is when it leads to another page. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the member's name.
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height. In the ruled `dl` in `.facts-aside`, a link keeps its line’s height and an `::after` centred on the line extends what can be pressed to the target size.
 3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.
