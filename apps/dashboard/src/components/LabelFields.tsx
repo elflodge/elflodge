@@ -122,8 +122,8 @@ export function LabelFields(props: {
                         aria-describedby={error() ? `label-${row}-error` : undefined}
                         readonly={props.pending}
                       />
-                      <Show when={error()}>
-                        {(words) => <FieldError id={`label-${row}-error`}>{words()}</FieldError>}
+                      <Show when={error()} keyed>
+                        {(words) => <FieldError id={`label-${row}-error`}>{words}</FieldError>}
                       </Show>
                     </td>
                     <td role="cell" class="is-act">

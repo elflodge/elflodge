@@ -294,8 +294,8 @@ export function DraftJobs(props: {
                           readonly={props.pending}
                           onInput={() => props.onEdited(first.key, "customId")}
                         />
-                        <Show when={idError()}>
-                          {(words) => <FieldError id={`${id}-id-error`}>{words()}</FieldError>}
+                        <Show when={idError()} keyed>
+                          {(words) => <FieldError id={`${id}-id-error`}>{words}</FieldError>}
                         </Show>
                       </td>
                       <Show
@@ -314,10 +314,8 @@ export function DraftJobs(props: {
                               readonly={props.pending}
                               onInput={() => props.onEdited(first.key, "input")}
                             />
-                            <Show when={holdsError()}>
-                              {(words) => (
-                                <FieldError id={`${id}-input-error`}>{words()}</FieldError>
-                              )}
+                            <Show when={holdsError()} keyed>
+                              {(words) => <FieldError id={`${id}-input-error`}>{words}</FieldError>}
                             </Show>
                           </td>
                         }
@@ -339,10 +337,8 @@ export function DraftJobs(props: {
                               </span>{" "}
                               <span class="num">{formatBytes(job().file.size)}</span>
                             </span>
-                            <Show when={holdsError()}>
-                              {(words) => (
-                                <FieldError id={`${id}-file-error`}>{words()}</FieldError>
-                              )}
+                            <Show when={holdsError()} keyed>
+                              {(words) => <FieldError id={`${id}-file-error`}>{words}</FieldError>}
                             </Show>
                           </td>
                         )}
