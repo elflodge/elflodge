@@ -88,7 +88,7 @@ function BatchPage() {
       refetchInterval: REFRESH_INTERVAL_MS,
     }),
   );
-  // Keep the ledger readable and let its live indication expire while a poll is held, so `deep`
+  // To keep the ledger readable and let its live indication expire while a poll is held, `deep`
   // reads every field inside `latest`. A changed field gives its object a new identity, as on the
   // job page.
   const batch = createMemo(() => latest(() => deep(read.data)));
