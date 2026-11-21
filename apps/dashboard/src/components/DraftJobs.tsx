@@ -2,6 +2,7 @@ import type { JSX } from "@solidjs/web";
 import { For, Show, createSignal, createUniqueId, flush, onSettled } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
+import { focusNextRemove } from "../form.ts";
 import { formatBytes } from "../format-bytes.ts";
 import { formatCount, plural } from "../format.ts";
 import { FieldGroup } from "./Field.tsx";
@@ -19,22 +20,29 @@ export type DraftRow = {
   readonly problems: readonly string[];
 } & ({ readonly kind: "typed" } | { readonly kind: "file"; readonly file: File });
 
-/** The text `form`'s control `name` holds, or "" when it has none. */
-function textOf(form: HTMLFormElement, name: string) {
-  const control = form.elements.namedItem(name);
-  return control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement
-    ? control.value
-    : "";
-}
-
-/** The jobs of `rows` as `form` holds them now, each row's fields read by its place in the list. */
-export function jobsOf(form: HTMLFormElement, rows: readonly DraftRow[]): DraftJob[] {
-  return rows.map((row, index) => {
-    const customId = textOf(form, `jobs[${index}][customId]`);
+/**
+ * The jobs of `rows` as `data`, a snapshot of the form, holds them, each row's fields read by its
+ * place in the list.
+ */
+export function jobsOf(data: FormData, rows: readonly DraftRow[]): DraftJob[] {
+  // FormData's `get` looks through every entry, so a thousand rows are read from one index.
+  const values = new Map(data);
+  const text = (name: string) => {
+    const value = values.get(name);
+    return typeof value === "string" ? value : "";
+  };
+  return rows.map((row, at) => {
+    const customId = text(`jobs[${at}][customId]`);
     return row.kind === "file"
       ? { kind: "file", customId, file: row.file }
-      : { kind: "typed", customId, input: textOf(form, `jobs[${index}][input]`) };
+      : { kind: "typed", customId, input: text(`jobs[${at}][input]`) };
   });
+}
+
+/** The distinct lines of `words`, joined, or undefined for none: one problem told twice shows once. */
+function wordsOf(...words: readonly (string | undefined)[]) {
+  const lines = new Set(words.flatMap((part) => part?.split("\n") ?? []));
+  return [...lines].join("\n") || undefined;
 }
 
 /** Whether what is dragged holds files, rather than text or a link. */
@@ -81,14 +89,11 @@ export function DraftJobs(props: {
   onRemove: (key: "all" | number) => void;
   /** A row's field `part` is being edited, which ends a refusal there. */
   onEdited: (key: number, part: "customId" | "input") => void;
-  /**
-   * Remove all was pressed: the page asks with `RemoveAllDialog`, outside its form, and confirms
-   * through the handle given to `ref`.
-   */
-  onAskRemoveAll: () => void;
-  ref: (handle: { readonly removeAll: () => void }) => void;
+  /** A send got no answer, so the hub may have a Batch with these jobs, which Remove all says. */
+  mayHaveBatch: boolean;
 }) {
   const [said, setSaid] = createSignal("");
+  const [askingRemoveAll, setAskingRemoveAll] = createSignal(false);
   const [receiving, setReceiving] = createSignal(false);
   let chooser: HTMLInputElement | undefined;
   let addFilesButton: HTMLButtonElement | undefined;
@@ -127,22 +132,17 @@ export function DraftJobs(props: {
   }
   function remove(row: DraftRow, number: number, button: HTMLButtonElement) {
     if (props.pending) return;
-    // Focus moves to the row that takes this one's place, or the one before, before this one goes.
-    const line = button.closest("tr");
-    const next = line?.nextElementSibling ?? line?.previousElementSibling;
-    (next?.querySelector<HTMLElement>("td.is-act button") ?? addJobButton)?.focus();
+    focusNextRemove(button, addJobButton);
     props.onRemove(row.key);
     setSaid(`Job ${formatCount(number)} removed.`);
   }
-  props.ref({
-    removeAll() {
-      const count = props.rows.length;
-      props.onRemove("all");
-      setSaid(count === 1 ? "Job 1 removed." : `All ${formatCount(count)} jobs removed.`);
-      flush();
-      addFilesButton?.focus();
-    },
-  });
+  function removeAll() {
+    const count = props.rows.length;
+    props.onRemove("all");
+    setSaid(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
+    flush();
+    addFilesButton?.focus();
+  }
 
   return (
     <>
@@ -219,7 +219,7 @@ export function DraftJobs(props: {
               type="button"
               aria-disabled={props.pending ? "true" : undefined}
               onClick={() => {
-                if (!props.pending) props.onAskRemoveAll();
+                if (!props.pending) setAskingRemoveAll(true);
               }}
             >
               Remove all
@@ -264,21 +264,16 @@ export function DraftJobs(props: {
                   const first = row();
                   const id = `draft-job-${first.key}`;
                   const number = () => index() + 1;
+                  // What the row tells since it was added, and the last send's refusals, which
+                  // the page's own check can repeat.
                   const idError = () =>
-                    [props.repeated.get(first.key), props.refusals.get(first.key)?.customId]
-                      .filter(Boolean)
-                      .join("\n") || undefined;
+                    wordsOf(props.repeated.get(first.key), props.refusals.get(first.key)?.customId);
                   const holdsError = () => {
                     const current = row();
                     const refusal = props.refusals.get(first.key);
-                    return (
-                      (current.kind === "file"
-                        ? [...current.problems, refusal?.file]
-                        : [refusal?.input]
-                      )
-                        .filter(Boolean)
-                        .join("\n") || undefined
-                    );
+                    return current.kind === "file"
+                      ? wordsOf(...current.problems, refusal?.file)
+                      : wordsOf(refusal?.input);
                   };
                   return (
                     <tr role="row" id={id}>
@@ -370,15 +365,27 @@ export function DraftJobs(props: {
           </table>
         </Show>
       </FieldGroup>
+      {/* In the page's form, so its buttons are all `type="button"` and it has no form of its own. */}
+      <Show when={askingRemoveAll()}>
+        <RemoveAllDialog
+          jobs={props.rows.length}
+          mayHaveBatch={props.mayHaveBatch}
+          typedInputs={props.jobs.filter((job) => job.kind === "typed" && job.input !== "").length}
+          files={props.rows.some((row) => row.kind === "file")}
+          onClose={() => setAskingRemoveAll(false)}
+          onConfirm={removeAll}
+        />
+      </Show>
     </>
   );
 }
 
 /**
  * Asks before every row goes, saying what is lost and what is not. `mayHaveBatch`: a send got no
- * answer, so the hub may have a Batch with these jobs.
+ * answer, so the hub may have a Batch with these jobs. Not `ConfirmAction`, which starts a request
+ * and waits for the hub: removing rows sends nothing.
  */
-export function RemoveAllDialog(props: {
+function RemoveAllDialog(props: {
   jobs: number;
   mayHaveBatch: boolean;
   typedInputs: number;
@@ -398,42 +405,40 @@ export function RemoveAllDialog(props: {
       }}
       onClose={() => props.onClose()}
     >
-      <form method="dialog">
-        <h2 class="dialog-h" id={headingId}>
-          {props.jobs === 1 ? "Remove the job?" : `Remove all ${jobs()}?`}
-        </h2>
-        <div class="dialog-b">
-          <p>
-            {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
-            {props.mayHaveBatch
-              ? ""
-              : `${props.jobs === 1 ? "It has" : "They have"} not been submitted. `}
-            Removing {props.jobs === 1 ? "it" : "them"} here loses{" "}
-            {props.typedInputs
-              ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
-              : ""}
-            every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
-            {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
-          </p>
-        </div>
-        <div class="dialog-f">
-          <button value="keep" autofocus>
-            {props.jobs === 1 ? "Keep it" : "Keep them"}
-          </button>
-          <button
-            type="button"
-            class="danger is-fill"
-            onClick={() => {
-              // Closed first: a modal dialog keeps focus from the page, and closing it returns focus
-              // to Remove all, which goes with the rows.
-              dialog.close();
-              props.onConfirm();
-            }}
-          >
-            Remove {jobs()}
-          </button>
-        </div>
-      </form>
+      <h2 class="dialog-h" id={headingId}>
+        {plural(props.jobs, "Remove the job?", `Remove all ${jobs()}?`)}
+      </h2>
+      <div class="dialog-b">
+        <p>
+          {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
+          {props.mayHaveBatch
+            ? ""
+            : `${plural(props.jobs, "It has", "They have")} not been submitted. `}
+          Removing {plural(props.jobs, "it", "them")} here loses{" "}
+          {props.typedInputs
+            ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
+            : ""}
+          every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
+          {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
+        </p>
+      </div>
+      <div class="dialog-f">
+        <button type="button" autofocus onClick={() => dialog.close()}>
+          {plural(props.jobs, "Keep it", "Keep them")}
+        </button>
+        <button
+          type="button"
+          class="danger is-fill"
+          onClick={() => {
+            // Closed first: a modal dialog keeps focus from the page, and closing it returns focus
+            // to Remove all, which goes with the rows.
+            dialog.close();
+            props.onConfirm();
+          }}
+        >
+          Remove {jobs()}
+        </button>
+      </div>
     </dialog>
   );
 }

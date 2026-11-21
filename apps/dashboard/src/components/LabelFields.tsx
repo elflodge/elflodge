@@ -1,7 +1,7 @@
 import { LABEL_KEY_PATTERN, MAX_LABEL_NAME_LENGTH } from "contract";
 import { For, Show, createSignal, flush } from "solid-js";
 
-import { fieldText } from "../form.ts";
+import { fieldText, focusNextRemove } from "../form.ts";
 import { FieldGroup } from "./Field.tsx";
 import { FieldError } from "./FieldError.tsx";
 
@@ -39,7 +39,7 @@ export function LabelFields(props: {
   hint: string;
   pending: boolean;
   refused: (name: string) => string | undefined;
-  /** A row was added or removed. */
+  /** A row was added or removed, and the form holds the rows as they are now. */
   onChange: () => void;
 }) {
   let nextRow = 0;
@@ -57,19 +57,16 @@ export function LabelFields(props: {
   function add() {
     const row = nextRow++;
     setRows((previous) => [...previous, row]);
-    props.onChange();
     flush();
+    props.onChange();
     document.getElementById(`label-${row}-key`)?.focus();
   }
   function remove(row: number, button: HTMLButtonElement) {
-    // Focus moves to the row that takes this one's place, or the one before, before this one goes.
-    const line = button.closest("tr");
-    const next = line?.nextElementSibling ?? line?.previousElementSibling;
-    (next?.querySelector("button") ?? addButton)?.focus();
+    focusNextRemove(button, addButton);
     setRows((previous) => previous.filter((other) => other !== row));
-    props.onChange();
     flush();
     markRepeatedKeys();
+    props.onChange();
   }
   return (
     <FieldGroup label="Labels" hint={props.hint} error={props.refused("labels")}>

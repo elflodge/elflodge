@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/client";
 import { useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, MAX_BATCH_ID_LENGTH, batchCreationSchema } from "contract";
@@ -12,15 +11,21 @@ import {
   agentOf,
 } from "../../../components/AgentFields.tsx";
 import {
+  EarlierWords,
   LeaveDialog,
   createDraftSubmission,
-  madeIdUnknownWords,
 } from "../../../components/DraftSubmission.tsx";
 import { Field } from "../../../components/Field.tsx";
 import { LabelFields, isLabelsControl, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
-import { createFormAction, fieldText, formRefusal } from "../../../form.ts";
+import {
+  createFormAction,
+  fieldText,
+  formRefusal,
+  issuesRefusal,
+  withoutRefusals,
+} from "../../../form.ts";
 import { preloadJobLimits } from "../../../job-limits.ts";
 import { orpc } from "../../../query.ts";
 
@@ -46,13 +51,7 @@ function SubmitJob() {
   const client = useQueryClient();
   const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
   let formElement: HTMLFormElement | undefined;
-  const submission = createDraftSubmission(() =>
-    Array.from(formElement?.elements ?? []).some(
-      (control) =>
-        isTextControl(control) &&
-        (control.value !== control.defaultValue || control.validity.badInput),
-    ),
-  );
+  const submission = createDraftSubmission(() => formElement);
 
   const { pending, onSubmit } = createFormAction(async (form) => {
     submission.sending();
@@ -67,7 +66,7 @@ function SubmitJob() {
     }
     const labels = labelsOf(data);
     const placed = { ...controls, ...labels.controls };
-    const { id, sentUnder } = submission.takeId(fieldText(data, "id"));
+    const id = submission.takeId(fieldText(data, "id"));
     // Checked here, not by oRPC's RequestValidationPlugin, which would check every dashboard call:
     // the schema's text is parsed first, and the page must know whether anything was sent.
     const checked = batchCreationSchema.safeParse({
@@ -81,14 +80,10 @@ function SubmitJob() {
       agent,
     });
     if (!checked.success) {
-      setFailure(
-        formRefusal(
-          new ORPCError("BAD_REQUEST", { data: { issues: checked.error.issues } }),
-          placed,
-        ),
-      );
+      setFailure(issuesRefusal(checked.error.issues, placed));
       return;
     }
+    submission.creating();
     try {
       const result = await api.batches.create(checked.data);
       const first = result.jobs[0];
@@ -99,7 +94,7 @@ function SubmitJob() {
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.get.queryKey({ input: { id } }) });
-      if (submission.markSucceeded(form, sentUnder)) {
+      if (submission.markSucceeded(id)) {
         // A repeat names a job the member may have opened before, and its page's loader takes a
         // cached copy of any age, so the copy goes and the job is read as it stands now. Only here:
         // a member who left may already be reading that page.
@@ -110,7 +105,7 @@ function SubmitJob() {
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
       } else setFailure(undefined);
     } catch (error) {
-      submission.markFailed(error, sentUnder);
+      submission.markFailed(error, id);
       setFailure(formRefusal(error, placed));
     }
   });
@@ -118,30 +113,9 @@ function SubmitJob() {
   // The previous refusal belongs to the last attempt while the next request is pending.
   const displayedFailure = () => (pending() ? undefined : failure());
   const refused = (name: string) => displayedFailure()?.fields.get(name);
-  // What the member can do about an unknown outcome, under the hub's words.
-  const alertWords = () => {
-    if (pending()) return undefined;
-    const sentUnder = submission.unknownOutcome();
-    const words = [
-      failure()?.alert,
-      sentUnder === "made ID" && madeIdUnknownWords("job"),
-      // The Custom ID names the job and its Batch of one, so a changed field and a changed input
-      // are both refused at it: the hub refuses other content under a Batch's ID, and under a
-      // job's Custom ID in its Batch.
-      sentUnder === "typed ID" &&
-        "The hub may already have a job under this Custom ID. Submit again to find out: the same values return that job, and changed ones are refused at Custom ID.",
-    ];
-    return words.filter(Boolean).join("\n") || undefined;
-  };
-
-  function clearRefusal(name: string) {
-    setFailure((previous) => {
-      if (!previous?.fields.has(name)) return previous;
-      const fields = new Map(previous.fields);
-      fields.delete(name);
-      return { ...previous, fields };
-    });
-  }
+  // The hub's words, then what the member can do about an earlier send whose outcome is unknown.
+  const hubWords = () => (pending() ? undefined : failure()?.alert);
+  const earlier = () => (pending() ? undefined : submission.earlier());
 
   return (
     <>
@@ -159,8 +133,10 @@ function SubmitJob() {
         onInput={(event) => {
           const control = event.target;
           if (!isTextControl(control)) return;
-          submission.changed(control.name === "id");
-          clearRefusal(control.name);
+          if (control.name === "id") submission.idEdited(control.value);
+          setFailure(
+            (previous) => previous && withoutRefusals(previous, (name) => name === control.name),
+          );
         }}
       >
         <p class="note">
@@ -216,17 +192,43 @@ function SubmitJob() {
           pending={pending()}
           refused={refused}
           onChange={() => {
-            submission.changed(false);
-            setFailure(
-              (previous) =>
-                previous && {
-                  ...previous,
-                  fields: new Map([...previous.fields].filter(([name]) => !isLabelsControl(name))),
-                },
-            );
+            setFailure((previous) => previous && withoutRefusals(previous, isLabelsControl));
           }}
         />
-        <Show when={alertWords()}>{(message) => <Notice role="alert">{message()}</Notice>}</Show>
+        <Show when={hubWords() || earlier()}>
+          <Notice role="alert">
+            {hubWords()}
+            <Show when={earlier()}>
+              {(known) => (
+                <>
+                  {hubWords() ? "\n" : ""}
+                  <EarlierWords
+                    earlier={known()}
+                    record="job"
+                    records="jobs"
+                    // A job's Batch of one has its Custom ID, so the Jobs list filtered to that
+                    // Batch shows the job.
+                    link={(id) => (
+                      <Link to="/jobs" search={{ batchId: id }}>
+                        {id}
+                      </Link>
+                    )}
+                    // The Custom ID names the job and its Batch of one, so a changed field and a
+                    // changed input are both refused at it: the hub refuses other content under a
+                    // Batch's ID, and under a job's Custom ID in its Batch.
+                    repeat={(link) => (
+                      <>
+                        The hub may already have a job under this Custom ID: {link}. Submit again to
+                        find out: the same values return that job, and changed ones are refused at
+                        Custom ID. To submit another job, change the Custom ID or clear it.
+                      </>
+                    )}
+                  />
+                </>
+              )}
+            </Show>
+          </Notice>
+        </Show>
         <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
           Submit job
         </button>
@@ -235,13 +237,7 @@ function SubmitJob() {
         </p>
       </form>
       <Show when={submission.blocker().status === "blocked"}>
-        <LeaveDialog
-          submission={submission}
-          mayHaveRecord={pending() || submission.unknownOutcome() !== undefined}
-          record="job"
-          list="Jobs"
-          loses="what you typed"
-        />
+        <LeaveDialog submission={submission} record="job" list="Jobs" loses="what you typed" />
       </Show>
     </>
   );
