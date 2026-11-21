@@ -84,7 +84,8 @@ mark {
 }
 
 /* Every link in content is underlined at rest, in a quieter tint of its colour, and at full strength
-   under the pointer or the keyboard. Only the top bar's destinations go without (components.css). */
+   under the pointer or the keyboard. Only the top bar's links and links drawn as buttons go without
+   (components.css). */
 a {
   color: var(--c-link);
   text-decoration: underline;
@@ -257,7 +258,8 @@ textarea {
   line-height: var(--leading);
   width: 100%;
 }
-input[readonly] {
+input[readonly],
+textarea[readonly] {
   background: transparent;
   border-color: var(--c-rule);
 }

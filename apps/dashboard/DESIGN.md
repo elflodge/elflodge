@@ -179,6 +179,19 @@ A page's controls, such as the one action it exists for, go at the heading's end
 </div>
 ```
 
+When the action leads to another page, it is a link drawn as a button:
+
+```tsx
+<div class="head">
+  <h1>Jobs</h1>
+  <div class="controls">
+    <Link class="button primary" to="/jobs/new">
+      Submit a job
+    </Link>
+  </div>
+</div>
+```
+
 Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line of supporting text. In a field, the note gives a hint above the control. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
 
 `ul.plain` lists items one under another, without bullets, as several values of one fact.
@@ -232,7 +245,7 @@ What failed is said in an alert notice above "Try again". A read that fails says
 
 ### Fields
 
-A plain form uses `form.fields` to stack fields up to 24rem wide, with the button at the start of the last line. A checkbox with its words is one `label.check`.
+A plain form uses `form.fields` to stack fields up to 24rem wide, with the button at the start of the last line. A checkbox with its words is one `label.check`. A form for multiline editing, such as writing a job's input or a JSON Schema, uses `form.fields.is-wide`, up to 44rem wide, as `dialog.is-wide` is. Its textareas take the full width and its one-line fields keep the plain form’s 24rem.
 
 Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field` it draws the label, an optional hint as `p.note` (pass `undefined` when absent), the control and, when refused, the reason as `p.field-error`. The error mark and words are small and in the failed colour. Several reasons appear on separate lines.
 
@@ -266,17 +279,17 @@ A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in t
 </Field>
 ```
 
-Place refusals by the hub's locator. Never match the hub's words or guess the field from the HTTP status. When a refusal locates an input that a control edits, pass the hub’s words to `Field` or `FieldGroup` as its `error`. The refused field takes focus unless the member moved focus to something else visible while the hub answered. The form alert shows any issues outside its controls. For a refusal without locations it shows the hub’s detail. When every issue has a field, the fields carry the whole answer. Keep the values entered. The submit button stays focusable through navigation and the form ignores further submissions while pending. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
+Place refusals by the hub's locator. Never match the hub's words or guess the field from the HTTP status. When a refusal locates an input that a control edits, pass the hub’s words to `Field` or `FieldGroup` as its `error`. The refused field takes focus unless the member moved focus to something else visible while the hub answered. The form alert shows any issues outside its controls. For a refusal without locations it shows the hub’s detail. When every issue has a field, the fields carry the whole answer. Keep the values entered. The submit button stays focusable through navigation and the form ignores further submissions while pending. Submit a job, whose success lands on the job it made, makes its submitted controls read-only while pending, as Resume does with its budget: an edit made then would be lost on success, and a refusal stays with the value it refused. While the outcome of a request it sent is unknown, its alert adds under the hub's words: "The hub may already have this job. Submit again without changing anything to find out: the same request returns the job if it was made." Under a typed Custom ID, where other fields may have been edited or other values sent and refused since, it says instead: "The hub may already have this job from an earlier submission. Submit that submission’s values again to find out; the form keeps them unless you changed them since. The same request returns the job if it was made. If the hub has a job under this Custom ID, other content is refused: Custom ID says the ID was already used for other content." There only an edit of the Custom ID ends the unknown outcome, while with a made ID any edit does. If disabling a fieldset moved focus to the body, the form returns focus to the field when the action settles, unless a field was refused or focus has moved elsewhere.
 
 Checkboxes of one kind, such as one resource's permissions, are a `fieldset.check-group`: its `legend`, then the `label.check`s on a line that wraps.
 
 A read-only field shows a given value on a transparent ground with a quiet border. It remains available for selection and password managers.
 
-Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the form places the hub’s refusal by its location. Do not use `maxlength` because it cuts what is typed or pasted. A limit the contract states may be checked at submit with native validation, and a limit it does not state is the hub's to refuse. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
+Use the browser's own validation (`required`, `type`, `minlength`, `pattern`, `min`, `max`) to refuse early what the hub would refuse. A field must not refuse what the hub accepts. Where it accepts more, as `type="email"` does, the form places the hub’s refusal by its location. Do not use `maxlength` because it cuts what is typed or pasted. A limit the contract states may be checked at submit with native validation, and a limit it does not state is the hub's to refuse. A form may also check its request against the contract's schema before sending, and place the issues as it places the hub's, by location; Submit a job does. Text that must parse first says so at its field: the Output schema's JSON that does not parse is refused with "Not valid JSON: " and the browser's message. A number control is read with `valueAsNumber`, so every spelling the browser accepts, such as `.5`, reaches the check as the number it is. `src/form.ts` holds what more than one field takes: `NEW_PASSWORD`, the shortest password that can be set, and `GIVEN_NAME`, which refuses a name of white space alone.
 
 ### Notices
 
-One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button. When an action removes its focused control, the notice can take focus: pass `focusRef` to focus its element after rendering. This gives it `tabindex="-1"` so it stays outside the tab order.
+One sentence the reader must not miss, as a mark and its words on a wash (`src/components/Notice.tsx`). An `alert` says what failed or was refused; a `status` says that something was done. A form's answer is a notice above its button. Several refusals joined by line breaks stand on lines of their own. When an action removes its focused control, the notice can take focus: pass `focusRef` to focus its element after rendering. This gives it `tabindex="-1"` so it stays outside the tab order.
 
 ```tsx
 <Notice role="alert">The new password and its confirmation differ.</Notice>
@@ -295,6 +308,8 @@ which draw
 ### Buttons
 
 A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu. `.danger` is a destructive control, its words and edge in the failed colour; `.danger.is-fill`, filled, is the button in a dialog that confirms it.
+
+A page's one action that leads to another page is a link drawn as a button, `a.button`, so it can be opened in a new tab and is preloaded as a link is. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
 
 ### Dialogs
 
@@ -323,6 +338,8 @@ The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and 
 </dialog>
 ```
 
+Leaving a page with a draft not yet sent, as on Submit a job, asks first. The router's `useBlocker` holds the navigation, and the page mounts a dialog while the blocker's status is `blocked`, opening it with `showModal()` once settled, as the other dialogs open. It says what leaving loses, with "Stay" first and focused and `button.danger.is-fill` "Leave the page". Stay or Escape keeps the page; a change of fragment alone, such as the skip link's, is not leaving. Once the member chooses to leave, the answer to a pending request no longer takes them to the job. While a request is pending, after one got no answer that says what the hub did, or after a success the member left behind, the dialog says the hub may already have the job and to look in Jobs before submitting it again. Closing the tab or reloading gets the browser's own question, except when the document is being replaced after a sign-out or a change of member.
+
 ### Mono
 
 `.mono` sets in the mono what a person might copy or compare where no element (`code`, `kbd`, `samp`, `pre`) says it is, such as the member's email address in the account menu:
@@ -333,7 +350,7 @@ The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and 
 
 `span.sid` is a short ID, small and quiet in the mono, beside a name that can repeat, such as a Runner's host name. A Runner's short ID is the first eight characters, or as many more as tell it from the others listed (`src/short-ids.ts`). A job's short ID is an ellipsis followed by the last eight characters, such as `…3f9a2c1b`. Jobs created together share their UUIDv7 prefix. The ellipsis tells the reader where to look in the whole ID, given in its title.
 
-An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans, as every field does. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
+An address, a host name or a file name shown as data always goes in the mono; a field where a person types one keeps the sans. A field that holds code, such as a JSON Schema, is in the mono. The sans draws a full stop close into a round letter beside it, which suits the end of a sentence and closes up `pine.example`.
 
 ### Times and figures
 
@@ -342,7 +359,7 @@ An address, a host name or a file name shown as data always goes in the mono; a 
 - **An instant** is an `Instant` (`src/components/Instant.tsx`): a `time` element whose `datetime` is the exact instant in UTC, showing it in the reader's own time zone, by default its day and time (`DATE_TIME`). Its `title` gives it in full, to the second and with the zone (`FULL`). A zone's abbreviation or offset is true of one instant only, so it is never said for more than one. A page that lists instants names the reader's zone once, in a note line above the list, by the name that holds all year: "Times are in United Kingdom Time." `timeZoneNote()` in `src/format.ts` writes that sentence with Intl's `longGeneric` name; where that name is an offset, as for UTC, it uses the short name: "Times are in UTC." Column heads and folded labels name no zone: "Created", "Expires", "Time". An instant alone, with no note on its page or in a part the shell shows everywhere, carries its own short zone, `format={TIME_ZONED}`: "15:41 GMT" in January, "15:41 BST" in July. An invitation shows its expiry date and zoned time with `DATE_TIME_ZONED`, for example "22 Nov, 15:42 UTC". The year is omitted because the invitation lasts 48 hours. An instant alone on a page that has the note carries none.
 - **Last contact** gives the elapsed time in one unit at the read that reported it, then the instant to the second. On the same local day it reads "41 sec ago, at 03:49:02" (`TIME_SECONDS`), and on another day "3 days ago, 16 Nov 2026, 03:42:10" (`DATE_TIME_SECONDS`). A failed read and the last successful read also use `TIME_SECONDS` when the page names the zone.
 - **A count**, of tokens or of jobs, is written with `formatCount`. The unit is not part of the figure: it goes in the column head, or after the figure in `span.unit`.
-- **An amount in US dollars** is written with `formatUsd`, to four decimal places or at most two significant digits, whichever gives more precision. Its budget uses `USD_BUDGET` with the same rounding and a minimum of two decimal places.
+- **An amount in US dollars** is written with `formatUsd`, to four decimal places or at most two significant digits, whichever gives more precision. Its budget uses `USD_BUDGET` with the same rounding and a minimum of two decimal places. A figure a member types against, such as the cost a new budget must exceed or the hub's default and largest budget in Submit a job's hint, is exact, with `USD_THRESHOLD`.
 
 ```tsx
 <p class="note">{timeZoneNote()}</p>
@@ -746,7 +763,7 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 
 ## Rules
 
-1. **A link is underlined**, except in the top bar. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the member's name.
+1. **A link is underlined**, except in the top bar and where it is drawn as a button (`a.button`), which a page's one action is when it leads to another page. A button that is words alone shows what it does another way: an underline in a menu, the chevron after the member's name.
 2. **Targets:** with a fine pointer, 32px for a control and 24px for a link standing alone; at 640px and below or with a coarse pointer, 44px for both, each way. A link outside a sentence takes `.stands-alone`, which gives it those. A link inside a sentence keeps its line's height. In the ruled `dl` in `.facts-aside`, a link keeps its line’s height and an `::after` centred on the line extends what can be pressed to the target size.
 3. **The lamp colour is only for what is live now and for keyboard focus.** The running mark takes the lamp's colour only while the counts establish that at least one job is running. A job whose status is unknown is not known to be live.
 4. **Colour is never the only sign:** a mark and words go with it.

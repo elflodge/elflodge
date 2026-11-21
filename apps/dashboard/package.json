@@ -24,6 +24,7 @@
     "effect": "catalog:",
     "solid-js": "catalog:",
     "ufo": "catalog:",
+    "uuid": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

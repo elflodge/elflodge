@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/solid-query";
-import { Outlet, createFileRoute, useChildMatches, useLocation } from "@tanstack/solid-router";
+import {
+  Link,
+  Outlet,
+  createFileRoute,
+  useChildMatches,
+  useLocation,
+} from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, jobIdSchema, jobStatusSchema, type Runner } from "contract";
 import { For, createMemo, createSignal } from "solid-js";
 import * as z from "zod/mini";
@@ -61,6 +67,11 @@ function Jobs() {
       <div hidden={listFailed()}>
         <div class="head">
           <h1>Jobs</h1>
+          <div class="controls">
+            <Link class="button primary" to="/jobs/new">
+              Submit a job
+            </Link>
+          </div>
         </div>
         <Filters filters={filters()} runners={availableRunners(runners) ?? []} />
       </div>
