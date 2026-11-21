@@ -644,7 +644,7 @@ async function addJobsInTransaction(
   // its Canary's places are taken once.
   const locked = await trx
     .selectFrom("batch")
-    .select(["labels", "cancelledAt", "canaryPlacesLeft", "organizationId"])
+    .select(["cancelledAt", "canaryPlacesLeft", "organizationId"])
     .where("uid", "=", uid)
     .forUpdate()
     .executeTakeFirstOrThrow();
