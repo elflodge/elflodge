@@ -100,14 +100,16 @@ export function JobFacts(props: { job: Job; readAt: number }) {
                   : "None"
               }
             >
-              {(runner) => (
-                <>
-                  <RunnerReference linked runner={runner()} shortId={runnerId() ?? runner().id} />
-                  <span class="sub">
-                    last seen <LastContact at={runner().lastSeenAt} readAt={props.readAt} />
-                  </span>
-                </>
-              )}
+              {/* Read directly: each poll changes when the Runner was last seen, and its link keeps
+                  the focus (AGENTS.md). */}
+              <RunnerReference
+                linked
+                runner={props.job.runner}
+                shortId={runnerId() ?? props.job.runner?.id}
+              />
+              <span class="sub">
+                last seen <LastContact at={props.job.runner?.lastSeenAt} readAt={props.readAt} />
+              </span>
             </Show>
           </dd>
         </Show>
@@ -125,25 +127,18 @@ export function JobFacts(props: { job: Job; readAt: number }) {
             </>
           )}
         </Show>
+        {/* Read directly: a resume clears these, and each poll brings a new Date (AGENTS.md). */}
         <Show when={props.job.endedAt}>
-          {(at) => (
-            <>
-              <dt>Ended</dt>
-              <dd>
-                <Instant value={at()} format={DATE_TIME_SECONDS} />
-              </dd>
-            </>
-          )}
+          <dt>Ended</dt>
+          <dd>
+            <Instant value={props.job.endedAt ?? undefined} format={DATE_TIME_SECONDS} />
+          </dd>
         </Show>
         <Show when={props.job.lastReportedAt}>
-          {(at) => (
-            <>
-              <dt>Last recorded report</dt>
-              <dd>
-                <Instant value={at()} format={DATE_TIME_SECONDS} />
-              </dd>
-            </>
-          )}
+          <dt>Last recorded report</dt>
+          <dd>
+            <Instant value={props.job.lastReportedAt ?? undefined} format={DATE_TIME_SECONDS} />
+          </dd>
         </Show>
         <Show when={props.job.deletedAt}>
           {(at) => (
@@ -171,6 +166,14 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
     // The Runner timestamps the opening Event. The hub timestamps receipt of the report.
     return { start, seconds: Math.max(0, (report.getTime() - start.at.getTime()) / 1000) };
   });
+  // The count is new on each report, so its Show's child reads it directly (AGENTS.md).
+  const counted = () => measured()?.seconds ?? 0;
+  const countedFrom = () => measured()?.start;
+  const timesOutAt = () => {
+    const from = countedFrom();
+    const limit = props.job.runTimeoutSeconds;
+    return from && limit ? new Date(from.at.getTime() + limit * 1000) : undefined;
+  };
   return (
     <section aria-labelledby="job-limits">
       <h2 id="job-limits">
@@ -220,38 +223,31 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
               </h3>
               <p class="limit-value">{duration(limit())}</p>
               <Show when={measured()}>
-                {(count) => (
-                  <>
-                    <div class="scale">
-                      <meter
-                        aria-label="Run timeout counted so far"
-                        min={0}
-                        max={limit()}
-                        value={Math.min(count().seconds, limit())}
-                        aria-valuetext={`about ${duration(count().seconds)} of ${duration(limit())} at the report`}
-                      />
-                    </div>
-                    <dl>
-                      <dt>Counted so far</dt>
-                      <dd>about {duration(count().seconds)} at the report</dd>
-                      <dt>Times out at about</dt>
-                      <dd>
-                        <Instant
-                          value={new Date(count().start.at.getTime() + limit() * 1000)}
-                          format={TIME_SECONDS}
-                        />
-                      </dd>
-                    </dl>
-                    <Show when={count().start.kind !== JOB_STARTED}>
-                      <p class="note">
-                        Counted from <Instant value={count().start.at} format={TIME_SECONDS} />
-                        {count().start.kind === JOB_RESUMED
-                          ? ", its resume."
-                          : ", its Runner’s restart."}
-                      </p>
-                    </Show>
-                  </>
-                )}
+                <div class="scale">
+                  <meter
+                    aria-label="Run timeout counted so far"
+                    min={0}
+                    max={limit()}
+                    value={Math.min(counted(), limit())}
+                    aria-valuetext={`about ${duration(counted())} of ${duration(limit())} at the report`}
+                  />
+                </div>
+                <dl>
+                  <dt>Counted so far</dt>
+                  <dd>about {duration(counted())} at the report</dd>
+                  <dt>Times out at about</dt>
+                  <dd>
+                    <Instant value={timesOutAt()} format={TIME_SECONDS} />
+                  </dd>
+                </dl>
+                <Show when={countedFrom()?.kind !== JOB_STARTED}>
+                  <p class="note">
+                    Counted from <Instant value={countedFrom()?.at} format={TIME_SECONDS} />
+                    {countedFrom()?.kind === JOB_RESUMED
+                      ? ", its resume."
+                      : ", its Runner’s restart."}
+                  </p>
+                </Show>
               </Show>
               <Show
                 when={

@@ -24,18 +24,24 @@ export function BatchConditions(props: { batch: ListedBatch; detailed?: boolean 
           </span>
         )}
       </Show>
+      {/* Read directly: each poll brings a new Date in it, and a keyed child would be rebuilt every
+          time, dropping the tooltip of its title (AGENTS.md). */}
       <Show when={props.batch.pendingControl}>
-        {(control) => (
-          <span class="beside" title={`Asked ${FULL.format(control().requestedAt)}`}>
-            <span class="mark mark-pending" aria-hidden="true" />
-            Cancel asked
-            <Show when={props.detailed}>
-              {" "}
-              <Instant value={control().requestedAt} format={TIME_SECONDS} />, waiting for its
-              Runners
-            </Show>
-          </span>
-        )}
+        <span
+          class="beside"
+          title={
+            props.batch.pendingControl &&
+            `Asked ${FULL.format(props.batch.pendingControl.requestedAt)}`
+          }
+        >
+          <span class="mark mark-pending" aria-hidden="true" />
+          Cancel asked
+          <Show when={props.detailed}>
+            {" "}
+            <Instant value={props.batch.pendingControl?.requestedAt} format={TIME_SECONDS} />,
+            waiting for its Runners
+          </Show>
+        </span>
       </Show>
       <Show when={props.batch.blockedJobCounts.batchCanary}>
         {(count) => (

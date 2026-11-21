@@ -140,12 +140,12 @@ function Ledger(props: {
         >
           {props.children}
         </Show>
-        <Show when={props.total}>
+        <Show when={props.total} keyed>
           {(total) => (
             <tfoot>
               <tr>
                 <th scope="row">{props.footer}</th>
-                <FigureCells figures={total()} />
+                <FigureCells figures={total} />
               </tr>
             </tfoot>
           )}
@@ -214,14 +214,15 @@ export function UsageLedgers(props: {
             when={
               props.report?.other && props.report.other.groups > 0 ? props.report.other : undefined
             }
+            keyed
           >
             {(other) => (
               <tr>
                 <th scope="row">
-                  {formatCount(other().groups)} other{" "}
-                  {plural(other().groups, words().one, words().many)}
+                  {formatCount(other.groups)} other{" "}
+                  {plural(other.groups, words().one, words().many)}
                 </th>
-                <FigureCells figures={other()} />
+                <FigureCells figures={other} />
               </tr>
             )}
           </Show>

@@ -326,8 +326,8 @@ export function JobControls(props: {
           <Show when={deleteAvailable()} fallback={<p>This job can no longer be deleted.</p>}>
             <p>
               Its input, Input files, Events and Output go from the hub now
-              <Show when={props.job.runner}>
-                {(runner) => <>, and from {runner().name} once that Runner has deleted its files</>}
+              <Show when={props.job.runner} keyed>
+                {(runner) => <>, and from {runner.name} once that Runner has deleted its files</>}
               </Show>
               . Its Usage record stays.
             </p>

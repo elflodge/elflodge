@@ -232,12 +232,12 @@ export function AddRunner(props: {
                 </span>
               }
             >
-              {(runner) => (
-                <span>
-                  <span class="mono">{runner().name}</span>{" "}
-                  <span class="sid">{props.shortId(runner())}</span> has registered.
-                </span>
-              )}
+              {/* Read directly: this is in a live region (AGENTS.md). */}
+              <span>
+                <span class="mono">{props.registered?.name}</span>{" "}
+                <span class="sid">{props.registered && props.shortId(props.registered)}</span> has
+                registered.
+              </span>
             </Show>
           </Show>
         </p>

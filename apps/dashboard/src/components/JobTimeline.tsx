@@ -113,14 +113,13 @@ function PageEdge(props: {
               <p>{earlier() ? "Earlier Events are not shown." : "Later Events are not shown."}</p>
             }
           >
-            {(failure) => (
-              <Notice role="alert">
-                {failure().jump
-                  ? `${jumpLabel()} failed`
-                  : `The ${props.direction} Events could not be read`}
-                {failureDetailSuffix(hubFailureDetail(failure().error))}
-              </Notice>
-            )}
+            {/* Read directly: the alert is a live region (AGENTS.md). */}
+            <Notice role="alert">
+              {error()?.jump
+                ? `${jumpLabel()} failed`
+                : `The ${props.direction} Events could not be read`}
+              {failureDetailSuffix(hubFailureDetail(error()?.error))}
+            </Notice>
           </Show>
           <button
             type="button"
@@ -285,26 +284,23 @@ export function JobTimeline(props: {
           </div>
         </Show>
       </div>
+      {/* Read directly: the child holds an alert and the Latest button (AGENTS.md). */}
       <Show when={events.failure()}>
-        {(failure) => (
-          <>
-            <FailedReadNotice
-              what="The Events"
-              detail={hubFailureDetail(failure().error)}
-              failedAt={failure().failedAt}
-              readAt={failure().readAt}
-            />
-            <Show when={!rows().length && failure().follower}>
-              <button
-                type="button"
-                disabled={events.isReadingPage()}
-                onClick={(e) => void jump(false, e.currentTarget)}
-              >
-                Latest
-              </button>
-            </Show>
-          </>
-        )}
+        <FailedReadNotice
+          what="The Events"
+          detail={hubFailureDetail(events.failure()?.error)}
+          failedAt={events.failure()?.failedAt}
+          readAt={events.failure()?.readAt}
+        />
+        <Show when={!rows().length && events.failure()?.follower}>
+          <button
+            type="button"
+            disabled={events.isReadingPage()}
+            onClick={(e) => void jump(false, e.currentTarget)}
+          >
+            Latest
+          </button>
+        </Show>
       </Show>
       <Show when={events.isLoading()}>
         <div aria-busy="true">
@@ -457,12 +453,10 @@ export function JobTimeline(props: {
                 {formatCount(unread().length)} new {plural(unread().length, "Event", "Events")}
               </strong>{" "}
               below
+              {/* Read directly: this is in a live region (AGENTS.md). */}
               <Show when={newestUnreadTime()}>
-                {(at) => (
-                  <>
-                    , Event {unread().at(-1)?.id} at <Instant value={at()} format={TIME_SECONDS} />
-                  </>
-                )}
+                , Event {unread().at(-1)?.id} at{" "}
+                <Instant value={newestUnreadTime()} format={TIME_SECONDS} />
               </Show>
               .
             </span>

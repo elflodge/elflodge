@@ -408,11 +408,11 @@ function KeyTable(props: {
                   <Permissions permissions={key().permissions} />
                 </td>
                 <td role="cell" data-l="Created by">
-                  <Show when={key().creator} fallback="Unknown">
+                  <Show when={key().creator} fallback="Unknown" keyed>
                     {(creator) => (
                       <>
-                        {creator().name}
-                        {creator().isMember ? "" : " (no longer a member)"}
+                        {creator.name}
+                        {creator.isMember ? "" : " (no longer a member)"}
                       </>
                     )}
                   </Show>

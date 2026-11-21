@@ -185,7 +185,7 @@ function JobPage() {
           groups().sentenceRun
         }
       >
-        {(run) => <RunSentence run={run()} status={job().status} />}
+        <RunSentence run={groups().sentenceRun} status={job().status} />
       </Show>
       <p class="note">{timeZoneNote()}</p>
       <Switch>
@@ -232,9 +232,13 @@ function JobPage() {
               countFrom={running() && jobEvents.isAtLatest() ? groups().countFrom : undefined}
             />
           </Show>
-          <Show when={output()}>{(text) => <JobOutputOrFailure text={text()} />}</Show>
+          {/* Read directly: a deletion takes the Output away and a resume the failure, and their
+              sections hold buttons (AGENTS.md). */}
+          <Show when={output()}>
+            <JobOutputOrFailure text={output() ?? ""} />
+          </Show>
           <Show when={failure()?.message}>
-            {(message) => <JobOutputOrFailure text={message()} failure />}
+            <JobOutputOrFailure text={failure()?.message ?? ""} failure />
           </Show>
         </div>
         <JobFacts job={job()} readAt={read.dataUpdatedAt} />

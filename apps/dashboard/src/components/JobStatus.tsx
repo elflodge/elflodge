@@ -104,52 +104,61 @@ export function FailureReason(props: { reason: OpenFailure["reason"] }) {
 export function BesideStatus(props: { job: ListedJob | Job; detailed?: boolean }) {
   return (
     <>
+      {/* These two are read directly. Each poll brings new Dates in them, and a keyed child would
+          be rebuilt every time, dropping the tooltip of their titles (AGENTS.md). */}
       <Show when={props.job.statusUnknown}>
-        {(unknown) => (
-          <span
-            class="beside is-unknown"
-            title={`${statusUnknownWords(unknown().reason, "short")}, since ${FULL.format(unknown().since)}`}
-          >
-            <span class="mark mark-unknown" aria-hidden="true" />
-            <span>
-              Status unknown
-              <Show
-                when={props.detailed}
-                fallback={
-                  <span class="condition-detail">
-                    {statusUnknownWords(unknown().reason, "short")}
-                  </span>
-                }
-              >
-                {" "}
-                since <Instant value={unknown().since} format={TIME_SECONDS} />:{" "}
-                {statusUnknownWords(unknown().reason, "detail")}
-              </Show>
-            </span>
+        <span
+          class="beside is-unknown"
+          title={
+            props.job.statusUnknown &&
+            `${statusUnknownWords(props.job.statusUnknown.reason, "short")}, since ${FULL.format(props.job.statusUnknown.since)}`
+          }
+        >
+          <span class="mark mark-unknown" aria-hidden="true" />
+          <span>
+            Status unknown
+            <Show
+              when={props.detailed}
+              fallback={
+                <span class="condition-detail">
+                  {props.job.statusUnknown &&
+                    statusUnknownWords(props.job.statusUnknown.reason, "short")}
+                </span>
+              }
+            >
+              {" "}
+              since <Instant value={props.job.statusUnknown?.since} format={TIME_SECONDS} />:{" "}
+              {props.job.statusUnknown &&
+                statusUnknownWords(props.job.statusUnknown.reason, "detail")}
+            </Show>
           </span>
-        )}
+        </span>
       </Show>
       <Show when={props.job.pendingControl}>
-        {(control) => (
-          <span class="beside" title={`Asked ${FULL.format(control().requestedAt)}`}>
-            <span class="mark mark-pending" aria-hidden="true" />
-            <span>
-              {CONTROL_WORDS[control().type]}
-              <Show
-                when={props.detailed}
-                fallback={
-                  <span class="condition-detail">
-                    <Instant value={control().requestedAt} />
-                  </span>
-                }
-              >
-                {" "}
-                <Instant value={control().requestedAt} format={TIME_SECONDS} />, waiting for its
-                Runner{control().type === "delete" ? " to delete its files" : ""}
-              </Show>
-            </span>
+        <span
+          class="beside"
+          title={
+            props.job.pendingControl && `Asked ${FULL.format(props.job.pendingControl.requestedAt)}`
+          }
+        >
+          <span class="mark mark-pending" aria-hidden="true" />
+          <span>
+            {props.job.pendingControl && CONTROL_WORDS[props.job.pendingControl.type]}
+            <Show
+              when={props.detailed}
+              fallback={
+                <span class="condition-detail">
+                  <Instant value={props.job.pendingControl?.requestedAt} />
+                </span>
+              }
+            >
+              {" "}
+              <Instant value={props.job.pendingControl?.requestedAt} format={TIME_SECONDS} />,
+              waiting for its Runner
+              {props.job.pendingControl?.type === "delete" ? " to delete its files" : ""}
+            </Show>
           </span>
-        )}
+        </span>
       </Show>
       <Show
         when={props.job.blockedBy === undefined ? undefined : blockedWords(props.job.blockedBy)}

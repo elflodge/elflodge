@@ -254,23 +254,24 @@ function Capabilities(props: { capabilities: RunnerCapabilities | null }) {
     <Show
       when={props.capabilities}
       fallback={<p class="note">It has reported nothing this hub can read.</p>}
+      keyed
     >
       {(capabilities) => (
         <dl>
           <dt>Version</dt>
-          <dd class="mono">{capabilities().runnerVersion}</dd>
+          <dd class="mono">{capabilities.runnerVersion}</dd>
           <dt>Model its jobs start on</dt>
           <dd>
             <span class="mono">
-              {capabilities().model.provider} / {capabilities().model.modelId}
+              {capabilities.model.provider} / {capabilities.model.modelId}
             </span>{" "}
-            <span class="unit">thinking {capabilities().model.thinkingLevel}</span>
+            <span class="unit">thinking {capabilities.model.thinkingLevel}</span>
           </dd>
           <dt>Extensions</dt>
           <dd>
-            <Show when={capabilities().extensions.length > 0} fallback="None">
+            <Show when={capabilities.extensions.length > 0} fallback="None">
               <ul class="plain">
-                <For each={capabilities().extensions}>
+                <For each={capabilities.extensions}>
                   {(extension) => (
                     <li class="mono">
                       {extension.name}
@@ -282,7 +283,7 @@ function Capabilities(props: { capabilities: RunnerCapabilities | null }) {
             </Show>
           </dd>
           <dt>Web search</dt>
-          <dd>{webSearchWords(capabilities().webSearch)}</dd>
+          <dd>{webSearchWords(capabilities.webSearch)}</dd>
         </dl>
       )}
     </Show>

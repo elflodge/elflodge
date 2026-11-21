@@ -40,12 +40,14 @@ export function JobActivity(props: { job: Job }) {
                 <div>
                   <h3>Conversation {conversation().conversationId}</h3>
                   <ul class="plain">
-                    <Show when={conversation().generation}>
+                    <Show when={conversation().generation} keyed>
                       {(call) => (
                         <li>
-                          Model call, attempt {call().attempt}
-                          <Show when={call().retry}>{(retry) => <Retry retry={retry()} />}</Show>
-                          <ObservedChange changedAt={call().changedAt} />
+                          Model call, attempt {call.attempt}
+                          <Show when={call.retry} keyed>
+                            {(retry) => <Retry retry={retry} />}
+                          </Show>
+                          <ObservedChange changedAt={call.changedAt} />
                         </li>
                       )}
                     </Show>
@@ -64,7 +66,9 @@ export function JobActivity(props: { job: Job }) {
                         <li>
                           Compaction ({step.reason}), attempt {step.attempt}
                           {step.blocking && ", the model call waits for it"}
-                          <Show when={step.retry}>{(retry) => <Retry retry={retry()} />}</Show>
+                          <Show when={step.retry} keyed>
+                            {(retry) => <Retry retry={retry} />}
+                          </Show>
                           <ObservedChange changedAt={step.changedAt} />
                         </li>
                       )}

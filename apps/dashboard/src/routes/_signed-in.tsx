@@ -100,12 +100,12 @@ function SignedIn() {
           </span>
         </Link>
         {/* Removing a member leaves their session, which then has no Organization to name. */}
+        {/* Read directly: a keyed child would be rebuilt on each read of the session, dropping
+            the tooltip of its title (AGENTS.md). */}
         <Show when={memberOrganization()}>
-          {(organization) => (
-            <span class="org" title={organization().name}>
-              {organization().name}
-            </span>
-          )}
+          <span class="org" title={memberOrganization()?.name}>
+            {memberOrganization()?.name}
+          </span>
         </Show>
         <nav class="nav-wide" aria-label="Destinations">
           <Destinations class="nav" />
@@ -143,11 +143,11 @@ function SignedIn() {
               {/* In the mono, as what a person may copy. The sans also draws a full stop close into
                   a round letter beside it, which closes up an address such as "pine.example". */}
               <span class="mono">{session().user.email}</span>
-              <Show when={memberOrganization()}>
+              <Show when={memberOrganization()} keyed>
                 {(organization) => (
                   <>
                     <br />
-                    {organization().name}
+                    {organization.name}
                   </>
                 )}
               </Show>

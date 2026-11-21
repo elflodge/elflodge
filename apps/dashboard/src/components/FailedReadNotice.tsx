@@ -13,14 +13,18 @@ import { Notice } from "./Notice.tsx";
 export function FailedReadNotice(props: {
   what: string;
   detail: string;
-  failedAt: number;
+  /** Missing only while a `Show` that tests an optional failure takes this away. */
+  failedAt: number | undefined;
   readAt?: number;
   format?: Intl.DateTimeFormat;
 }) {
   return (
     <Notice role="alert">
       {props.what} could not be read at{" "}
-      <Instant value={new Date(props.failedAt)} format={props.format ?? TIME_SECONDS} />
+      <Instant
+        value={props.failedAt === undefined ? undefined : new Date(props.failedAt)}
+        format={props.format ?? TIME_SECONDS}
+      />
       {failureDetailSuffix(props.detail)}
       <Show when={props.readAt}>
         {(readAt) => (

@@ -349,10 +349,10 @@ function AcceptInvitation(props: {
         </Match>
         <Match when={true}>
           <p class="prose">
-            <Show when={session()}>
+            <Show when={session()} keyed>
               {(signedIn) => (
                 <>
-                  You are signed in as <span class="mono">{signedIn().user.email}</span>.{" "}
+                  You are signed in as <span class="mono">{signedIn.user.email}</span>.{" "}
                 </>
               )}
             </Show>
