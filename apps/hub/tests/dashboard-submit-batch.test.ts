@@ -122,7 +122,7 @@ test("the hub's refusals stand at the field or row concerned, with every value k
   await expectBrowser(page.getByLabel("Batch ID")).toHaveValue("receipts-2026-11");
 }, 30_000);
 
-test("what a row cannot send is told when it is added, and stops Submit before anything is sent", async () => {
+test("what a row cannot send is told when it is added and stops Submit before anything is sent, and a repeat fixed is no longer told", async () => {
   const page = await openSubmitBatch("Batch gatherer");
   const sent: string[] = [];
   page.on("request", (request) => {
@@ -146,6 +146,11 @@ test("what a row cannot send is told when it is added, and stops Submit before a
     "3 files added as jobs 1 to 3. 3 cannot be sent: each says why at its row.",
   );
 
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  const alert = page.getByRole("alert");
+  await expectBrowser(alert).toHaveText("3 jobs cannot be sent. Each says why at its row: 1, 2, 3");
+
+  // Fixing one use of the Custom ID ends the repeat at both rows.
   await page.getByLabel("Custom ID of job 3").fill("scan-2.pdf");
   await page.getByLabel("Custom ID of job 3").blur();
   for (const job of [2, 3])
@@ -153,8 +158,6 @@ test("what a row cannot send is told when it is added, and stops Submit before a
       "aria-invalid",
       "true",
     );
-  await page.getByRole("button", { name: "Submit Batch" }).click();
-  const alert = page.getByRole("alert");
   await expectBrowser(alert).toHaveText("1 job cannot be sent. It says why at its row: 1");
   // The link leads to the cell that carries the words.
   await alert.getByRole("link", { name: "1" }).click();
@@ -241,11 +244,9 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   const page = await openSubmitBatch("Batch retrier");
   await page.getByRole("button", { name: "Add a job" }).click();
   await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
-  let sentId = "";
   let firstStatus: number | undefined;
   await page.route("**/batches", async (route) => {
     if (!isCreate(route.request())) return route.continue();
-    sentId = route.request().postDataJSON()?.id;
     // The hub makes the Batch; its answer never reaches the page. The browser alone resolves the
     // hub's name, so the request goes to the hub's address.
     const answer = await route.fetch({
@@ -257,17 +258,23 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   const submit = page.getByRole("button", { name: "Submit Batch" });
   const batchId = page.getByLabel("Batch ID");
   const alert = page.getByRole("alert");
+  const create = page.waitForRequest(isCreate);
   await submit.click();
+  const sentId: string = (await create).postDataJSON().id;
   await expectBrowser(alert).toContainText(
-    `The hub may already have a Batch under this Batch ID: ${sentId}. Submit again to find out: the same values return that Batch.`,
+    `The hub may already have a Batch under this Batch ID: ${sentId} (opens in a new tab). Submit again to find out: the same values return that Batch.`,
   );
   // The first create made the Batch, under the ID the page made, which the field now holds.
   expect(firstStatus).toBe(200);
   await expectBrowser(batchId).toHaveValue(sentId);
-  await expectBrowser(alert.getByRole("link", { name: sentId })).toHaveAttribute(
-    "href",
-    new RegExp(`/batches/${sentId}$`),
-  );
+  // The link opens the Batch beside the draft, which stays as it is.
+  const [tab] = await Promise.all([
+    page.context().waitForEvent("page"),
+    alert.getByRole("link", { name: sentId }).click(),
+  ]);
+  await expectBrowser(tab.getByRole("heading", { level: 1 })).toContainText(sentId);
+  await tab.close();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
   // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
   await page.getByRole("button", { name: "Remove all" }).click();
   const dialog = page.getByRole("dialog", { name: "Remove the job?" });
@@ -284,7 +291,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   // Another ID would make another Batch, which the alert says.
   await batchId.fill("receipts-again");
   await expectBrowser(alert).toHaveText(
-    `The hub may already have a Batch from an earlier submission: ${sentId}. Submitting now makes another.`,
+    `The hub may already have a Batch from an earlier submission: ${sentId} (opens in a new tab). Submitting now goes under another Batch ID and leaves that one as it is.`,
   );
   await batchId.fill(sentId);
   await instructions.fill("");
@@ -362,7 +369,16 @@ test("files alike in name, size and time but not in content are each sent as the
   })()`);
   await page.getByRole("group", { name: "Jobs" }).dispatchEvent("drop", { dataTransfer: transfer });
   await page.getByLabel("Custom ID of job 2").fill("scan-2.pdf");
+  const create = page.waitForRequest(isCreate);
   await page.getByRole("button", { name: "Submit Batch" }).click();
+  // Each job names its own file's content.
+  const sentJobs: { customId: string; files: { digest: string }[] }[] = (
+    await create
+  ).postDataJSON().jobs;
+  expect(sentJobs.map(({ customId, files }) => [customId, files[0]?.digest])).toEqual([
+    ["scan.pdf", blobRef("first page").digest],
+    ["scan-2.pdf", blobRef("other page").digest],
+  ]);
 
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("look-alikes");
   const held = await system.owner().blobs.check({

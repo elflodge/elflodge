@@ -141,7 +141,7 @@ function leadWords(kind: RowsKind, count: number, mayHaveBatch: boolean) {
   const words: Record<RowsKind, string> = {
     "cannot be sent": `${jobs} cannot be sent.`,
     refused: `${jobs} ${plural(count, "was", "were")} refused.`,
-    unreadable: `${files} could not be read, so nothing was sent.`,
+    unreadable: `${files} could not be read, so ${mayHaveBatch ? "this try sent nothing" : "nothing was sent"}.`,
     "not uploaded": `${files} ${plural(count, "was", "were")} not uploaded. ${noBatchWords(mayHaveBatch)}`,
   };
   return words[kind];
@@ -149,9 +149,15 @@ function leadWords(kind: RowsKind, count: number, mayHaveBatch: boolean) {
 
 /**
  * The issues of `issues` that concern a job, at its row by the job's index in `rows`, under its
- * Custom ID, its input or its file; and the others, for the form's controls.
+ * Custom ID, its input or its file; and the others, for the form's controls. A repeated Custom ID,
+ * whose words `repeats` holds by the job's index, is left out: the page tells repeats from the IDs
+ * as they stand, so fixing one use ends the words at each.
  */
-function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
+function splitRowIssues(
+  issues: readonly unknown[],
+  rows: readonly DraftRow[],
+  repeats: ReadonlyMap<number, string>,
+) {
   const atRows = new Map<number, RowRefusal>();
   const rest: unknown[] = [];
   for (const issue of issues) {
@@ -166,6 +172,7 @@ function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
       continue;
     }
     const part = path[2] === "input" ? "input" : path[2] === "files" ? "file" : "customId";
+    if (part === "customId" && repeats.get(index) === issue.message) continue;
     const previous = atRows.get(row.key);
     atRows.set(row.key, {
       ...previous,
@@ -300,7 +307,7 @@ function SubmitBatch() {
       setProgress(undefined);
     }
     function refusedBy(issues: readonly unknown[], kind: RowsKind): Ending {
-      const { atRows, rest } = splitRowIssues(issues, sent);
+      const { atRows, rest } = splitRowIssues(issues, sent, repeatedCustomIds(reading.draft.jobs));
       const refusal = issuesRefusal(rest, placed);
       return {
         fields: refusal.fields,
@@ -391,37 +398,37 @@ function SubmitBatch() {
   const standing = () => {
     const end = shown();
     if (end === NO_ENDING) return [];
-    const byKind = new Map<RowsKind, RowTarget[]>();
-    const add = (kind: RowsKind, target: RowTarget) => {
-      const targets = byKind.get(kind) ?? [];
-      targets.push(target);
-      byKind.set(kind, targets);
-    };
-    for (const row of rows()) {
+    // Each row once under each kind that stops it.
+    const stopped = rows().flatMap((row) => {
+      const parts = new Map<RowsKind, RowTarget["part"]>();
       const refusal = end.rows.get(row.key);
       const part = refusal?.file
         ? "file"
         : refusal?.input
           ? "input"
           : refusal?.customId && "customId";
-      if (part && end.kind) add(end.kind, { key: row.key, part });
-      else if (repeated().has(row.key)) add("cannot be sent", { key: row.key, part: "customId" });
-      else if (row.problems.length) add("cannot be sent", { key: row.key, part: "file" });
-    }
+      if (part && end.kind) parts.set(end.kind, part);
+      if (!parts.has("cannot be sent")) {
+        if (repeated().has(row.key)) parts.set("cannot be sent", "customId");
+        else if (row.problems.length) parts.set("cannot be sent", "file");
+      }
+      return [...parts].map(([kind, at]) => ({ kind, key: row.key, part: at }));
+    });
+    const byKind = Map.groupBy(stopped, ({ kind }) => kind);
     return ROWS_KINDS.flatMap((kind) => {
       const targets = byKind.get(kind);
       return targets ? [{ kind, targets }] : [];
     });
   };
   // Derived from what stands, so an edit, an addition or a removal changes the counts and links.
-  const alert = () => {
+  const alert = createMemo(() => {
     if (pending()) return undefined;
     const groups = standing();
     const after = ending().alert ?? [];
     const earlier = submission.earlier();
     if (!groups.length && !after.length && !earlier) return undefined;
     return { groups, after, earlier };
-  };
+  });
   const rowNumber = (key: number) => rows().findIndex((row) => row.key === key) + 1;
 
   return (
@@ -444,7 +451,10 @@ function SubmitBatch() {
           if (control.name === "id") submission.idEdited(control.value);
           clearRefusal(control.name);
         }}
-        onChange={() => {
+        onChange={(event) => {
+          // A control with no name, as the file chooser, holds no part of the draft: the rows it
+          // adds are read as they are set.
+          if (event.target instanceof HTMLInputElement && !event.target.name) return;
           updateDraft();
         }}
       >
@@ -608,59 +618,54 @@ function SubmitBatch() {
             Stopped. {noBatchWords(mayHaveBatch())} {AGAIN}
           </Notice>
         </Show>
+        {/* Read from its source, not keyed: rebuilt at each change, the alert would be told again. */}
         <Show when={alert()}>
-          {(words) => (
-            <Notice role="alert">
-              <For each={words().groups}>
-                {(group, index) => (
+          <Notice role="alert">
+            <For each={alert()?.groups ?? []}>
+              {(group, index) => (
+                <>
+                  {index() > 0 ? "\n" : ""}
+                  {`${leadWords(group.kind, group.targets.length, mayHaveBatch())} ${plural(group.targets.length, "It says", "Each says")} why at its row: `}
+                  <RowLinks targets={group.targets} numberOf={rowNumber} />
+                  {/* Said only while a row it concerns stands. */}
+                  {group.kind === "not uploaded" ? `\n${AGAIN}` : ""}
+                </>
+              )}
+            </For>
+            <Show when={alert()?.after.length}>
+              {alert()?.groups.length ? "\n" : ""}
+              <AlertWords parts={alert()?.after ?? []} mayHaveBatch={mayHaveBatch()} />
+            </Show>
+            <Show when={alert()?.earlier}>
+              {alert()?.groups.length || alert()?.after.length ? "\n" : ""}
+              <EarlierWords
+                earlier={alert()?.earlier}
+                record="Batch"
+                records="Batches"
+                idName="Batch ID"
+                link={(id) => (
+                  <Link to="/batches/$id" params={{ id }} target="_blank">
+                    {id}
+                  </Link>
+                )}
+                // A create repeated under an existing Batch ID returns that Batch for the same
+                // agent, Labels and breaker, and refuses others at the Batch ID. The hub knows a job
+                // by its Custom ID: the same content returns the job, other content is refused at
+                // that Custom ID, a new Custom ID adds a job, and a job left out stays. So a row
+                // renamed here becomes a second job while the first stays. One conflict refuses the
+                // whole request, which then adds no job.
+                repeat={(link) => (
                   <>
-                    {index() > 0 ? "\n" : ""}
-                    {`${leadWords(group.kind, group.targets.length, mayHaveBatch())} ${plural(group.targets.length, "It says", "Each says")} why at its row: `}
-                    <RowLinks targets={group.targets} numberOf={rowNumber} />
-                    {/* Said only while a row it concerns stands. */}
-                    {group.kind === "not uploaded" ? `\n${AGAIN}` : ""}
+                    The hub may already have a Batch under this Batch ID: {link}. Submit again to
+                    find out: the same values return that Batch. If it was made, a change here does
+                    not edit it: a changed field is refused at Batch ID, a changed job at its Custom
+                    ID, and the Batch keeps every job it has and takes any job with a new Custom ID.
+                    To submit this as another Batch, change the Batch ID or clear it.
                   </>
                 )}
-              </For>
-              <Show when={words().after.length}>
-                {words().groups.length ? "\n" : ""}
-                <AlertWords parts={words().after} mayHaveBatch={mayHaveBatch()} />
-              </Show>
-              <Show when={words().earlier}>
-                {(earlier) => (
-                  <>
-                    {words().groups.length || words().after.length ? "\n" : ""}
-                    <EarlierWords
-                      earlier={earlier()}
-                      record="Batch"
-                      records="Batches"
-                      link={(id) => (
-                        <Link to="/batches/$id" params={{ id }}>
-                          {id}
-                        </Link>
-                      )}
-                      // A create repeated under an existing Batch ID returns that Batch for the
-                      // same agent, Labels and breaker, and refuses others at the Batch ID. The hub
-                      // knows a job by its Custom ID: the same content returns the job, other
-                      // content is refused at that Custom ID, a new Custom ID adds a job, and a job
-                      // left out stays. So a row renamed here becomes a second job while the first
-                      // stays. One conflict refuses the whole request, which then adds no job.
-                      repeat={(link) => (
-                        <>
-                          The hub may already have a Batch under this Batch ID: {link}. Submit again
-                          to find out: the same values return that Batch. If it was made, a change
-                          here does not edit it: a changed field is refused at Batch ID, a changed
-                          job at its Custom ID, and the Batch keeps every job it has and takes any
-                          job with a new Custom ID. To submit this as another Batch, change the
-                          Batch ID or clear it.
-                        </>
-                      )}
-                    />
-                  </>
-                )}
-              </Show>
-            </Notice>
-          )}
+              />
+            </Show>
+          </Notice>
         </Show>
         <div class="controls">
           <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
@@ -737,11 +742,11 @@ function RowLinks(props: { targets: readonly RowTarget[]; numberOf: (key: number
  */
 function AgainstLimit(props: { over: string | undefined; children: string }) {
   return (
-    <Show when={props.over} fallback={props.children}>
+    <Show when={props.over} fallback={props.children} keyed>
       {(over) => (
         <span class="is-over">
           <span class="mark mark-error" aria-hidden="true" />
-          {`${props.children}, ${over()}`}
+          {`${props.children}, ${over}`}
         </span>
       )}
     </Show>
@@ -839,27 +844,27 @@ function Sending(props: { progress: SendProgress | undefined }) {
       <p role="status" class={words() ? "note" : "vh"}>
         {words()}
       </p>
-      <Show when={reading()}>
+      <Show when={reading()} keyed>
         {(read) => (
           <>
-            <progress value={read().read} max={read().files} aria-label={words()} />
+            <progress value={read.read} max={read.files} aria-label={words()} />
             <p class="note">
-              {formatCount(read().read)} of {formatCount(read().files)}{" "}
-              {plural(read().files, "file", "files")} read
+              {formatCount(read.read)} of {formatCount(read.files)}{" "}
+              {plural(read.files, "file", "files")} read
             </p>
           </>
         )}
       </Show>
-      <Show when={uploading()}>
+      <Show when={uploading()} keyed>
         {(upload) => (
           <>
-            <progress value={upload().uploadedBytes} max={upload().bytes} aria-label={words()} />
+            <progress value={upload.uploadedBytes} max={upload.bytes} aria-label={words()} />
             <p class="note">
               {[
-                `Uploaded ${formatCount(upload().uploaded)} of ${formatCount(upload().files)} ${plural(upload().files, "file", "files")}, ${formatBytes(upload().uploadedBytes)} of ${formatBytes(upload().bytes)}.`,
-                upload().held > 0 && `The hub already holds ${formatCount(upload().held)}.`,
-                upload().same > 0 &&
-                  `${formatCount(upload().same)} ${plural(upload().same, "has", "have")} the same content as another file being uploaded.`,
+                `Uploaded ${formatCount(upload.uploaded)} of ${formatCount(upload.files)} ${plural(upload.files, "file", "files")}, ${formatBytes(upload.uploadedBytes)} of ${formatBytes(upload.bytes)}.`,
+                upload.held > 0 && `The hub already holds ${formatCount(upload.held)}.`,
+                upload.same > 0 &&
+                  `${formatCount(upload.same)} ${plural(upload.same, "has", "have")} the same content as another file being uploaded.`,
               ]
                 .filter(Boolean)
                 .join(" ")}

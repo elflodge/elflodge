@@ -199,33 +199,30 @@ function SubmitJob() {
           <Notice role="alert">
             {hubWords()}
             <Show when={earlier()}>
-              {(known) => (
-                <>
-                  {hubWords() ? "\n" : ""}
-                  <EarlierWords
-                    earlier={known()}
-                    record="job"
-                    records="jobs"
-                    // A job's Batch of one has its Custom ID, so the Jobs list filtered to that
-                    // Batch shows the job.
-                    link={(id) => (
-                      <Link to="/jobs" search={{ batchId: id }}>
-                        {id}
-                      </Link>
-                    )}
-                    // The Custom ID names the job and its Batch of one, so a changed field and a
-                    // changed input are both refused at it: the hub refuses other content under a
-                    // Batch's ID, and under a job's Custom ID in its Batch.
-                    repeat={(link) => (
-                      <>
-                        The hub may already have a job under this Custom ID: {link}. Submit again to
-                        find out: the same values return that job, and changed ones are refused at
-                        Custom ID. To submit another job, change the Custom ID or clear it.
-                      </>
-                    )}
-                  />
-                </>
-              )}
+              {hubWords() ? "\n" : ""}
+              <EarlierWords
+                earlier={earlier()}
+                record="job"
+                records="jobs"
+                idName="Custom ID"
+                // A job's Batch of one has its Custom ID, so the Jobs list filtered to that Batch
+                // shows the job.
+                link={(id) => (
+                  <Link to="/jobs" search={{ batchId: id }} target="_blank">
+                    {id}
+                  </Link>
+                )}
+                // The Custom ID names the job and its Batch of one, so a changed field and a changed
+                // input are both refused at it: the hub refuses other content under a Batch's ID,
+                // and under a job's Custom ID in its Batch.
+                repeat={(link) => (
+                  <>
+                    The hub may already have a job under this Custom ID: {link}. Submit again to
+                    find out: if it was made, the same values return that job and changed ones are
+                    refused at Custom ID. To submit another job, change the Custom ID or clear it.
+                  </>
+                )}
+              />
             </Show>
           </Notice>
         </Show>

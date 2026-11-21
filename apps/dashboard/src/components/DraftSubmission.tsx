@@ -11,11 +11,14 @@ import { plural } from "../format.ts";
 import { isLeavingDocument } from "../member-document.ts";
 
 /**
- * What the hub may hold from an earlier send of the page: a record under the ID the field holds,
- * which sending again would return or refuse, or records under other IDs, beside which sending
- * makes another.
+ * What the hub may hold from earlier sends of the page: a record under the ID the field holds, which
+ * sending again would return or refuse, and records under other IDs, which sending leaves as they
+ * are.
  */
-export type Earlier = { readonly repeats: string } | { readonly others: readonly string[] };
+export interface Earlier {
+  readonly repeats?: string;
+  readonly others: readonly string[];
+}
 
 /** Whether `form` holds a value other than the one it started with. */
 function formChanged(form: HTMLFormElement | undefined) {
@@ -52,7 +55,9 @@ export function createDraftSubmission(
   // The member confirmed leaving while this request was pending: its answer must not take them
   // back. A new send clears it, so it covers only the request pending at Leave.
   let leaveConfirmed = false;
-  const dirty = () => held() || formChanged(form());
+  const holdsDraft = () => held() || formChanged(form());
+  // With nothing left to lose, leaving still asks while the hub may hold a record from the page.
+  const dirty = () => holdsDraft() || possiblyMade().size > 0;
   const blocker = useBlocker({
     // A change of fragment alone, such as the skip link's, does not leave the page.
     shouldBlockFn: ({ current, next }) =>
@@ -76,6 +81,8 @@ export function createDraftSubmission(
   }
   return {
     blocker,
+    /** The page holds a draft that leaving loses. */
+    holdsDraft,
     /** A create is on its way, or one may have made a record: leaving says the hub may have it. */
     mayHaveRecord: () => stage() === "creating" || possiblyMade().size > 0,
     /** What the hub may hold from an earlier send, if anything. */
@@ -83,7 +90,8 @@ export function createDraftSubmission(
       const ids = possiblyMade();
       if (!ids.size) return undefined;
       const typed = idInField();
-      return ids.has(typed) ? { repeats: typed } : { others: [...ids] };
+      const others = [...ids].filter((id) => id !== typed);
+      return ids.has(typed) ? { repeats: typed, others } : { others };
     },
     /** The field `id` now holds `value`. */
     idEdited(value: string) {
@@ -104,7 +112,8 @@ export function createDraftSubmission(
     /**
      * Marks that the hub made or returned the record under `id`, so leaving no longer asks. True
      * when the page is to follow it; a member who left meanwhile finds the form, if they come back,
-     * as after a lost answer, so sending it unchanged opens the record.
+     * as after a lost answer, `id` written into its field if that is empty, so sending it unchanged
+     * opens the record.
      */
     markSucceeded(id: string) {
       if (form()?.isConnected && !leaveConfirmed) {
@@ -116,7 +125,10 @@ export function createDraftSubmission(
       if (leaveConfirmed) markPossiblyMade(id);
       return false;
     },
-    /** Marks that the send under `id` failed with `error`, which may leave its outcome unknown. */
+    /**
+     * Marks that the send under `id` failed with `error`. When that leaves its outcome unknown, `id`
+     * is written into the field `id` if that is empty.
+     */
     markFailed(error: unknown, id: string) {
       const status = problemOf(error)?.status;
       // A refusal commits nothing. A failure of the hub or the connection may follow a commit.
@@ -133,49 +145,59 @@ export function createDraftSubmission(
 }
 
 /**
- * What the alert says while the hub may hold a record from an earlier send: while the field holds
- * its ID, the page's own words, `repeat`, around a link to it, as a repeat does different things to
- * a job and to a Batch; otherwise that sending makes another. `link` leads to what the hub holds
- * under an ID.
+ * What the alert says while the hub may hold records from earlier sends: while the field holds one's
+ * ID, the page's own words, `repeat`, around a link to it, as a repeat does different things to a
+ * job and to a Batch; then the records under other IDs, which sending leaves as they are. `link`
+ * leads to what the hub holds under an ID, in a new tab.
  */
 export function EarlierWords(props: {
-  earlier: Earlier;
+  /** Nothing while there is nothing earlier, so a page may read it straight from its source. */
+  earlier: Earlier | undefined;
   /** "job" or "Batch". */
   record: string;
   /** "jobs" or "Batches". */
   records: string;
+  /** "Custom ID" or "Batch ID". */
+  idName: string;
   link: (id: string) => JSX.Element;
   repeat: (link: JSX.Element) => JSX.Element;
 }) {
+  const others = () => props.earlier?.others ?? [];
+  const repeats = () => props.earlier?.repeats;
   return (
-    <Show
-      when={"repeats" in props.earlier && props.earlier.repeats}
-      fallback={(() => {
-        const ids = () => ("others" in props.earlier ? props.earlier.others : []);
-        return (
-          <>
-            The hub may already have{" "}
-            {plural(
-              ids().length,
-              `a ${props.record} from an earlier submission`,
-              `${props.records} from earlier submissions`,
-            )}
-            :{" "}
-            <For each={ids()}>
-              {(id, index) => (
-                <>
-                  {index() > 0 ? ", " : ""}
-                  {props.link(id)}
-                </>
-              )}
-            </For>
-            . Submitting now makes another.
-          </>
-        );
-      })()}
-    >
-      {(id) => props.repeat(props.link(id()))}
-    </Show>
+    <>
+      {/* Keyed: the link follows the ID the field holds. */}
+      <Show when={repeats()} keyed>
+        {(id) => props.repeat(<>{props.link(id)} (opens in a new tab)</>)}
+      </Show>
+      <Show when={others().length}>
+        {repeats() ? "\n" : ""}
+        The hub may {repeats() ? "also" : "already"} have{" "}
+        {plural(
+          others().length,
+          `a ${props.record} from an earlier submission`,
+          `${props.records} from earlier submissions`,
+        )}
+        :{" "}
+        <For each={others()}>
+          {(id, index) => (
+            <>
+              {index() > 0 ? ", " : ""}
+              {props.link(id)}
+            </>
+          )}
+        </For>{" "}
+        {plural(others().length, "(opens in a new tab)", "(each opens in a new tab)")}.
+        <Show when={!repeats()}>
+          {" "}
+          {plural(
+            others().length,
+            `Submitting now goes under another ${props.idName} and leaves that one as it is.`,
+            "Submitting now makes another.",
+          )}
+        </Show>
+      </Show>
+    </>
   );
 }
 
@@ -209,8 +231,8 @@ export function LeaveDialog(props: {
           <p>
             {props.submission.mayHaveRecord()
               ? `The hub may already have a ${props.record} from this page: look for it in ${props.list} before submitting it again.`
-              : `The ${props.record} has not been submitted.`}{" "}
-            Leaving this page loses {props.loses}.
+              : `The ${props.record} has not been submitted.`}
+            {props.submission.holdsDraft() ? ` Leaving this page loses ${props.loses}.` : ""}
           </p>
         </div>
         <div class="dialog-f">
