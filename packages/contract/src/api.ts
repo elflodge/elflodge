@@ -383,7 +383,7 @@ export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
  * inserts and the jobs its answer gives, which the body's size does not, as a job naming its Input
  * files is small in the request. The rows of those files are bounded by the size alone (ADR 0050).
  */
-export const MAX_JOBS_PER_ADD = 1000;
+export const MAX_JOBS_PER_REQUEST = 1000;
 
 /** What `uniqueCustomIds` reads of an item: its `customId`, where it is text. */
 const withCustomIdSchema = z.object({ customId: z.string() });
@@ -422,7 +422,7 @@ const submittedJobsSchema = z
   .array(jobSubmissionSchema)
   .check(
     z.minLength(1),
-    z.maxLength(MAX_JOBS_PER_ADD),
+    z.maxLength(MAX_JOBS_PER_REQUEST),
     uniqueCustomIds,
     z.describe(
       "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
@@ -1124,7 +1124,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         openapi({
           method: "POST",
           path: "/batches/{id}/jobs",
-          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_ADD} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, as the job list gives it, with whether this add created it; read a job for its Output, failure message and activity. An add is all or nothing. The hub checks the request shape first, a \`customId\` given twice in the call included, and refuses a malformed add with 400 before it looks the Batch up; a well-formed add to a missing Batch is refused with 404. For an existing Batch, every job is then checked against it, and the add is refused with 400 if any is invalid, such as a job whose labels and the Batch's are too many together. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
+          description: `Adds jobs to a Batch, at most ${MAX_JOBS_PER_REQUEST} at a time, each running the Batch's agent on its own \`input\` and files, and answers with the Batch and each job in the order given, as the job list gives it, with whether this add created it; read a job for its Output, failure message and activity. An add is all or nothing. The hub checks the request shape first, a \`customId\` given twice in the call included, and refuses a malformed add with 400 before it looks the Batch up; a well-formed add to a missing Batch is refused with 404. For an existing Batch, every job is then checked against it, and the add is refused with 400 if any is invalid, such as a job whose labels and the Batch's are too many together. The add is refused with 422 if the Batch already has a job with the same \`customId\` and different content, or with 409 if any job would be new and the Batch is cancelled. Each reported job problem names its path, such as \`jobs[17].input\`. On a successful add, a job the Batch still holds with the same \`customId\` and content is returned with \`created: false\`. Deleting a job frees its \`customId\`, so adding it again creates a new job with \`created: true\`. Jobs added to a paused Batch wait for it.`,
         }),
         ...byKeyOrMember({ job: ["create"] }),
       )

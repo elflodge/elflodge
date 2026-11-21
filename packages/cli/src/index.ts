@@ -36,7 +36,7 @@ import {
   MAX_BODY_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES_PER_CHECK,
-  MAX_JOBS_PER_ADD,
+  MAX_JOBS_PER_REQUEST,
   problemOf,
   type StatusUnknownReason,
 } from "contract";
@@ -867,7 +867,7 @@ function submissionGroups(
     const addBytes = encodedBytes({ jobs: [] });
     for (const [index, job] of rest.entries()) {
       const jobBytes = encodedBytes(job);
-      if (current.jobs.length < MAX_JOBS_PER_ADD && bytes + 1 + jobBytes <= MAX_BODY_BYTES) {
+      if (current.jobs.length < MAX_JOBS_PER_REQUEST && bytes + 1 + jobBytes <= MAX_BODY_BYTES) {
         current.jobs.push(job);
         bytes += 1 + jobBytes;
       } else {
@@ -1161,7 +1161,7 @@ function waitAndSave(
 /**
  * `batches submit`: one Batch running the agent its flags give, with the jobs of a JSONL file, as
  * `openai batches submit` takes one, or a job for each path `--each` gives, whose files it uploads
- * first, only those the hub lacks. Jobs are added in their order, at most `MAX_JOBS_PER_ADD` and
+ * first, only those the hub lacks. Jobs are added in their order, at most `MAX_JOBS_PER_REQUEST` and
  * `MAX_BODY_BYTES` a request, so the first are its Canary and a Batch within both limits is created
  * whole or not at all. Each call is retried on a transient failure, under one Batch ID: the
  * caller's, or one made for this run and printed on stderr if the command stops early, or without

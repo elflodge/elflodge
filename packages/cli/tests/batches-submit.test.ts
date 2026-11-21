@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
-import { MAX_BODY_BYTES, MAX_JOBS_PER_ADD } from "contract";
+import { MAX_BODY_BYTES, MAX_JOBS_PER_REQUEST } from "contract";
 import { expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -291,7 +291,7 @@ test.each([true, false])(
     onTestFinished(() => {
       process.stderr.isTTY = tty;
     });
-    const lines = Array.from({ length: MAX_JOBS_PER_ADD + 1 }, (_, index) =>
+    const lines = Array.from({ length: MAX_JOBS_PER_REQUEST + 1 }, (_, index) =>
       JSON.stringify({ customId: `posting-${index}`, input: `Posting ${index}.` }),
     );
     const cwd = await folderWith({ "jobs.jsonl": `${lines.join("\n")}\n` });
@@ -300,9 +300,9 @@ test.each([true, false])(
     const { exitCode, stderr } = await submit(hub.listener, cwd, ["jobs.jsonl"]);
 
     expect(exitCode).toBe(1);
-    expect(hub.adds.map((jobs) => jobs.length)).toEqual([MAX_JOBS_PER_ADD]);
+    expect(hub.adds.map((jobs) => jobs.length)).toEqual([MAX_JOBS_PER_REQUEST]);
     expect(stderr).toContain(`--id ${hub.batchIds[0]}`);
-    const refused = `job ${MAX_JOBS_PER_ADD + 1}:`;
+    const refused = `job ${MAX_JOBS_PER_REQUEST + 1}:`;
     if (isTTY) {
       expect(stderr).toContain(`${refused} /customId: Already used\n${refused} Job refused`);
     } else {
@@ -315,8 +315,8 @@ test.each([true, false])(
   },
 );
 
-test(`batches submit adds the jobs of a JSONL file in its order, at most ${MAX_JOBS_PER_ADD} at a time`, async () => {
-  const lines = Array.from({ length: MAX_JOBS_PER_ADD + 1 }, (_, index) =>
+test(`batches submit adds the jobs of a JSONL file in its order, at most ${MAX_JOBS_PER_REQUEST} at a time`, async () => {
+  const lines = Array.from({ length: MAX_JOBS_PER_REQUEST + 1 }, (_, index) =>
     JSON.stringify({ customId: `posting-${index}`, input: `Posting ${index}.` }),
   );
   const cwd = await folderWith({ "jobs.jsonl": `${lines.join("\n")}\n` });
@@ -325,7 +325,7 @@ test(`batches submit adds the jobs of a JSONL file in its order, at most ${MAX_J
   const { exitCode } = await submit(hub.listener, cwd, ["jobs.jsonl"]);
 
   expect(exitCode).toBe(0);
-  expect(hub.adds.map((jobs) => jobs.length)).toEqual([MAX_JOBS_PER_ADD, 1]);
+  expect(hub.adds.map((jobs) => jobs.length)).toEqual([MAX_JOBS_PER_REQUEST, 1]);
   expect(hub.adds.flat().map((job) => job.customId)).toEqual(
     lines.map((_, index) => `posting-${index}`),
   );

@@ -1,4 +1,4 @@
-import { MAX_JOBS_PER_ADD, PROBLEM_DETAILS_CONTENT_TYPE } from "contract";
+import { MAX_JOBS_PER_REQUEST, PROBLEM_DETAILS_CONTENT_TYPE } from "contract";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -185,11 +185,11 @@ test("a refused creation leaves the Batch ID free, including when a job names an
 });
 
 // Each job names a file, so the request inserts a file row with every job as well.
-test(`a request creates up to ${MAX_JOBS_PER_ADD} jobs together, and one more is refused with nothing made`, async () => {
+test(`a request creates up to ${MAX_JOBS_PER_REQUEST} jobs together, and one more is refused with nothing made`, async () => {
   const client = await system.clientWithNewJobsKey();
   const rates = await uploadContent(client, "2.2");
   const id = "most-jobs";
-  const jobs = Array.from({ length: MAX_JOBS_PER_ADD + 1 }, (_, index) =>
+  const jobs = Array.from({ length: MAX_JOBS_PER_REQUEST + 1 }, (_, index) =>
     jobNamed(`job-${index}`, { files: [{ path: "rates.csv", ...rates }] }),
   );
   await expect(client.batches.create({ id, agent: AGENT, jobs })).rejects.toMatchObject({
@@ -197,12 +197,12 @@ test(`a request creates up to ${MAX_JOBS_PER_ADD} jobs together, and one more is
   });
   await expect(client.batches.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-  const most = jobs.slice(0, MAX_JOBS_PER_ADD);
+  const most = jobs.slice(0, MAX_JOBS_PER_REQUEST);
   const batch = await client.batches.create({ id, agent: AGENT, jobs: most });
   expect(batch.jobs.map(({ created, job }) => [created, job.customId])).toEqual(
     most.map(({ customId }) => [true, customId]),
   );
-  expect(batch.jobCounts.queued).toBe(MAX_JOBS_PER_ADD);
+  expect(batch.jobCounts.queued).toBe(MAX_JOBS_PER_REQUEST);
   await client.batches.cancel({ id });
 });
 
