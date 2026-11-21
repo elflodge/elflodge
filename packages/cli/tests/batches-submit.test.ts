@@ -62,22 +62,14 @@ function batchOf(id: string, jobCounts: Partial<Record<string, number>> = {}) {
   };
 }
 
-/**
- * A job of the Batch `batchId` as the hub answers it, with what a listed job carries, and with
- * `status` and whatever goes with it.
- */
-function jobOf(id: string, batchId: string, customId: string, status: Record<string, unknown>) {
+/** A job as the hub answers it, with `status` and whatever goes with it. */
+function jobOf(id: string, customId: string, status: Record<string, unknown>) {
   return {
     id,
-    batchId,
     customId,
     createdAt: new Date().toISOString(),
     startedAt: null,
     endedAt: null,
-    runTimeoutSeconds: 600,
-    modelBudgetUsd: 1,
-    labels: {},
-    submitter: { kind: "key", id: "key-1", name: "jobs" },
     usage: { totalTokens: 0, cost: { totalUsd: 0 } },
     lastReportedAt: null,
     ...status,
@@ -167,7 +159,7 @@ function fakeHub(
         jobs: jobs.map((job) => {
           const id = crypto.randomUUID();
           ids.set(id, job.customId);
-          return { created: true, job: jobOf(id, batchId, job.customId, { status: "queued" }) };
+          return { created: true, job: { id, customId: job.customId } };
         }),
       });
     }
@@ -191,7 +183,7 @@ function fakeHub(
     const customId = jobId === undefined ? undefined : ids.get(jobId);
     if (request.method === "GET" && jobId !== undefined && customId !== undefined) {
       if (jobsUnreadable) return response.writeHead(503).end();
-      return answer(response, jobOf(jobId, batchId, customId, ended(customId)));
+      return answer(response, jobOf(jobId, customId, ended(customId)));
     }
     response.writeHead(404).end();
   };

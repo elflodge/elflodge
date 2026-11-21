@@ -15,7 +15,6 @@ import {
   type JobCounts,
   type JobEventsPage,
   type JobsPage,
-  type ListedJob,
   type JobRunner,
   type JobLimits,
   type Labels,
@@ -31,7 +30,6 @@ import {
   type ExpressionBuilder,
   expressionBuilder,
   type Kysely,
-  type ShallowDehydrateObject,
   type Nullable,
   type QueryCreator,
   type SqlBool,
@@ -92,8 +90,8 @@ export const USAGE_COPIED_COLUMNS = [
   "endedAt",
 ] as const;
 
-/** What a list reads of a job's row: its columns without its content. */
-const LISTED_JOB_COLUMNS = [
+/** What the hub reports of a job, from its own row and from its progress row. */
+const JOB_COLUMNS = [
   "id",
   "status",
   "createdAt",
@@ -101,26 +99,16 @@ const LISTED_JOB_COLUMNS = [
   "endedAt",
   "runTimeoutSeconds",
   "modelBudgetUsd",
+  "output",
   "failureReason",
+  "failureMessage",
   "pendingControl",
   "pendingControlRequestedAt",
   "customId",
   "labels",
   ...SUBMITTER_COLUMNS,
 ] as const;
-/** What a list reads of a job's progress: its totals without its activity. */
-const LISTED_PROGRESS_COLUMNS = ["totalTokens", "costUsd", "lastReportedAt"] as const;
-
-/**
- * A job's content, which a list leaves out: its output and its failure's message from its row, its
- * activity from its progress row. Postgres reads these only for a job read whole.
- */
-const JOB_CONTENT_COLUMNS = ["output", "failureMessage"] as const;
-const PROGRESS_CONTENT_COLUMNS = ["activity"] as const;
-
-/** What the hub reports of a job, from its own row and from its progress row. */
-const JOB_COLUMNS = [...LISTED_JOB_COLUMNS, ...JOB_CONTENT_COLUMNS] as const;
-const PROGRESS_COLUMNS = [...LISTED_PROGRESS_COLUMNS, ...PROGRESS_CONTENT_COLUMNS] as const;
+const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
 
 type SelectedJob = Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
   Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
@@ -375,22 +363,13 @@ export function batchIdOf(batchUid: Expression<BatchUid>): AliasableExpression<s
 /** The statuses of a job that has not ended. */
 export const UNFINISHED = ["queued", "running", "paused"] as const satisfies readonly JobStatus[];
 
-type ListedJobRow = Omit<
-  SelectedJob,
-  (typeof JOB_CONTENT_COLUMNS)[number] | (typeof PROGRESS_CONTENT_COLUMNS)[number]
->;
-
-/**
- * Jobs as a list reads them, `j` with its progress `p`: without their content, so Postgres reads
- * neither a job's output nor its failure's message nor its activity.
- */
-function selectListedJobs(db: Kysely<Database>, now: Date) {
+function selectJobs(db: Kysely<Database>, now = new Date()) {
   return db
     .selectFrom("job as j")
     .innerJoin("jobProgress as p", "p.jobId", "j.id")
     .select((eb) => [
-      ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-      ...LISTED_PROGRESS_COLUMNS.map((column) => `p.${column}` as const),
+      ...JOB_COLUMNS.map((column) => `j.${column}` as const),
+      ...PROGRESS_COLUMNS.map((column) => `p.${column}` as const),
       blockedByOf({
         status: eb.ref("j.status"),
         placedAt: eb.ref("j.placedAt"),
@@ -399,42 +378,20 @@ function selectListedJobs(db: Kysely<Database>, now: Date) {
       }).as("blockedBy"),
       batchIdOf(eb.ref("j.batchUid")).as("batchId"),
       runnerOf(eb.ref("j.runnerId"), now).as("runner"),
-      statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
+      statusUnknownOf(
+        {
+          status: eb.ref("j.status"),
+          placedAt: eb.ref("j.placedAt"),
+          runnerId: eb.ref("j.runnerId"),
+          lastReportedAt: eb.ref("p.lastReportedAt"),
+        },
+        now,
+      ).as("statusUnknown"),
     ]);
 }
 
-/** Jobs whole, `j` with its progress `p`: as a list reads them, and their content. */
-function selectJobs(db: Kysely<Database>, now = new Date()) {
-  return selectListedJobs(db, now).select([
-    ...JOB_CONTENT_COLUMNS.map((column) => `j.${column}` as const),
-    ...PROGRESS_CONTENT_COLUMNS.map((column) => `p.${column}` as const),
-  ]);
-}
-
-/** The jobs `ids`, as a list reads them. */
-export function listedJobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
-  return selectListedJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
-}
-
-/**
- * A job as the contract's `ListedJob` gives it, from what `selectListedJobs` read. The type
- * refuses it if a content column the lists leave out is not set to none here.
- */
-function toListedJob(row: ListedJobRow): ListedJob {
-  return toApiJob({ ...row, output: null, failureMessage: null, activity: null });
-}
-
-/** A listed job read inside a JSON array, where Postgres gives timestamps as strings. */
-export function listedJobFromJson(row: ShallowDehydrateObject<ListedJobRow>) {
-  return toListedJob({
-    ...row,
-    createdAt: new Date(row.createdAt),
-    startedAt: row.startedAt === null ? null : new Date(row.startedAt),
-    endedAt: row.endedAt === null ? null : new Date(row.endedAt),
-    lastReportedAt: row.lastReportedAt === null ? null : new Date(row.lastReportedAt),
-    pendingControlRequestedAt:
-      row.pendingControlRequestedAt === null ? null : new Date(row.pendingControlRequestedAt),
-  });
+export function jobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
+  return selectJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
 }
 
 /** What every job reports whatever its status. */
@@ -598,9 +555,7 @@ export function contentHashOf(content: object) {
 export function getJob(jobId: JobId) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const job = yield* database.query((db) =>
-      selectJobs(db).where("j.id", "=", jobId).executeTakeFirst(),
-    );
+    const job = yield* database.query((db) => jobsById(db, [jobId], new Date()).executeTakeFirst());
     if (job) return toApiJob(job);
     const deleted = yield* database.query((db) => readDeletedJob(db, jobId));
     if (!deleted) return yield* Effect.fail(new NotFound());
@@ -1428,7 +1383,25 @@ export function listJobs(query: JobListQuery) {
     database.query(async (db) => {
       const { statuses, labels, batchId, customId, runnerId, statusUnknown, after, limit } = query;
       const now = new Date();
-      let selection = selectListedJobs(db, now);
+      let selection = db
+        .selectFrom("job as j")
+        .innerJoin("jobProgress as p", "p.jobId", "j.id")
+        // Without the content a list leaves out.
+        .select((eb) => [
+          ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
+          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
+            (column) => `p.${column}` as const,
+          ),
+          blockedByOf({
+            status: eb.ref("j.status"),
+            placedAt: eb.ref("j.placedAt"),
+            batchUid: eb.ref("j.batchUid"),
+            inCanary: eb.ref("j.inCanary"),
+          }).as("blockedBy"),
+          batchIdOf(eb.ref("j.batchUid")).as("batchId"),
+          runnerOf(eb.ref("j.runnerId"), now).as("runner"),
+          statusUnknownOf(listedJobOf(eb), now).as("statusUnknown"),
+        ]);
       if (statusUnknown !== undefined) {
         selection = selection.where((eb) =>
           statusUnknown
@@ -1456,12 +1429,32 @@ export function listJobs(query: JobListQuery) {
         .limit(limit + 1)
         .execute();
       return {
-        jobs: rows.slice(0, limit).map(toListedJob),
+        // Read without their content, which the contract's `ListedJob` leaves out of the answer.
+        jobs: rows
+          .slice(0, limit)
+          .map((row) => toApiJob({ ...row, output: null, failureMessage: null, activity: null })),
         hasMore: rows.length > limit,
       } satisfies JobsPage;
     }),
   );
 }
+
+/** What a list reads of a job's row: its columns without its output and its failure's message. */
+const LISTED_JOB_COLUMNS = [
+  "id",
+  "status",
+  "createdAt",
+  "startedAt",
+  "endedAt",
+  "runTimeoutSeconds",
+  "modelBudgetUsd",
+  "failureReason",
+  "pendingControl",
+  "pendingControlRequestedAt",
+  "customId",
+  "labels",
+  ...SUBMITTER_COLUMNS,
+] as const satisfies readonly (typeof JOB_COLUMNS)[number][];
 
 /** A filtered job count for each value, with the value as its column name. */
 export function jobCountsBy<Value extends string, Counted extends Value>(

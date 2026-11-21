@@ -58,23 +58,21 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
   const added = z.parse(
     z.object({
       batch: z.looseObject({ id: z.string() }),
-      jobs: z.array(
-        z.object({
-          created: z.boolean(),
-          job: z.looseObject({ id: z.string(), createdAt: z.string() }),
-        }),
-      ),
+      jobs: z.array(z.looseObject({ job: z.looseObject({ id: z.string() }) })),
     }),
     await response.json(),
   );
   expect(added.batch).toMatchObject({ id: batch.id, jobCounts: { queued: 1 } });
   const [first] = added.jobs;
   assert(first, "The add answered without the job");
+  // The answer names the job; a read gives the rest.
+  expect(first).toEqual({ created: true, job: { id: first.job.id, customId: "report-q3" } });
   const unused = { totalTokens: 0, cost: { totalUsd: 0 } };
   // The hub's default limits.
   const limits = { runTimeoutSeconds: 30 * 60, modelBudgetUsd: 1 };
   const job = {
     id: first.job.id,
+    createdAt: expect.any(Date),
     status: "queued",
     startedAt: null,
     endedAt: null,
@@ -87,10 +85,8 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
     lastReportedAt: null,
     submitter: { kind: "key", id: keyId, name: "jobs" },
   };
-  expect(first).toEqual({ created: true, job: { ...job, createdAt: expect.any(String) } });
-
-  const read = { ...job, createdAt: new Date(first.job.createdAt) };
-  expect(await client.jobs.get({ id: job.id })).toEqual(read);
+  const read = await client.jobs.get({ id: job.id });
+  expect(read).toEqual(job);
   expect(await system.owner().jobs.get({ id: job.id })).toEqual(read);
 });
 
@@ -162,7 +158,6 @@ test("a member's session submits as a key does: Blobs, a Batch and its jobs, sho
   });
   const [added] = jobs;
   assert(added, "The add answered without the job");
-  expect(added.job.submitter).toEqual(submitter);
   const owner = system.owner();
   expect((await owner.jobs.get({ id: added.job.id })).submitter).toEqual(submitter);
   expect((await owner.batches.get({ id: batch.id })).submitter).toEqual(submitter);

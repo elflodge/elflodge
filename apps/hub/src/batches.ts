@@ -26,7 +26,6 @@ import {
   sql,
   type Transaction,
 } from "kysely";
-import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { v7 as uuidv7 } from "uuid";
 import * as z from "zod/mini";
 
@@ -56,8 +55,6 @@ import {
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
-  listedJobFromJson,
-  listedJobsById,
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
@@ -611,26 +608,11 @@ async function addJobsAndReadBatch(
   submitter: Submitter,
 ): Promise<AddedJobs> {
   const entries = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
-  const now = new Date();
-  // A Runner can update usage while the submission holds the Batch lock. Read both totals
-  // from a single snapshot, including on a retry that only found existing jobs. The jobs are read
-  // as a list reads them, without the content a repeat after they ended would carry (ADR 0050).
-  const requestedJobs = listedJobsById(
-    trx,
-    entries.map(({ id }) => id),
-    now,
-  );
-  const row = await selectBatch(trx, { uid }, now)
-    .select(jsonArrayFrom(requestedJobs).as("jobs"))
-    .executeTakeFirstOrThrow();
-  const byId = new Map(row.jobs.map((job) => [job.id, listedJobFromJson(job)]));
+  // The answer names each job by its IDs alone, so its size follows the request's (ADR 0050).
+  const row = await selectBatch(trx, { uid }, new Date()).executeTakeFirstOrThrow();
   return {
     batch: batchOf(row),
-    jobs: entries.map(({ id, created }) => {
-      const job = byId.get(id);
-      if (!job) throw new Error(`The job ${id} was not read back`);
-      return { created, job };
-    }),
+    jobs: entries.map(({ id, created, job }) => ({ created, job: { id, customId: job.customId } })),
   };
 }
 
@@ -658,8 +640,8 @@ async function addJobsInTransaction(
     .forUpdate()
     .executeTakeFirstOrThrow();
   // The jobs the Batch already has under these custom IDs, locked in the order of their IDs
-  // against their deletion, so the answer can read them back; before their blobs, as a
-  // deletion locks a job and then its blobs.
+  // against their deletion, so each job the answer names still exists when the add commits; before
+  // their blobs, as a deletion locks a job and then its blobs.
   const existing = await trx
     .selectFrom("job")
     .select(["id", "customId", "contentHash"])

@@ -29,9 +29,13 @@ function jobNamed(customId: string, extra: Partial<JobInput> = {}): JobInput {
   return { customId, input: `Answer for ${customId}.`, ...extra };
 }
 
-/** What blocks each job an add answered with, or "none". */
-function blockedBy(added: Awaited<ReturnType<ApiClient["batches"]["addJobs"]>>) {
-  return added.jobs.map(({ job }) => job.blockedBy ?? "none");
+/** What blocks each job an add answered with, or "none", as a read of the job gives it. */
+async function blockedBy(
+  client: ApiClient,
+  added: Awaited<ReturnType<ApiClient["batches"]["addJobs"]>>,
+) {
+  const jobs = await Promise.all(added.jobs.map(({ job }) => client.jobs.get({ id: job.id })));
+  return jobs.map((job) => job.blockedBy ?? "none");
 }
 
 /** Waits until the Batch `id` has `status`. */
@@ -134,7 +138,8 @@ test("an ID used again with the same content returns what it named, whoever repe
     ["b", false],
   ]);
   expect(again.jobs[0]?.job.id).toBe(first.jobs[0]?.job.id);
-  expect(again.jobs.map(({ job }) => job.submitter)).toEqual([
+  const readAgain = await Promise.all(again.jobs.map(({ job }) => member.jobs.get({ id: job.id })));
+  expect(readAgain.map((job) => job.submitter)).toEqual([
     byKey,
     { kind: "member", id: userId, name: "Rae Retrier" },
     byKey,
@@ -473,12 +478,14 @@ test("a paused Batch blocks the jobs not yet sent and those added later, without
     status: "paused",
     pausedBy: "caller",
   });
-  const added = await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("b")] });
-  expect(added.jobs[0]?.job).toMatchObject({ status: "queued", blockedBy: "batchPausedByCaller" });
-  expect(await client.jobs.get({ id: first.job.id })).toMatchObject({
-    status: "queued",
-    blockedBy: "batchPausedByCaller",
-  });
+  const [later] = (await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("b")] })).jobs;
+  if (!later) throw new Error("The add answered without the job");
+  for (const { job } of [first, later]) {
+    expect(await client.jobs.get({ id: job.id })).toMatchObject({
+      status: "queued",
+      blockedBy: "batchPausedByCaller",
+    });
+  }
 
   expect(await client.batches.resume({ id: batch.id })).toMatchObject({ status: "active" });
   const [listed] = (await client.jobs.list({ batchId: batch.id, customId: "b" })).jobs;
@@ -507,9 +514,10 @@ test("a cancel is final: the Batch takes no new jobs and resumes none, even with
       client.batches.create({ id: batch.id, agent: AGENT, breaker: false, jobs }),
     (jobs: JobInput[]) => client.batches.addJobs({ id: batch.id, jobs }),
   ]) {
-    expect(await submit([jobNamed("a")])).toMatchObject({
-      jobs: [{ created: false, job: { customId: "a", status: "cancelled" } }],
-    });
+    const [recovered] = (await submit([jobNamed("a")])).jobs;
+    expect(recovered).toMatchObject({ created: false, job: { customId: "a" } });
+    if (!recovered) throw new Error("The answer named no job");
+    expect(await client.jobs.get({ id: recovered.job.id })).toMatchObject({ status: "cancelled" });
     await expect(
       submit([jobNamed("b"), jobNamed("a", { input: "Changed." })]),
     ).rejects.toMatchObject({
@@ -541,12 +549,18 @@ test("a Batch's Canary, its first jobs, those added later included, runs before 
     id: batch.id,
     jobs: [jobNamed("1"), jobNamed("2")],
   });
-  expect(blockedBy(first)).toEqual(["none", "none"]);
+  expect(await blockedBy(client, first)).toEqual(["none", "none"]);
   const rest = await client.batches.addJobs({
     id: batch.id,
     jobs: ["3", "4", "5", "6", "7"].map((customId) => jobNamed(customId)),
   });
-  expect(blockedBy(rest)).toEqual(["none", "none", "none", "batchCanary", "batchCanary"]);
+  expect(await blockedBy(client, rest)).toEqual([
+    "none",
+    "none",
+    "none",
+    "batchCanary",
+    "batchCanary",
+  ]);
   await client.batches.cancel({ id: batch.id });
 
   // A Canary of none releases every job at once.
@@ -558,7 +572,7 @@ test("a Batch's Canary, its first jobs, those added later included, runs before 
     id: uncautious.id,
     jobs: [jobNamed("1"), jobNamed("2")],
   });
-  expect(blockedBy(all)).toEqual(["none", "none"]);
+  expect(await blockedBy(client, all)).toEqual(["none", "none"]);
   await client.batches.cancel({ id: uncautious.id });
 });
 
@@ -686,7 +700,7 @@ test("a failure in the Canary pauses the Batch, and resuming it runs a new Canar
   await untilStatus(client, second, "running");
   expect(await client.jobs.get({ id: third })).toMatchObject({ blockedBy: "batchCanary" });
   const late = await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("4")] });
-  expect(late.jobs[0]?.job.blockedBy).toBe("batchCanary");
+  expect(await blockedBy(client, late)).toEqual(["batchCanary"]);
 
   await client.batches.cancel({ id: batch.id });
   await untilBatchStatus(client, batch.id, "cancelled");
@@ -818,7 +832,7 @@ test("a Batch without a breaker releases every job at once and never pauses itse
     id: batch.id,
     jobs: ["1", "2", "3"].map((customId) => jobNamed(customId)),
   });
-  expect(blockedBy(added)).toEqual(["none", "none", "none"]);
+  expect(await blockedBy(client, added)).toEqual(["none", "none", "none"]);
 
   await expect
     .poll(async () => (await client.batches.get({ id: batch.id })).jobCounts.failed, {
@@ -861,23 +875,25 @@ test("a Batch's summary counts its jobs by status and adds up their cost, those 
   expect(afterDelete.usage.cost.totalUsd).toBeCloseTo(costs.get(kept) ?? Number.NaN, 10);
 });
 
-// A repeat after the jobs ended names every one of them, so its answer leaves out what can be large.
-// The client drops members its contract lacks, so the answers are read as any HTTP client reads them.
-test("a repeat naming ended jobs answers each as the list gives it, without its Output or failure message", async () => {
+// A repeat after the jobs ended names every one of them, and its answer holds nothing a job gained
+// since. The client drops members its contract lacks, so the answers are read as any HTTP client reads
+// them.
+test("a repeat after its jobs ended names each by its IDs alone, and a read by that ID gives the job", async () => {
   // Text that matches none of pi-ai's retry patterns, so the job fails at once with it.
   const error = "gateway_concurrency_limit: Concurrency limit reached for this key";
   system.model.setResponses([callTool("submit_output", { value: 1 }), providerError(error)]);
   const client = await system.clientWithNewJobsKey();
   const creation = { id: "ended-repeat", agent: AGENT, breaker: false } as const;
   const jobs = [jobNamed("one"), jobNamed("two")];
-  const first = await client.batches.create({ ...creation, jobs });
+  const named = (await client.batches.create({ ...creation, jobs })).jobs.map(({ job }) => job);
   await expect
     .poll(async () => (await client.batches.get({ id: creation.id })).jobCounts, {
       timeout: 15_000,
     })
     .toMatchObject({ succeeded: 1, failed: 1 });
+  const read = await Promise.all(named.map(({ id }) => client.jobs.get({ id })));
+  expect(read.map(({ id, customId }) => ({ id, customId }))).toEqual(named);
   // Either job may have taken either answer.
-  const read = await Promise.all(first.jobs.map(({ job }) => client.jobs.get({ id: job.id })));
   expect(read).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ status: "succeeded", output: 1 }),
@@ -888,24 +904,16 @@ test("a repeat naming ended jobs answers each as the list gives it, without its 
     ]),
   );
 
-  const answerSchema = z.object({
-    jobs: z.array(z.object({ created: z.boolean(), job: z.looseObject({ status: z.string() }) })),
-  });
+  const answerSchema = z.looseObject({ jobs: z.unknown() });
   for (const repeat of [
     () => post("/batches", { ...creation, jobs }),
     () => post(`/batches/${creation.id}/jobs`, { jobs }),
   ]) {
     const response = await repeat();
     expect(response.status).toBe(200);
-    const answered = z.parse(answerSchema, await response.json()).jobs;
-    expect(answered.map(({ created }) => created)).toEqual([false, false]);
-    expect(new Set(answered.map(({ job }) => job.status))).toEqual(
-      new Set(["succeeded", "failed"]),
+    expect(z.parse(answerSchema, await response.json()).jobs).toEqual(
+      named.map((job) => ({ created: false, job })),
     );
-    for (const { job } of answered) {
-      expect(job).not.toHaveProperty("output");
-      if (job.status === "failed") expect(job["failure"]).toEqual({ reason: "modelFailed" });
-    }
   }
 });
 

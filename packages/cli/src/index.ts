@@ -28,7 +28,7 @@ import {
   FINAL_JOB_STATUSES,
   getAccess,
   type Job,
-  type ListedJob,
+  type JobIds,
   jobRefSchema,
   type JobSubmission,
   type KeyPermissions,
@@ -382,7 +382,7 @@ function submitCommand() {
   return os
     .meta({
       description:
-        "Submits one job and prints it as the job list gives it. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
+        "Submits one job and prints its `id` and `customId`, as the hub answers; `jobs get --id` reads how the job stands. Creates the job and its Batch of one together, running `agent` without a failure breaker. Retrying with the same `customId` returns the Batch and job already created, so a command that cannot tell whether the job was accepted can be run again to find out.",
       // The command takes its input as JSON only: a flag per field would include the job's `--input`,
       // which `readInput` reads as the file holding the whole input before trpc-cli sees it.
       jsonInput: "always",
@@ -422,7 +422,7 @@ function submitCommand() {
               Effect.retry(retryTransient),
               Effect.flatMap((batch) => {
                 const job = batch.jobs[0]?.job;
-                return job?.customId === id && job.batchId === id
+                return batch.id === id && job?.customId === id
                   ? Effect.succeed({ batch, job })
                   : Effect.fail(new Error(`The hub did not return the requested job ${id}`));
               }),
@@ -976,7 +976,7 @@ const prepareOutputDir = Effect.fnUntraced(function* (dir: string) {
 const saveJobLines = Effect.fnUntraced(function* (
   client: ApiClient,
   dir: string,
-  jobs: readonly Pick<ListedJob, "customId" | "id">[],
+  jobs: readonly JobIds[],
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -1027,7 +1027,7 @@ const saveJobLines = Effect.fnUntraced(function* (
 function waitAndSave(
   client: ApiClient,
   submitted: Batch,
-  jobs: readonly Pick<ListedJob, "customId" | "id">[],
+  jobs: readonly JobIds[],
   options: {
     again: string;
     idGiven: boolean;
