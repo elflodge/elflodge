@@ -173,6 +173,10 @@ function SubmitJob() {
         // A navigation held by an open leave dialog gives way, so the member lands on the job.
         blocker().reset?.();
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
+      } else if (leaveConfirmed) {
+        // A member who comes back to the form finds it as after a lost answer: the made ID is kept,
+        // so sending it unchanged opens this job.
+        setOutcomeUnknown(true);
       }
     } catch (error) {
       const status = problemOf(error)?.status;
