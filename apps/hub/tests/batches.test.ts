@@ -198,7 +198,10 @@ test(`a request creates up to ${MAX_JOBS_PER_REQUEST} jobs together, and one mor
     jobNamed(`job-${index}`, { files: [{ path: "rates.csv", ...rates }] }),
   );
   await expect(client.batches.create({ id, agent: AGENT, jobs })).rejects.toMatchObject({
-    cause: { status: 400, errors: [{ pointer: "/jobs" }] },
+    cause: {
+      status: 400,
+      errors: [{ pointer: "/jobs", detail: `Must have at most ${MAX_JOBS_PER_REQUEST} jobs` }],
+    },
   });
   await expect(client.batches.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
