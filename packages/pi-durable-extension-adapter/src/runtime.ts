@@ -6,6 +6,7 @@ import {
   type ExecResult,
   type Extension,
   type ExtensionActions,
+  type ExtensionRuntime,
   type ExtensionContextActions,
   type ModelRegistry,
   type SessionManager,
@@ -13,7 +14,7 @@ import {
 import ensureError from "ensure-error";
 import { loadExtensionFromFactory } from "pi-extension-loader";
 
-import type { Flags, HandlerError } from "./protocol.ts";
+import type { Flags, HandlerError, Reads } from "./protocol.ts";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
@@ -26,7 +27,7 @@ import type { Flags, HandlerError } from "./protocol.ts";
 export { convertToLlm, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
 
 /** What an instance needs from its host: the conversation's state and every action that leaves the worker. */
-export interface Bridge {
+export interface Bridge extends Pick<ExtensionRuntime, "registerProvider" | "unregisterProvider"> {
   readonly cwd: string;
   /** Values for the flags extensions register, set once they have loaded, as Pi sets its command line's. */
   readonly flags: Flags;
@@ -76,7 +77,8 @@ export type ModelRegistryFacade = Pick<
   | "getProviderAuth"
   | "getApiKeyForProvider"
   | "getError"
->;
+> &
+  Pick<Reads, "getProvider">;
 
 export interface LoadedExtension {
   /** The source it came from, for reports. */
@@ -180,15 +182,15 @@ export async function createInstance(
     asSessionManager(bridge.sessionManager),
     asModelRegistry(bridge.modelRegistry),
   );
-  // Binding flushes the providers and virtual models extensions registered while loading, which
-  // fail here as unsupported; Pi reports each as an error of its extension and keeps the extension.
+  // Binding applies the registrations queued during loading. Pi attributes each failure to its
+  // extension and keeps the extension loaded.
   const stopListening = runner.onError((error) =>
     errors.push({ source: error.extensionPath, message: error.error }),
   );
   runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
-    registerProvider: () => unsupported("registerProvider"),
+    registerProvider: bridge.registerProvider,
     registerNativeProvider: () => unsupported("registerNativeProvider"),
-    unregisterProvider: () => unsupported("unregisterProvider"),
+    unregisterProvider: bridge.unregisterProvider,
     registerVirtualModel: () => unsupported("registerVirtualModel"),
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });

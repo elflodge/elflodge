@@ -94,6 +94,7 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
+import { ProviderRequests, ProviderSession } from "./providers.ts";
 
 /** How `startExtensionHost` runs extensions. */
 export interface ExtensionHostOptions {
@@ -271,6 +272,7 @@ const workerModule = fileURLToPath(
 );
 
 interface HostedWorker {
+  readonly requests: ProviderRequests;
   readonly worker: Worker;
   readonly rpc: BirpcReturn<WorkerFunctions, HostFunctions>;
   readonly conversations: Map<string, AttachedConversation>;
@@ -417,7 +419,9 @@ class Workers {
       if (!found) throw new Error(`No conversation ${key} on this worker`);
       return found;
     };
+    const requests = new ProviderRequests();
     const functions: HostFunctions = {
+      ...requests.callbacks,
       setModel: (key, model) => attached(key).setModel(model),
       exec: (key, id, command, args, options) => attached(key).exec(id, command, args, options),
       cancelExec: (key, id) => conversations.get(key)?.cancelExec(id),
@@ -435,7 +439,10 @@ class Workers {
     };
     const port = rpc.port1;
     const client = createBirpc<WorkerFunctions, HostFunctions>(functions, {
-      post: (message) => port.postMessage(message),
+      post: (message) => {
+        const options = message.m === "streamProvider" ? message.a.at(-1) : undefined;
+        port.postMessage(message, options?.signal ? [options.signal] : []);
+      },
       on: (handler) => port.on("message", handler),
       // No time limit: tools and hooks run as long as they need; the worker's exit rejects what is
       // pending.
@@ -471,12 +478,26 @@ class Workers {
         reply({ error: new Error(`No conversation ${message.key} on this worker`) });
         return;
       }
+      if (message.type !== "read") {
+        try {
+          const providers = found.providers;
+          if (!providers) throw new Error("The extension provider session is closed");
+          if (message.type === "registerProvider")
+            providers.register(message.name, message.config, message.registration);
+          else providers.unregister(message.name);
+          reply({ value: undefined });
+        } catch (error) {
+          reply({ error: ensureError(error) });
+        }
+        return;
+      }
       found.read(message.method, message.args).then(
         (value) => reply({ value }),
         (error: unknown) => reply({ error: ensureError(error) }),
       );
     });
     const hosted: HostedWorker = {
+      requests,
       worker,
       rpc: client,
       conversations,
@@ -530,9 +551,14 @@ async function attachConversation(
 ): Promise<AttachedExtensions> {
   const { harness, conversation } = options;
   const provider = await harness.snapshot(ProviderDoc, conversation.id, context);
-  // A conversation gets its provider session ID when it is created; one from before that gets
-  // it at its first request, so it uses its own ID until then.
-  const sessionId = provider?.sessionId ?? `${conversation.id}`;
+  // A legacy conversation gets its ID at its first request. Give its worker the same
+  // durable ID even when it opens before that request.
+  const sessionId =
+    provider?.sessionId ??
+    (await conversation.commit(
+      async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
+      context,
+    ));
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
@@ -807,6 +833,7 @@ class AttachedConversation {
    * such as one still shutting down after the time limit, never reaches a later one.
    */
   #route = "";
+  providers: ProviderSession | undefined;
   readonly models: Models;
   readonly #options: AttachOptions;
   #hosted: HostedWorker | undefined;
@@ -889,6 +916,14 @@ class AttachedConversation {
     const hosted = this.#workers.acquire(route, this);
     this.#route = route;
     this.#hosted = hosted;
+    this.providers = new ProviderSession(
+      this.models,
+      this.sessionId,
+      this.#options.harness,
+      this.id,
+      hosted.rpc,
+      hosted.requests,
+    );
     this.#release = () => this.#workers.release(hosted, route, this);
     this.#opening = true;
     // Its own awaits stop at the limit too.
@@ -1566,6 +1601,8 @@ class AttachedConversation {
             origin: "top-level",
           },
         }));
+      case "getProvider":
+        return typeof args[0] === "string" ? this.providers?.get(args[0]) : undefined;
       case "getModels": {
         const available = await this.models.getAvailable().then(
           (list) => list.map((each) => `${each.provider}/${each.id}`),
@@ -1698,6 +1735,8 @@ class AttachedConversation {
    * nothing, and a `tool_call` gate blocks.
    */
   lost() {
+    this.providers?.close();
+    this.providers = undefined;
     this.#hosted = undefined;
     // Its end can no longer reach them, so `close` waits no longer.
     this.#runEnd?.delivered.resolve();
@@ -1751,6 +1790,8 @@ class AttachedConversation {
       // answers; what extensions do after it, or after the time limit, is dropped.
       await awaitWithContext(hosted.rpc.close(this.#route), limited).catch(() => {});
     }
+    this.providers?.close();
+    this.providers = undefined;
     this.#closed = true;
     this.#release?.();
   }
