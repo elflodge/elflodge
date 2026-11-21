@@ -83,6 +83,7 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
         : false,
   }));
   // The journal stays readable while either Events request is pending and the job read expires.
+  // `deep` reads every Event inside `latest`, so a pending request does not hold them.
   const pages = createMemo(() =>
     history.dataUpdatedAt ? latest(() => deep(history.data.pages)) : [],
   );

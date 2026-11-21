@@ -89,6 +89,8 @@ function BatchPage() {
     }),
   );
   // Keep the ledger readable and let its live indication expire while a poll is held.
+  // `deep` reads every field inside `latest`, as on the job page, where a projection that kept an
+  // object's identity across a changed field froze the page on a resume.
   const batch = createMemo(() => latest(() => deep(read.data)));
   const online = browserOnline();
   const fresh = readIsFresh(() => read.dataUpdatedAt);
