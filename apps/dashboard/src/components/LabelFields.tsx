@@ -34,7 +34,7 @@ export function labelsOf(data: FormData) {
  * Labels as a whole, of their count, ends when the count fits; a row's own stays at its row until
  * its value is edited.
  */
-export function endsAtLabelCount(count: number) {
+export function isEndedAtLabelCount(count: number) {
   return (name: string) => name === "labels" && count <= MAX_LABELS;
 }
 

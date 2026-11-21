@@ -53,7 +53,7 @@ import {
   createDraftSubmission,
 } from "../../../components/DraftSubmission.tsx";
 import { Field, FieldGroup } from "../../../components/Field.tsx";
-import { LabelFields, endsAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, isEndedAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import { createFormAction, fieldText, issuesRefusal, withoutRefusals } from "../../../form.ts";
@@ -531,7 +531,7 @@ function SubmitBatch() {
           refused={refused}
           onChange={(count) => {
             updateDraft();
-            setEnding((previous) => withoutRefusals(previous, endsAtLabelCount(count)));
+            setEnding((previous) => withoutRefusals(previous, isEndedAtLabelCount(count)));
           }}
         />
         <FieldGroup

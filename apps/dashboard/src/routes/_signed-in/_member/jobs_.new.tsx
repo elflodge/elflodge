@@ -16,7 +16,7 @@ import {
   createDraftSubmission,
 } from "../../../components/DraftSubmission.tsx";
 import { Field } from "../../../components/Field.tsx";
-import { LabelFields, endsAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, isEndedAtLabelCount, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import {
@@ -193,7 +193,7 @@ function SubmitJob() {
           refused={refused}
           onChange={(count) => {
             setFailure(
-              (previous) => previous && withoutRefusals(previous, endsAtLabelCount(count)),
+              (previous) => previous && withoutRefusals(previous, isEndedAtLabelCount(count)),
             );
           }}
         />
