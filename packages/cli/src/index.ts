@@ -38,6 +38,7 @@ import {
   MAX_FILES_PER_CHECK,
   MAX_JOBS_PER_REQUEST,
   problemOf,
+  SUGGESTED_AT_ONCE,
   type OpenStatusUnknownReason,
   type StatusUnknownReason,
   statusUnknownReasonSchema,
@@ -670,14 +671,6 @@ function digestOf(file: string) {
   });
 }
 
-/**
- * How many files `batches submit` hashes or uploads, and how many jobs it reads, at once. Five is a
- * conventional value, as Docker sends five layers at once, not a measured one, so it is to be tuned
- * from measurement. Each upload holds one of the hub's database connections while it writes, of
- * the ten a Node hub's pool has, so five leave the hub room for other callers.
- */
-const AT_ONCE = 5;
-
 /** A file of a job with the digest of its content. */
 type HashedFile = LocalFile & { digest: string };
 
@@ -694,7 +687,7 @@ function hashJobs(pathJobs: Array.NonEmptyReadonlyArray<PathJob>) {
       yield* Effect.forEach(
         diskPaths,
         (diskPath) => Effect.map(digestOf(diskPath), (digest) => [diskPath, digest] as const),
-        { concurrency: AT_ONCE },
+        { concurrency: SUGGESTED_AT_ONCE },
       ),
     );
     const hashed = Array.map(pathJobs, ({ files }) =>
@@ -773,7 +766,7 @@ function uploadMissing(client: ApiClient, files: readonly HashedFile[]) {
             }),
           ),
         ),
-      { concurrency: AT_ONCE, discard: true },
+      { concurrency: SUGGESTED_AT_ONCE, discard: true },
     ).pipe(Effect.ensuring(endProgress));
   });
 }
@@ -994,7 +987,7 @@ const saveJobLines = Effect.fnUntraced(function* (
         Effect.retry(retryTransient),
         Effect.map((read) => jobLine(customId, read)),
       ),
-    { concurrency: AT_ONCE },
+    { concurrency: SUGGESTED_AT_ONCE },
   );
   const [succeeded, rest] = Array.partition(lines, (line) =>
     line.status === "succeeded" ? Result.succeed(line) : Result.fail(line),

@@ -844,6 +844,16 @@ export const MAX_BODY_BYTES = 16 * 1024 * 1024;
 export const MAX_FILES_PER_CHECK = 1000;
 
 /**
+ * How many files a client hashes or uploads, and how many calls it makes, at once, as the CLI's
+ * `batches submit` and the dashboard's Submit a Batch do: a suggestion for clients, not a limit the
+ * hub enforces. Five is a conventional value, as Docker sends five layers at once, not a measured
+ * one, so it is to be tuned from measurement. Each upload holds one of the hub's database
+ * connections while it writes, of the ten a Node hub's pool has, so five leave the hub room for
+ * other callers.
+ */
+export const SUGGESTED_AT_ONCE = 5;
+
+/**
  * Whether the Organization holds a file's Blob, as a check answers it, and if not, where to
  * upload it: `transfer` names how, `put` being one request carrying the whole file, so other ways,
  * such as resumable uploads, can follow.
