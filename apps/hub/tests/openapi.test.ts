@@ -231,16 +231,15 @@ function clientWithFixedResponse(answer: unknown): ApiClient {
   );
 }
 
-test("the client converts dates when job, list, Batch and Events answers gain members", async () => {
+test("the client converts dates when create, job, list, Batch and Events answers gain members", async () => {
   const owner = system.owner();
-  const batch = await owner.batches.create({
-    agent: { outputContract: { schema: { type: "integer" } } },
-  });
-  const added = await owner.batches.addJobs({
-    id: batch.id,
+  const agent = { outputContract: { schema: { type: "integer" } } };
+  const created = await owner.batches.create({
+    agent,
     jobs: [{ customId: "one", input: "Count." }],
   });
-  const { job } = added.jobs[0];
+  const { jobs, ...batch } = created;
+  const { job } = jobs[0];
   const id = { id: job.id };
   const page = await owner.jobs.list({ batchId: batch.id });
   const events = await owner.jobs.events(id);
@@ -256,6 +255,13 @@ test("the client converts dates when job, list, Batch and Events answers gain me
     }),
   ).resolves.toMatchObject(batch);
   const futureJob = { ...job, ...extra, usage: { ...job.usage, ...extra } };
+  await expect(
+    clientWithFixedResponse({
+      ...created,
+      ...extra,
+      jobs: jobs.map((first) => ({ ...first, ...extra, job: futureJob })),
+    }).batches.create({ agent }),
+  ).resolves.toMatchObject(created);
   await expect(clientWithFixedResponse(futureJob).jobs.get(id)).resolves.toMatchObject(job);
   await expect(
     clientWithFixedResponse({
