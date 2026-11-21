@@ -240,6 +240,30 @@ test("Submit again after a stop and after a failed upload uploads only what is m
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("3");
 }, 30_000);
 
+test("Stop pressed as the last upload is told sends no create", async () => {
+  const page = await openSubmitBatch("Batch stopper");
+  await page.getByLabel("Batch ID").fill("stopped-late");
+  await addFiles(page, [["late.txt", "Stopped as its upload is told."]]);
+  const creates: string[] = [];
+  page.on("request", (request) => {
+    if (isCreate(request)) creates.push(request.url());
+  });
+  // Pressed in the same turn the page shows the last upload, before anything else of the send runs.
+  // A string, as these tests are typed without the DOM's names.
+  await page.evaluate(`(() => {
+    new MutationObserver((_, observer) => {
+      if (!document.body.textContent.includes("Uploaded 1 of 1")) return;
+      observer.disconnect();
+      [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Stop")?.click();
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  })()`);
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toHaveText(
+    "Stopped. No Batch was created. Submit again reads the files again and uploads only what the hub does not hold.",
+  );
+  expect(creates).toEqual([]);
+}, 30_000);
+
 test("after a lost answer the Batch ID field holds the ID sent: an edit cannot make a second Batch, and another ID says one may exist", async () => {
   const page = await openSubmitBatch("Batch retrier");
   await page.getByRole("button", { name: "Add a job" }).click();

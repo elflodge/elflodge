@@ -262,13 +262,19 @@ export async function* prepareBatch(
       Effect.andThen(Queue.end(queue)),
     ),
   );
+  // Not `Stream.toReadableStream`, whose types take no signal.
   const reader = Stream.toReadableStreamWith(steps, Context.empty(), { signal }).getReader();
-  for (let step = await reader.read(); !step.done; step = await reader.read()) {
-    if ("prepared" in step.value) return step.value.prepared;
-    yield step.value.progress;
+  try {
+    for (let step = await reader.read(); !step.done; step = await reader.read()) {
+      if ("prepared" in step.value) return step.value.prepared;
+      yield step.value.progress;
+    }
+    // `signal` closed the stream before its outcome.
+    return { kind: "stopped" };
+  } finally {
+    // A caller that stops reading early stops the program too.
+    void reader.cancel();
   }
-  // `signal` closed the stream before its outcome.
-  return { kind: "stopped" };
 }
 
 /** Creates the Batch `creation` describes, which cannot be recalled once sent. */

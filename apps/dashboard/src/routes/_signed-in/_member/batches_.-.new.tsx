@@ -297,30 +297,34 @@ function SubmitBatch() {
     const placed = { ...controls, ...reading.labelControls };
     const sent = rows();
     const keyOf = (index: number) => sent[index]?.key ?? -1;
-    sendController = new AbortController();
-    // Each report is written after a `yield`, where the action resumes: the form's action holds a
-    // write until it settles, and an optimistic one shows while it is pending only when it is written
-    // in the action, before its first `await` or after a `yield` (@solidjs/signals,
+    const controller = new AbortController();
+    sendController = controller;
+    // Each write after an `await` follows a `yield`, where the action resumes: the form's action
+    // holds a write until it settles, and an optimistic one shows while it is pending only when it is
+    // written in the action, before its first `await` or after a `yield` (@solidjs/signals,
     // dist/types/core/action.d.ts).
     let outcome: SendOutcome;
     try {
-      const steps = prepareBatch(draft, sendController.signal);
+      const steps = prepareBatch(draft, controller.signal);
       let step = await steps.next();
       while (!step.done) {
         yield;
         setProgress(step.value);
         step = await steps.next();
       }
+      yield;
       const prepared = step.value;
-      if (prepared.kind === "ready") {
-        yield;
+      if (prepared.kind !== "ready") outcome = prepared;
+      // Stop pressed, or the page left, after the last report: the create is not sent.
+      else if (controller.signal.aborted) outcome = { kind: "stopped" };
+      else {
         setProgress({ step: "creating" });
         submission.creating();
         outcome = await createBatch(prepared.creation);
-      } else outcome = prepared;
+        yield;
+      }
     } finally {
       sendController = undefined;
-      setProgress(undefined);
     }
 
     function refusedBy(issues: readonly unknown[], kind: RowsKind): Ending {
@@ -340,6 +344,7 @@ function SubmitBatch() {
         // read of a Batch under a reused ID must not overwrite the answer.
         const batchKey = orpc.batches.get.queryKey({ input: { id: batch.id } });
         await client.cancelQueries({ queryKey: batchKey, exact: true });
+        yield;
         client.setQueryData(batchKey, batch);
         void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
         void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
