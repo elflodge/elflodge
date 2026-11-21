@@ -9,6 +9,7 @@ import {
   createMemo,
   createOptimistic,
   createSignal,
+  flush,
   onCleanup,
   onSettled,
 } from "solid-js";
@@ -17,6 +18,7 @@ import { hubFailureMessage } from "../../../api-client.ts";
 import {
   type BatchDraft,
   type Creation,
+  type DraftJob,
   draftFacts,
   fileProblems,
   repeatedCustomIds,
@@ -33,6 +35,7 @@ import {
   type DraftRow,
   DraftJobs,
   RemoveAllDialog,
+  jobsOf,
   type RowRefusal,
   rowControlId,
 } from "../../../components/DraftJobs.tsx";
@@ -174,14 +177,15 @@ function SubmitBatch() {
   const limits = useJobLimits();
   let nextRow = 0;
   const [rows, setRows] = createSignal<readonly DraftRow[]>([]);
-  // The rows as last checked for Custom IDs given twice: when rows are added or removed, when a
-  // Custom ID is changed and its field left, and at Submit.
-  const [checkedRows, setCheckedRows] = createSignal<readonly DraftRow[]>([]);
+  // The jobs as the form last gave them: read when a field is left (the form's change), when rows
+  // are added or removed, and at Submit. The form alone holds what is typed, so a keystroke reads
+  // nothing, and the facts and the check for Custom IDs given twice follow each field as it is left.
+  const [jobs, setJobs] = createSignal<readonly DraftJob[]>([]);
   const repeated = createMemo(() => {
-    const checked = checkedRows();
+    const listed = rows();
     return new Map(
-      [...repeatedCustomIds(checked)].flatMap(([index, message]) => {
-        const row = checked[index];
+      [...repeatedCustomIds(jobs())].flatMap(([index, message]) => {
+        const row = listed[index];
         return row ? [[row.key, message] as const] : [];
       }),
     );
@@ -227,7 +231,7 @@ function SubmitBatch() {
       agent,
       labels: labels.labels,
       breaker: breakerOf(form),
-      jobs: rows(),
+      jobs: jobsOf(form, rows()),
     };
     return { draft, schemaRefusal, labelControls: labels.controls };
   }
@@ -235,7 +239,7 @@ function SubmitBatch() {
     edits();
     const form = formElement;
     if (!form) {
-      const blank = { id: MADE_ID_FORM, agent: { outputContract: { schema: {} } }, jobs: rows() };
+      const blank = { id: MADE_ID_FORM, agent: { outputContract: { schema: {} } }, jobs: jobs() };
       return draftFacts(blank, limits.held());
     }
     const data = new FormData(form);
@@ -246,26 +250,36 @@ function SubmitBatch() {
     setEdits((count) => count + 1);
   });
 
-  /** Sets the rows, and checks their Custom IDs: a signal reads as set only once it is flushed. */
+  /** Reads the jobs from the form, and has the facts read it again. */
+  function readForm() {
+    if (formElement) setJobs(jobsOf(formElement, rows()));
+    setEdits((count) => count + 1);
+  }
+  /** Sets the rows, then reads the form once their fields are in it. */
   function setDraftRows(next: readonly DraftRow[]) {
     setRows(next);
-    setCheckedRows(next);
+    flush();
+    readForm();
   }
   function changed() {
     submission.changed(false);
-    setEdits((count) => count + 1);
+    readForm();
   }
-  function setRowRefusals(update: (rows: Map<number, RowRefusal>) => void) {
+  /**
+   * Changes the rows' refusals by `update`, which says whether it changed any. Otherwise the ending
+   * stays as it was: a new value would make every row read its refusal again, at each keystroke.
+   */
+  function setRowRefusals(update: (rows: Map<number, RowRefusal>) => boolean) {
     setEnding((previous) => {
       const next = new Map(previous.rows);
-      update(next);
-      return { ...previous, rows: next };
+      return update(next) ? { ...previous, rows: next } : previous;
     });
   }
 
   const { pending, onSubmit } = createFormAction(async (form) => {
     submission.sending();
-    setCheckedRows(rows());
+    // Read here too: Enter can submit before a field's change.
+    readForm();
     const data = new FormData(form);
     const { id, sentUnder } = submission.takeId(fieldText(data, "id"));
     const { draft, schemaRefusal, labelControls } = draftOf(form, data, id);
@@ -432,9 +446,9 @@ function SubmitBatch() {
           if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement))
             return;
           submission.changed(control.name === "id");
-          setEdits((count) => count + 1);
           clearRefusal(control.name);
         }}
+        onChange={readForm}
       >
         <p class="note">
           A Batch runs one agent on many jobs. Say what the agent does, then add the jobs.
@@ -542,6 +556,7 @@ function SubmitBatch() {
         </FieldGroup>
         <DraftJobs
           rows={rows()}
+          jobs={jobs()}
           repeated={repeated()}
           refusals={shown().rows}
           error={refused("jobs")}
@@ -555,14 +570,20 @@ function SubmitBatch() {
               takes, use the CLI: <code>elflodge batches submit</code>
             </>
           }
-          onAdd={(jobs) => {
+          onAdd={(added) => {
             setDraftRows([
               ...rows(),
-              ...jobs.map((job) => ({
-                ...job,
-                key: nextRow++,
-                problems: job.kind === "file" ? fileProblems(job.file) : [],
-              })),
+              ...added.map((job): DraftRow =>
+                job.kind === "file"
+                  ? {
+                      key: nextRow++,
+                      kind: "file",
+                      customId: job.customId,
+                      file: job.file,
+                      problems: fileProblems(job.file),
+                    }
+                  : { key: nextRow++, kind: "typed", customId: job.customId, problems: [] },
+              ),
             ]);
             changed();
             clearRefusal("jobs");
@@ -570,22 +591,21 @@ function SubmitBatch() {
           onRemove={(which) => {
             setDraftRows(which === "all" ? [] : rows().filter((row) => row.key !== which));
             setRowRefusals((refusals) => {
-              if (which === "all") refusals.clear();
-              else refusals.delete(which);
+              if (which !== "all") return refusals.delete(which);
+              const any = refusals.size > 0;
+              refusals.clear();
+              return any;
             });
             changed();
           }}
-          onEdit={(key, edit) => {
-            // The check for Custom IDs given twice waits until the field is left.
-            setRows(rows().map((row) => (row.key === key ? { ...row, ...edit } : row)));
+          onEdited={(key, part) => {
             setRowRefusals((refusals) => {
               const refusal = refusals.get(key);
-              if (!refusal) return;
-              const part = "customId" in edit ? "customId" : "input";
+              if (!refusal?.[part]) return false;
               refusals.set(key, { ...refusal, [part]: undefined });
+              return true;
             });
           }}
-          onIdChanged={() => setCheckedRows(rows())}
           onAskRemoveAll={() => setAskingRemoveAll(true)}
           ref={(handle) => {
             jobsList = handle;
@@ -640,7 +660,7 @@ function SubmitBatch() {
         <RemoveAllDialog
           jobs={rows().length}
           mayHaveBatch={mayHaveBatch()}
-          typedInputs={rows().filter((row) => row.kind === "typed" && row.input !== "").length}
+          typedInputs={jobs().filter((job) => job.kind === "typed" && job.input !== "").length}
           files={rows().some((row) => row.kind === "file")}
           onClose={() => setAskingRemoveAll(false)}
           onConfirm={() => jobsList?.removeAll()}

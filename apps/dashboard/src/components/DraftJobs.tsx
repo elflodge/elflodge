@@ -7,12 +7,35 @@ import { formatCount, plural } from "../format.ts";
 import { FieldGroup } from "./Field.tsx";
 import { FieldError } from "./FieldError.tsx";
 
-/** A job of the draft as the page lists it: `key` names its row for as long as it is listed. */
-export type DraftRow = DraftJob & {
+/**
+ * A job of the draft as the page lists it: what the form cannot say. `key` names its row for as long
+ * as it is listed. What is typed in its fields lives in the form alone, which `jobsOf` reads.
+ */
+export type DraftRow = {
   readonly key: number;
+  /** The Custom ID it was added with, its field's starting value. */
+  readonly customId: string;
   /** Why the hub would refuse its file, known when it was added. */
   readonly problems: readonly string[];
-};
+} & ({ readonly kind: "typed" } | { readonly kind: "file"; readonly file: File });
+
+/** The text `form`'s control `name` holds, or "" when it has none. */
+function textOf(form: HTMLFormElement, name: string) {
+  const control = form.elements.namedItem(name);
+  return control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement
+    ? control.value
+    : "";
+}
+
+/** The jobs of `rows` as `form` holds them now, each row's fields read by its place in the list. */
+export function jobsOf(form: HTMLFormElement, rows: readonly DraftRow[]): DraftJob[] {
+  return rows.map((row, index) => {
+    const customId = textOf(form, `jobs[${index}][customId]`);
+    return row.kind === "file"
+      ? { kind: "file", customId, file: row.file }
+      : { kind: "typed", customId, input: textOf(form, `jobs[${index}][input]`) };
+  });
+}
 
 /** Whether what is dragged holds files, rather than text or a link. */
 function holdsFiles(event: DragEvent) {
@@ -41,6 +64,8 @@ export function rowControlId(key: number, part: keyof RowRefusal = "customId") {
  */
 export function DraftJobs(props: {
   rows: readonly DraftRow[];
+  /** The jobs as the form last gave them, so a new typed job takes a Custom ID none has. */
+  jobs: readonly DraftJob[];
   /** Custom IDs another row has, by row, in the contract's words. */
   repeated: ReadonlyMap<number, string>;
   refusals: ReadonlyMap<number, RowRefusal>;
@@ -54,9 +79,8 @@ export function DraftJobs(props: {
   onAdd: (jobs: DraftJob[]) => void;
   /** Takes out the row `key`, or every row. */
   onRemove: (key: "all" | number) => void;
-  onEdit: (key: number, edit: { readonly customId: string } | { readonly input: string }) => void;
-  /** A Custom ID was changed, and the field left. */
-  onIdChanged: () => void;
+  /** A row's field `part` is being edited, which ends a refusal there. */
+  onEdited: (key: number, part: "customId" | "input") => void;
   /**
    * Remove all was pressed: the page asks with `RemoveAllDialog`, outside its form, and confirms
    * through the handle given to `ref`.
@@ -96,7 +120,7 @@ export function DraftJobs(props: {
     );
   }
   function addTyped() {
-    const job = typedJob(props.rows);
+    const job = typedJob(props.jobs);
     add([job], (first) => `Job ${formatCount(first)} added.`);
     const added = props.rows.at(-1);
     if (added) document.getElementById(rowControlId(added.key, "input"))?.focus();
@@ -273,10 +297,7 @@ export function DraftJobs(props: {
                           spellcheck={false}
                           autocapitalize="off"
                           readonly={props.pending}
-                          onInput={(event) =>
-                            props.onEdit(first.key, { customId: event.currentTarget.value })
-                          }
-                          onChange={() => props.onIdChanged()}
+                          onInput={() => props.onEdited(first.key, "customId")}
                         />
                         <Show when={idError()}>
                           {(words) => <FieldError id={`${id}-id-error`}>{words()}</FieldError>}
@@ -292,14 +313,11 @@ export function DraftJobs(props: {
                               aria-label={`Input of job ${number()}`}
                               aria-invalid={holdsError() ? "true" : undefined}
                               aria-describedby={holdsError() ? `${id}-input-error` : undefined}
-                              defaultValue={first.kind === "typed" ? first.input : ""}
                               // Three rows: a short input shows whole, a longer one scrolls.
                               rows={3}
                               required
                               readonly={props.pending}
-                              onInput={(event) =>
-                                props.onEdit(first.key, { input: event.currentTarget.value })
-                              }
+                              onInput={() => props.onEdited(first.key, "input")}
                             />
                             <Show when={holdsError()}>
                               {(words) => (
