@@ -638,10 +638,10 @@ function isOpenedHandle(
  * it is given is aborted, rather than when the daemon answers. pi aborts a tool call's context when
  * the call is cut off, by an abort of its conversation or by the journal closing, and waits for the
  * call to end before either is done. But pi-env waits for the daemon's answer to a cancel, passes
- * most file operations no signal, and waits for a start whose sandbox is still being wrapped; and a
- * daemon can stop answering a request while it still answers pings, as when the host refuses it a
- * thread for a command or a file operation opens a FIFO. So a job's timeout, pause, cancel and the
- * Runner's stop wait on nothing the daemon owes. Once a call is cut off, pi takes nothing more from
+ * most file operations no signal, and waits for a start whose sandbox is still being wrapped. A
+ * daemon can still answer pings while a file operation waits for another process to open the other
+ * end of a FIFO. Job timeouts, pauses, cancellations and Runner shutdown must therefore be able
+ * to proceed without a reply. Once a call is cut off, pi takes nothing more from
  * it: an abort records the call as aborted, and a close leaves it pending, for recovery to give it
  * an interrupted result. An operation left running carries on until the sandbox closes, which stops
  * the daemon. pi-env has no option for this, so it is done here, around
