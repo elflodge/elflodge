@@ -407,16 +407,18 @@ a:where(.button) {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
-  /* A control's height whether or not the head holds one, so the heading and its rule stand at
-     the same place on every page. */
-  min-height: calc(var(--control) + var(--space-3) + var(--rule-heavy));
+  /* Its content keeps a control's height whether or not the head holds one, so a one-line heading
+     and its rule stand at the same place on every page. The content box is what min-height sets,
+     so the padding and the rule under it add to that as they do to a control in the head. */
+  box-sizing: content-box;
+  min-height: var(--control);
   padding-bottom: var(--space-3);
   border-bottom: var(--rule-heavy) solid var(--c-rule-strong);
   margin-bottom: var(--space-4);
 }
 @media (max-width: 640px), (pointer: coarse) {
   .head {
-    min-height: calc(var(--control-touch) + var(--space-3) + var(--rule-heavy));
+    min-height: var(--control-touch);
   }
 }
 .controls {

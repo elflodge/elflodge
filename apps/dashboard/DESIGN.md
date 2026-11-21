@@ -156,7 +156,7 @@ Under the bar, for a member, a band says what the hub says now of the Organizati
 
 ### A page
 
-`main#main.page` is the full width of the window with the page's margins. A page begins with its heading in `div.head`, which rules a heavy line under it. The head is as tall as a control whether or not it holds one, so the heading and its rule stand at the same place on every page:
+`main#main.page` is the full width of the window with the page's margins. A page begins with its heading in `div.head`, which rules a heavy line under it. Its content is as tall as a control whether or not it holds one, so a one-line heading and its rule stand at the same place on every page:
 
 ```tsx
 <div class="head">
@@ -190,7 +190,7 @@ When the action leads to another page, it is a link drawn as a button:
 </div>
 ```
 
-Each page names itself in its document title, the name first so a narrow tab keeps it, then the product: "Jobs · Elflodge". Its route sets it with the router's `head` option through `pageHead` (`src/page-title.ts`), or, for a page about the Organization, `memberPageHead` with the route context `_member` gives. A list or form takes its heading's words. A record page takes what its address holds, "Job <ID>" or "Batch <ID>", since its loader only warms the cache. An address no page has reads "Page not found". A page shown in place of a member page, as for an account that is no member, carries its own heading as the title: "Organization access · Elflodge". The router takes the title of the deepest match it shows, so a page that failed to read keeps its own, and the root's "Elflodge" stands for the rest, as when the session could not be read.
+Each page names itself in its document title, the name first so a narrow tab keeps it, then the product: "Jobs · Elflodge". Its route sets it with the router's `head` option through `pageHead` (`src/page-title.ts`), which writes the product's name from the one constant the root's title uses too, or, for a page about the Organization, `memberPageHead` with the route context `_member` gives. A list or form takes its heading's words. A job is titled as its heading names it, by its Custom ID or else its ID, from the cache its loader warmed, and a Batch by its ID. A page that could not be read keeps its own name, as a list or the invitation page does. A page shown in place of another carries its own heading: "Page not found", "Job not found", "Batch not found", or "Organization access" for an account that is no member. The product alone stands where no page's title applies: inside the shell when the session could not be read, and until the loader of the page arrived at has finished. A page whose loader only fetches hints, as Submit a job's limits, has its title at once.
 
 Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.note` is a small line of supporting text. In a field, the note gives a hint above the control. Text and times flow together so punctuation sits against the preceding word or time. A note with a mark spaces it beside the sentence. `p.note.is-unknown` says, with the unknown mark, that what is beside it cannot be confirmed.
 
@@ -198,7 +198,7 @@ Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.not
 
 ### Empty
 
-A list with nothing in it says what belongs there and the way to it: `div.empty` holds an `h2` naming what is missing, a `p` that says how it comes, and a `p.empty-act` with the way on only where the head does not already have it.
+A list with nothing in it says what belongs there and the way to it: `div.empty` holds an `h2` naming what is missing, "No … yet", as "No API keys yet", a `p` that says how it comes, and a `p.empty-act` with the way on only where the head does not already have it.
 
 ```tsx
 <div class="empty">
@@ -430,7 +430,7 @@ The Batch is a cut mono link to its page. On a touch screen its target is at lea
 
 `ul.labels.is-line` shows the first Label as a key, an equals sign and a value, cut to fit. The key (`span.lk`) and sign (`span.leq`) use the secondary ink. When more follow, `li.labels-more` gives their count, " more Labels" for assistive technology, and every Label in its title.
 
-Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The heading’s `time` carries the local calendar date. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read in `span.age`. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. The budget follows the cost in secondary ink in `span.of`, using the amount formats above. A larger cost or budget wraps within its column. On two lines the cost carries “USD, est.” in `span.unit-inline`, which does not break, and the budget gives way.
+Each local creation day has a `tbody` headed by `tr.day-line`, with one `th scope="rowgroup"` spanning all ten columns. In the two-line tier the headings of the visible columns remain available to assistive technology, and each row keeps its cell positions. It reads "Created today, 19 Nov" or "Created 18 Nov", with the year only outside the current year. The heading’s `time` carries the local calendar date. The Time cell gives the latest event ("created", "started" or "ended") and its time. An unfinished job adds its age as of the last read in `span.age`. An event on a different day from the creation day gives its date and time, without an age. Tokens and cost stay empty until the job starts. The budget follows the cost in secondary ink in `span.of`, using the amount formats above. A larger cost or budget wraps within its column. On two lines the cost carries “USD, est.” in `span.unit-inline`, a no-break space between its two words so the unit stays on one line, and the budget gives way.
 
 ```html
 <tr class="day-line" role="row">

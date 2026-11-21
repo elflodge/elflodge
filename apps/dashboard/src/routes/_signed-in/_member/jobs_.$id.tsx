@@ -37,8 +37,19 @@ function jobQuery(id: string) {
   return orpc.jobs.get.queryOptions({ input: { id: id.toLowerCase() } });
 }
 
+/** What names a job in its heading and title: its Custom ID unless blank, else its ID. */
+function jobName(job: { id: string; customId?: string | null }) {
+  return job.customId?.trim() ? job.customId : job.id;
+}
+
 export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
-  head: ({ match, params }) => memberPageHead(match.context, `Job ${params.id}`),
+  head: ({ match, params }) => {
+    // The loader has warmed the cache the page reads; the address names a job it has not.
+    const job = match.context.queryClient.getQueryData(jobQuery(params.id).queryKey);
+    const name =
+      match.status === "notFound" ? "Job not found" : `Job ${jobName(job ?? { id: params.id })}`;
+    return memberPageHead(match.context, name);
+  },
   loader: async ({ context, params }) => {
     if (!context.member) return;
     if (!jobRefSchema.safeParse(params).success) throw notFound({ data: params.id });
@@ -179,7 +190,7 @@ function JobPage() {
       <div class="head">
         <h1 class="subject">
           <span class="kind">Job</span>
-          <span class="whole-id">{job().customId?.trim() ? job().customId : job().id}</span>
+          <span class="whole-id">{jobName(job())}</span>
         </h1>
       </div>
       <Show

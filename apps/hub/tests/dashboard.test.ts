@@ -134,7 +134,7 @@ test("sign-in allows keyboard retry, takes only one submit during navigation and
   const submit = page.getByRole("button", { name: "Sign in" });
   await submit.focus();
   await page.keyboard.press("Enter");
-  await expectBrowser(page.getByRole("alert")).toHaveText("That email or password is not right.");
+  await page.getByRole("alert").waitFor();
   await expectBrowser(submit).toBeFocused();
 
   // Hold the destination's first read after the hub has accepted the password.

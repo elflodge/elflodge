@@ -1,9 +1,12 @@
+/** The product's name, which ends every page's title and stands alone where no page's title applies. */
+export const PRODUCT = "Elflodge";
+
 /**
  * A page's document title: its name first, so a narrow tab still shows it, then the product. The
  * root route's own title, the product alone, stands for any page without one.
  */
 export function pageHead(name: string) {
-  return { meta: [{ title: `${name} · Elflodge` }] };
+  return { meta: [{ title: `${name} · ${PRODUCT}` }] };
 }
 
 /**
