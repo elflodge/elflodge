@@ -163,14 +163,8 @@ function SubmitJob() {
       const result = await api.batches.create(checked.data);
       const first = result.jobs[0];
       if (!first) throw new Error("The hub answered without the submitted job.");
-      // The answer names the job by its IDs; the job's page reads the job itself. A repeat names a
-      // job the member may have opened before, and that page's loader takes a cached copy of any
-      // age, so the copy goes and the job is read as it stands now.
+      // The answer names the job by its IDs; the job's page reads the job itself.
       const job = first.job;
-      client.removeQueries({
-        queryKey: orpc.jobs.get.queryKey({ input: { id: job.id } }),
-        exact: true,
-      });
       void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
       void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
       void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
@@ -179,6 +173,13 @@ function SubmitJob() {
         submitted = true;
         // A navigation held by an open leave dialog gives way, so the member lands on the job.
         blocker().reset?.();
+        // A repeat names a job the member may have opened before, and its page's loader takes a
+        // cached copy of any age, so the copy goes and the job is read as it stands now. Only here:
+        // a member who left may already be reading that page.
+        client.removeQueries({
+          queryKey: orpc.jobs.get.queryKey({ input: { id: job.id } }),
+          exact: true,
+        });
         await router.navigate({ to: "/jobs/$id", params: { id: job.id } });
       } else if (leaveConfirmed) {
         // A member who comes back to the form finds it as after a lost answer: the made ID is kept,
