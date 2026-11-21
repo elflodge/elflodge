@@ -16,7 +16,7 @@ import {
   createDraftSubmission,
 } from "../../../components/DraftSubmission.tsx";
 import { Field } from "../../../components/Field.tsx";
-import { LabelFields, isLabelsControl, labelsOf } from "../../../components/LabelFields.tsx";
+import { LabelFields, isLabelsGroupControl, labelsOf } from "../../../components/LabelFields.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
 import {
@@ -192,7 +192,7 @@ function SubmitJob() {
           pending={pending()}
           refused={refused}
           onChange={() => {
-            setFailure((previous) => previous && withoutRefusals(previous, isLabelsControl));
+            setFailure((previous) => previous && withoutRefusals(previous, isLabelsGroupControl));
           }}
         />
         <Show when={hubWords() || earlier()}>

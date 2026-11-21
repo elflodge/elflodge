@@ -5,29 +5,36 @@ import { fieldText, focusNextRemove } from "../form.ts";
 import { FieldGroup } from "./Field.tsx";
 import { FieldError } from "./FieldError.tsx";
 
-const keyName = (index: number) => `labels[${index}][key]`;
-const valueName = (index: number) => `labels[${index}][value]`;
+// A row's fields are named by the row's own number, not its place, so a refusal at one stays with
+// its row while others come and go.
+const keyName = (row: number | string) => `labels[${row}][key]`;
+const valueName = (row: number | string) => `labels[${row}][value]`;
+const KEY_NAME = /^labels\[(\d+)\]\[key\]$/;
 
 /**
- * The Labels a form's rows give, read from `data`, a snapshot of it: by key, or undefined for none,
- * as the creation leaves them out; and each row's value, as `formRefusal` takes its controls: a
- * refusal of a Label is located by its key, and a key the browser lets through, by the pattern, is
- * refused only for its value's length.
+ * The Labels a form's rows give, read from `data`, a snapshot of it, in the rows' order: by key, or
+ * undefined for none, as the creation leaves them out; and each row's value, as `formRefusal` takes
+ * its controls: a refusal of a Label is located by its key, and a key the browser lets through, by
+ * the pattern, is refused only for its value's length.
  */
 export function labelsOf(data: FormData) {
   const labels: Record<string, string> = {};
   const controls: Record<string, string[]> = { labels: ["labels"] };
-  for (let index = 0; data.has(keyName(index)); index += 1) {
-    const key = fieldText(data, keyName(index));
-    labels[key] = fieldText(data, valueName(index));
-    controls[valueName(index)] = [`labels[${key}]`];
+  for (const [name, value] of data) {
+    const row = KEY_NAME.exec(name)?.[1];
+    if (row === undefined || typeof value !== "string") continue;
+    labels[value] = fieldText(data, valueName(row));
+    controls[valueName(row)] = [`labels[${value}]`];
   }
   return { labels: Object.keys(labels).length ? labels : undefined, controls };
 }
 
-/** Whether the refusal at the control `name` is of the Labels, which their rows' changes end. */
-export function isLabelsControl(name: string) {
-  return name === "labels" || name.startsWith("labels[");
+/**
+ * Whether the refusal at the control `name` is of the Labels as a whole, as of their count, which a
+ * change of their rows ends; a row's own stays at its row until its value is edited.
+ */
+export function isLabelsGroupControl(name: string) {
+  return name === "labels";
 }
 
 /**
@@ -96,13 +103,13 @@ export function LabelFields(props: {
           <tbody role="rowgroup">
             <For each={rows()}>
               {(row, index) => {
-                const error = () => props.refused(valueName(index()));
+                const error = () => props.refused(valueName(row));
                 return (
                   <tr role="row">
                     <td role="cell" class="is-id" data-l="Key">
                       <input
                         id={`label-${row}-key`}
-                        name={keyName(index())}
+                        name={keyName(row)}
                         aria-label={`Key of Label ${index() + 1}`}
                         class="mono"
                         required
@@ -116,7 +123,7 @@ export function LabelFields(props: {
                     </td>
                     <td role="cell" data-l="Value">
                       <input
-                        name={valueName(index())}
+                        name={valueName(row)}
                         aria-label={`Value of Label ${index() + 1}`}
                         aria-invalid={error() ? "true" : undefined}
                         aria-describedby={error() ? `label-${row}-error` : undefined}
