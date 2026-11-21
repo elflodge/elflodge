@@ -5,7 +5,7 @@
  * taken from the browser, so the widths the pages are laid out for hold for every reader. An instant
  * is written in the reader's own time zone, which `Intl` takes from the browser.
  */
-export const LANGUAGE = "en-GB";
+const LANGUAGE = "en-GB";
 
 /** An instant's day and time, such as "18 Nov 2026, 15:41". */
 export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {

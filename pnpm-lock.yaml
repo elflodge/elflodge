@@ -320,9 +320,6 @@ catalogs:
     env-paths:
       specifier: ^4.0.0
       version: 4.0.0
-    filesize:
-      specifier: ^11.0.35
-      version: 11.0.35
     folder-hash:
       specifier: ^4.1.4
       version: 4.1.4
@@ -522,9 +519,6 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.4
-      filesize:
-        specifier: 'catalog:'
-        version: 11.0.35
       solid-js:
         specifier: 'catalog:'
         version: 2.0.0
@@ -4247,10 +4241,6 @@ packages:
   filename-reserved-regex@4.1.0:
     resolution: {integrity: sha512-pdgqcVlu789LoYmu0kz4pxSphL0pX/UVFFDJ/kTHk+1ZRc43UiokPZFsRV8OGxW49khh11rj54AhqczGIwLa+g==}
     engines: {node: '>=20'}
-
-  filesize@11.0.35:
-    resolution: {integrity: sha512-nYIrQN/m4a0VYYoUeENvFf8mCDaB9PNbKETinw4DRdBcX5yB2nY3YtFz9iMfg/YDQWyYPOn/THVtsqLN/IH0Ag==}
-    engines: {node: '>= 10.8.0'}
 
   flatted@3.4.4:
     resolution: {integrity: sha512-5+ybhBZANEJxaH3X5evAFatUxLfEHSr7n6kYJ+1Qd0mUqr4eu9gIf6GDbWHf8RJijHrjjO8G+la14SlL2SeS1Q==}
@@ -9548,8 +9538,6 @@ snapshots:
   fflate@0.8.3: {}
 
   filename-reserved-regex@4.1.0: {}
-
-  filesize@11.0.35: {}
 
   flatted@3.4.4: {}
 
