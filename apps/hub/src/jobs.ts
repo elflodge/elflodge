@@ -390,8 +390,9 @@ function selectJobs(db: Kysely<Database>, now = new Date()) {
     ]);
 }
 
-export function jobsById(db: Kysely<Database>, ids: readonly JobId[], now: Date) {
-  return selectJobs(db, now).where("j.id", "=", (eb) => eb.fn.any(eb.val([...ids])));
+/** The job `id`, read whole. */
+function jobById(db: Kysely<Database>, id: JobId, now: Date) {
+  return selectJobs(db, now).where("j.id", "=", id);
 }
 
 /** What every job reports whatever its status. */
@@ -555,7 +556,7 @@ export function contentHashOf(content: object) {
 export function getJob(jobId: JobId) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const job = yield* database.query((db) => jobsById(db, [jobId], new Date()).executeTakeFirst());
+    const job = yield* database.query((db) => jobById(db, jobId, new Date()).executeTakeFirst());
     if (job) return toApiJob(job);
     const deleted = yield* database.query((db) => readDeletedJob(db, jobId));
     if (!deleted) return yield* Effect.fail(new NotFound());
