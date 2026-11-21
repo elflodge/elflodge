@@ -139,14 +139,18 @@ export const strictBlobRefSchema = z.strictObject(blobRefSchema.shape);
  */
 export const inputFileSchema = z.extend(strictBlobRefSchema, { path: filePathSchema });
 
-/** Each item of `items` whose member `key` is text, with its index, in their order. */
-function textAt(items: readonly unknown[], key: string) {
+/**
+ * A reader of a list's texts at the member `key`: of each item that has one, the text with the
+ * item's index, in the list's order. Its schema is built once, here, as a check reads every list.
+ */
+function indexedTextsAt(key: string) {
   const withKey = z.object({ [key]: z.string() });
-  return items.flatMap((item, index) => {
-    const read = z.safeParse(withKey, item);
-    const value = read.success ? read.data[key] : undefined;
-    return value === undefined ? [] : [{ index, value }];
-  });
+  return (items: readonly unknown[]) =>
+    items.flatMap((item, index) => {
+      const read = z.safeParse(withKey, item);
+      const text = read.success ? read.data[key] : undefined;
+      return text === undefined ? [] : [{ index, text }];
+    });
 }
 
 // Zod skips a refinement once another part of the list failed to parse. The checks of a list's
@@ -162,18 +166,19 @@ const isList = ({ value }: { value: unknown }) => Array.isArray(value);
  * counts from 1), so an index would point some of them at the wrong item; without one, each place
  * is told.
  */
-export function uniqueBy(key: string, place: string) {
+export function uniqueBy<Item>(key: keyof Item & string, place: string) {
+  const textsOf = indexedTextsAt(key);
   return z.superRefine(
-    (items: readonly unknown[], context) => {
-      const given = textAt(items, key);
-      const uses = Map.groupBy(given, ({ value }) => value);
-      for (const { index, value } of given) {
-        if ((uses.get(value)?.length ?? 0) < 2) continue;
+    (items: readonly Item[], context) => {
+      const given = textsOf(items);
+      const uses = Map.groupBy(given, ({ text }) => text);
+      for (const { index, text } of given) {
+        if ((uses.get(text)?.length ?? 0) < 2) continue;
         context.addIssue({
           code: "custom",
-          message: `Must be unique in ${place}: ${JSON.stringify(value)} is given more than once`,
+          message: `Must be unique in ${place}: ${JSON.stringify(text)} is given more than once`,
           path: [index, key],
-          input: value,
+          input: text,
         });
       }
     },
@@ -181,26 +186,29 @@ export function uniqueBy(key: string, place: string) {
   );
 }
 
+const pathsOf = indexedTextsAt("path");
+
 /**
  * Files written into the job's `inputs` folder before its agent starts, as sandbox APIs take them: a
  * list of paths and contents, so a path, folders included, is a value rather than a key. No two may
  * collide, as the same path or as a file and a folder.
  */
 export const inputFilesSchema = z.array(inputFileSchema).check(
-  uniqueBy("path", "the job"),
+  uniqueBy<z.infer<typeof inputFileSchema>>("path", "the job"),
+  // A problem for each folder of a path that is given as a file, so one answer names them all.
   z.superRefine(
     (files: readonly unknown[], context) => {
-      const given = textAt(files, "path");
-      const paths = new Set(given.map(({ value }) => value));
-      for (const { index, value } of given) {
-        const folder = foldersOf(value).find((name) => paths.has(name));
-        if (folder === undefined) continue;
-        context.addIssue({
-          code: "custom",
-          message: `Must not be in ${JSON.stringify(folder)}, which is given as a file in the job`,
-          path: [index, "path"],
-          input: value,
-        });
+      const given = pathsOf(files);
+      const paths = new Set(given.map(({ text }) => text));
+      for (const { index, text } of given) {
+        for (const folder of foldersOf(text).filter((name) => paths.has(name))) {
+          context.addIssue({
+            code: "custom",
+            message: `Must not be in ${JSON.stringify(folder)}, which is given as a file in the job`,
+            path: [index, "path"],
+            input: text,
+          });
+        }
       }
     },
     { when: isList },

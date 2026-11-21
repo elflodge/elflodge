@@ -391,7 +391,7 @@ const submittedJobsSchema = z
   .check(
     z.minLength(1, "Must have at least 1 job"),
     z.maxLength(MAX_JOBS_PER_REQUEST, `Must have at most ${MAX_JOBS_PER_REQUEST} jobs`),
-    uniqueBy("customId", "the request"),
+    uniqueBy<JobSubmission>("customId", "the request"),
     z.describe(
       "The jobs to add in this call. Each new job takes the timeout and model budget stored on the Batch at creation, even if the defaults or maxima at `GET /jobs/limits` have since changed. For a larger Batch, add more jobs with the same Batch ID in later calls.",
     ),
