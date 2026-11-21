@@ -264,6 +264,46 @@ test("Stop pressed as the last upload is told sends no create", async () => {
   expect(creates).toEqual([]);
 }, 30_000);
 
+test("Leave confirmed while an upload is held sends no create", async () => {
+  const page = await openSubmitBatch("Batch leaver");
+  await page.getByLabel("Batch ID").fill("left-late");
+  await addFiles(page, [["left.txt", `Left while uploading, ${crypto.randomUUID()}.`]]);
+  const creates: string[] = [];
+  page.on("request", (request) => {
+    if (isCreate(request)) creates.push(request.url());
+  });
+  const upload = Promise.withResolvers<void>();
+  const passed = Promise.withResolvers<void>();
+  await page.route("**/blobs/**", async (route) => {
+    if (!isUpload(route.request())) return route.continue();
+    await upload.promise;
+    // The page may have dropped the request by now.
+    await route.continue().catch(() => undefined);
+    passed.resolve();
+  });
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await page.getByText("Uploaded 0 of 1 file", { exact: false }).waitFor();
+  // The session read of the next page is held, so this page stays while the next one loads.
+  const session = Promise.withResolvers<void>();
+  await page.route("**/api/auth/get-session", async (route) => {
+    await session.promise;
+    await route.continue();
+  });
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Leave without submitting?" });
+  await dialog.getByRole("button", { name: "Leave the page" }).click();
+  upload.resolve();
+  await passed.promise;
+  // A create would follow the upload's answer at once.
+  await page.waitForRequest(isCreate, { timeout: 2_000 }).catch(() => undefined);
+  session.resolve();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Batches");
+  expect(creates).toEqual([]);
+}, 30_000);
+
 test("after a lost answer the Batch ID field holds the ID sent: an edit cannot make a second Batch, and another ID says one may exist", async () => {
   const page = await openSubmitBatch("Batch retrier");
   await page.getByRole("button", { name: "Add a job" }).click();

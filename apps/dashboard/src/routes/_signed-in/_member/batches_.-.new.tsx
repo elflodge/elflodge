@@ -228,6 +228,7 @@ function SubmitBatch() {
   const submission = createDraftSubmission(
     () => formElement,
     () => rows().length > 0,
+    () => sendController?.abort(),
   );
 
   function breakerOf(form: HTMLFormElement): Creation["breaker"] {

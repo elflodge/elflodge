@@ -34,10 +34,13 @@ function formChanged(form: HTMLFormElement | undefined) {
  * What a page that submits a draft keeps about its sends: the IDs whose outcome is unknown, whether
  * a create is on its way, and whether the member may leave. The draft is `form`'s, whose field `id`
  * names the record, and leaving loses it when a value changed or `held` says the page holds more.
+ * `stop` stops a send still preparing its create, which a confirmed Leave calls at once: the router
+ * may keep the page while the next one loads, and the dialog has said nothing was submitted.
  */
 export function createDraftSubmission(
   form: () => HTMLFormElement | undefined,
   held: () => boolean = () => false,
+  stop: () => void = () => undefined,
 ) {
   const router = useRouter();
   // The IDs of creates that got no answer saying what the hub did, or whose success came after the
@@ -139,6 +142,7 @@ export function createDraftSubmission(
     /** The member chose to leave from the dialog. */
     leave() {
       leaveConfirmed = true;
+      stop();
       blocker().proceed?.();
     },
   };
