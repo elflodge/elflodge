@@ -336,15 +336,14 @@ test("a job naming a field the API does not know, such as the old `inputFiles`, 
 
 test("jobs are listed by label, status, Batch and custom ID, newest first, with a Batch's labels beneath their own", async () => {
   const client = await system.clientWithNewJobsKey();
+  // A creation's job and an add's both take the Batch's labels beneath their own.
   const batch = await client.batches.create({
     agent: AGENT,
     labels: { customer: "acme", team: "billing" },
     breaker: false,
+    jobs: [jobNamed("x", { labels: { team: "support" } })],
   });
-  await client.batches.addJobs({
-    id: batch.id,
-    jobs: [jobNamed("x", { labels: { team: "support" } }), jobNamed("y")],
-  });
+  await client.batches.addJobs({ id: batch.id, jobs: [jobNamed("y")] });
   const alone = await submitJob(client, {
     ...AGENT,
     customId: "alone",

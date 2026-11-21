@@ -699,7 +699,7 @@ async function addJobsInTransaction(
         id,
         customId: job.customId,
         input: job.input,
-        labels: { ...locked.labels, ...job.labels },
+        labels: job.labels,
         contentHash,
         inCanary: order < locked.canaryPlacesLeft,
       })),
@@ -724,7 +724,9 @@ async function addJobsInTransaction(
 /**
  * Inserts the new `jobs` of the Batch whose row is `uid`, given as one JSON parameter, in the transaction
  * `trx`: each queued, with the Batch's limits, copied in SQL, and with the progress row its
- * Runner's reports update, starting from nothing stored and nothing used.
+ * Runner's reports update, starting from nothing stored and nothing used. Each job is given with its
+ * own labels, and its row takes the Batch's beneath them in SQL, so the parameter does not repeat
+ * the Batch's labels for every job.
  */
 async function insertJobs(
   trx: Transaction<Database>,
@@ -770,7 +772,11 @@ async function insertJobs(
                 "batch.uid as batchUid",
                 eb.cast<JobStatus>(eb.val("queued"), jobStatus).as("status"),
                 field("input").as("input"),
-                eb.ref("row.value", "->").key("labels").as("labels"),
+                // `||` and `->` bind alike in Postgres, from the left, so the job's labels take
+                // parentheses to be read before they are laid over the Batch's.
+                eb("batch.labels", "||", eb.parens(eb.ref("row.value", "->").key("labels"))).as(
+                  "labels",
+                ),
                 field("customId").as("customId"),
                 field("contentHash").as("contentHash"),
                 "batch.runTimeoutSeconds",
