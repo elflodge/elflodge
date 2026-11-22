@@ -17,7 +17,7 @@ import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { formatCount, plural, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
+import { REFRESH_INTERVAL_MS, orpc, writeAbsence } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 /** A Runner to remove, named as the member saw it when they pressed Remove. */
@@ -86,20 +86,9 @@ function Runners() {
         throw error;
       }
       if (current.some((item) => item.id === runner.id)) throw error;
-      // The read shows one fact, that the Runner is gone, so only that is written: a read that landed
-      // while it ran can hold a newer list. Reads still running are cancelled, since one that started
-      // before the removal could bring the row back; the list is then marked stale but not fetched,
-      // since a fetch now would hold the written list back until it answered.
-      await queryClient.cancelQueries({ queryKey, exact: true });
-      // The list keeps the time it was read: what is left of it is no newer.
-      queryClient.setQueryData(
-        queryKey,
-        (cached) => cached?.filter((item) => item.id !== runner.id),
-        {
-          updatedAt: queryClient.getQueryState(queryKey)?.dataUpdatedAt,
-        },
+      await writeAbsence(queryClient, queryKey, (cached) =>
+        cached.filter((item) => item.id !== runner.id),
       );
-      await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();
