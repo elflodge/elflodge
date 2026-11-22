@@ -35,7 +35,8 @@ import { Notice } from "./Notice.tsx";
  *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
  * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,
- * and the dialog shows why and keeps focus on the confirming button for a retry.
+ * and the dialog shows why and keeps focus on the confirming button for a retry, unless the member
+ * moved to the keeping button or pressed a button exposed beside the dialog, where focus then stays.
  */
 export function ConfirmDialog<T>(props: {
   controller: AlertDialogController<T>;
