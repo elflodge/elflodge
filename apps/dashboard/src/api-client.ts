@@ -1,7 +1,7 @@
 import { BetterFetchError } from "@better-fetch/fetch";
-import { createORPCClient, ORPCError } from "@orpc/client";
+import { createORPCClient, onError, ORPCError } from "@orpc/client";
 import { TimeoutLinkPlugin } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
+import { ValidationError, type ContractRouterClient } from "@orpc/contract";
 import { apiContract, asError, createProblemDetailsLink, problemOf } from "contract";
 
 /**
@@ -25,6 +25,14 @@ const CALLS_CARRYING_CONTENT = new Set(["blobs.upload", "batches.create", "batch
  */
 export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
   createProblemDetailsLink(apiContract, {
+    interceptors: [
+      // An answer that fails the contract check stays on its error as `invalidData`, where logging
+      // the error would show what it carried, such as a new key. The issues say what was wrong.
+      onError((error) => {
+        if (error instanceof ORPCError && error.cause instanceof ValidationError)
+          error.cause.invalidData = undefined;
+      }),
+    ],
     plugins: [
       new TimeoutLinkPlugin({
         timeout: ({ path }) =>

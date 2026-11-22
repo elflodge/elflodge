@@ -1,6 +1,7 @@
 import type { Browser, Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
+import * as z from "zod/mini";
 
 import { launchDashboardBrowser, signInAt } from "./dashboard-browser.ts";
 import { OWNER, startSystem } from "./harness.ts";
@@ -371,6 +372,7 @@ test("Create key cannot be left while the hub answers, and then shows the key wi
   );
   const create = dialog.getByRole("button", { name: "Create key" });
   const cancel = dialog.getByRole("button", { name: "Cancel" });
+  const held = await dialog.elementHandle();
   try {
     await create.press("Enter");
     await arrived.promise;
@@ -391,6 +393,7 @@ test("Create key cannot be left while the hub answers, and then shows the key wi
     await reread.promise;
     await expectBrowser(dialog.getByRole("button", { name: "Copy the key" })).toBeFocused();
     await expectBrowser(dialog.getByRole("heading")).toHaveText("The new key, held key");
+    expect(await held.evaluate((element) => element.isConnected)).toBe(true);
   } finally {
     releaseReread.resolve();
   }
@@ -400,28 +403,62 @@ test("Create key cannot be left while the hub answers, and then shows the key wi
   await expectBrowser(dialog).toBeHidden();
 }, 30_000);
 
-test("a key the hub made but whose answer was lost is listed, and the dialog does not say to try again", async () => {
+test("a key the hub made whose answer failed the contract check is listed, not logged, and the dialog does not say to try again", async () => {
   const page = await signedInAt("api-keys");
+  // What the page logs, kept as values, to look through every property of a logged error.
+  await page.evaluate(() => {
+    const logged: unknown[] = [];
+    Object.assign(globalThis, { logged });
+    for (const level of ["error", "warn", "log", "info", "debug"] as const) {
+      const original = console[level].bind(console);
+      console[level] = (...args: unknown[]) => {
+        logged.push(args);
+        original(...args);
+      };
+    }
+  });
   await page.getByRole("button", { name: "Create key" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox", { name: "Name" }).fill("lost answer");
+  await dialog.getByRole("textbox", { name: "Name" }).fill("unconfirmed");
   await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
-  // The hub creates the key; its answer never reaches the page.
+  // The hub creates the key; its answer reaches the page without the key's ID.
+  let key = "";
   await page.route(
     (url) => url.pathname === "/api-keys",
     async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
       // Sent by the test to the hub's own address, which the browser reaches by its host name.
-      await route.fetch({ url: route.request().url().replace(system.origin, system.url().origin) });
-      await route.abort("connectionreset");
+      const response = await route.fetch({
+        url: route.request().url().replace(system.origin, system.url().origin),
+      });
+      ({ key } = z.object({ key: z.string() }).parse(await response.json()));
+      await route.fulfill({ response, json: { key } });
     },
   );
   await dialog.getByRole("button", { name: "Create key" }).click();
   await expectBrowser(dialog.getByRole("alert")).toHaveText(
     "The dashboard could not confirm this was done. Check before trying again.",
   );
-  await expectBrowser(page.locator("tbody tr", { hasText: "lost answer" })).toHaveCount(1);
-});
+  await expectBrowser(page.locator("tbody tr", { hasText: "unconfirmed" })).toHaveCount(1);
+  expect(key).not.toBe("");
+  const logs = await page.evaluate((secret) => {
+    const seen = new Set<unknown>();
+    const holds = (value: unknown): boolean => {
+      if (typeof value === "string") return value.includes(secret);
+      if (typeof value !== "object" || value === null || seen.has(value)) return false;
+      seen.add(value);
+      return Object.getOwnPropertyNames(value).some((name) => {
+        const property: unknown = Reflect.get(value, name);
+        return holds(property);
+      });
+    };
+    const logged: unknown = Reflect.get(globalThis, "logged");
+    if (!Array.isArray(logged)) throw new Error("The page's logs were not kept.");
+    return { count: logged.length, withKey: logged.filter(holds).length };
+  }, key);
+  // The failure is logged, without the key the answer carried.
+  expect(logs).toEqual({ count: 1, withKey: 0 });
+}, 30_000);
 test("a member can correct a refused key name and keep the permissions they chose", async () => {
   const page = await signedInAt("api-keys");
   await page.getByRole("button", { name: "Create key" }).click();

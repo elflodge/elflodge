@@ -7,9 +7,9 @@ import {
   DialogTitle,
   type DialogController,
 } from "@ui-sdk/solid/dialog";
-import { Show, createSignal, createUniqueId, onCleanup, onFlush, onSettled } from "solid-js";
+import { Show, createSignal, onCleanup, onFlush, onSettled } from "solid-js";
 
-import { hubWriteFailureMessage } from "../api-client.ts";
+import { hubWriteFailureMessage, isWriteRefusal } from "../api-client.ts";
 import { createFormAction, formRefusal, withoutRefusals } from "../form.ts";
 import { Notice } from "./Notice.tsx";
 
@@ -23,12 +23,10 @@ export type FormDialogFields = {
   refused: (name: string) => string | undefined;
 };
 
-/** How the answer's one control, such as its Copy button, takes focus and its description. */
+/** How the answer's one control, such as its Copy button, takes focus. */
 export type FormDialogAnswerFocus = {
   /** Give it the button that takes focus when the answer shows. */
   buttonRef: (button: HTMLButtonElement) => void;
-  /** The ID of what describes that button, such as a note that it is shown once. */
-  noteId: string;
 };
 
 /**
@@ -40,15 +38,16 @@ export type FormDialogAnswerFocus = {
  * Once sent, the dialog cannot be left by its own means until `send` settles: Escape and Cancel do
  * nothing, another press or Enter sends nothing more, and focus stays where it was. Leaving the
  * page still leaves it. The caller makes its text fields read-only from `fields.pending`. A press
- * outside it never closes it, as with a native modal dialog. A rejection with issues places each,
- * through `formRefusal`, at the control of `controls` that edits its path, with focus on the
- * refused field, or else in the alert; an edit of that control ends its words. Any other failure
- * says what a confirmation says: the hub's words for a 4xx refusal, and otherwise that the write
- * may have been done. Opened by a `DialogTrigger` with the same `controller`.
+ * outside it never closes it, as with a native modal dialog. A refusal, an answer with a 4xx
+ * status, places each of its issues, through `formRefusal`, at the control of `controls` that edits
+ * its path, with focus on the refused field, or else in the alert with the hub's words; an edit of
+ * that control ends its words. Any other failure may have come after the write was done, whatever
+ * issues it carries, so the alert says what a confirmation says then. Opened by a `DialogTrigger`
+ * with the same `controller`.
  *
  * `answer` shows what `send` resolved in the same dialog, in place of the form, with its own
- * heading and Done; its button given to `buttonRef` takes focus, described by the element with
- * `noteId`, since a heading changed while focus is in the dialog is not announced.
+ * heading and Done; its button given to `buttonRef` takes focus, which the answer should describe
+ * by `aria-describedby`, since a heading changed while focus is in the dialog is not announced.
  */
 export function FormDialog<A>(props: {
   controller: DialogController;
@@ -121,7 +120,6 @@ function OpenForm<A>(props: {
   // controller's payload, an announcement or a query's cache.
   const [answer, setAnswer] = createSignal<{ value: A }>();
   const [refusal, setRefusal] = createSignal<Refusal>();
-  const noteId = createUniqueId();
 
   props.register(async (form) => {
     // On its own: a write in the action before the request would be held until it settles.
@@ -131,8 +129,12 @@ function OpenForm<A>(props: {
       value = await props.send(form);
     } catch (error) {
       // A write that failed without a refusal may have been done, so the alert does not say to try
-      // again.
-      setRefusal(formRefusal(error, props.controls, hubWriteFailureMessage));
+      // again, nor places issues at fields as if the hub had refused them.
+      setRefusal(
+        isWriteRefusal(error)
+          ? formRefusal(error, props.controls)
+          : { fields: new Map(), alert: hubWriteFailureMessage(error) },
+      );
       return;
     }
     // Written after the request's await, this takes effect at once, before the action settles.
@@ -205,7 +207,6 @@ function OpenForm<A>(props: {
             <div class="dialog-b">
               {props.answer.children(shown.value, {
                 buttonRef: (button) => onSettled(() => button.focus()),
-                noteId,
               })}
             </div>
             <div class="dialog-f">

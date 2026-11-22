@@ -16,6 +16,7 @@ import {
   createSignal,
   deep,
   flush,
+  createUniqueId,
   latest,
   onFlush,
   onSettled,
@@ -262,6 +263,7 @@ function validatePermissions(group: HTMLFieldSetElement) {
  */
 function CreateKey(props: { controller: DialogController }) {
   const queryClient = useQueryClient();
+  const shownOnceId = createUniqueId();
 
   // A direct call, not a mutation: the mutation cache would keep the key from its answer. It ends
   // within the hub deadline, through the API client, so the dialog that waits for it can be left.
@@ -316,11 +318,11 @@ function CreateKey(props: { controller: DialogController }) {
               <CopyButton
                 text={created.key}
                 label="Copy the key"
-                describedBy={focus.noteId}
+                describedBy={shownOnceId}
                 buttonRef={focus.buttonRef}
               />
             </div>
-            <p class="shown-once" role="note" id={focus.noteId}>
+            <p class="shown-once" role="note" id={shownOnceId}>
               <b>Shown this once:</b> copy it now. The hub keeps only its hash, and this page will
               not show it again.
             </p>
