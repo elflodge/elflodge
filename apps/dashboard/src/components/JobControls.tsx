@@ -83,6 +83,8 @@ export function JobControls(props: {
     ),
   };
   const pending = () => Object.values(controls).some((control) => control.isPending);
+  const budgetResumeRunning = () =>
+    controls.resume.isPending && controls.resume.variables?.modelBudgetUsd !== undefined;
   const [pageFailure, setPageFailure] = createSignal<string>();
   const [budgetFailure, setBudgetFailure] = createSignal<ReturnType<typeof formRefusal>>();
   let budgetDialog: HTMLDialogElement | undefined;
@@ -220,9 +222,11 @@ export function JobControls(props: {
         <Show when={props.cannotResume} keyed>
           {(reason) => <p class="note">{reason}</p>}
         </Show>
-        {/* Seen, not read: the control or the dialog that waits announces it. */}
+        {/* Seen, not read, while a UI SDK part announces the wait: the pressed Pause or Resume, or
+            the confirmation. The budget form's Resume has no such part; while its dialog is open
+            the page is inert beneath it, and once it is closed the status is what says it. */}
         <Show when={pending()}>
-          <p class="note" aria-hidden="true">
+          <p class="note" aria-hidden={budgetResumeRunning() ? undefined : "true"}>
             Working…
           </p>
         </Show>

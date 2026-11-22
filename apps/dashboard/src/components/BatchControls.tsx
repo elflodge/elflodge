@@ -134,8 +134,14 @@ export function BatchControls(props: { batch: Batch }) {
             controls.pause.isPending
           }
         >
+          {/* Kept while its request runs, after a read removed its note, it is described by the
+              status then. */}
           <Button
-            aria-describedby="pause-note"
+            aria-describedby={
+              !cancellationStarted() && props.batch.status === "active"
+                ? "pause-note"
+                : "batch-status"
+            }
             disabled={pending()}
             focusableWhenDisabled
             pendingAnnouncement="Working…"
@@ -150,7 +156,11 @@ export function BatchControls(props: { batch: Batch }) {
           }
         >
           <Button
-            aria-describedby="resume-note"
+            aria-describedby={
+              !cancellationStarted() && props.batch.status !== "active"
+                ? "resume-note"
+                : "batch-status"
+            }
             disabled={pending()}
             focusableWhenDisabled
             pendingAnnouncement="Working…"
