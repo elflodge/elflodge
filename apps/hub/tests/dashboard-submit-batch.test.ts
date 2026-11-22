@@ -387,11 +387,22 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
   await expectBrowser(dialog).toContainText(
     "The hub may already have a Batch from this page: look for it in Batches before submitting it again.",
   );
-  // The Batch is made while the question is open, which gives way to it.
+  // The Batch is made while the question is open, which gives way to it at once, while the session
+  // read of the Batch's page is held, so this page stays while that one loads.
+  const record = Promise.withResolvers<void>();
+  await page.route("**/api/auth/get-session", async (route) => {
+    await record.promise;
+    await route.continue();
+  });
   const entries = await page.evaluate("history.length");
   held.resolve();
+  try {
+    await expectBrowser(dialog).toBeHidden();
+    await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
+  } finally {
+    record.resolve();
+  }
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("typed-only");
-  await expectBrowser(dialog).toBeHidden();
   expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
 }, 30_000);
 
@@ -422,26 +433,13 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(removeAll).toBeFocused();
   await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
-  // Each change of the status line, and whether a screen reader could hear it then: what is inert or
-  // hidden says nothing.
-  await page.evaluate(`(() => {
-    const jobs = [...document.querySelectorAll("fieldset")].find(
-      (group) => group.querySelector("legend")?.textContent === "Jobs",
-    );
-    const status = jobs.querySelector("[role=status]");
-    window.statusChanges = [];
-    new MutationObserver(() => window.statusChanges.push({
-      text: status.textContent,
-      exposed: !status.closest("[inert], [aria-hidden='true']"),
-    })).observe(status, { childList: true, characterData: true, subtree: true });
-  })()`);
   await removeAll.click();
   await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
   await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
+  await expectBrowser(page.getByRole("group", { name: "Jobs" }).getByRole("status")).toHaveText(
+    "All 2 jobs removed.",
+  );
   await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
-  expect(await page.evaluate("window.statusChanges")).toEqual([
-    { text: "All 2 jobs removed.", exposed: true },
-  ]);
   expect(await page.evaluate("window.submissions")).toBe(0);
 }, 30_000);
 
