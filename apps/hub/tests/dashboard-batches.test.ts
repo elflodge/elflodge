@@ -111,7 +111,7 @@ test("cancelling a Batch asks first and removes its controls once final", async 
   const { id } = await system.owner().batches.create({ id: "withdrawn", agent });
   const page = await open("Batch cancellation", `batches/${id}`);
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
   await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
@@ -133,11 +133,11 @@ test("a second press while the hub answers a cancel sends it once", async () => 
     await route.continue();
   });
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   const confirm = dialog.getByRole("button", { name: "Cancel the Batch", exact: true });
   try {
     await confirm.click();
-    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
     await expectBrowser(page.locator("#batch-status")).toContainText("Working…");
     // As a member's second click lands, whether or not the button takes it.
     await confirm.click({ force: true });
@@ -153,11 +153,11 @@ test("a cancel confirmed offline fails at once and is not sent once back online"
   const { id } = await client.batches.create({ id: "offline-cancel", agent });
   const page = await open("Offline operator", `batches/${id}`);
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   await page.context().setOffline(true);
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
   await expectBrowser(dialog.getByRole("alert")).toHaveText(
-    "The connection to the hub failed. Please try again.",
+    "The dashboard could not confirm this was done. Check before trying again.",
   );
   // Back online, Query sends what it held before it reads the shown Batch again.
   const reread = page.waitForResponse((response) => response.url().endsWith(`/batches/${id}`));
