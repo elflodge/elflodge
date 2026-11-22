@@ -181,12 +181,13 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
       { customId: "second", input: "Count the receipts." },
     ],
   });
-  const [first] = jobs;
+  const [first, second] = jobs;
+  assert(first && second);
   const runner = await system.connectReportingRunner();
   onTestFinished(() => runner.close());
-  // Both jobs are sent, so the Batch's cancel waits for their Runner.
-  assert(first);
+  // Sent and gone unheard, the first job keeps the Batch's cancel waiting for its Runner.
   await runner.place(first.job.id);
+  await backdateJobContact([first.job.id]);
   const page = await open("Counts at the press", `batches/${id}`);
   const sent = { count: 0 };
   page.on("request", (request) => {
@@ -195,30 +196,29 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
   const cancel = page.getByRole("button", { name: `Cancel the Batch ${id}` });
   await cancel.click();
   const dialog = page.getByRole("alertdialog");
-  const atPress = "It has 2 unfinished jobs.";
-  await expectBrowser(dialog).toContainText(atPress);
+  const atPress = ["It has 2 unfinished jobs.", "1 of its jobs has status unknown"];
+  for (const words of atPress) await expectBrowser(dialog).toContainText(words);
   const confirm = dialog.getByRole("button", { name: "Cancel the Batch", exact: true });
   await page.keyboard.press("Tab");
   await expectBrowser(confirm).toBeFocused();
 
-  await backdateJobContact([first.job.id]);
+  await backdateJobContact([second.job.id]);
   await client.batches.addJobs({ id, jobs: [{ customId: "third", input: "Count the refunds." }] });
   await expectBrowser(page.locator("#cancel-note")).toContainText("3 unfinished jobs", {
     timeout: 15_000,
   });
-  await expectBrowser(page.locator("main")).toContainText("1 of these has status unknown");
-  await expectBrowser(dialog).toContainText(atPress);
-  await expectBrowser(dialog).not.toContainText("status unknown");
+  await expectBrowser(page.locator("main")).toContainText("2 of these have status unknown");
+  for (const words of atPress) await expectBrowser(dialog).toContainText(words);
 
   await client.batches.cancel({ id });
   await expectBrowser(dialog).toContainText("Cancel has already been asked.", { timeout: 15_000 });
   await expectBrowser(confirm).toBeFocused();
   await page.keyboard.press("Enter");
   await confirm.click({ force: true });
-  expect(sent.count).toBe(0);
   await page.keyboard.press("Escape");
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(cancel).toBeFocused();
+  expect(sent.count).toBe(0);
 }, 45_000);
 
 test("confirming a Batch's Cancel clears an earlier failure as it starts", async () => {
