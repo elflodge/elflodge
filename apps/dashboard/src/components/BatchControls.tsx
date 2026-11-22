@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
 import type { Batch } from "contract";
-import { Show, createSignal, flush } from "solid-js";
+import { Show, createSignal, flush, onFlush } from "solid-js";
 
 import { hubWriteFailureMessage } from "../api-client.ts";
 import { unfinishedJobs } from "../batch.ts";
@@ -46,8 +46,9 @@ export function BatchControls(props: { batch: Batch }) {
   }
   /** Sends `control`, and resolves once the page shows the hub's answer; rejects with its failure. */
   async function run(control: "pause" | "resume" | "cancel") {
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setFailure(undefined));
     await controls[control].mutate({ id: props.batch.id });
-    setFailure(undefined);
     // Shown before the reads start, which would hold it.
     flush();
   }
@@ -59,8 +60,6 @@ export function BatchControls(props: { batch: Batch }) {
   }
   // Pause and Resume keep the focus while they run, and the status takes it once the hub answers.
   async function press(control: "pause" | "resume") {
-    // Written at the press, before the request, which would hold it until it settles.
-    setFailure(undefined);
     await untilFlushed();
     try {
       await run(control);
@@ -127,8 +126,14 @@ export function BatchControls(props: { batch: Batch }) {
         )}
       </Show>
       <div class="controls job-controls">
-        {/* Disabled, each control keeps the focus while another runs, as the one running does. */}
-        <Show when={!props.batch.pendingControl && props.batch.status === "active"}>
+        {/* Disabled, each control keeps the focus while another runs, as the one running does, and
+            stays while its own request runs, whatever a read says meanwhile. */}
+        <Show
+          when={
+            (!props.batch.pendingControl && props.batch.status === "active") ||
+            controls.pause.isPending
+          }
+        >
           <Button
             aria-describedby="pause-note"
             disabled={pending()}
@@ -139,7 +144,11 @@ export function BatchControls(props: { batch: Batch }) {
             Pause
           </Button>
         </Show>
-        <Show when={!cancellationStarted() && props.batch.status === "paused"}>
+        <Show
+          when={
+            (!cancellationStarted() && props.batch.status === "paused") || controls.resume.isPending
+          }
+        >
           <Button
             aria-describedby="resume-note"
             disabled={pending()}

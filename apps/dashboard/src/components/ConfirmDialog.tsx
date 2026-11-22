@@ -96,8 +96,10 @@ export function ConfirmDialog<T>(props: {
                       <div class="dialog-b">
                         <AlertDialogDescription
                           render={(description) => (
-                            // What a read changes while the dialog is open is announced, but not
-                            // while the action runs: its own answer changes the record as it closes.
+                            // The explanation is rendered text a read changes, so its own element is
+                            // the live region; UI SDK's `announce` is for an action's result that has
+                            // no element of its own. Off while the action runs: its own answer
+                            // changes the record as the dialog closes.
                             <div {...description} aria-live={close.pending ? "off" : "polite"} />
                           )}
                         >
