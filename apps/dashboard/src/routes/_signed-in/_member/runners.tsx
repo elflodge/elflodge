@@ -1,9 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import { type Runner, type RunnerCapabilities, problemOf } from "contract";
-import { For, Show, createMemo, createSignal, flush } from "solid-js";
+import { For, Show, createMemo, createSignal, flush, onFlush } from "solid-js";
 
-import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -48,13 +48,16 @@ function Runners() {
     setRunnersAtOpen(new Set(ids().keys()));
   }
 
+  const removing = useMutation(() => orpc.runners.delete.mutationOptions());
+
   async function remove(runner: Runner, label: string) {
-    setActionFailure(undefined);
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setActionFailure(undefined));
     const queryKey = orpc.runners.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     let removal;
     try {
-      removal = await api.runners.delete({ id: runner.id });
+      removal = await removing.mutate({ id: runner.id });
     } catch (error) {
       // Even a refused removal can mean the Runner is gone since the list was read.
       const refreshed = reread();

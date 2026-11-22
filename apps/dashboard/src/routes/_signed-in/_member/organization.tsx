@@ -1,8 +1,8 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
-import { focusManager, noop, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { focusManager, noop, useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
-import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onFlush, onSettled } from "solid-js";
 
 import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { authClient, hasAuthCode, isAuthAccessError } from "../../../auth-client.ts";
@@ -204,6 +204,26 @@ function OrganizationPage(props: { organizationId: string }) {
     return refreshMembers();
   }
 
+  const leaving = useMutation(() => ({
+    mutationFn: (input: { organizationId: string }) => authClient.organization.leave(input),
+  }));
+  const removing = useMutation(() => ({
+    mutationFn: (input: { organizationId: string; memberIdOrEmail: string }) =>
+      authClient.organization.removeMember(input),
+  }));
+  const changingRole = useMutation(() => ({
+    mutationFn: (input: { organizationId: string; memberId: string; role: MemberRole }) =>
+      authClient.organization.updateMemberRole(input),
+  }));
+  const revokingInvitation = useMutation(() => ({
+    mutationFn: (input: { invitationId: string }) =>
+      authClient.organization.cancelInvitation(input),
+  }));
+  const renaming = useMutation(() => ({
+    mutationFn: (input: { organizationId: string; data: { name: string } }) =>
+      authClient.organization.update(input),
+  }));
+
   async function membershipAction(
     person: Member,
     next: MemberRole | "leave" | "remove",
@@ -213,17 +233,13 @@ function OrganizationPage(props: { organizationId: string }) {
     const name = person.user.name;
     const listed = () => members.data.members.some((m) => m.id === person.id);
     const organizationId = orgId();
-    setNotice(undefined);
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setNotice(undefined));
     try {
-      if (next === "leave") await authClient.organization.leave({ organizationId });
+      if (next === "leave") await leaving.mutate({ organizationId });
       else if (next === "remove")
-        await authClient.organization.removeMember({ organizationId, memberIdOrEmail: person.id });
-      else
-        await authClient.organization.updateMemberRole({
-          organizationId,
-          memberId: person.id,
-          role: next,
-        });
+        await removing.mutate({ organizationId, memberIdOrEmail: person.id });
+      else await changingRole.mutate({ organizationId, memberId: person.id, role: next });
     } catch (error) {
       await refreshAfterMembershipChange();
       let message = hubFailureMessage(error);
@@ -310,9 +326,10 @@ function OrganizationPage(props: { organizationId: string }) {
     );
     const listed = () => invitations.data.some((i) => i.id === id);
     const queryKey = invitationsOptions(role()).queryKey;
-    setNotice(undefined);
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setNotice(undefined));
     try {
-      await authClient.organization.cancelInvitation({ invitationId: id });
+      await revokingInvitation.mutate({ invitationId: id });
     } catch (error) {
       await Promise.all([refreshMembers(), refreshInvites()]);
       const list = client.getQueryState(queryKey);
@@ -648,10 +665,7 @@ function OrganizationPage(props: { organizationId: string }) {
             report={report}
             rename={async (name) => {
               try {
-                const renamed = await authClient.organization.update({
-                  organizationId: orgId(),
-                  data: { name },
-                });
+                const renamed = await renaming.mutate({ organizationId: orgId(), data: { name } });
                 status(`Renamed to ${renamed.name}.`);
               } finally {
                 await refreshSession();

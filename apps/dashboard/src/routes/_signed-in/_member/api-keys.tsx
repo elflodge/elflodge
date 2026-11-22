@@ -1,9 +1,9 @@
 import { parseFormData } from "@orpc/openapi/helpers";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
-import { For, Show, createSignal, flush, onSettled } from "solid-js";
+import { For, Show, createSignal, flush, onFlush, onSettled } from "solid-js";
 
 import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
@@ -115,14 +115,18 @@ function KeyList() {
   const [actionFailure, setActionFailure] = createSignal<string>();
   const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
+  const revoking = useMutation(() => orpc.apiKeys.revoke.mutationOptions());
 
   async function revoke(key: ApiKey, label: string) {
-    setActionFailure(undefined);
-    setRevoked(undefined);
+    // On their own: written beside the request, they would be held until it settles.
+    onFlush(() => {
+      setActionFailure(undefined);
+      setRevoked(undefined);
+    });
     const queryKey = orpc.apiKeys.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     try {
-      await api.apiKeys.revoke({ id: key.id });
+      await revoking.mutate({ id: key.id });
     } catch (error) {
       // Even a refused revocation can mean the key is gone since the list was read.
       const refreshed = reread();

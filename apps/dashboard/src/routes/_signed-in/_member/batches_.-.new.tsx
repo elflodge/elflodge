@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { isSchemaIssue } from "@orpc/contract";
-import { useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import {
   BATCH_ID_PATTERN,
@@ -27,12 +27,7 @@ import {
   fileProblems,
   repeatedCustomIds,
 } from "../../../batch-draft.ts";
-import {
-  createBatch,
-  prepareBatch,
-  type SendOutcome,
-  type SendProgress,
-} from "../../../batch-send.ts";
+import { prepareBatch, type SendOutcome, type SendProgress } from "../../../batch-send.ts";
 import {
   AgentFields,
   agentControls,
@@ -196,6 +191,7 @@ function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
 function SubmitBatch() {
   const router = useRouter();
   const client = useQueryClient();
+  const create = useMutation(() => orpc.batches.create.mutationOptions());
   const limits = useJobLimits();
   let nextRow = 0;
   const [rows, setRows] = createSignal<readonly DraftRow[]>([]);
@@ -328,7 +324,12 @@ function SubmitBatch() {
       else {
         setProgress({ step: "creating" });
         submission.creating();
-        outcome = await createBatch(prepared.creation);
+        // Cannot be recalled once sent.
+        try {
+          outcome = { kind: "created", answer: await create.mutate(prepared.creation) };
+        } catch (error) {
+          outcome = { kind: "createFailed", error };
+        }
         yield;
       }
     } finally {

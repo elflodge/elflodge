@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import type { Batch } from "contract";
-import { Show, createSignal, flush } from "solid-js";
+import { Show, createSignal, flush, onFlush } from "solid-js";
 
-import { api, hubFailureMessage } from "../api-client.ts";
+import { hubFailureMessage } from "../api-client.ts";
 import { unfinishedJobs } from "../batch.ts";
 import { focusIfLost } from "../form.ts";
 import { formatCount, plural } from "../format.ts";
@@ -15,8 +15,19 @@ const finality = "It takes no new jobs, and none of its jobs can be resumed.";
 
 export function BatchControls(props: { batch: Batch }) {
   const client = useQueryClient();
+  // The hub answers a control with the Batch as it now stands, which an older read must not replace.
+  async function writeBatch(batch: Batch) {
+    const queryKey = orpc.batches.get.queryKey({ input: { id: batch.id } });
+    await client.cancelQueries({ queryKey, exact: true });
+    client.setQueryData(queryKey, batch);
+  }
+  const controls = {
+    pause: useMutation(() => orpc.batches.pause.mutationOptions({ onSuccess: writeBatch })),
+    resume: useMutation(() => orpc.batches.resume.mutationOptions({ onSuccess: writeBatch })),
+    cancel: useMutation(() => orpc.batches.cancel.mutationOptions({ onSuccess: writeBatch })),
+  };
+  const pending = () => Object.values(controls).some((control) => control.isPending);
   const [failure, setFailure] = createSignal<string>();
-  const [pending, setPending] = createSignal(false);
   let status: HTMLDivElement | undefined;
   let alert: HTMLDivElement | undefined;
   function showFailure(message: string) {
@@ -25,28 +36,22 @@ export function BatchControls(props: { batch: Batch }) {
     focusIfLost(alert);
   }
   async function act(control: "pause" | "resume" | "cancel", close?: () => boolean) {
-    setPending(true);
-    setFailure(undefined);
-    const id = props.batch.id;
-    const queryKey = orpc.batches.get.queryKey({ input: { id } });
+    // On its own: written beside the request, it would be held until the request settles.
+    onFlush(() => setFailure(undefined));
     try {
-      const batch = await api.batches[control]({ id });
-      await client.cancelQueries({ queryKey, exact: true });
-      const closed = close?.();
-      client.setQueryData(queryKey, batch);
-      flush();
-      if (closed === false) focusIfLost(status);
-      else status?.focus();
-      void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.get.key() });
-      return undefined;
+      await controls[control].mutate({ id: props.batch.id });
     } catch (error) {
       return hubFailureMessage(error);
-    } finally {
-      setPending(false);
     }
+    // The status region is there whatever the Batch's state, so focus need not wait for the answer.
+    const closed = close?.();
+    if (closed === false) focusIfLost(status);
+    else status?.focus();
+    void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.get.key() });
+    return undefined;
   }
   async function press(control: "pause" | "resume") {
     const message = await act(control);

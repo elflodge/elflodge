@@ -303,3 +303,136 @@ test("in a browser, a plain member gets no owner's actions on Runners and API ke
   await page.getByText("Only owners and admins see and manage").waitFor();
   expect(await page.getByRole("button", { name: "Create key" }).count()).toBe(0);
 }, 30_000);
+
+test("a revoked key's notice shows before the list is read again", async () => {
+  await system.owner().apiKeys.create({ name: "held list key", permissions: { job: ["read"] } });
+  const page = await signedInAt("api-keys");
+  const revoke = { name: /^Revoke held list key/ };
+  await page.getByRole("button", revoke).click();
+  const reread = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route(
+    (url) => url.pathname.endsWith("/api-keys"),
+    async (route) => {
+      reread.resolve();
+      await release.promise;
+      await route.continue();
+    },
+  );
+  const notice = page.getByRole("status").filter({ hasText: /held list key .* is revoked\./ });
+  try {
+    await page.getByRole("dialog").getByRole("button", revoke).click();
+    await reread.promise;
+    await expectBrowser(notice).toBeVisible();
+    await expectBrowser(page.getByRole("dialog")).toBeHidden();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(notice).toBeFocused();
+}, 30_000);
+
+test("a refusal decided after a reread shows in the open dialog, with focus on its button", async () => {
+  const id = await registerRunner("refused-host");
+  const page = await signedInAt("runners");
+  const record = runnerRecord(page, "refused-host");
+  const remove = { name: `Remove refused-host ${id.slice(0, 8)}` };
+  await record.getByRole("button", remove).click();
+  const dialog = page.getByRole("dialog");
+  let refused = false;
+  const reread = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route(
+    `**/runners/${id}`,
+    async (route) => {
+      refused = true;
+      await route.fulfill({
+        status: 404,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          title: "Not Found",
+          status: 404,
+          detail: "No such Runner here.",
+        },
+      });
+    },
+    { times: 1 },
+  );
+  // Every read of the list after the refusal, so a poll cannot take the place of the reread.
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (refused) {
+        reread.resolve();
+        await release.promise;
+      }
+      await route.continue();
+    },
+  );
+  const confirm = dialog.getByRole("button", remove);
+  try {
+    await confirm.click();
+    await reread.promise;
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await expectBrowser(confirm).toBeDisabled();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("No such Runner here.");
+  await expectBrowser(dialog.getByRole("status")).toHaveText("");
+  await expectBrowser(confirm).toBeEnabled();
+  await expectBrowser(confirm).toBeFocused();
+}, 30_000);
+
+test("a row's revocation stays pending, and is sent once, while another row's is sent", async () => {
+  const a = await system
+    .owner()
+    .apiKeys.create({ name: "row alpha", permissions: { job: ["read"] } });
+  const b = await system
+    .owner()
+    .apiKeys.create({ name: "row beta", permissions: { job: ["read"] } });
+  const page = await signedInAt("api-keys");
+  let sentA = 0;
+  let sentB = 0;
+  const arrivedB = Promise.withResolvers<void>();
+  const releaseA = Promise.withResolvers<void>();
+  const releaseB = Promise.withResolvers<void>();
+  await page.route(`**/api-keys/${a.id}`, async (route) => {
+    sentA += 1;
+    await releaseA.promise;
+    await route.continue();
+  });
+  await page.route(`**/api-keys/${b.id}`, async (route) => {
+    sentB += 1;
+    arrivedB.resolve();
+    await releaseB.promise;
+    await route.continue();
+  });
+  const dialog = page.getByRole("dialog");
+  const revokeA = { name: /^Revoke row alpha/ };
+  const revokeB = { name: /^Revoke row beta/ };
+  try {
+    await page.getByRole("button", revokeA).click();
+    await dialog.getByRole("button", revokeA).click();
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", revokeB).click();
+    await expectBrowser(dialog.getByRole("button", revokeB)).toBeEnabled();
+    await dialog.getByRole("button", revokeB).click();
+    // B is sent while A is still held.
+    await arrivedB.promise;
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", revokeA).click();
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await dialog.getByRole("button", revokeA).click({ force: true });
+  } finally {
+    releaseA.resolve();
+    releaseB.resolve();
+  }
+  await expectBrowser(page.getByRole("row").filter({ hasText: /row (alpha|beta)/ })).toHaveCount(0);
+  const listed = (await system.owner().apiKeys.list()).map((key) => key.id);
+  expect(listed).not.toContain(a.id);
+  expect(listed).not.toContain(b.id);
+  expect([sentA, sentB]).toEqual([1, 1]);
+}, 30_000);

@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
-import { Show, createSignal, flush } from "solid-js";
+import { Show, createSignal, flush, onFlush } from "solid-js";
 
-import { api, hubFailureMessage } from "../api-client.ts";
+import { hubFailureMessage } from "../api-client.ts";
 import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
 import { orpc } from "../query.ts";
@@ -38,9 +38,40 @@ export function JobControls(props: {
   onDeleted: () => void;
 }) {
   const client = useQueryClient();
+  // The hub answers a control with the job as it now stands. The job read and any Events read that
+  // can reach the newest end can replace the record, so they are cancelled first.
+  async function writeJob(job: Job) {
+    const { id } = job;
+    const queryKey = orpc.jobs.get.queryKey({ input: { id } });
+    await Promise.all([
+      client.cancelQueries({ queryKey, exact: true }),
+      client.cancelQueries({
+        queryKey: orpc.jobs.events.key({ type: "infinite", input: { id, order: "desc" } }),
+        predicate: (query) => !query.state.fetchMeta?.fetchMore,
+      }),
+      client.cancelQueries({
+        queryKey: orpc.jobs.events.key({ input: { id, order: "asc" } }),
+      }),
+    ]);
+    client.setQueryData(queryKey, job);
+  }
+  const controls = {
+    pause: useMutation(() => orpc.jobs.pause.mutationOptions({ onSuccess: writeJob })),
+    resume: useMutation(() => orpc.jobs.resume.mutationOptions({ onSuccess: writeJob })),
+    cancel: useMutation(() => orpc.jobs.cancel.mutationOptions({ onSuccess: writeJob })),
+    delete: useMutation(() =>
+      orpc.jobs.delete.mutationOptions({
+        // With the record, so the deletion notice is there to take focus.
+        onSuccess: async (job) => {
+          await writeJob(job);
+          props.onDeleted();
+        },
+      }),
+    ),
+  };
+  const pending = () => Object.values(controls).some((control) => control.isPending);
   const [pageFailure, setPageFailure] = createSignal<string>();
   const [budgetFailure, setBudgetFailure] = createSignal<ReturnType<typeof formRefusal>>();
-  const [pending, setPending] = createSignal(false);
   let budgetDialog: HTMLDialogElement | undefined;
   let budgetField: HTMLInputElement | undefined;
   let status: HTMLDivElement | undefined;
@@ -54,44 +85,30 @@ export function JobControls(props: {
   }
 
   async function act(control: Control, modelBudgetUsd?: number) {
-    setPending(true);
-    setPageFailure(undefined);
-    setBudgetFailure(undefined);
+    // On their own: written beside the request, they would be held until the request settles.
+    onFlush(() => {
+      setPageFailure(undefined);
+      setBudgetFailure(undefined);
+    });
     const id = props.job.id;
-    const queryKey = orpc.jobs.get.queryKey({ input: { id } });
     try {
-      const job =
-        control === "resume"
-          ? await api.jobs.resume({ id, modelBudgetUsd })
-          : await api.jobs[control]({ id });
-      // The job read and any Events read that can reach the newest end can replace the record.
-      await Promise.all([
-        client.cancelQueries({ queryKey, exact: true }),
-        client.cancelQueries({
-          queryKey: orpc.jobs.events.key({ type: "infinite", input: { id, order: "desc" } }),
-          predicate: (query) => !query.state.fetchMeta?.fetchMore,
-        }),
-        client.cancelQueries({
-          queryKey: orpc.jobs.events.key({ input: { id, order: "asc" } }),
-        }),
-      ]);
-      client.setQueryData(queryKey, job);
-      if (control === "delete") props.onDeleted();
-      budgetDialog?.close();
-      flush();
-      (deletionNotice ?? status)?.focus();
-      void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
-      return undefined;
+      if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
+      else await controls[control].mutate({ id });
     } catch (error) {
       if (modelBudgetUsd !== undefined && budgetDialog?.open && budgetDialog.isConnected) {
         setBudgetFailure(formRefusal(error, { budget: ["modelBudgetUsd"] }));
         return undefined;
       }
       return hubFailureMessage(error);
-    } finally {
-      setPending(false);
     }
+    budgetDialog?.close();
+    // Applies pending renders, so the deletion notice onSuccess asked for can take focus; the status
+    // takes it otherwise.
+    flush();
+    (deletionNotice ?? status)?.focus();
+    void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
+    return undefined;
   }
 
   async function press(control: Control, modelBudgetUsd?: number) {

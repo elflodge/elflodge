@@ -276,14 +276,3 @@ export async function* prepareBatch(
     reader.releaseLock();
   }
 }
-
-/** Creates the Batch `creation` describes, which cannot be recalled once sent. */
-export async function createBatch(
-  creation: Creation,
-): Promise<Extract<SendOutcome, { readonly kind: "created" | "createFailed" }>> {
-  try {
-    return { kind: "created", answer: await api.batches.create(creation) };
-  } catch (error) {
-    return { kind: "createFailed", error };
-  }
-}

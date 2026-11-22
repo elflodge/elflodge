@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { Show, createEffect, createSignal, createUniqueId, flush } from "solid-js";
+import { Show, createEffect, createSignal, createUniqueId, flush, onFlush } from "solid-js";
 
 import { focusIfLost } from "../form.ts";
 import { Notice } from "./Notice.tsx";
@@ -56,8 +56,11 @@ export function ConfirmAction(props: {
   );
 
   async function confirm() {
-    setPending(true);
-    setFailure(undefined);
+    // On their own: written beside the request `act` starts, they would be held until it settles.
+    onFlush(() => {
+      setPending(true);
+      setFailure(undefined);
+    });
     let message;
     try {
       message = await props.act(() => {
