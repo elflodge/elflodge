@@ -18,6 +18,11 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    // UI SDK's installation guide: pre-bundled apart, a core entry the dashboard imports would be a
+    // second copy of the core beside the one @ui-sdk/solid loads, and its parts throw in development.
+    exclude: ["@ui-sdk/core"],
+  },
   server: {
     // `vp dev` serves the dashboard and sends every other path, the hub's API and Better Auth's
     // routes among them, to a hub running locally, by default `wrangler dev`'s in `apps/hub`, so

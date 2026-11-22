@@ -1,0 +1,97 @@
+import type { JSX } from "@solidjs/web";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+  type AlertDialogController,
+} from "@ui-sdk/solid/alert-dialog";
+import { Show, onFlush } from "solid-js";
+
+import { hubWriteFailureMessage } from "../api-client.ts";
+import { Notice } from "./Notice.tsx";
+
+/**
+ * The dialog that confirms a destructive action on one of a list's records: it says what the action
+ * ends and whether that is final, and acts only on its confirming button, which names what it acts
+ * on. The safe choice comes first and has focus, so a stray Enter keeps.
+ *
+ * One per list, outside it, opened by an `AlertDialogTrigger` in each row with the same
+ * `controller` and the record as its payload. A dialog in the row would go with the row, and with it
+ * a refusal still to show; this one stays when a read drops the record, naming it as the member saw
+ * it, so the payload carries the record's words as they were at the press.
+ *
+ * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
+ * outcome, which closes the dialog with focus on `notice`; it throws to refuse, and the dialog shows
+ * why and keeps focus on the confirming button for a retry.
+ */
+export function ConfirmDialog<T>(props: {
+  controller: AlertDialogController<T>;
+  heading: (record: T) => JSX.Element;
+  /** The confirming button's words, which name what it acts on. */
+  confirm: (record: T) => string;
+  /** The safe choice's words, such as "Keep them". Defaults to "Keep it". */
+  keep?: string;
+  /** What the action ends, and whether that is final. */
+  children: (record: T) => JSX.Element;
+  act: (record: T) => Promise<void>;
+  /** The page's notice of the outcome, for focus once `act` has resolved. */
+  notice: () => HTMLElement | undefined;
+}) {
+  // Only an outcome the page shows takes focus: a keep or Escape returns it to the row's button,
+  // even with an older notice on the page.
+  let acted = false;
+  return (
+    <AlertDialog
+      controller={props.controller}
+      pendingAnnouncement="Working…"
+      onOpenChange={(open) => {
+        if (open) acted = false;
+      }}
+    >
+      <AlertDialogContent<T> finalFocus={() => (acted ? props.notice() : undefined)}>
+        {(state) => (
+          <Show when={state.payload} keyed>
+            {(record) => (
+              <>
+                <AlertDialogTitle class="dialog-h">{props.heading(record)}</AlertDialogTitle>
+                <AlertDialogClose
+                  value="confirm"
+                  action={async () => {
+                    // `act` starts a mutation, a Solid action that would hold the part's pending
+                    // state, written in this same tick, until the hub answers.
+                    await new Promise<void>((resolve) => onFlush(resolve));
+                    await props.act(record);
+                    acted = true;
+                  }}
+                  render={(button, close) => (
+                    <>
+                      <div class="dialog-b">
+                        <AlertDialogDescription render={(description) => <div {...description} />}>
+                          {props.children(record)}
+                        </AlertDialogDescription>
+                        <Show when={close.pending}>
+                          <p class="note">Working…</p>
+                        </Show>
+                        <Show when={close.error} keyed>
+                          {(error) => <Notice role="alert">{hubWriteFailureMessage(error)}</Notice>}
+                        </Show>
+                      </div>
+                      <div class="dialog-f">
+                        <AlertDialogClose>{props.keep ?? "Keep it"}</AlertDialogClose>
+                        <button {...button} class="danger is-fill">
+                          {props.confirm(record)}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                />
+              </>
+            )}
+          </Show>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}

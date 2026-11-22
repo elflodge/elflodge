@@ -22,7 +22,7 @@ The dashboard is a ruled record. It is set like a ledger: dense, plain, and exac
 | `src/styles/components.css` | Named parts, one section each, opened by a comment that says what the part is. |
 | `src/styles/app.css`        | Imports the three, in that order.                                              |
 
-The stylesheets use no cascade layers: a rule wins by its selector.
+The dashboard's own rules use no cascade layers: a rule wins by its selector. `app.css` declares UI SDK's layer, `ui-sdk`, before them, so the little CSS UI SDK adds to the page for its parts gives way to ours.
 
 `src/routes/__root.tsx` links `app.css` and the two faces, which come from the `@fontsource-variable` packages and are served by the hub with the rest of the build. The faces are linked there rather than imported by `app.css` so that the build's third-party notices carry their licences.
 
@@ -57,7 +57,7 @@ With no class at all:
 - **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
 - **Buttons** are paper with an edge. Disabled buttons are greyed. A pending submit button uses `aria-disabled` and keeps its keyboard focus ring. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
 - **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
-- **`dialog`** and **`[popover]`** are paper with an edge and a shadow.
+- **`dialog`**, UI SDK's dialog content and **`[popover]`** are paper with an edge and a shadow.
 
 ## Parts
 
@@ -319,9 +319,13 @@ A page's one action that leads to another page is a link drawn as a button, `a.b
 
 ### Dialogs
 
-A destructive control opens a modal `dialog` that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on (`ConfirmAction`, `src/components/ConfirmAction.tsx`). The keeping button comes first and has the focus. It reads "Keep it", "Keep them" or "Stay". The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. If a fresh roster removes the action, as when the reader becomes the only owner during Leave, the page closes the dialog and shows the alert beside the roster. The `close` callback returns true if it closed an open dialog still on the page. In that case the alert takes focus. Otherwise the page moves focus to the alert only if focus was lost.
+A destructive control opens a modal dialog that says what it ends and whether that is final, and acts only on its confirming button, which names what it acts on. The keeping button comes first and has the focus. It reads "Keep it", "Keep them" or "Stay".
 
-A dialog is at least a plain form's 24rem wide and at most 44rem, within the window's margins, and a one-line field in it takes its width. The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and the buttons are in `.dialog-f`. A long name in the heading or a button wraps inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A form dialog has its primary submit button in `.dialog-f`. Create key groups its fields in `div.dialog-b`. The Organization forms use `fieldset.dialog-b` to disable the submitted fields while the hub answers and keep Close available.
+On a list of records, as on Runners and API keys, the dialog is `ConfirmDialog` (`src/components/ConfirmDialog.tsx`), UI SDK's alert dialog with `role="alertdialog"`. There is one for the list, outside it and its empty state, opened by an `AlertDialogTrigger` (`.danger`) in each row that carries the record and the words it was shown with. When a read drops the record while its dialog is open, the dialog stays and still names it, and confirming ends on "already gone". Confirming shows "Working…" in the body at once; the confirming button keeps the focus and takes no second press, the keeping button keeps its words and is disabled, and Escape does nothing until the hub answers. A screen reader hears "Working…" after a second. Success shows the page's notice and closes the dialog with focus on the notice, before the list is read again. A refusal shows in the open dialog, the hub's words alone, since the heading names the record, with focus on the confirming button for a retry. A request the hub has not answered after 30 seconds ends, saying the hub may have done it anyway and to check before trying again, and the dialog can be left. Keeping, or Escape, before confirming returns focus to the row's button.
+
+Other destructive controls open a native `dialog` (`ConfirmAction`, `src/components/ConfirmAction.tsx`). The confirming button starts the request and is disabled while the hub answers. Success closes the dialog. Escape or Close can dismiss it while the request is running. A refusal appears in the open dialog, which restores lost focus to the confirming button. If the member already dismissed the dialog, the page shows the refusal as an alert. If a fresh roster removes the action, as when the reader becomes the only owner during Leave, the page closes the dialog and shows the alert beside the roster. The `close` callback returns true if it closed an open dialog still on the page. In that case the alert takes focus. Otherwise the page moves focus to the alert only if focus was lost.
+
+A dialog is at least a plain form's 24rem wide and at most 44rem, within the window's margins, and a one-line field in it takes its width. The heading is `h2.dialog-h` under a heavy rule, the body uses `.dialog-b`, and the buttons are in `.dialog-f`. A long name in the heading or a button wraps inside the dialog. `dialog.is-wide` has room for the Runner command or the Create key form. A form dialog has its primary submit button in `.dialog-f`. Create key groups its fields in `div.dialog-b`. The Organization forms use `fieldset.dialog-b` to disable the submitted fields while the hub answers and keep Close available. UI SDK's dialog is a popover in the top layer, not a `dialog`: its content, `[data-slot="alert-dialog-content"]`, takes the native dialog's look, size and place, and its description part holds the body's paragraphs with `display: contents`, so they stay the body's own.
 
 ```tsx
 <dialog aria-labelledby="remove-h">
@@ -342,6 +346,22 @@ A dialog is at least a plain form's 24rem wide and at most 44rem, within the win
     </div>
   </form>
 </dialog>
+```
+
+```tsx
+<ConfirmDialog
+  controller={confirmRemove}
+  heading={({ runner, sid }) => (
+    <>
+      Remove <span class="mono">{runner.name}</span> <span class="sid">{sid}</span>?
+    </>
+  )}
+  confirm={({ runner, sid }) => `Remove ${runner.name} ${sid}`}
+  act={remove}
+  notice={() => notice}
+>
+  {() => <p>Its key stops working and its connection is dropped at once.</p>}
+</ConfirmDialog>
 ```
 
 Leaving a page with a draft not yet sent, as on Submit a job and Submit a Batch, asks first (`LeaveDialog`, `src/components/DraftSubmission.tsx`). The router's `useBlocker` holds the navigation, and the page mounts a dialog while the blocker's status is `blocked`, opening it with `showModal()` once settled, as the other dialogs open. It says what leaving loses, with "Stay" first and focused and `button.danger.is-fill` "Leave the page". Stay or Escape keeps the page; a change of fragment alone, such as the skip link's, is not leaving. Once the member chooses to leave, what this try has not yet sent stops before the navigation goes on, as the page may stay while the next one loads, and the answer to a pending request no longer takes them to what it made. From the moment a create is sent, which a progress step does not decide, and while an ID is possibly taken, the dialog says instead: "The hub may already have a Batch from this page: look for it in Batches before submitting it again." (a job and Jobs on Submit a job). While an ID is possibly taken it asks even when nothing is left to lose, and then does not say what leaving loses. Closing the tab or reloading gets the browser's own question, except when the document is being replaced after a sign-out or a change of member.

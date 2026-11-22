@@ -1,6 +1,8 @@
 /* The dashboard's own stylesheet, in the order its parts build on each other: the tokens, plain
    elements, then named parts. The two faces are linked beside it in routes/__root.tsx.
-   DESIGN.md describes the system. */
+   DESIGN.md describes the system. UI SDK puts the little CSS its parts need in its own cascade
+   layer, declared first so that these rules, in none, win over it wherever the page puts it. */
+@layer ui-sdk;
 @import "./tokens.css";
 @import "./elements.css";
 @import "./components.css";

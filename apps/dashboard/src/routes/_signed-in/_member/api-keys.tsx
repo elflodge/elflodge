@@ -1,18 +1,23 @@
 import { parseFormData } from "@orpc/openapi/helpers";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
+import {
+  AlertDialogTrigger,
+  createAlertDialogController,
+  type AlertDialogController,
+} from "@ui-sdk/solid/alert-dialog";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
 import { For, Show, createSignal, flush, onFlush, onSettled } from "solid-js";
 
-import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
-import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { api, hubFailureDetail, readFromHub } from "../../../api-client.ts";
+import { ConfirmDialog } from "../../../components/ConfirmDialog.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Field, FieldGroup } from "../../../components/Field.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { formRefusal, createFormAction, fieldText, focusAfterRowDrops } from "../../../form.ts";
+import { formRefusal, createFormAction, fieldText } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
@@ -110,19 +115,24 @@ function ApiKeys() {
   );
 }
 
+/** A key's name and the characters it starts with, as the page names it. */
+function keyLabel(key: ApiKey) {
+  const name = key.name || "Unnamed";
+  return key.start ? `${name} ${key.start}` : name;
+}
+
 function KeyList() {
   const queryClient = useQueryClient();
-  const [actionFailure, setActionFailure] = createSignal<string>();
   const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
   const revoking = useMutation(() => orpc.apiKeys.revoke.mutationOptions());
+  const confirmRevoke = createAlertDialogController<ApiKey>();
+  let notice: HTMLElement | undefined;
 
-  async function revoke(key: ApiKey, label: string) {
-    // On their own: written beside the request, they would be held until it settles.
-    onFlush(() => {
-      setActionFailure(undefined);
-      setRevoked(undefined);
-    });
+  async function revoke(key: ApiKey) {
+    const label = keyLabel(key);
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setRevoked(undefined));
     const queryKey = orpc.apiKeys.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     try {
@@ -130,19 +140,22 @@ function KeyList() {
     } catch (error) {
       // Even a refused revocation can mean the key is gone since the list was read.
       const refreshed = reread();
-      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
+      if (problemOf(error)?.status !== 404) throw error;
+      // The open dialog waits for this read, which Query tries again while the hub does not answer:
+      // at worst four tries of HUB_DEADLINE_MS and the pauses between them, about two minutes.
       await refreshed;
       const list = queryClient.getQueryState(queryKey);
       if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === key.id))
-        return hubFailureMessage(error);
+        throw error;
       setRevoked({ id: key.id, message: `${label} is already gone.` });
-      return undefined;
+      // On the page before the dialog closes and focus moves to it.
+      flush();
+      return;
     }
     setRevoked({ id: key.id, message: `${label} is revoked.` });
     // Render the outcome before starting a background read that may need to retry.
     flush();
     void reread();
-    return undefined;
   }
 
   return (
@@ -154,16 +167,13 @@ function KeyList() {
         {(revocation) => (
           <Notice
             role="status"
-            focusRef={(element) =>
-              focusAfterRowDrops(element, () => keys.data.some((key) => key.id === revocation.id))
-            }
+            focusRef={(element) => {
+              notice = element;
+            }}
           >
             {revocation.message}
           </Notice>
         )}
-      </Show>
-      <Show when={actionFailure()} keyed>
-        {(message) => <Notice role="alert">{message}</Notice>}
       </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={keys.isError}>
@@ -185,8 +195,26 @@ function KeyList() {
           </div>
         }
       >
-        <KeyTable keys={keys.data} revoke={revoke} reportPageFailure={setActionFailure} />
+        <KeyTable keys={keys.data} confirmRevoke={confirmRevoke} />
       </Show>
+      <ConfirmDialog
+        controller={confirmRevoke}
+        heading={(key) => (
+          <>
+            Revoke <span class={key.name ? "mono" : "unnamed"}>{key.name || "Unnamed"}</span>{" "}
+            <span class="sid">{key.start ?? ""}</span>?
+          </>
+        )}
+        confirm={(key) => `Revoke ${keyLabel(key)}`}
+        act={revoke}
+        notice={() => notice}
+      >
+        {() => (
+          <p>
+            Calls made with it are refused from now on. Final: a revoked key cannot be restored.
+          </p>
+        )}
+      </ConfirmDialog>
     </>
   );
 }
@@ -364,11 +392,7 @@ function CreateKey(props: { onClose: () => void }) {
   );
 }
 
-function KeyTable(props: {
-  reportPageFailure: (message: string) => void;
-  keys: ApiKey[];
-  revoke: (key: ApiKey, label: string) => Promise<string | undefined>;
-}) {
+function KeyTable(props: { keys: ApiKey[]; confirmRevoke: AlertDialogController<ApiKey> }) {
   return (
     <table class="records is-narrow" role="table">
       <caption class="vh">API keys</caption>
@@ -401,7 +425,6 @@ function KeyTable(props: {
         <For each={props.keys} keyed={(key) => key.id}>
           {(key) => {
             const name = () => key().name || "Unnamed";
-            const label = () => (key().start ? `${name()} ${key().start}` : name());
             return (
               <tr role="row">
                 <td role="cell" class="is-id">
@@ -432,26 +455,14 @@ function KeyTable(props: {
                   <Expiry expiresAt={key().expiresAt} />
                 </td>
                 <td role="cell" class="is-act">
-                  <ConfirmAction
-                    trigger="Revoke"
-                    reportPageFailure={(message) =>
-                      props.reportPageFailure(`Revoke ${label()}: ${message}`)
-                    }
-                    triggerLabel={`Revoke ${label()}`}
-                    heading={
-                      <>
-                        Revoke <span class={!key().name ? "unnamed" : "mono"}>{name()}</span>{" "}
-                        <span class="sid">{key().start ?? ""}</span>?
-                      </>
-                    }
-                    confirm={`Revoke ${label()}`}
-                    act={() => props.revoke(key(), label())}
+                  <AlertDialogTrigger
+                    controller={props.confirmRevoke}
+                    payload={key()}
+                    class="danger"
+                    aria-label={`Revoke ${keyLabel(key())}`}
                   >
-                    <p>
-                      Calls made with it are refused from now on. Final: a revoked key cannot be
-                      restored.
-                    </p>
-                  </ConfirmAction>
+                    Revoke
+                  </AlertDialogTrigger>
                 </td>
               </tr>
             );

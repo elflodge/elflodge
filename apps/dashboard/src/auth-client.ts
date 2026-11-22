@@ -7,6 +7,7 @@ import type { Role } from "better-auth/plugins/access";
 // vp's recursive build a cycle (dashboard#build -> hub#build -> dashboard#build).
 import { ac, roles } from "../../hub/src/auth/access.ts";
 import type { BetterAuth } from "../../hub/src/auth/auth.ts";
+import { HUB_DEADLINE_MS } from "./api-client.ts";
 
 /**
  * Better Auth's client for the hub that serves the dashboard, at Better Auth's default path on the
@@ -20,7 +21,8 @@ export const authClient = createAuthClient({
     organizationClient<{ ac: typeof ac; roles: Record<string, Role> }>({ ac, roles }),
     customSessionClient<BetterAuth>(),
   ],
-  fetchOptions: { throw: true },
+  // better-fetch leaves out its timeout for a call given a signal of its own, which only reads are.
+  fetchOptions: { throw: true, timeout: HUB_DEADLINE_MS },
 });
 
 /**
