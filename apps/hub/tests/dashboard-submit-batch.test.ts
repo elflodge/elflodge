@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import type { Browser, Page, Request } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
@@ -401,6 +405,7 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
   try {
     await reached.promise;
     await expectBrowser(page.getByRole("alertdialog")).toHaveCount(0);
+    await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
     await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
   } finally {
     record.resolve();
@@ -441,15 +446,15 @@ test("Leave asked while files upload says so once the create is sent", async () 
     .getByRole("alertdialog")
     .locator('[data-slot="alert-dialog-description"]');
   await expectBrowser(description).toContainText("The Batch has not been submitted.");
+  // A polite live region before the words change, so a screen reader hears the change.
+  await expectBrowser(description).toHaveAttribute("aria-live", "polite");
   const element = await description.elementHandle();
   try {
     upload.resolve();
     await sent.promise;
-    // The same element takes the warning, a polite live region, so a screen reader hears it.
     await expect
       .poll(() => element?.textContent())
       .toContain("The hub may already have a Batch from this page");
-    expect(await element?.getAttribute("aria-live")).toBe("polite");
   } finally {
     create.resolve();
   }
@@ -507,15 +512,46 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
     await removeAll.click();
     await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
     await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
-    await expectBrowser(page.getByRole("group", { name: "Jobs" }).getByRole("status")).toHaveText(
-      "All 2 jobs removed.",
-    );
+    await expectBrowser(
+      page.getByRole("status").filter({ hasText: "All 2 jobs removed." }),
+    ).toBeVisible();
     await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
     await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
   } finally {
     release.resolve();
   }
   expect(await page.evaluate("window.submissions")).toBe(0);
+}, 30_000);
+
+test("a file dropped on the Jobs group adds a job, but not while Remove all asks", async () => {
+  const page = await openSubmitBatch("Batch dropper");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  const folder = await mkdtemp(path.join(tmpdir(), "dropped-"));
+  onTestFinished(() => rm(folder, { recursive: true }));
+  const dropped = path.join(folder, "dropped.txt");
+  await writeFile(dropped, "Dropped.");
+  const group = page.getByRole("group", { name: "Jobs" });
+  const input = await page.context().newCDPSession(page);
+  // Dropped as a person drops it, through the browser's own hit test, at the group's start, beside
+  // where a dialog shows.
+  async function drop() {
+    const box = await group.boundingBox();
+    if (!box) throw new Error("The Jobs group is not shown.");
+    const at = { x: box.x + 10, y: box.y + box.height / 2 };
+    const data = { items: [], files: [dropped], dragOperationsMask: 1 };
+    for (const type of ["dragEnter", "dragOver", "drop"] as const)
+      await input.send("Input.dispatchDragEvent", { type, ...at, data });
+  }
+  await drop();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  await page.getByRole("button", { name: "Remove all" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
+  await expectBrowser(dialog).toBeVisible();
+  await drop();
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(page.getByRole("button", { name: /^Remove job / })).toHaveCount(2);
 }, 30_000);
 
 test("files alike in name, size and time but not in content are each sent as their own", async () => {

@@ -246,9 +246,6 @@ export function DraftJobs(props: {
         <Show when={!props.rows.length && !receiving()}>
           <p class="note">No jobs yet. Files can also be dropped here.</p>
         </Show>
-        <p role="status" class="vh">
-          {said()}
-        </p>
         <Show when={props.rows.length}>
           <a class="vh skip-list" href={`#${props.after}`}>
             Skip the jobs
@@ -375,6 +372,12 @@ export function DraftJobs(props: {
           </table>
         </Show>
       </FieldGroup>
+      {/* Beside the group rather than in it: either question leaves out of what it makes inert a
+          live region and what holds it, and the group, then inert whole, takes no file dropped
+          while it is open. */}
+      <p role="status" class="vh">
+        {said()}
+      </p>
       <RemoveAllDialog
         controller={confirmRemoveAll.controller}
         opener={() => removeAllButton}
