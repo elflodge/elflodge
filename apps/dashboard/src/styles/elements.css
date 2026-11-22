@@ -354,7 +354,8 @@ dialog::backdrop,
 [data-slot="alert-dialog-content"]::backdrop {
   background: var(--c-scrim);
 }
-[popover]:where(:not([role="dialog"], [role="alertdialog"])) {
+/* The dashboard's own popovers: UI SDK's parts, which carry `data-slot`, are styled by their own. */
+[popover]:where(:not([data-slot])) {
   background: var(--c-paper);
   color: var(--c-ink);
   border: var(--rule) solid var(--c-field-edge);

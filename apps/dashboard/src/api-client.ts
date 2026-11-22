@@ -2,14 +2,21 @@ import { BetterFetchError } from "@better-fetch/fetch";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import { TimeoutLinkPlugin } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
-import { apiContract, asError, createProblemDetailsLink } from "contract";
+import { apiContract, asError, createProblemDetailsLink, problemOf } from "contract";
 
 /**
  * How long the dashboard waits for the hub to answer a call before it gives up. A member cannot
  * leave a confirmation while its request runs, so a request the hub never answers has to end by
- * itself. An upload takes as long as its file needs, so it has none.
+ * itself.
  */
 export const HUB_DEADLINE_MS = 30_000;
+
+/**
+ * The calls whose request carries what a member submitted: a file, or a Batch's jobs with their
+ * input, up to the hub's request limit. Sending one takes as long as the member's connection needs,
+ * so these have no deadline; the pages that send them can be stopped or left while they run.
+ */
+const CALLS_CARRYING_CONTENT = new Set(["blobs.upload", "batches.create", "batches.addJobs"]);
 
 /**
  * The hub's API, on the page's own origin, which serves it (ADR 0043): its calls go to paths the
@@ -19,7 +26,8 @@ export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
   createProblemDetailsLink(apiContract, {
     plugins: [
       new TimeoutLinkPlugin({
-        timeout: ({ path }) => (path.join(".") === "blobs.upload" ? undefined : HUB_DEADLINE_MS),
+        timeout: ({ path }) =>
+          CALLS_CARRYING_CONTENT.has(path.join(".")) ? undefined : HUB_DEADLINE_MS,
       }),
     ],
   }),
@@ -47,17 +55,20 @@ export function hubFailureMessage(caught: unknown): string {
 }
 
 /**
- * The words for a write that failed: the hub's refusal, or, when no answer came, as when the hub
- * took longer than `HUB_DEADLINE_MS` or the connection dropped, that the hub may have done it
- * anyway, since the request may have reached it.
+ * The words for a write that failed: the hub's own when it refused, with a 4xx status, so that
+ * nothing was done. Any other failure may have come after the write was done: no answer within
+ * `HUB_DEADLINE_MS`, a dropped connection, a 5xx from the hub or a proxy in front of it, or an
+ * answer that does not match the contract.
  */
 export function hubWriteFailureMessage(caught: unknown): string {
   const error = asError(caught);
-  if (error instanceof ORPCError || error instanceof BetterFetchError)
-    return hubFailureMessage(error);
+  // Not `refused` from query.ts, which also counts an error without Problem Details, as an answer
+  // that fails the contract check is, since reading again would not help.
+  const status = error instanceof BetterFetchError ? error.status : problemOf(error)?.status;
+  if (status !== undefined && status >= 400 && status < 500) return hubFailureMessage(error);
   // A mistake in the dashboard ends here too, which the console keeps.
   console.error(error);
-  return "The hub did not answer, so this may have been done anyway. Check before trying again.";
+  return "The dashboard could not confirm this was done. Check before trying again.";
 }
 
 /** Finish a failure notice with the hub's words when it supplied any. */

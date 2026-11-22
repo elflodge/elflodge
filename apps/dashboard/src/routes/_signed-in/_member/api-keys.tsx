@@ -8,7 +8,17 @@ import {
 } from "@ui-sdk/solid/alert-dialog";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
-import { For, Show, createSignal, flush, onFlush, onSettled } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  deep,
+  flush,
+  latest,
+  onFlush,
+  onSettled,
+} from "solid-js";
 
 import { api, hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { ConfirmDialog } from "../../../components/ConfirmDialog.tsx";
@@ -128,6 +138,10 @@ function KeyList() {
   const queryClient = useQueryClient();
   const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
+  // While a read of the list is in flight, `keys.data` is pending, and so is any render pass that
+  // reads it. Each Revoke reads the confirmation's state, so read directly, every write the
+  // confirmation makes (its opening, "Working…", its closing) would wait for that read to land.
+  const list = createMemo(() => latest(() => deep(keys.data)));
   const revoking = useMutation(() => orpc.apiKeys.revoke.mutationOptions());
   const confirmRevoke = createAlertDialogController<Revocation>();
   let notice: HTMLElement | undefined;
@@ -142,28 +156,29 @@ function KeyList() {
       await revoking.mutate({ id: key.id });
     } catch (error) {
       // Even a refused revocation can mean the key is gone since the list was read.
-      const refreshed = reread();
+      void reread();
       if (problemOf(error)?.status !== 404) throw error;
-      // The open dialog waits for this read, which Query tries again while the hub does not answer:
-      // at worst four tries of HUB_DEADLINE_MS and the pauses between them, about two minutes.
-      await refreshed;
-      const list = queryClient.getQueryState(queryKey);
-      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === key.id))
-        throw error;
+      // One read decides whether it is already gone, while the dialog waits: tried once, within the
+      // hub deadline, offline too. Query's `fetchQuery` would join a read of the list already in
+      // flight, with its retries and its pause while the browser is offline.
+      const current = await api.apiKeys.list().catch(() => undefined);
+      if (!current || current.some((item) => item.id === key.id)) throw error;
       setRevoked({ id: key.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();
       return;
     }
     setRevoked({ id: key.id, message: `${label} is revoked.` });
-    // Render the outcome before starting a background read that may need to retry.
+    // Render the outcome before starting a background read that may need to retry. The read starts
+    // before UI SDK closes the dialog, which is no matter: nothing the dialog, the notice or a row
+    // reads waits for it.
     flush();
     void reread();
   }
 
   return (
     <>
-      <Show when={keys.isError || keys.data.length}>
+      <Show when={keys.isError || list().length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
       <Show when={revoked()} keyed>
@@ -187,19 +202,24 @@ function KeyList() {
           readAt={keys.dataUpdatedAt}
         />
       </Show>
-      <Show
-        when={keys.data.length}
-        fallback={
-          <div class="empty">
-            <h2>No API keys yet</h2>
-            <p>
-              A program, a script or a Runner calls the hub with a key. Create one with Create key.
-            </p>
-          </div>
-        }
-      >
-        <KeyTable keys={keys.data} confirmRevoke={confirmRevoke} />
-      </Show>
+      {/* Present when a confirmation opens, so UI SDK makes it inert, and with it whichever of the
+          list and its empty state a read shows while the confirmation is open. */}
+      <div>
+        <Show
+          when={list().length}
+          fallback={
+            <div class="empty">
+              <h2>No API keys yet</h2>
+              <p>
+                A program, a script or a Runner calls the hub with a key. Create one with Create
+                key.
+              </p>
+            </div>
+          }
+        >
+          <KeyTable keys={list()} confirmRevoke={confirmRevoke} />
+        </Show>
+      </div>
       <ConfirmDialog
         controller={confirmRevoke}
         heading={(key) => (

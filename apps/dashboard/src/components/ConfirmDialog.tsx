@@ -15,24 +15,27 @@ import { Notice } from "./Notice.tsx";
 /**
  * The dialog that confirms a destructive action on one of a list's records: it says what the action
  * ends and whether that is final, and acts only on its confirming button, which names what it acts
- * on. The safe choice comes first and has focus, so a stray Enter keeps.
+ * on. The safe choice comes first and has focus, so a stray Enter keeps; opened by touch, the
+ * dialog itself has focus, as UI SDK does it.
  *
  * One per list, outside it, opened by an `AlertDialogTrigger` in each row with the same
  * `controller` and the record as its payload. A dialog in the row would go with the row, and with it
  * a refusal still to show; this one stays when a read drops the record, naming it as the member saw
  * it, so the payload carries the record's words as they were at the press.
  *
+ * The rows read the list through `latest`, as `createMemo(() => latest(() => deep(query.data)))`:
+ * each trigger reads the dialog's state, and a row that read a list still being read again would
+ * hold every write the dialog makes until that read lands.
+ *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
- * outcome, which closes the dialog with focus on `notice`; it throws to refuse, and the dialog shows
- * why and keeps focus on the confirming button for a retry.
+ * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,
+ * and the dialog shows why and keeps focus on the confirming button for a retry.
  */
 export function ConfirmDialog<T>(props: {
   controller: AlertDialogController<T>;
   heading: (record: T) => JSX.Element;
   /** The confirming button's words, which name what it acts on. */
   confirm: (record: T) => string;
-  /** The safe choice's words, such as "Keep them". Defaults to "Keep it". */
-  keep?: string;
   /** What the action ends, and whether that is final. */
   children: (record: T) => JSX.Element;
   act: (record: T) => Promise<void>;
@@ -40,14 +43,18 @@ export function ConfirmDialog<T>(props: {
   notice: () => HTMLElement | undefined;
 }) {
   // Only an outcome the page shows takes focus: a keep or Escape returns it to the row's button,
-  // even with an older notice on the page.
+  // even with an older notice on the page. A resolved action closes with the reason "action".
   let acted = false;
   return (
     <AlertDialog
       controller={props.controller}
       pendingAnnouncement="Working…"
-      onOpenChange={(open) => {
-        if (open) acted = false;
+      onOpenChange={(open, details) => {
+        acted = !open && details.reason === "action";
+      }}
+      onOpenChangeComplete={(open) => {
+        // UI SDK focuses without scrolling, and the notice can be above a long list scrolled down.
+        if (!open && acted) props.notice()?.scrollIntoView({ block: "nearest" });
       }}
     >
       <AlertDialogContent<T> finalFocus={() => (acted ? props.notice() : undefined)}>
@@ -63,7 +70,6 @@ export function ConfirmDialog<T>(props: {
                     // state, written in this same tick, until the hub answers.
                     await new Promise<void>((resolve) => onFlush(resolve));
                     await props.act(record);
-                    acted = true;
                   }}
                   render={(button, close) => (
                     <>
@@ -79,7 +85,7 @@ export function ConfirmDialog<T>(props: {
                         </Show>
                       </div>
                       <div class="dialog-f">
-                        <AlertDialogClose>{props.keep ?? "Keep it"}</AlertDialogClose>
+                        <AlertDialogClose>Keep it</AlertDialogClose>
                         <button {...button} class="danger is-fill">
                           {props.confirm(record)}
                         </button>

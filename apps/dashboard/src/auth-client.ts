@@ -21,7 +21,9 @@ export const authClient = createAuthClient({
     organizationClient<{ ac: typeof ac; roles: Record<string, Role> }>({ ac, roles }),
     customSessionClient<BetterAuth>(),
   ],
-  // better-fetch leaves out its timeout for a call given a signal of its own, which only reads are.
+  // better-fetch's timeout covers a call made without a signal of its own, and only until the
+  // answer's headers arrive. The session read and its renewal, and the members read, pass a
+  // signal, so they have no deadline, and none locks a dialog.
   fetchOptions: { throw: true, timeout: HUB_DEADLINE_MS },
 });
 

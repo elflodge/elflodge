@@ -19,8 +19,9 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // UI SDK's installation guide: pre-bundled apart, a core entry the dashboard imports would be a
-    // second copy of the core beside the one @ui-sdk/solid loads, and its parts throw in development.
+    // UI SDK's installation guide asks for this with Vite: pre-bundled, a core entry an app imports
+    // is a second copy beside the one @ui-sdk/solid loads, and its parts throw in development. The
+    // dashboard imports no core entry yet; this keeps one added later from breaking them.
     exclude: ["@ui-sdk/core"],
   },
   server: {

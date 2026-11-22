@@ -6,9 +6,9 @@ import {
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
 import { type Runner, type RunnerCapabilities, problemOf } from "contract";
-import { For, Show, createMemo, createSignal, flush } from "solid-js";
+import { For, Show, createMemo, createSignal, deep, flush, latest } from "solid-js";
 
-import { hubFailureDetail, readFromHub } from "../../../api-client.ts";
+import { api, hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
 import { ConfirmDialog } from "../../../components/ConfirmDialog.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -45,9 +45,13 @@ function Runners() {
   const runners = useQuery(() =>
     orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
   );
+  // While a read of the list is in flight, `runners.data` is pending, and so is any render pass that
+  // reads it. Each Remove reads the confirmation's state, so read directly, every write the
+  // confirmation makes (its opening, "Working…", its closing) would wait for the poll to land.
+  const list = createMemo(() => latest(() => deep(runners.data)));
   const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
-  const ids = createMemo(() => shortIds(runners.data.map((runner) => runner.id)));
+  const ids = createMemo(() => shortIds(list().map((runner) => runner.id)));
   const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
 
   function openAddRunner() {
@@ -67,14 +71,13 @@ function Runners() {
       removal = await removing.mutate({ id: runner.id });
     } catch (error) {
       // Even a refused removal can mean the Runner is gone since the list was read.
-      const refreshed = reread();
+      void reread();
       if (problemOf(error)?.status !== 404) throw error;
-      // The open dialog waits for this read, which Query tries again while the hub does not answer:
-      // at worst four tries of HUB_DEADLINE_MS and the pauses between them, about two minutes.
-      await refreshed;
-      const list = queryClient.getQueryState(queryKey);
-      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === runner.id))
-        throw error;
+      // One read decides whether it is already gone, while the dialog waits: tried once, within the
+      // hub deadline, offline too. Query's `fetchQuery` would join a read of the list already in
+      // flight, with its retries and its pause while the browser is offline.
+      const current = await api.runners.list().catch(() => undefined);
+      if (!current || current.some((item) => item.id === runner.id)) throw error;
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();
@@ -84,7 +87,9 @@ function Runners() {
       id: runner.id,
       message: removalSummary(label, removal.endedJobs.length, removal.jobsWithFilesLeft.length),
     });
-    // Render the outcome before starting a background read that may need to retry.
+    // Render the outcome before starting a background read that may need to retry. The reads start
+    // before UI SDK closes the dialog, which is no matter: nothing the dialog, the notice or a row
+    // reads waits for them.
     flush();
     void reread();
     // Jobs ended by the removal are stale wherever they are shown.
@@ -101,7 +106,7 @@ function Runners() {
           </button>
         </div>
       </div>
-      <Show when={runners.isError || runners.data.length}>
+      <Show when={runners.isError || list().length}>
         <p class="note">
           {timeZoneNote()} {CONNECTION_NOTE}
         </p>
@@ -127,26 +132,30 @@ function Runners() {
           readAt={runners.dataUpdatedAt}
         />
       </Show>
-      <Show
-        when={runners.data.length}
-        fallback={
-          <div class="empty">
-            <h2>No Runners yet</h2>
-            <p>
-              A Runner runs jobs. Add one with the command Add Runner gives, and it is listed here
-              once it registers.
-            </p>
-          </div>
-        }
-      >
-        <RunnerList
-          runners={runners.data}
-          managesKeys={context().managesKeys}
-          confirmRemove={confirmRemove}
-          readAt={runners.dataUpdatedAt}
-          shortId={shortId}
-        />
-      </Show>
+      {/* Present when a confirmation opens, so UI SDK makes it inert, and with it whichever of the
+          list and its empty state a read shows while the confirmation is open. */}
+      <div>
+        <Show
+          when={list().length}
+          fallback={
+            <div class="empty">
+              <h2>No Runners yet</h2>
+              <p>
+                A Runner runs jobs. Add one with the command Add Runner gives, and it is listed here
+                once it registers.
+              </p>
+            </div>
+          }
+        >
+          <RunnerList
+            runners={list()}
+            managesKeys={context().managesKeys}
+            confirmRemove={confirmRemove}
+            readAt={runners.dataUpdatedAt}
+            shortId={shortId}
+          />
+        </Show>
+      </div>
       <ConfirmDialog
         controller={confirmRemove}
         heading={(runner) => (
@@ -174,7 +183,7 @@ function Runners() {
           <AddRunner
             organizationName={context().member?.organization.name}
             managesKeys={context().managesKeys}
-            registered={runners.data.find((runner) => !atOpen.has(runner.id))}
+            registered={list().find((runner) => !atOpen.has(runner.id))}
             readFailed={runners.isError}
             shortId={shortId}
             onClose={() => setRunnersAtOpen(undefined)}
