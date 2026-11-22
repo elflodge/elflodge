@@ -16,6 +16,7 @@ import {
   type JobEventsPage,
   type JobsPage,
   type JobRunner,
+  type JobUsage,
   type JobLimits,
   type Labels,
   type StatusUnknownReason,
@@ -946,23 +947,92 @@ async function withdrawCountedFailure(
     .execute();
 }
 
-/** A job's end that gets a Usage record: the job as it ended, and its totals then. */
+/** A job's end that gets a Usage record: the job as it ended, and its usage and totals then. */
 export type UsageOfEnd = Pick<
   JobRow,
-  (typeof USAGE_COPIED_COLUMNS)[number] | "recordedTotalTokens" | "recordedCostUsd"
+  | (typeof USAGE_COPIED_COLUMNS)[number]
+  | "recordedTotalTokens"
+  | "recordedCostUsd"
+  | "recordedUsage"
 > & {
   jobId: JobId;
+  jobUsage: JobUsage;
   jobTotalTokens: number;
   jobCostUsd: number;
 };
+
+/** pi's additive token counters of one model's or tool's usage, subtracted as `bigint`. */
+const TOKEN_COUNTERS = [
+  "totalTokens",
+  "input",
+  "output",
+  "cacheRead",
+  "cacheWrite",
+  "cacheWrite1h",
+  "reasoning",
+] as const;
+
+/**
+ * pi's additive cost counters, in US dollars, subtracted as `numeric`. `cost.totalFromProvider` is
+ * left out: pi's `addUsage` never updates it on a running total.
+ */
+const COST_COUNTERS = ["total", "input", "output", "cacheRead", "cacheWrite"] as const;
+
+/** One model's or tool's usage, as a job's usage holds it. */
+type UsageEntry = JobUsage["models"][string];
+
+/**
+ * One model's or tool's use between a job's previous end and now, from a row of its usage now
+ * (`now`) beside the same name's row at its previous end (`before`), either absent: whether any of
+ * pi's counters changed, and the entry of their differences, under pi's names. The differences
+ * are taken in SQL as the totals are, so a record's entries add up exactly to its `totalTokens` and
+ * `costUsd`. A name whose counter shrank gets a negative difference rather than none, which would
+ * break that sum: pi's totals per name only grow, so it would be pi's fault. A counter absent on
+ * both sides, as `reasoning` is from a provider that reports none, stays absent rather than 0; one
+ * absent on one side counts as 0 there.
+ */
+const usageEntries = (() => {
+  const eb = expressionBuilder<
+    {
+      now: { key: string | null; value: UsageEntry | null };
+      before: { key: string | null; value: UsageEntry | null };
+    },
+    "now" | "before"
+  >();
+  // `now - before`, `now` where `before` is absent, `-before` where `now` is.
+  const differenceOf = (now: Expression<number | null>, before: Expression<number | null>) =>
+    eb.fn.coalesce(eb(now, "-", before), now, eb.neg(before));
+  const tokens = TOKEN_COUNTERS.map((counter) => {
+    const side = (from: "now" | "before") =>
+      eb.cast<number | null>(eb.ref(`${from}.value`, "->>").key(counter), "bigint");
+    return [counter, differenceOf(side("now"), side("before"))] as const;
+  });
+  const cost = COST_COUNTERS.map((counter) => {
+    const side = (from: "now" | "before") =>
+      eb.cast<number | null>(eb.ref(`${from}.value`, "->>").key("cost").key(counter), "numeric");
+    return [counter, differenceOf(side("now"), side("before"))] as const;
+  });
+  const objectOf = (fields: ReadonlyArray<readonly [string, Expression<unknown>]>) =>
+    eb.fn(
+      "jsonb_build_object",
+      fields.flatMap(([name, value]) => [eb.cast(eb.val(name), "text"), value]),
+    );
+  return {
+    changed: eb.or([...tokens, ...cost].map(([, value]) => eb(value, "<>", eb.lit(0)))),
+    entry: eb.fn<UsageEntry>("jsonb_strip_nulls", [
+      objectOf([...tokens, ["cost", objectOf(cost)]]),
+    ]),
+  };
+})();
 
 /**
  * Inserts the Usage record of each job end in the `ended` table, a `WITH` query of the statement
  * `db` builds: the job as it ended, what it used since its previous end, and its totals now. What
  * it used is its totals less what its records already count (`recordedTotalTokens`,
- * `recordedCostUsd`), as the job's row held them before this end; the statement that ends the job
- * sets them to its totals. The ends the hub makes itself and those its Runners report are recorded
- * alike.
+ * `recordedCostUsd`), and its usage by model and by tool less the usage they count
+ * (`recordedUsage`), as the job's row held them before this end; the statement that ends the job
+ * sets them to its totals and its usage, from the same snapshot of its progress as `ended` gives.
+ * The ends the hub makes itself and those its Runners report are recorded alike.
  */
 export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfEnd }>) {
   return db
@@ -972,20 +1042,52 @@ export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfE
       ...USAGE_COPIED_COLUMNS,
       "totalTokens",
       "costUsd",
+      "usage",
       "jobTotalTokens",
       "jobCostUsd",
     ])
     .expression((eb) =>
-      eb
-        .selectFrom("ended as e")
-        .select((select) => [
+      eb.selectFrom("ended as e").select((select) => {
+        // Each model's or tool's use since the previous end (`usageEntries`), as `jsonb_each` rows
+        // of the job's usage now beside those of its usage at its previous end, matched by name.
+        const entriesOf = (map: "models" | "tools") => {
+          const rowsOf = (usage: "e.jobUsage" | "e.recordedUsage") =>
+            select.fn<{ key: string; value: UsageEntry }>("jsonb_each", [
+              select.ref(usage, "->").key(map),
+            ]);
+          return select
+            .selectFrom(rowsOf("e.jobUsage").as("now"))
+            .fullJoin(rowsOf("e.recordedUsage").as("before"), "now.key", "before.key")
+            .where(usageEntries.changed)
+            .select((entries) =>
+              entries.fn
+                .coalesce(
+                  entries.fn("jsonb_object_agg", [
+                    entries.fn.coalesce("now.key", "before.key"),
+                    usageEntries.entry,
+                  ]),
+                  entries.fn("jsonb_build_object", []),
+                )
+                .as("entries"),
+            );
+        };
+        return [
           "e.jobId",
           ...USAGE_COPIED_COLUMNS.map((column) => `e.${column}` as const),
           select("e.jobTotalTokens", "-", select.ref("e.recordedTotalTokens")).as("totalTokens"),
           select("e.jobCostUsd", "-", select.ref("e.recordedCostUsd")).as("costUsd"),
+          select
+            .fn<JobUsage>("jsonb_build_object", [
+              select.cast(select.val("models"), "text"),
+              entriesOf("models"),
+              select.cast(select.val("tools"), "text"),
+              entriesOf("tools"),
+            ])
+            .as("usage"),
           "e.jobTotalTokens",
           "e.jobCostUsd",
-        ]),
+        ];
+      }),
     );
 }
 
@@ -1006,6 +1108,8 @@ async function recordUsageOfEnd(trx: Transaction<Database>, jobId: JobId) {
             ...USAGE_COPIED_COLUMNS.map((column) => `j.${column}` as const),
             "j.recordedTotalTokens",
             "j.recordedCostUsd",
+            "j.recordedUsage",
+            "p.usage as jobUsage",
             "p.totalTokens as jobTotalTokens",
             "p.costUsd as jobCostUsd",
           ])
@@ -1019,6 +1123,7 @@ async function recordUsageOfEnd(trx: Transaction<Database>, jobId: JobId) {
           .set((eb) => ({
             recordedTotalTokens: eb.ref("p.totalTokens"),
             recordedCostUsd: eb.ref("p.costUsd"),
+            recordedUsage: eb.ref("p.usage"),
           }))
           .whereRef("p.jobId", "=", "j.id")
           .where("j.id", "=", jobId)
@@ -1242,6 +1347,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                     // The end's Usage record, below, counts the job's totals from here on.
                     recordedTotalTokens: eb.ref("jobProgress.totalTokens"),
                     recordedCostUsd: eb.ref("jobProgress.costUsd"),
+                    recordedUsage: eb.ref("jobProgress.usage"),
                   };
                 })
                 .where("job.runnerId", "=", runnerId)
@@ -1249,6 +1355,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                 .returning([
                   "job.id",
                   ...USAGE_COPIED_COLUMNS.map((column) => `job.${column}` as const),
+                  "jobProgress.usage as jobUsage",
                   "jobProgress.totalTokens as jobTotalTokens",
                   "jobProgress.costUsd as jobCostUsd",
                 ]),
@@ -1263,6 +1370,8 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                   ...USAGE_COPIED_COLUMNS.map((column) => `j.${column}` as const),
                   "before.recordedTotalTokens",
                   "before.recordedCostUsd",
+                  "before.recordedUsage",
+                  "j.jobUsage",
                   "j.jobTotalTokens",
                   "j.jobCostUsd",
                 ]),

@@ -1016,6 +1016,7 @@ export function cancelBatch(id: string) {
                   // The end's Usage record, below, counts the job's totals from here on.
                   recordedTotalTokens: eb.ref("jobProgress.totalTokens"),
                   recordedCostUsd: eb.ref("jobProgress.costUsd"),
+                  recordedUsage: eb.ref("jobProgress.usage"),
                 }))
                 .where("job.batchUid", "=", uid)
                 .where((eb) =>
@@ -1027,6 +1028,7 @@ export function cancelBatch(id: string) {
                 .returning([
                   "job.id",
                   ...USAGE_COPIED_COLUMNS.map((column) => `job.${column}` as const),
+                  "jobProgress.usage as jobUsage",
                   "jobProgress.totalTokens as jobTotalTokens",
                   "jobProgress.costUsd as jobCostUsd",
                 ]),
@@ -1041,6 +1043,8 @@ export function cancelBatch(id: string) {
                   ...USAGE_COPIED_COLUMNS.map((column) => `j.${column}` as const),
                   "before.recordedTotalTokens",
                   "before.recordedCostUsd",
+                  "before.recordedUsage",
+                  "j.jobUsage",
                   "j.jobTotalTokens",
                   "j.jobCostUsd",
                 ]),

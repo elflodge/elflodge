@@ -248,10 +248,27 @@ export const jobEventSchema = z
   .register(z.globalRegistry, { id: "JobEvent" });
 export type JobEvent = z.infer<typeof jobEventSchema>;
 
-/** One model's or tool's usage as pi-ai counts it; the hub reads its tokens and cost and keeps the rest. */
+/**
+ * One model's or tool's usage as pi-ai counts it. The hub adds up its tokens and cost, and
+ * subtracts each of pi's additive counters named here from the same name's at the job's previous end
+ * in SQL, so each is checked as the number SQL casts it to: token counts as integers. Other fields
+ * are kept as they come.
+ */
 const usageSchema = z.looseObject({
   totalTokens: z.int(),
-  cost: z.looseObject({ total: z.number() }),
+  input: z.optional(z.int()),
+  output: z.optional(z.int()),
+  cacheRead: z.optional(z.int()),
+  cacheWrite: z.optional(z.int()),
+  cacheWrite1h: z.optional(z.int()),
+  reasoning: z.optional(z.int()),
+  cost: z.looseObject({
+    total: z.number(),
+    input: z.optional(z.number()),
+    output: z.optional(z.number()),
+    cacheRead: z.optional(z.number()),
+    cacheWrite: z.optional(z.number()),
+  }),
 });
 
 /** A job's usage totals so far, per model (`provider/modelId`) and per tool, as pi reports them. */

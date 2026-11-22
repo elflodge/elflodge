@@ -493,6 +493,7 @@ function applyReportsStatement(
             "failureMessage",
             "output",
             "neverStarted",
+            "nextUsage",
             "nextTotalTokens",
             "nextCostUsd",
           ])
@@ -554,6 +555,12 @@ function applyReportsStatement(
                 .then(eb.ref("r.nextCostUsd"))
                 .else(eb.ref("j.recordedCostUsd"))
                 .end(),
+              recordedUsage: eb
+                .case()
+                .when(ends)
+                .then(eb.ref("r.nextUsage"))
+                .else(eb.ref("j.recordedUsage"))
+                .end(),
             };
           })
           .whereRef("j.id", "=", "r.jobId")
@@ -585,6 +592,8 @@ function applyReportsStatement(
             ...USAGE_COPIED_COLUMNS.map((column) => `m.${column}` as const),
             "before.recordedTotalTokens",
             "before.recordedCostUsd",
+            "before.recordedUsage",
+            "c.nextUsage as jobUsage",
             "c.nextTotalTokens as jobTotalTokens",
             "c.nextCostUsd as jobCostUsd",
           ])
