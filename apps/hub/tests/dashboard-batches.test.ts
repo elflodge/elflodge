@@ -98,10 +98,20 @@ test("a member sees a Batch control in flight and its result on the record and l
       "aria-hidden",
       "true",
     );
+    // A pause from elsewhere lands first: the next read withdraws Pause and its note.
+    await system.owner().batches.pause({ id });
+    await expectBrowser(page.getByRole("button", { name: "Resume" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectBrowser(page.locator("#pause-note")).toHaveCount(0);
+    await expectBrowser(pause).toBeFocused();
+    await expectBrowser(pause).toHaveAttribute("aria-busy", "true");
+    await expectBrowser(pause).toHaveAccessibleDescription(/By a caller/);
   } finally {
     release.resolve();
   }
   await expectBrowser(page.getByRole("status").filter({ hasText: "By a caller" })).toBeFocused();
+  await expectBrowser(pause).toHaveCount(0);
   await page
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
