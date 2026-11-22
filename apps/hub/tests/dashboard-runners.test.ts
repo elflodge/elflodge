@@ -175,10 +175,24 @@ test("removing an already removed Runner closes the dialog and explains its abse
   await record.getByRole("button", remove).click();
   const dialog = page.getByRole("alertdialog");
   // Another member removes the Runner before the hub receives this member's confirmation.
+  let refused = false;
   await page.route(`**/runners/${id}`, async (route) => {
     await system.owner().runners.delete({ id });
+    refused = true;
     await route.continue();
   });
+  // The read that finds it gone is answered; every later read of the list is held, so the row goes
+  // with the notice and not with a later read.
+  let reads = 0;
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (refused && ++reads > 1) await release.promise;
+      await route.continue();
+    },
+  );
   await dialog.getByRole("button", remove).click();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(record).toHaveCount(0);
@@ -533,11 +547,15 @@ test("a second revocation while the first one's reread is unanswered shows its p
   const dialog = page.getByRole("alertdialog");
   // Every read of the list from the first revocation on.
   let revoked = false;
+  const reread = Promise.withResolvers<void>();
   const releaseRead = Promise.withResolvers<void>();
   await page.route(
     (url) => url.pathname.endsWith("/api-keys"),
     async (route) => {
-      if (revoked) await releaseRead.promise;
+      if (revoked) {
+        reread.resolve();
+        await releaseRead.promise;
+      }
       await route.continue();
     },
   );
@@ -557,6 +575,7 @@ test("a second revocation while the first one's reread is unanswered shows its p
     await expectBrowser(
       page.getByRole("status").filter({ hasText: /first held key .* is revoked/ }),
     ).toBeFocused();
+    await reread.promise;
     const revokeSecond = { name: /^Revoke second held key/ };
     await page.getByRole("button", revokeSecond).click();
     await dialog.getByRole("button", revokeSecond).click();
@@ -614,19 +633,21 @@ test("an already removed Runner whose list the hub does not answer ends after 30
 }, 30_000);
 
 test("removing a Runner far down a long list brings its notice into view", async () => {
-  for (const name of ["tall-a", "tall-b", "tall-c"]) await registerRunner(name);
-  const id = await registerRunner("tall-d");
+  for (const name of ["tall-a", "tall-b", "tall-c", "tall-d"]) await registerRunner(name);
   const page = await signedInAt("runners");
   await page.setViewportSize({ width: 800, height: 500 });
-  const last = runnerRecord(page, "tall-d");
-  const remove = { name: `Remove tall-d ${id.slice(0, 8)}` };
-  await last.getByRole("button", remove).scrollIntoViewIfNeeded();
+  const button = page
+    .locator("ul.runners > li")
+    .last()
+    .getByRole("button", { name: /^Remove / });
+  const remove = { name: (await button.getAttribute("aria-label")) ?? "" };
+  await button.scrollIntoViewIfNeeded();
   await expectBrowser(
     page.getByRole("heading", { name: "Runners", level: 1 }),
   ).not.toBeInViewport();
-  await last.getByRole("button", remove).click();
+  await button.click();
   await page.getByRole("alertdialog").getByRole("button", remove).click();
-  const removed = page.getByRole("status").filter({ hasText: /^tall-d .* is removed\./ });
+  const removed = page.getByRole("status").filter({ hasText: / is removed\./ });
   await expectBrowser(removed).toBeFocused();
   await expectBrowser(removed).toBeInViewport();
 }, 30_000);

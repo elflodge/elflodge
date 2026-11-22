@@ -48,6 +48,9 @@ export function ConfirmDialog<T>(props: {
   return (
     <AlertDialog
       controller={props.controller}
+      // Beside the page rather than in it: UI SDK makes inert what is beside the dialog when it opens,
+      // so the page's root holds everything else, a list or a notice rendered later included.
+      container={document.body}
       pendingAnnouncement="Working…"
       onOpenChange={(open, details) => {
         acted = !open && details.reason === "action";

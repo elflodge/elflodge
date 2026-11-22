@@ -70,14 +70,24 @@ function Runners() {
     try {
       removal = await removing.mutate({ id: runner.id });
     } catch (error) {
-      // Even a refused removal can mean the Runner is gone since the list was read.
-      void reread();
-      if (problemOf(error)?.status !== 404) throw error;
+      if (problemOf(error)?.status !== 404) {
+        // Even a refused removal can mean the Runner is gone since the list was read.
+        void reread();
+        throw error;
+      }
       // One read decides whether it is already gone, while the dialog waits: tried once, within the
       // hub deadline, offline too. Query's `fetchQuery` would join a read of the list already in
       // flight, with its retries and its pause while the browser is offline.
       const current = await api.runners.list().catch(() => undefined);
-      if (!current || current.some((item) => item.id === runner.id)) throw error;
+      if (!current) {
+        void reread();
+        throw error;
+      }
+      // The list as it is now, published as a write's answer is, so a row that is gone goes with the
+      // notice rather than with a later read.
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      queryClient.setQueryData(queryKey, current);
+      if (current.some((item) => item.id === runner.id)) throw error;
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();
@@ -132,30 +142,26 @@ function Runners() {
           readAt={runners.dataUpdatedAt}
         />
       </Show>
-      {/* Present when a confirmation opens, so UI SDK makes it inert, and with it whichever of the
-          list and its empty state a read shows while the confirmation is open. */}
-      <div>
-        <Show
-          when={list().length}
-          fallback={
-            <div class="empty">
-              <h2>No Runners yet</h2>
-              <p>
-                A Runner runs jobs. Add one with the command Add Runner gives, and it is listed here
-                once it registers.
-              </p>
-            </div>
-          }
-        >
-          <RunnerList
-            runners={list()}
-            managesKeys={context().managesKeys}
-            confirmRemove={confirmRemove}
-            readAt={runners.dataUpdatedAt}
-            shortId={shortId}
-          />
-        </Show>
-      </div>
+      <Show
+        when={list().length}
+        fallback={
+          <div class="empty">
+            <h2>No Runners yet</h2>
+            <p>
+              A Runner runs jobs. Add one with the command Add Runner gives, and it is listed here
+              once it registers.
+            </p>
+          </div>
+        }
+      >
+        <RunnerList
+          runners={list()}
+          managesKeys={context().managesKeys}
+          confirmRemove={confirmRemove}
+          readAt={runners.dataUpdatedAt}
+          shortId={shortId}
+        />
+      </Show>
       <ConfirmDialog
         controller={confirmRemove}
         heading={(runner) => (
