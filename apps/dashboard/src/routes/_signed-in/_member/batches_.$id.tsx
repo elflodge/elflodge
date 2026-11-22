@@ -12,6 +12,7 @@ import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
 import { JobStatus } from "../../../components/JobStatus.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
+import { ToolCallsLedger } from "../../../components/ToolCallsLedger.tsx";
 import {
   DATE_TIME_SECONDS,
   formatCount,
@@ -136,6 +137,7 @@ function BatchPage() {
                 <dt>Tokens{batch().status !== "cancelled" && " so far"}</dt>
                 <dd>{formatCount(batch().usage.totalTokens)}</dd>
               </dl>
+              <ToolCallsLedger calls={batch().toolCalls} />
               <p class="note">Counts its present jobs, running included.</p>
             </section>
           </Show>

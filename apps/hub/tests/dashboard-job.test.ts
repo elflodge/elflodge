@@ -29,6 +29,15 @@ afterAll(async () => {
   await system.stop();
 });
 
+/** pi's entry of a call of `toolName` that ran. */
+function toolResult(toolName: string) {
+  const ran = { isError: false, durationMs: 5, timestamp: Date.now() };
+  return {
+    kind: "pi.tool-result",
+    model: [{ role: "toolResult", toolCallId: crypto.randomUUID(), toolName, content: [], ...ran }],
+  };
+}
+
 async function openAsMember(name: string, pathname: string) {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
@@ -58,6 +67,25 @@ test("a member opens a listed job, sees its pause requested, and finds the pause
   await expectBrowser(page.getByRole("row").filter({ hasText: "april-invoices" })).toContainText(
     "Paused",
   );
+}, 45_000);
+
+test("a member opens a job's tool calls by name, and they stay open as a count grows", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const job = await submitJob(client, { ...submission, customId: "tool-calls" });
+  const runner = await system.connectReportingRunner();
+  onTestFinished(() => runner.close());
+  const run = await runner.place(job.id);
+  const usage = { models: {}, tools: {} };
+  await runner.start(run, usage, [toolResult("web_search"), toolResult("bash")]);
+
+  const page = await openAsMember("Tool reader", `jobs/${job.id}`);
+  await page.getByText("Show tool calls").click();
+  const rows = page.getByRole("table", { name: "Tool calls by tool" }).getByRole("row");
+  await expectBrowser(rows).toHaveText([/Tool\s*Calls/, /bash\s*1/, /web_search\s*1/]);
+  // The started Event and the two results.
+  await runner.report({ ...run, position: 3 }, [toolResult("web_search")], usage);
+  await expectBrowser(rows.nth(2)).toHaveText(/web_search\s*2/, { timeout: 15_000 });
+  await expectBrowser(rows.nth(2)).toBeVisible();
 }, 45_000);
 
 test("a member can finish reading a Cancel confirmation after the job starts", async () => {

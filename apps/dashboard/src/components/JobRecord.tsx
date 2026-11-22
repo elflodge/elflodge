@@ -24,6 +24,7 @@ import { CopyButton } from "./CopyButton.tsx";
 import { Instant, LastContact } from "./Instant.tsx";
 import { JobSubmitter, RunnerReference } from "./JobReferences.tsx";
 import { TextPreview } from "./TextPreview.tsx";
+import { ToolCallsLedger } from "./ToolCallsLedger.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
@@ -214,6 +215,7 @@ export function JobLimits(props: { job: Job; resumeOffered: boolean; countFrom?:
               <dt>Tokens{suffix()}</dt>
               <dd>{formatCount(props.job.usage.totalTokens)}</dd>
             </dl>
+            <ToolCallsLedger calls={props.job.toolCalls} />
           </Show>
         </div>
         <Show when={props.job.runTimeoutSeconds} keyed>
