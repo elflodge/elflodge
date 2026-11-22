@@ -5,16 +5,18 @@ import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/cont
 import type { JsonValue } from "@earendil-works/chord/json";
 import { type AssistantMessage, type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
-  type ConversationHandle,
+  type AfterToolsDecision,
   configure,
   createRegistry,
   defineDoc,
   defineExtension,
+  defineTask,
   defineTool,
   CompactionTask,
   GenerationTask,
   Harness,
   hook,
+  hookTask,
   ROOT_CONVERSATION_ID,
   type SettledSubmissionRecord,
   type Submission,
@@ -255,6 +257,26 @@ const runnerInstructions = (networkNote: string | undefined) =>
   `You are running a job unattended; nobody will answer questions. Your Workspace, where your files are and your commands run, is the current directory; the job's Input files, if any, are in its \`inputs\` folder. For temporary files, use the directory in $TMPDIR, not /tmp${MKTEMP_ON_MACOS}. To read a PDF, \`pdftotext\` extracts its text and \`pdftoppm\` renders its pages as images.${networkNote === undefined ? "" : ` ${networkNote}`}
 When the work is complete, call submit_output once with the complete output: as \`value\`, or, for a large output or one a script produced, as the \`path\` of a JSON file in the Workspace. The output is checked against the job's Output contract; if it is rejected, correct it and submit again. A reply in prose does not complete the job.`;
 
+// A single submit_output asks Pi to stop directly. A mixed round can end only after its other
+// calls settle, when an afterTools decision can end the generation normally.
+const finishOutput = defineTask<null, { phase: "finish" }, AfterToolsDecision>({
+  name: "elflodge.finish-output",
+  version: 1,
+  initial: () => ({ phase: "finish" }),
+  phases: {
+    finish: (_task, runtime, context) =>
+      runtime.commit(
+        () => ({
+          status: "terminal",
+          outcome: { status: "completed", result: { terminate: true } },
+        }),
+        context,
+      ),
+  },
+  abort: (_task, runtime, context) =>
+    runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+});
+
 function submitOutputTool(schema: Record<string, unknown>) {
   const contract = compileSchema(schema);
   return defineTool({
@@ -339,9 +361,6 @@ export function openJob(
   const context = BACKGROUND_CONTEXT;
   const paths = jobPaths(options.jobsDir, jobId);
   return Effect.gen(function* () {
-    // The conversation and the journal are known only once the Harness is open; the hooks below
-    // need them.
-    let conversation: ConversationHandle | undefined;
     let journal: Harness | undefined;
     // Opened once the job's model cost has reached its budget, which `runAgent` stops it for.
     // The cost is pi's floating-point sum, so a cost exactly at the budget can fall either way.
@@ -355,6 +374,7 @@ export function openJob(
     const runnerExtension = defineExtension({
       name: "elflodge",
       tools: [submitOutputTool(job.outputContract.schema)],
+      tasks: [finishOutput],
       hooks: [
         hook(GenerationTask, {
           // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
@@ -365,11 +385,9 @@ export function openJob(
           // read from the journal, so a round a restarted Runner finishes ends the run too.
           afterTools: async (_assistant, _results, api) => {
             const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
-            if (!accepted || !("output" in accepted)) return;
-            // Not awaited: the abort waits for this task, which is waiting for this hook. It
-            // fails only when the journal closes first, as when the Runner stops, or when the
-            // abort cannot be committed; the job's outcome is read from the journal either way.
-            conversation?.abort(context).catch(() => {});
+            return accepted && "output" in accepted
+              ? { tasks: [hookTask(finishOutput, null)] }
+              : undefined;
           },
           // A request past the budget waits, so it is never made, until the job's work is aborted.
           beforeRequest: async (_request, _api, requestContext) => {
@@ -466,7 +484,6 @@ export function openJob(
         },
       }),
     );
-    conversation = root;
     // A journal that already holds the job is opened by the same run, which the Runner's restart
     // left, or by a new run that resumes the job. A run that has closed is not recovered,
     // nor run again, also when its pause or cancel was recorded before it opened: the stop settled

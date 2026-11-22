@@ -7,9 +7,12 @@ import {
   type Entry,
   type EntryId,
   type EntryRecord,
+  GenerationTask,
   type Harness,
   LiveDoc,
   type Session,
+  ToolResultEntry,
+  ToolTask,
   type Tx,
 } from "@earendil-works/pi-durable";
 import {
@@ -154,6 +157,36 @@ export interface ConversationHead {
   lastEntryId: EntryId | undefined;
 }
 
+/**
+ * Pi can report tool_unavailable both before execution and when a tool that already ran
+ * disappears before it wakes. The result's writer keeps the outcome that distinguishes them.
+ * Reading it alongside the entry requires no extra journal write.
+ */
+async function reportEntry(tx: Tx, entry: EntryRecord): Promise<JobEvent> {
+  const event = { id: entry.id, type: "entry", record: entry } as const;
+  if (
+    !ToolResultEntry.is(entry) ||
+    !Array.isArray(entry.data?.diagnostics) ||
+    !entry.data.diagnostics.length ||
+    entry.byTaskId === undefined
+  )
+    return event;
+
+  const writer = await tx.task(entry.byTaskId);
+  // Pi 1.6 introduced task lifecycle timestamps. Retain the old counting rule when reading
+  // an older result, including an old journal uploaded after upgrading the Runner.
+  if (writer?.startedAt === undefined && writer?.endedAt === undefined) return event;
+  if (writer.kind === GenerationTask.definition.name)
+    return { ...event, toolTaskOutcome: "unstarted" };
+  if (writer.kind !== ToolTask.definition.name || writer.state.status !== "terminal") return event;
+  const outcome = writer.state.outcome.status;
+  // Pi's tool task writes its result in the same commit as one of these three endings.
+  if (outcome === "completed" || outcome === "aborted" || outcome === "failed") {
+    return { ...event, toolTaskOutcome: outcome };
+  }
+  return event;
+}
+
 /** How many records one scan reads at a time. */
 const PAGE_SIZE = 256;
 
@@ -206,7 +239,7 @@ export function readEvents(
         { conversationId: conversation.id, minEntryId, order: "ascending" },
         PAGE_SIZE,
       );
-      for (const entry of page.items) events.push({ id: entry.id, type: "entry", record: entry });
+      for (const entry of page.items) events.push(await reportEntry(tx, entry));
       const last = page.items.at(-1);
       if (page.next !== undefined && last) horizon = Math.min(horizon, last.id);
     }
@@ -288,8 +321,11 @@ export async function readActivity(
             {
               callId,
               name,
-              status,
-              changedAt: changedAt(`${conversationId} tool ${callId} ${status}`),
+              // A parked tool is waiting. Keep the two states understood by existing Hubs.
+              status: status === "running" ? status : ("pending" as const),
+              changedAt: changedAt(
+                `${conversationId} tool ${callId} ${status === "running" ? status : "pending"}`,
+              ),
             },
           ],
     );

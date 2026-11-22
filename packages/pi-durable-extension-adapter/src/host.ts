@@ -709,8 +709,10 @@ class Installation {
           this.#for(owner, api)?.afterResponse(message, api, context),
       }),
       ...(has("turn_end") && {
-        afterTools: async (assistant, _results, api, context) =>
-          this.#for(owner, api)?.turnEnd(assistant, api, context),
+        afterTools: async (assistant, _results, api, context) => {
+          await this.#for(owner, api)?.turnEnd(assistant, api, context);
+          return undefined;
+        },
       }),
       ...(has(...RUN_END_EVENTS) && {
         afterRun: async (run, api, context) => {

@@ -274,7 +274,7 @@ function piUsage(input: number, output: number, extra: { reasoning?: number } = 
 
 /**
  * pi's entry of a result of a call of `toolName`, with a diagnostic of `code` when given. pi's
- * harness times a call it ran, `durationMs`, unless `ran` is false, as for a call it refused.
+ * pre-1.6 harness omitted the duration on a call it refused (`ran: false`).
  */
 function toolResult(toolName: string, { code, ran = true }: { code?: string; ran?: boolean } = {}) {
   return {
@@ -525,6 +525,17 @@ test("a job counts each tool call its Events record a result of once, but not on
     toolResult("web_search", { code: "blocked", ran: false }),
     // Ran, and gave the same code itself.
     toolResult("web_search", { code: "blocked" }),
+    // Older Runners above omit the writer's outcome. Pi 1.6 times even rejected calls.
+    { ...toolResult("web_search", { code: "blocked" }), toolTaskOutcome: "completed" as const },
+    { ...toolResult("read", { code: "invalid_arguments" }), toolTaskOutcome: "completed" as const },
+    {
+      ...toolResult("missing", { code: "tool_unavailable" }),
+      toolTaskOutcome: "completed" as const,
+    },
+    { ...toolResult("missing", { code: "aborted" }), toolTaskOutcome: "unstarted" as const },
+    // The tool ran, paused, and was gone when Pi tried to wake it.
+    { ...toolResult("lookup", { code: "tool_unavailable" }), toolTaskOutcome: "failed" as const },
+    { ...toolResult("lookup", { code: "abandoned" }), toolTaskOutcome: "aborted" as const },
     // Ran and failed.
     toolResult("bash", { code: "tool_error" }),
     // Entries the hub cannot read count as nothing: one without a tool name, and one whose name
@@ -534,7 +545,7 @@ test("a job counts each tool call its Events record a result of once, but not on
   ];
   const smaller = { models: { "scripted/small": piUsage(1024, 64) }, tools: {} };
   await runner.report({ ...run, position: 1 }, calls, smaller);
-  const counted = { web_search: 2, bash: 1 };
+  const counted = { web_search: 2, lookup: 2, bash: 1 };
   expect((await client.jobs.get({ id })).toolCalls).toEqual(counted);
   // Sent again with newer usage, as after an answer that was lost: the usage applies, its calls not.
   const larger = { models: { "scripted/small": piUsage(2048, 128) }, tools: {} };

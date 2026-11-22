@@ -2,7 +2,11 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getCurrentSystemPrompt, getCurrentTools, type Message } from "@earendil-works/pi-ai";
-import type { FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  type FauxResponseFactory,
+} from "@earendil-works/pi-ai/providers/faux";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
 import { type OneJob, startSystem, submitJob, untilStatus } from "./harness.ts";
@@ -103,6 +107,38 @@ test("an output that does not match the Output contract goes back to the agent, 
     isError: true,
     text: expect.stringContaining("Output contract"),
   });
+});
+
+test("a refused tool and an unavailable tool leave the job’s call count unchanged", async () => {
+  system.model.setResponses([
+    callTool("read", {}),
+    callTool("unavailable", {}),
+    callTool("submit_output", { value: { summary: "Done." } }),
+  ]);
+  const job = await runJob(SUBMISSION);
+  expect(job.status).toBe("succeeded");
+  expect(job.toolCalls).toEqual({ submit_output: 1 });
+});
+
+test("accepting output beside another tool lets both finish without another model call", async () => {
+  const before = system.model.state.callCount;
+  const output = { summary: "Revenue grew 4%." };
+  system.model.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("submit_output", { value: output }),
+        fauxToolCall("bash", { command: "echo complete" }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+  ]);
+
+  expect(await runJob(SUBMISSION)).toMatchObject({
+    status: "succeeded",
+    output,
+    toolCalls: { submit_output: 1, bash: 1 },
+  });
+  expect(system.model.state.callCount - before).toBe(1);
 });
 
 test("the agent can submit the output as a JSON file it wrote in its Workspace", async () => {
