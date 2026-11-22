@@ -162,6 +162,55 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   ).toBeVisible();
 }, 30_000);
 
+test("an open Delete says when a resume or another deletion takes it away, and its confirming button does nothing", async () => {
+  const { id, report } = await jobWithHistory(1);
+  await report([
+    {
+      id: 11,
+      type: "entry",
+      record: {
+        id: 11,
+        conversationId: 1,
+        kind: JOB_FAILED,
+        data: { timestamp: Date.now(), reason: "modelFailed", message: "Interrupted" },
+      },
+    },
+  ]);
+  const page = await openAsMember("Delete withdrawn", `jobs/${id}`);
+  const sent = { count: 0 };
+  page.on("request", (request) => {
+    if (request.method() === "DELETE") sent.count += 1;
+  });
+  await page.getByRole("button", { name: "Delete the job" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Delete this job?" });
+  const explanation = dialog.locator('[aria-live="polite"]');
+  const consequence =
+    "Its input, Input files, Events and Output go from the hub now, and from test runner once that Runner has deleted its files. Its Usage record stays.";
+  await expectBrowser(explanation).toHaveText(consequence);
+  const confirm = dialog.getByRole("button", { name: "Delete the job" });
+  await page.keyboard.press("Tab");
+  await expectBrowser(confirm).toBeFocused();
+
+  const client = system.owner();
+  await client.jobs.resume({ id });
+  await expectBrowser(explanation).toHaveText("This job can no longer be deleted.", {
+    timeout: 15_000,
+  });
+  await expectBrowser(confirm).toBeFocused();
+  await page.keyboard.press("Enter");
+  // Not yet sent again, the resumed job ends at once.
+  await client.jobs.cancel({ id });
+  await expectBrowser(explanation).toHaveText(consequence, { timeout: 15_000 });
+  await client.jobs.delete({ id });
+  await expectBrowser(explanation).toHaveText("This job has already been deleted.", {
+    timeout: 15_000,
+  });
+  await expectBrowser(confirm).toBeFocused();
+  await page.keyboard.press("Enter");
+  await confirm.click({ force: true });
+  expect(sent.count).toBe(0);
+}, 45_000);
+
 /** A job a Runner has started and still runs, which acts on no control it is sent. */
 async function runningJob() {
   const job = await submitJob(system.owner(), submission);
@@ -206,7 +255,7 @@ test("Cancel on a running job asks first, and a stray Enter keeps it running", a
   expect((await system.owner().jobs.get({ id: job.id })).pendingControl).toBeUndefined();
 }, 30_000);
 
-test("a job that ends under an open Cancel says so once, and its confirming button does nothing", async () => {
+test("a job that ends under an open Cancel changes its polite explanation once, and nothing on the page acts", async () => {
   const job = await submitJob(system.owner(), submission);
   const page = await openAsMember("Ended under Cancel", `jobs/${job.id}`);
   const sent = countRequests(page, `/jobs/${job.id}/cancel`);
@@ -216,7 +265,7 @@ test("a job that ends under an open Cancel says so once, and its confirming butt
   await expectBrowser(explanation).toHaveText(
     "Cancel ends it now. Final: it has not started, so it cannot be resumed.",
   );
-  // Each change a screen reader is told of: a batch of mutations inside the live node.
+  // Counts the batches of mutations inside the polite live node.
   await explanation.evaluate((element) => {
     new element.ownerDocument.defaultView.MutationObserver(() => {
       element.dataset.changes = String(Number(element.dataset.changes ?? 0) + 1);
@@ -229,6 +278,8 @@ test("a job that ends under an open Cancel says so once, and its confirming butt
   const ended = "This job can no longer be cancelled.";
   await expectBrowser(explanation).toHaveText(ended, { timeout: 15_000 });
   await expectBrowser(confirm).toBeFocused();
+  // Rendered behind the open dialog, Delete is inert, so it cannot take the dialog over.
+  await expectBrowser(page.locator('[inert] [aria-label="Delete the job"]')).toHaveCount(1);
   await page.keyboard.press("Enter");
   await page.keyboard.press("Space");
   await confirm.click({ force: true });
@@ -259,7 +310,7 @@ test("a cancel asked elsewhere while the member's own is sent leaves the hub's a
   try {
     await dialog.getByRole("button", { name: "Cancel the job" }).click();
     await expectBrowser(dialog.getByText("Working…")).toBeVisible();
-    // Not announced while the member's own request runs: its answer decides what to say.
+    // The explanation's live region is off while the member's own request runs: its answer decides.
     await expectBrowser(dialog.locator('[data-slot="alert-dialog-description"]')).toHaveAttribute(
       "aria-live",
       "off",
@@ -291,6 +342,11 @@ test("Pause keeps the focus while the hub answers, and a second press sends noth
     await pause.click();
     await expectBrowser(pause).toHaveAttribute("aria-busy", "true");
     await expectBrowser(pause).toBeFocused();
+    // Kept out of the status region's text: the pressed button tells a screen reader it waits.
+    await expectBrowser(page.locator("#job-status").getByText("Working…")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
     await pause.click({ force: true });
     await page.keyboard.press("Enter");
     await page.keyboard.press("Space");
@@ -305,6 +361,61 @@ test("Pause keeps the focus while the hub answers, and a second press sends noth
   }
   await expectBrowser(page.getByRole("status").filter({ hasText: "Pause asked" })).toBeFocused();
   expect(sent.count).toBe(1);
+}, 30_000);
+
+test("a Pause a read withdraws while the hub answers keeps the focus until the answer moves it to the status", async () => {
+  const job = await submitJob(system.owner(), submission);
+  onTestFinished(async () => {
+    await system.owner().jobs.cancel({ id: job.id });
+  });
+  const page = await openAsMember("Withdrawn Pause", `jobs/${job.id}`);
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${job.id}/pause`, async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  const pause = page.getByRole("button", { name: "Pause", exact: true });
+  try {
+    await pause.click();
+    await expectBrowser(pause).toHaveAttribute("aria-busy", "true");
+    // Unsent, the job pauses at once.
+    await system.owner().jobs.pause({ id: job.id });
+    await expectBrowser(page.locator(".status-lg")).toHaveText("Paused", { timeout: 15_000 });
+    await expectBrowser(page.getByRole("button", { name: "Resume" })).toBeVisible();
+    await expectBrowser(pause).toBeFocused();
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Paused" })).toBeFocused();
+  await expectBrowser(pause).toHaveCount(0);
+}, 30_000);
+
+test("confirming a Cancel clears an earlier failure as it starts", async () => {
+  const job = await submitJob(system.owner(), submission);
+  const page = await openAsMember("Failure cleared", `jobs/${job.id}`);
+  await page.route(
+    `**/jobs/${job.id}/pause`,
+    (route) => route.fulfill(problemAnswer(409, "Conflict", "The job is changing; try again.")),
+    { times: 1 },
+  );
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  const failure = page.locator('main [role="alert"]');
+  await expectBrowser(failure).toHaveText("Pause: The job is changing; try again.");
+  await page.getByRole("button", { name: "Cancel the job" }).click();
+  const dialog = page.getByRole("alertdialog");
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${job.id}/cancel`, async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await dialog.getByRole("button", { name: "Cancel the job" }).click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await expectBrowser(failure).toHaveCount(0);
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
 }, 30_000);
 
 test("a job read that answers 404 under an open Cancel leaves its not-found page usable", async () => {
