@@ -105,8 +105,7 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   await stay.click();
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(jobs).toBeFocused();
-  // Not `goBack`, which would wait for the navigation the page holds.
-  await page.evaluate("history.back()");
+  await page.goBack();
   await stay.click();
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(page).toHaveURL(/\/jobs\/new$/);
@@ -117,6 +116,8 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   await expectBrowser(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
   await expectBrowser(dialog).toBeHidden();
   expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
+  await expectBrowser(page.locator("[inert]")).toHaveCount(0);
+  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
 }, 30_000);
 
 test("after a lost answer the Custom ID field holds the ID sent: an edit cannot make a second job, and another ID says one may exist", async () => {

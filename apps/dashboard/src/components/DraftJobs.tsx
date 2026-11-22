@@ -107,6 +107,7 @@ export function DraftJobs(props: {
   let chooser: HTMLInputElement | undefined;
   let addFilesButton: HTMLButtonElement | undefined;
   let addJobButton: HTMLButtonElement | undefined;
+  let removeAllButton: HTMLButtonElement | undefined;
 
   function add(jobs: DraftJob[], words: (first: number, last: number) => string) {
     if (props.pending || !jobs.length) return;
@@ -147,8 +148,8 @@ export function DraftJobs(props: {
   }
   async function removeAll() {
     if (props.pending || !(await confirmRemoveAll())) return;
-    // Answered once the dialog has closed and returned focus here, so focus can move on from this
-    // button, which goes with the rows.
+    // Answered once the dialog has closed and returned focus to Remove all, so focus can move on from
+    // it, as it goes with the rows.
     const count = props.rows.length;
     props.onRemove("all");
     setSaid(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
@@ -229,6 +230,9 @@ export function DraftJobs(props: {
           <Show when={props.rows.length}>
             <button
               type="button"
+              ref={(element) => {
+                removeAllButton = element;
+              }}
               aria-disabled={props.pending ? "true" : undefined}
               onClick={() => void removeAll()}
             >
@@ -373,6 +377,7 @@ export function DraftJobs(props: {
       </FieldGroup>
       <RemoveAllDialog
         controller={confirmRemoveAll.controller}
+        opener={() => removeAllButton}
         jobs={props.rows.length}
         mayHaveBatch={props.mayHaveBatch}
         typedInputs={props.jobs.filter((job) => job.kind === "typed" && job.input !== "").length}
@@ -390,6 +395,8 @@ export function DraftJobs(props: {
  */
 function RemoveAllDialog(props: {
   controller: AlertDialogController<undefined>;
+  /** Remove all, where focus returns. */
+  opener: () => HTMLElement | undefined;
   jobs: number;
   mayHaveBatch: boolean;
   typedInputs: number;
@@ -403,26 +410,24 @@ function RemoveAllDialog(props: {
       // none of its buttons can submit it.
       container={document.body}
     >
-      <AlertDialogContent>
+      {/* Opened from code, it would return focus to what had it at the press, which is not Remove all
+          when the press does not focus it, as a click does not in Safari. */}
+      <AlertDialogContent finalFocus={props.opener}>
         <AlertDialogTitle class="dialog-h">
           {plural(props.jobs, "Remove the job?", `Remove all ${jobs()}?`)}
         </AlertDialogTitle>
-        <div class="dialog-b">
-          <AlertDialogDescription render={(description) => <div {...description} />}>
-            <p>
-              {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
-              {props.mayHaveBatch
-                ? ""
-                : `${plural(props.jobs, "It has", "They have")} not been submitted. `}
-              Removing {plural(props.jobs, "it", "them")} here loses{" "}
-              {props.typedInputs
-                ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
-                : ""}
-              every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
-              {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
-            </p>
-          </AlertDialogDescription>
-        </div>
+        <AlertDialogDescription class="dialog-b">
+          {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
+          {props.mayHaveBatch
+            ? ""
+            : `${plural(props.jobs, "It has", "They have")} not been submitted. `}
+          Removing {plural(props.jobs, "it", "them")} here loses{" "}
+          {props.typedInputs
+            ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
+            : ""}
+          every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
+          {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
+        </AlertDialogDescription>
         <div class="dialog-f">
           <AlertDialogClose>{plural(props.jobs, "Keep it", "Keep them")}</AlertDialogClose>
           <AlertDialogClose value="confirm" class="danger is-fill">

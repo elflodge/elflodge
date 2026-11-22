@@ -243,20 +243,13 @@ export function LeaveDialog(props: {
         <AlertDialogTitle class="dialog-h">
           {props.submission.mayHaveRecord() ? "Leave this page?" : "Leave without submitting?"}
         </AlertDialogTitle>
-        <div class="dialog-b">
-          {/* A create sent while the question is open changes what it says. */}
-          <AlertDialogDescription
-            aria-live="polite"
-            render={(description) => <div {...description} />}
-          >
-            <p>
-              {props.submission.mayHaveRecord()
-                ? `The hub may already have a ${props.record} from this page: look for it in ${props.list} before submitting it again.`
-                : `The ${props.record} has not been submitted.`}
-              {props.submission.holdsDraft() ? ` Leaving this page loses ${props.loses}.` : ""}
-            </p>
-          </AlertDialogDescription>
-        </div>
+        {/* A create sent while the question is open changes what it says. */}
+        <AlertDialogDescription class="dialog-b" aria-live="polite">
+          {props.submission.mayHaveRecord()
+            ? `The hub may already have a ${props.record} from this page: look for it in ${props.list} before submitting it again.`
+            : `The ${props.record} has not been submitted.`}
+          {props.submission.holdsDraft() ? ` Leaving this page loses ${props.loses}.` : ""}
+        </AlertDialogDescription>
         <div class="dialog-f">
           <AlertDialogClose>Stay</AlertDialogClose>
           <AlertDialogClose value="leave" class="danger is-fill">
