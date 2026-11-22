@@ -50,13 +50,8 @@ function Runners() {
   // by the rows, its opening waited; by the rest of the page alone, its "Working…" did.
   const list = createMemo(() => latest(() => deep(runners.data)));
   const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
-  const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
   const ids = createMemo(() => shortIds(list().map((runner) => runner.id)));
   const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
-
-  function openAddRunner() {
-    setRunnersAtOpen(new Set(ids().keys()));
-  }
 
   const removing = useMutation(() => orpc.runners.delete.mutationOptions());
   const confirmRemove = createAlertDialogController<Removal>();
@@ -112,9 +107,13 @@ function Runners() {
       <div class="head">
         <h1>Runners</h1>
         <div class="controls">
-          <button type="button" class="primary" onClick={openAddRunner}>
-            Add Runner
-          </button>
+          <AddRunner
+            organizationName={context().member?.organization.name}
+            managesKeys={context().managesKeys}
+            runners={list()}
+            readFailed={runners.isError}
+            shortId={shortId}
+          />
         </div>
       </div>
       <Show when={runners.isError || list().length}>
@@ -143,26 +142,30 @@ function Runners() {
           readAt={runners.dataUpdatedAt}
         />
       </Show>
-      <Show
-        when={list().length}
-        fallback={
-          <div class="empty">
-            <h2>No Runners yet</h2>
-            <p>
-              A Runner runs jobs. Add one with the command Add Runner gives, and it is listed here
-              once it registers.
-            </p>
-          </div>
-        }
-      >
-        <RunnerList
-          runners={list()}
-          managesKeys={context().managesKeys}
-          confirmRemove={confirmRemove}
-          readAt={runners.dataUpdatedAt}
-          shortId={shortId}
-        />
-      </Show>
+      {/* With a notice showing, the page stays live. Keep both list states in one inert
+          container so a newly registered Runner's Remove stays behind the open dialog. */}
+      <div>
+        <Show
+          when={list().length}
+          fallback={
+            <div class="empty">
+              <h2>No Runners yet</h2>
+              <p>
+                A Runner runs jobs. Add one with the command Add Runner gives, and it is listed here
+                once it registers.
+              </p>
+            </div>
+          }
+        >
+          <RunnerList
+            runners={list()}
+            managesKeys={context().managesKeys}
+            confirmRemove={confirmRemove}
+            readAt={runners.dataUpdatedAt}
+            shortId={shortId}
+          />
+        </Show>
+      </div>
       <ConfirmDialog
         controller={confirmRemove}
         heading={(runner) => (
@@ -185,18 +188,6 @@ function Runners() {
           </>
         )}
       </ConfirmDialog>
-      <Show when={runnersAtOpen()} keyed>
-        {(atOpen) => (
-          <AddRunner
-            organizationName={context().member?.organization.name}
-            managesKeys={context().managesKeys}
-            registered={list().find((runner) => !atOpen.has(runner.id))}
-            readFailed={runners.isError}
-            shortId={shortId}
-            onClose={() => setRunnersAtOpen(undefined)}
-          />
-        )}
-      </Show>
     </>
   );
 }

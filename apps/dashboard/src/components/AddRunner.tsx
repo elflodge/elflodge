@@ -1,10 +1,17 @@
 import { useQueryClient } from "@tanstack/solid-query";
+import { Button } from "@ui-sdk/solid/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@ui-sdk/solid/dialog";
 import type { Runner } from "contract";
-import { Show, createEffect, createSignal, onSettled } from "solid-js";
+import { Show, createEffect, createSignal, createUniqueId, untrack } from "solid-js";
 
 import { version } from "../../package.json";
-import { api, hubFailureMessage } from "../api-client.ts";
-import { createFormAction } from "../form.ts";
+import { api, hubWriteFailureMessage, secretAnswerFailure } from "../api-client.ts";
 import { isLoopback } from "../hub-address.ts";
 import { orpc } from "../query.ts";
 import { CopyButton } from "./CopyButton.tsx";
@@ -70,23 +77,41 @@ EOF
   ];
 }
 
+type AddRunnerProps = {
+  organizationName: string | undefined;
+  managesKeys: boolean;
+  runners: Runner[];
+  shortId: (runner: Runner) => string;
+  readFailed: boolean;
+};
+
 /**
  * The dialog that adds a Runner: the command to run on the machine that will run jobs, naming this
  * hub. Opening it creates nothing. A member who may manage keys creates a registration key from it
  * when they ask, an ordinary key that the API keys page lists; another member puts in a key they
  * hold. Closing it forgets the key, which is shown only this once.
  */
-export function AddRunner(props: {
-  organizationName: string | undefined;
-  managesKeys: boolean;
-  registered?: Runner;
-  shortId: (runner: Runner) => string;
-  readFailed: boolean;
-  onClose: () => void;
-}) {
+export function AddRunner(props: AddRunnerProps) {
+  const [pending, setPending] = createSignal(false);
+  return (
+    <Dialog dismissible={!pending()} closeOnOutsidePress={false} container={document.body}>
+      <DialogTrigger class="primary">Add Runner</DialogTrigger>
+      <DialogContent class="is-wide" initialFocus="content">
+        {() => <Instructions {...props} pending={pending()} onPendingChange={setPending} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Instructions(
+  props: AddRunnerProps & { pending: boolean; onPendingChange: (pending: boolean) => void },
+) {
+  // Each opening takes its own baseline and holds its own key until the content unmounts.
+  const atOpen = new Set(untrack(() => props.runners).map((runner) => runner.id));
+  const registered = () => props.runners.find((runner) => !atOpen.has(runner.id));
   const queryClient = useQueryClient();
   const [key, setKey] = createSignal<string>();
-  const { pending, onSubmit } = createFormAction(createKey);
+  const noteId = createUniqueId();
   const [failure, setFailure] = createSignal<string>();
 
   const { hostname, origin } = window.location;
@@ -101,6 +126,7 @@ export function AddRunner(props: {
   });
 
   async function createKey() {
+    props.onPendingChange(true);
     setFailure(undefined);
     try {
       const created = await api.apiKeys.create({
@@ -108,25 +134,18 @@ export function AddRunner(props: {
         permissions: { runner: ["register"] },
         expiresIn: REGISTRATION_KEY_LIFE_SECONDS,
       });
-      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
       setKey(created.key);
     } catch (error) {
-      setFailure(hubFailureMessage(error));
+      setFailure(hubWriteFailureMessage(secretAnswerFailure(error)));
+    } finally {
+      props.onPendingChange(false);
+      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
     }
   }
 
   return (
-    <dialog
-      class="is-wide"
-      aria-labelledby="add-runner-heading"
-      ref={(element) => {
-        onSettled(() => element.showModal());
-      }}
-      onClose={props.onClose}
-    >
-      <h2 class="dialog-h" id="add-runner-heading">
-        Add Runner
-      </h2>
+    <>
+      <DialogTitle class="dialog-h">Add Runner</DialogTitle>
       <div class="dialog-b">
         <p>Run this on the machine that will run jobs. It needs Docker.</p>
         <Show
@@ -150,16 +169,17 @@ export function AddRunner(props: {
                 <Show when={failure()} keyed>
                   {(message) => <Notice role="alert">{message}</Notice>}
                 </Show>
-                <form onSubmit={onSubmit}>
-                  <button type="submit" aria-disabled={pending() ? "true" : undefined}>
-                    Create a registration key
-                  </button>
-                </form>
+                <Button onClick={createKey} pendingAnnouncement="Working…">
+                  Create a registration key
+                </Button>
+                <Show when={props.pending}>
+                  <p class="note">Working…</p>
+                </Show>
               </div>
             </Show>
           }
         >
-          <p class="shown-once" role="note">
+          <p id={noteId} class="shown-once" role="note">
             <b>Shown this once:</b> the registration key in the command. Until it expires, in a day,
             anyone with it can register a Runner for {props.organizationName ?? "the Organization"}.
             API keys lists it, where it can be revoked.
@@ -185,6 +205,7 @@ export function AddRunner(props: {
               .map((piece) => piece.text)
               .join("")}
             label="Copy the command"
+            describedBy={key() ? noteId : undefined}
             buttonRef={(button) => {
               copyCommand = button;
             }}
@@ -205,7 +226,11 @@ export function AddRunner(props: {
             Runner's machine reaches it at;{" "}
           </Show>
           <a
-            href={`https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`}
+            href={
+              props.pending
+                ? undefined
+                : `https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`
+            }
           >
             Runners on other machines
           </a>{" "}
@@ -213,7 +238,13 @@ export function AddRunner(props: {
         </p>
         <p>
           Its jobs run on OpenRouter's free models. To use another model, follow{" "}
-          <a href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}>
+          <a
+            href={
+              props.pending
+                ? undefined
+                : `https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`
+            }
+          >
             the Runner's README
           </a>
           .
@@ -221,11 +252,11 @@ export function AddRunner(props: {
         <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>
             <span
-              class={props.registered ? "mark mark-succeeded" : "mark mark-pending"}
+              class={registered() ? "mark mark-succeeded" : "mark mark-pending"}
               aria-hidden="true"
             />
             <Show
-              when={props.registered}
+              when={registered()}
               keyed
               fallback={
                 <span>
@@ -243,9 +274,15 @@ export function AddRunner(props: {
           </Show>
         </p>
       </div>
-      <form class="dialog-f" method="dialog">
-        <button value="close">Close</button>
-      </form>
-    </dialog>
+      <div class="dialog-f">
+        <DialogClose
+          render={(close) => (
+            <Button {...close} disabled={props.pending} focusableWhenDisabled>
+              Close
+            </Button>
+          )}
+        />
+      </div>
+    </>
   );
 }
