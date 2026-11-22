@@ -162,7 +162,7 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   ).toBeVisible();
 }, 30_000);
 
-test("an open Delete says when a resume or another deletion takes it away, and its confirming button does nothing", async () => {
+test("an open Delete shows when a resume or another deletion takes it away, and its confirming button does nothing", async () => {
   const { id, report } = await jobWithHistory(1);
   await report([
     {

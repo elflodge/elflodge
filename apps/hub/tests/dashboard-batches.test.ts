@@ -171,7 +171,7 @@ test("a cancel confirmed offline fails at once and is not sent once back online"
   expect((await client.batches.get({ id })).status).toBe("active");
 }, 30_000);
 
-test("an open Cancel keeps the counts of its press, and says when another caller cancels first", async () => {
+test("an open Cancel keeps the counts of its press, and shows when another caller cancels first", async () => {
   const client = system.owner();
   const { id, jobs } = await client.batches.create({
     id: "counted-at-press",
@@ -206,6 +206,7 @@ test("an open Cancel keeps the counts of its press, and says when another caller
   await expectBrowser(page.locator("#cancel-note")).toContainText("3 unfinished jobs", {
     timeout: 15_000,
   });
+  await expectBrowser(page.locator("main")).toContainText("1 of these has status unknown");
   await expectBrowser(dialog).toContainText(atPress);
   await expectBrowser(dialog).not.toContainText("status unknown");
 
