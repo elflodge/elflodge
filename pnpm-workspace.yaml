@@ -46,15 +46,15 @@ catalog:
   "@fontsource-variable/jetbrains-mono": ^5.3.0
   "@hono/node-server": ^2.1.8
   "@noble/hashes": ^2.4.0
-  "@orpc/client": 2.0.0-beta.50
-  "@orpc/contract": 2.0.0-beta.50
-  "@orpc/effect": 2.0.0-beta.50
-  "@orpc/json-schema": 2.0.0-beta.50
-  "@orpc/openapi": 2.0.0-beta.50
-  "@orpc/server": 2.0.0-beta.50
-  "@orpc/shared": 2.0.0-beta.50
-  "@orpc/tanstack-query": 2.0.0-beta.50
-  "@orpc/zod": 2.0.0-beta.50
+  "@orpc/client": 2.0.0-beta.51
+  "@orpc/contract": 2.0.0-beta.51
+  "@orpc/effect": 2.0.0-beta.51
+  "@orpc/json-schema": 2.0.0-beta.51
+  "@orpc/openapi": 2.0.0-beta.51
+  "@orpc/server": 2.0.0-beta.51
+  "@orpc/shared": 2.0.0-beta.51
+  "@orpc/tanstack-query": 2.0.0-beta.51
+  "@orpc/zod": 2.0.0-beta.51
   "@solidjs/vite-plugin": ^3.0.0
   "@solidjs/web": ^2.0.0
   "@standard-schema/utils": ^0.3.0
