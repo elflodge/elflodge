@@ -43,13 +43,25 @@ export function ConfirmDialog<T>(props: {
   heading: (record: T) => JSX.Element;
   /** The confirming button's words, which name what it acts on. */
   confirm: (record: T) => string;
-  /** What the action ends, and whether that is final. */
-  children: (record: T) => JSX.Element;
+  /** The keeping button's words: "Keep it" unless given, or "Keep them" or "Stay". */
+  keep?: string;
+  /**
+   * What the action ends, and whether that is final. `pending` reads true while the confirmed action
+   * runs, when nothing in the explanation may lead away from the dialog: its answer would have
+   * nowhere to show.
+   */
+  children: (record: T, pending: () => boolean) => JSX.Element;
   /**
    * Why the action is no longer there to confirm, read live: a read can take it away while the
    * dialog is open. It replaces what the action ends, and the confirming button does nothing.
    */
   withdrawn?: (record: T) => string | undefined;
+  /**
+   * The page's words for a refusal the hub words for another case, such as Better Auth's code for
+   * the only owner leaving, which it also answers a non-owner removing an owner; otherwise the
+   * hub's own words show.
+   */
+  refusal?: (error: unknown) => string | undefined;
   act: (record: T) => Promise<void>;
   /** The page's notice of the outcome, for focus once `act` has resolved. */
   notice: () => HTMLElement | undefined;
@@ -108,7 +120,7 @@ export function ConfirmDialog<T>(props: {
                           <Show
                             when={props.withdrawn?.(record)}
                             keyed
-                            fallback={props.children(record)}
+                            fallback={props.children(record, () => close.pending)}
                           >
                             {(reason) => <p>{reason}</p>}
                           </Show>
@@ -117,11 +129,21 @@ export function ConfirmDialog<T>(props: {
                           <p class="note">Working…</p>
                         </Show>
                         <Show when={close.error} keyed>
-                          {(error) => <Notice role="alert">{hubWriteFailureMessage(error)}</Notice>}
+                          {(error) => {
+                            const failure = props.refusal?.(error) ?? hubWriteFailureMessage(error);
+                            // A refusal whose words a read then shows as the withdrawal would say
+                            // the same thing twice; any other failure, such as one that may have
+                            // been done, still shows beside the withdrawal.
+                            return (
+                              <Show when={failure !== props.withdrawn?.(record)}>
+                                <Notice role="alert">{failure}</Notice>
+                              </Show>
+                            );
+                          }}
                         </Show>
                       </div>
                       <div class="dialog-f">
-                        <AlertDialogClose>Keep it</AlertDialogClose>
+                        <AlertDialogClose>{props.keep ?? "Keep it"}</AlertDialogClose>
                         {/* Disabled, the confirming button keeps the focus a read withdrawing the
                             action finds on it, and refuses presses. */}
                         <Button

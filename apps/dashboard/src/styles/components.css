@@ -1157,13 +1157,13 @@ p mark.placeholder {
   align-items: center;
   gap: var(--space-1) var(--space-3);
 }
-.copy > [role="status"] {
+.copy > .copy-result {
   color: var(--c-ink-2);
   font-size: var(--text-xs);
 }
 /* Empty, the status stays in the page for a screen reader but takes no place in the line, so the
    gap does not set the button apart from what follows the copy. */
-.copy > [role="status"]:empty {
+.copy > .copy-result:empty {
   position: absolute;
 }
 .shown-once {

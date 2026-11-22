@@ -24,14 +24,24 @@ export function asRole(role: MemberRole) {
   return role === "member" ? "a member" : `an ${role}`;
 }
 
+/**
+ * The Organization's members, in one read, with Query's `signal` or a confirmation's `timeout`
+ * (better-fetch's, which ends a call whose answer's headers have not arrived by then).
+ */
+export function readMembers(
+  organizationId: string,
+  fetchOptions: { signal: AbortSignal } | { timeout: number },
+) {
+  return authClient.organization.listMembers({
+    query: { organizationId, limit: 100 },
+    fetchOptions,
+  });
+}
+
 export function membersOptions(organizationId: string) {
   return queryOptions({
     queryKey: ["organization", organizationId, "members"],
-    queryFn: ({ signal }) =>
-      authClient.organization.listMembers({
-        query: { organizationId, limit: 100 },
-        fetchOptions: { signal },
-      }),
+    queryFn: ({ signal }) => readMembers(organizationId, { signal }),
   });
 }
 
