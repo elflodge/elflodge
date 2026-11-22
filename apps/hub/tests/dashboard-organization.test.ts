@@ -147,6 +147,11 @@ test("an owner can copy a link that lets its recipient join with the chosen role
   await dialog.getByRole("button", { name: "Create invitation" }).click();
   const copy = dialog.getByRole("button", { name: "Copy the link" });
   await expectBrowser(copy).toBeFocused();
+  // The new heading is not announced while focus is in the dialog; the button's description says it.
+  await expectBrowser(copy).toHaveAccessibleDescription(
+    new RegExp(`^Send this link to ${email} yourself\\.`),
+  );
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(`The invitation for ${email}`);
   await page
     .context()
     .grantPermissions(["clipboard-read", "clipboard-write"], { origin: system.origin });
@@ -155,6 +160,11 @@ test("an owner can copy a link that lets its recipient join with the chosen role
   expect(link.origin + link.pathname).toBe(system.origin + "/dashboard/invitation");
   await dialog.getByRole("button", { name: "Done" }).click();
   await expectBrowser(page.getByRole("button", { name: `Copy link for ${email}` })).toBeVisible();
+  // Opened again, it asks afresh.
+  await page.getByRole("button", { name: "Invite a member" }).click();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText("Invite a member");
+  await expectBrowser(dialog.getByLabel("Email")).toHaveValue("");
+  await page.keyboard.press("Escape");
   const invitationId = link.hash.slice(1);
   expect(await system.client().invitations.preview({ invitationId })).toMatchObject({
     email,
@@ -183,19 +193,25 @@ test("the email field explains why an admin cannot replace an owner invitation",
   const field = dialog.getByLabel("Email");
   await field.fill(email);
   await dialog.getByRole("radio", { name: /^Member/ }).check();
+  const session = await holdReads(page, (url) => url.pathname === "/api/auth/get-session");
+  session.start();
   await dialog.getByRole("button", { name: "Create invitation" }).click();
+  await session.arrived;
   await expectBrowser(field).toHaveAccessibleDescription(
     "This address has an invitation only an owner can replace.",
   );
   await expectBrowser(field).toHaveAttribute("aria-invalid", "true");
   await expectBrowser(field).toHaveValue(email);
   await expectBrowser(field).toBeFocused();
+  await field.fill("another@example.com");
+  await expectBrowser(field).not.toHaveAttribute("aria-invalid");
+  session.release();
   expect(await system.owner().invitations.list()).toContainEqual(
     expect.objectContaining({ id: invitation.id, email, role: "owner" }),
   );
 }, 30_000);
 
-test("an invite refusal keeps focus on Close when the member moved there", async () => {
+test("an invite refusal keeps focus on Cancel when the member moved there", async () => {
   const page = await openOrganization();
   await page.getByRole("button", { name: "Invite a member" }).click();
   const dialog = page.getByRole("dialog");
@@ -207,14 +223,15 @@ test("an invite refusal keeps focus on Close when the member moved there", async
     await route.continue();
   });
   await dialog.getByRole("button", { name: "Create invitation" }).click();
+  const cancel = dialog.getByRole("button", { name: "Cancel" });
   try {
-    await dialog.getByRole("button", { name: "Close" }).focus();
+    await expectBrowser(cancel).toHaveAttribute("aria-disabled", "true");
+    await cancel.focus();
   } finally {
     release.resolve();
   }
   await expectBrowser(email).toHaveAccessibleDescription("This address is already a member.");
-  // The same button reads Close while pending and Cancel once the hub answers.
-  await expectBrowser(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expectBrowser(cancel).toBeFocused();
 }, 30_000);
 
 test("removing a member counts their active keys and invitations and keeps their keys identifiable", async () => {
@@ -341,9 +358,17 @@ test("a role changed by another owner replaces the open draft before it can be s
   const member = members.find((row) => row.userId === person.userId);
   if (!member) throw new Error("The new admin is missing");
   const page = await openOrganization();
-  await page.getByRole("button", { name: `Change role for ${name}` }).click();
+  const trigger = page.getByRole("button", { name: `Change role for ${name}` });
   const dialog = page.getByRole("dialog");
+  // A change that leaves its notice on the page.
+  await trigger.click();
   await dialog.getByRole("radio", { name: /^Member/ }).check();
+  await dialog.getByRole("button", { name: "Change role" }).click();
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: `${name} is now a member.` }),
+  ).toBeFocused();
+  await trigger.click();
+  await dialog.getByRole("radio", { name: /^Admin/ }).check();
   await org.updateMemberRole({ organizationId, memberId: member.id, role: "owner" });
   await page.clock.setFixedTime(new Date(Date.now() + 10_000));
   // Returning to a stale tab reads the table again without closing the editor.
@@ -355,6 +380,142 @@ test("a role changed by another owner replaces the open draft before it can be s
   });
   await dialog.getByRole("button", { name: "Change role" }).click();
   await expectBrowser(dialog).toHaveCount(0);
+  expect(writes).toBe(0);
+  // Nothing was done, so focus returns to the button that opened the dialog, not the older notice.
+  await expectBrowser(trigger).toBeFocused();
+}, 30_000);
+
+test("Rename cannot be left while the hub answers, and its notice takes focus before the session is read again", async () => {
+  const page = await openOrganization();
+  onTestFinished(async () => {
+    await system
+      .ownerAuth()
+      .organization.update({ organizationId, data: { name: "Organization" } });
+  });
+  await page.getByRole("button", { name: "Rename" }).click();
+  const dialog = page.getByRole("dialog");
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await name.fill("Renamed Organization");
+  let sent = 0;
+  const arrived = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route("**/api/auth/organization/update", async (route) => {
+    sent++;
+    arrived.resolve();
+    await release.promise;
+    await route.continue();
+  });
+  const session = await holdReads(page, (url) => url.pathname === "/api/auth/get-session");
+  const rename = dialog.getByRole("button", { name: "Rename" });
+  const cancel = dialog.getByRole("button", { name: "Cancel" });
+  await rename.press("Enter");
+  await arrived.promise;
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  await expectBrowser(rename).toHaveAttribute("aria-disabled", "true");
+  await expectBrowser(cancel).toHaveAttribute("aria-disabled", "true");
+  await expectBrowser(name).toHaveJSProperty("readOnly", true);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Enter");
+  await expectBrowser(rename).toBeFocused();
+  await cancel.click({ force: true });
+  await name.press("Enter");
+  await expectBrowser(dialog).toBeVisible();
+  session.start();
+  release.resolve();
+  // The dialog closes on the hub's answer, with focus on the notice, while the session read that
+  // renames the page is still under way.
+  await session.arrived;
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: "Renamed to Renamed Organization." }),
+  ).toBeFocused();
+  expect(sent).toBe(1);
+  session.release();
+}, 30_000);
+
+test("an open Rename stops accepting a name when its reader loses management access", async () => {
+  const email = "renee@example.com";
+  const reader = await addAdmin("Renee", email);
+  const page = await openOrganization({ email, password: PASSWORD });
+  await page.getByRole("button", { name: "Rename" }).click();
+  const dialog = page.getByRole("dialog");
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await name.fill("Another name");
+  const rename = dialog.getByRole("button", { name: "Rename" });
+  await rename.focus();
+
+  // The roster can withdraw the form before the new session reaches the page.
+  const session = await holdReads(page, (url) => url.pathname === "/api/auth/get-session");
+  session.start();
+  await setRole(reader.userId, "member");
+  await readAgain(page);
+  await session.arrived;
+  await expectBrowser(dialog).toContainText("Only owners and admins rename the Organization.");
+  await expectBrowser(rename).toBeDisabled();
+  await expectBrowser(rename).toBeFocused();
+  let writes = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/organization/update") writes++;
+  });
+  await page.keyboard.press("Enter");
+  await name.press("Enter");
+  session.release();
+  await expectBrowser(page.getByText("Invitations", { exact: true })).toHaveCount(0);
+  await expectBrowser(dialog).toBeVisible();
+  expect(writes).toBe(0);
+}, 30_000);
+
+test("a Change role the hub never answers ends by saying it may have been done", async () => {
+  const person = await system.addMember({ name: "Quiet Quinn", email: "quiet-quinn@example.com" });
+  onTestFinished(async () => {
+    const { id } = await membershipOf(person.userId);
+    await system.ownerAuth().organization.removeMember({ organizationId, memberIdOrEmail: id });
+  });
+  const page = await openOrganization(OWNER, { clock: true });
+  const sent = Promise.withResolvers<void>();
+  // Never answered.
+  await page.route("**/api/auth/organization/update-member-role", () => sent.resolve());
+  await page.getByRole("button", { name: "Change role for Quiet Quinn" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: /^Admin/ }).check();
+  await dialog.getByRole("button", { name: "Change role" }).click();
+  await sent.promise;
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  await expectBrowser(dialog).toContainText("Working…");
+  await page.clock.runFor(30_000);
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The dashboard could not confirm this was done. Check before trying again.",
+  );
+  await expectBrowser(dialog.getByRole("button", { name: "Cancel" })).not.toHaveAttribute(
+    "aria-disabled",
+  );
+}, 30_000);
+
+test("a Change role for a member who left meanwhile says so and sends nothing", async () => {
+  const person = await system.addMember({ name: "Leaving Lev", email: "leaving-lev@example.com" });
+  const page = await openOrganization();
+  await page.getByRole("button", { name: "Change role for Leaving Lev" }).click();
+  const dialog = page.getByRole("dialog");
+  const admin = dialog.getByRole("radio", { name: /^Admin/ });
+  await admin.check();
+  const send = dialog.getByRole("button", { name: "Change role" });
+  await send.focus();
+  const { id } = await membershipOf(person.userId);
+  await system.ownerAuth().organization.removeMember({ organizationId, memberIdOrEmail: id });
+  await readAgain(page);
+  await expectBrowser(dialog).toContainText("Leaving Lev is no longer a member.");
+  await expectBrowser(send).toBeDisabled();
+  await expectBrowser(send).toBeFocused();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText("Change the role of Leaving Lev");
+  let writes = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/organization/update-member-role") writes++;
+  });
+  // Enter in a field presses the button that sends, which refuses it.
+  await admin.press("Enter");
+  await page.waitForTimeout(500);
+  await expectBrowser(dialog).toBeVisible();
   expect(writes).toBe(0);
 }, 30_000);
 
@@ -557,22 +718,37 @@ test("an invitation accepted under its open Revoke is already gone, without read
   expect(reads).toBe(0);
 }, 30_000);
 
-test("a member removed elsewhere under an open Remove is already gone", async () => {
-  const person = await system.addMember({ name: "Gone Gil", email: "gone-gil@example.com" });
-  const page = await openOrganization();
-  await page.getByRole("button", { name: "Remove Gone Gil" }).click();
-  const dialog = page.getByRole("alertdialog");
-  const { id } = await membershipOf(person.userId);
-  await system.ownerAuth().organization.removeMember({ organizationId, memberIdOrEmail: id });
-  await dialog.getByRole("button", { name: "Remove Gone Gil" }).click();
-  await expectBrowser(dialog).toHaveCount(0);
-  await expectBrowser(
-    page.getByRole("status").filter({ hasText: "Gone Gil is already gone." }),
-  ).toBeFocused();
-  await expectBrowser(
-    page.getByRole("row").filter({ hasText: "gone-gil@example.com" }),
-  ).toHaveCount(0);
-}, 30_000);
+test.each(["Remove", "Change role"] as const)(
+  "a member removed elsewhere before confirming %s is already gone",
+  async (action) => {
+    const name = "Gone Gil";
+    const person = await system.addMember({
+      name,
+      email: `gone-gil-${action === "Remove" ? "remove" : "role"}@example.com`,
+    });
+    const page = await openOrganization();
+    const remove = action === "Remove";
+    await page
+      .getByRole("button", { name: remove ? `Remove ${name}` : `Change role for ${name}` })
+      .click();
+    const dialog = page.getByRole(remove ? "alertdialog" : "dialog");
+    if (!remove) await dialog.getByRole("radio", { name: /^Admin/ }).check();
+    const { id } = await membershipOf(person.userId);
+    await system.ownerAuth().organization.removeMember({ organizationId, memberIdOrEmail: id });
+    let checks = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/auth/organization/list-members") checks++;
+    });
+    await dialog.getByRole("button", { name: remove ? `Remove ${name}` : action }).click();
+    await expectBrowser(dialog).toHaveCount(0);
+    await expectBrowser(
+      page.getByRole("status").filter({ hasText: `${name} is already gone.` }),
+    ).toBeFocused();
+    await expectBrowser(page.getByRole("row").filter({ hasText: name })).toHaveCount(0);
+    expect(checks).toBe(1);
+  },
+  30_000,
+);
 
 test("a Remove a fresh roster withdraws says why and cannot be confirmed", async () => {
   const adminEmail = "wanda@example.com";
