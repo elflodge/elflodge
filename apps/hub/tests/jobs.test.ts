@@ -85,6 +85,7 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
     startedAt: null,
     endedAt: null,
     usage: unused,
+    toolCalls: {},
     ...limits,
     batchId: batch.id,
     customId: "report-q3",
@@ -272,6 +273,27 @@ function piUsage(input: number, output: number, extra: { reasoning?: number } = 
 }
 
 /**
+ * pi's entry of a finished call of `toolName`, with a diagnostic of pi's harness of `code` when
+ * given, as for a call that failed or never ran.
+ */
+function toolResult(toolName: string, code?: string) {
+  return {
+    kind: "pi.tool-result",
+    model: [
+      {
+        role: "toolResult",
+        toolCallId: crypto.randomUUID(),
+        toolName,
+        content: [],
+        isError: code !== undefined,
+        timestamp: Date.now(),
+      },
+    ],
+    data: { diagnostics: code === undefined ? [] : [{ severity: "error", code, message: code }] },
+  };
+}
+
+/**
  * The job's Usage records in order, each with its use by model and by tool and whether those
  * entries add up, exactly, as `numeric` in SQL, to its own `totalTokens` and `costUsd`.
  */
@@ -315,21 +337,26 @@ async function usageRecordsOf(jobId: string) {
             ])
             .as("addsUp"),
         );
-      return ["u.usage", sums.as("entriesAddUp")];
+      return ["u.usage", sums.as("entriesAddUp"), "u.toolCalls"];
     })
     .where("u.jobId", "=", JobId(jobId))
     .orderBy("u.id")
     .execute();
 }
 
-/** The usage the job's records count, and its usage now. */
+/** The usage and tool calls the job's records count, and its usage and tool calls now. */
 async function recordedUsageOf(jobId: string) {
   await using database = openDatabase(inject("databaseUrl"));
   return await database
     .withSchema(DB_SCHEMA)
     .selectFrom("job")
     .innerJoin("jobProgress", "jobProgress.jobId", "job.id")
-    .select(["job.recordedUsage", "jobProgress.usage"])
+    .select([
+      "job.recordedUsage",
+      "jobProgress.usage",
+      "job.recordedToolCalls",
+      "jobProgress.toolCalls",
+    ])
     .where("job.id", "=", JobId(jobId))
     .executeTakeFirstOrThrow();
 }
@@ -346,12 +373,18 @@ test("each end a Runner reports records what the job used since its previous end
     // `reasoning`, given here and not at the next end, stays out of that end's entry.
     tools: { web_search: { totalTokens: 1, reasoning: 1, cost: { total: 0.1 } } },
   };
-  await runner.report({ ...first, position: 1 }, [{ kind: JOB_CANCELLED }], firstEnd);
+  await runner.report(
+    { ...first, position: 1 },
+    [toolResult("web_search"), { kind: JOB_CANCELLED }],
+    firstEnd,
+  );
 
   // The resumed run uses another model and the tool again, and the first model no more.
   await client.jobs.resume({ id });
   const second = await runner.place(id);
-  await runner.report(second, [{ kind: JOB_SUCCEEDED, data: { output: { summary: "Done." } } }], {
+  const finished = { kind: JOB_SUCCEEDED, data: { output: { summary: "Done." } } };
+  const calls = [toolResult("web_search"), toolResult("web_search"), toolResult("bash")];
+  await runner.report(second, [...calls, finished], {
     models: {
       "scripted/small": piUsage(2048, 128),
       "scripted/large": piUsage(4096, 256, { reasoning: 32 }),
@@ -361,7 +394,7 @@ test("each end a Runner reports records what the job used since its previous end
   runner.close();
 
   expect(await usageRecordsOf(id)).toEqual([
-    { usage: firstEnd, entriesAddUp: true },
+    { usage: firstEnd, entriesAddUp: true, toolCalls: { web_search: 1 } },
     {
       usage: {
         models: { "scripted/large": piUsage(4096, 256, { reasoning: 32 }) },
@@ -369,6 +402,8 @@ test("each end a Runner reports records what the job used since its previous end
         tools: { web_search: { totalTokens: 2, cost: { total: 0.2 } } },
       },
       entriesAddUp: true,
+      // Only the resumed run's calls.
+      toolCalls: { web_search: 2, bash: 1 },
     },
   ]);
 });
@@ -389,7 +424,7 @@ test.each([
       models: { "scripted/small": piUsage(1024, 64) },
       tools: { web_search: piUsage(512, 0) },
     };
-    await runner.start(first, firstEnd, [{ kind: JOB_CANCELLED }]);
+    await runner.start(first, firstEnd, [toolResult("web_search"), { kind: JOB_CANCELLED }]);
     await client.jobs.resume({ id });
     const second = await runner.place(id);
     const used = {
@@ -397,7 +432,11 @@ test.each([
       models: { "scripted/small": piUsage(3072, 64, { reasoning: 16 }) },
       tools: { web_search: piUsage(512, 0) },
     };
-    await runner.report(second, paused ? [{ kind: JOB_PAUSED }] : [], used);
+    await runner.report(
+      second,
+      [toolResult("web_search"), ...(paused ? [{ kind: JOB_PAUSED }] : [])],
+      used,
+    );
     if (end === "a cancel of the paused job") await client.jobs.cancel({ id });
     else if (paused) await client.batches.cancel({ id: batchId });
     else await system.owner().runners.delete({ id: runner.runnerId });
@@ -405,14 +444,21 @@ test.each([
 
     expect((await client.jobs.get({ id })).status).toBe(paused ? "cancelled" : "failed");
     expect(await usageRecordsOf(id)).toEqual([
-      { usage: firstEnd, entriesAddUp: true },
+      { usage: firstEnd, entriesAddUp: true, toolCalls: { web_search: 1 } },
       {
         usage: { models: { "scripted/small": piUsage(2048, 0, { reasoning: 16 }) }, tools: {} },
         entriesAddUp: true,
+        // Only the resumed run's call.
+        toolCalls: { web_search: 1 },
       },
     ]);
     // Its next end counts from here.
-    expect(await recordedUsageOf(id)).toEqual({ recordedUsage: used, usage: used });
+    expect(await recordedUsageOf(id)).toEqual({
+      recordedUsage: used,
+      usage: used,
+      recordedToolCalls: { web_search: 2 },
+      toolCalls: { web_search: 2 },
+    });
   },
 );
 
@@ -460,6 +506,61 @@ test("an end leaves out a stored counter that is not a number, or a token count 
         tools: {},
       },
       entriesAddUp: true,
+      toolCalls: {},
     },
   ]);
+});
+
+test("a job counts each tool call its Events record as finished once, but not one that never ran", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const { id } = await submitJob(client, { ...AGENT, input: "Summarise." });
+  expect((await client.jobs.get({ id })).toolCalls).toEqual({});
+  const runner = await system.connectReportingRunner();
+  const run = await runner.place(id);
+  const usage = { models: {}, tools: {} };
+  await runner.start(run, usage);
+  const calls = [
+    toolResult("web_search"),
+    // Refused before it ran, as the Runner's web-access guard refuses a call.
+    toolResult("web_search", "blocked"),
+    // Ran and failed.
+    toolResult("bash", "tool_error"),
+    // An entry the hub cannot read counts as nothing.
+    { kind: "pi.tool-result", model: [{ role: "toolResult" }] },
+  ];
+  await runner.report({ ...run, position: 1 }, calls, usage);
+  // Sent again, as after an answer that was lost.
+  await runner.report({ ...run, position: 1 }, calls, usage);
+  runner.close();
+
+  expect((await client.jobs.get({ id })).toolCalls).toEqual({ web_search: 1, bash: 1 });
+});
+
+test("a Batch adds up its jobs' tool calls by tool name, counting each job once", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const batch = await client.batches.create({ agent: AGENT, breaker: false });
+  const { jobs } = await client.batches.addJobs({
+    id: batch.id,
+    jobs: [
+      { customId: "first", input: "Summarise." },
+      { customId: "second", input: "Summarise." },
+    ],
+  });
+  const runner = await system.connectReportingRunner();
+  const usage = { models: { "scripted/small": piUsage(1024, 64) }, tools: {} };
+  const calls = [
+    [toolResult("web_search"), toolResult("web_search"), toolResult("bash")],
+    [toolResult("web_search"), toolResult("read")],
+  ];
+  for (const [index, { job }] of jobs.entries()) {
+    const run = await runner.place(job.id);
+    await runner.start(run, usage, calls[index]);
+  }
+  runner.close();
+
+  expect(await client.batches.get({ id: batch.id })).toMatchObject({
+    jobCounts: { running: 2 },
+    usage: { totalTokens: 2 * 1088, cost: { totalUsd: 2 * 0.3125 } },
+    toolCalls: { web_search: 3, bash: 1, read: 1 },
+  });
 });

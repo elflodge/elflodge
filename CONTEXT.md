@@ -46,6 +46,9 @@ A job reaching a final status. A job resumed after it ended can end again. Each 
 The small, lasting record of a job end and its usage (labels, Batch, status, Runner, its submitter, tokens, cost, times), kept after the job's content is deleted. It counts what the job used since its previous end, and what that use went to, by model and by tool.
 _Avoid_: billing record, receipt
 
+**Tool call**:
+One call of a tool by a job's agent. A job counts its finished calls by tool name, as its Events record them: a call that ran or may have run counts, a call that never ran, such as one the Runner refused, does not. A count of calls is not what a provider bills: one web search call can run several queries.
+
 **Batch**:
 Jobs that run one agent, added to it over one or more requests, and released, paused and cancelled as one; every job belongs to one, and a job submitted alone is a Batch of one. Its ID, unique in the Organization, is the one given when it was created or one the hub made; creating it again under that ID with the same content returns it, so creating can be retried. Pausing a Batch blocks its jobs rather than pausing them, and cancelling it is final: it takes no new jobs and resumes none.
 _Avoid_: group, campaign, members (a member is a person)
