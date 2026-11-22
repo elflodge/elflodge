@@ -344,6 +344,7 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
   await page.route(
     `**/runners/${id}`,
     async (route) => {
+      refused = true;
       await route.fulfill({
         status: 404,
         contentType: "application/problem+json",
@@ -354,7 +355,6 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
           detail: "No such Runner here.",
         },
       });
-      refused = true;
     },
     { times: 1 },
   );

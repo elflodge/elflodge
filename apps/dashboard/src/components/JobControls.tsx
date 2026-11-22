@@ -102,7 +102,8 @@ export function JobControls(props: {
       return hubFailureMessage(error);
     }
     budgetDialog?.close();
-    // Renders the deletion notice that onSuccess asked for, if it has not shown yet.
+    // Applies pending renders, so the deletion notice onSuccess asked for can take focus; the status
+    // takes it otherwise.
     flush();
     (deletionNotice ?? status)?.focus();
     void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });

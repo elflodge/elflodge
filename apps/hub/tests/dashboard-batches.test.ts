@@ -138,6 +138,7 @@ test("a second press while the hub answers a cancel sends it once", async () => 
   try {
     await confirm.click();
     await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await expectBrowser(page.locator("#batch-status")).toContainText("Working…");
     // As a member's second click lands, whether or not the button takes it.
     await confirm.click({ force: true });
   } finally {

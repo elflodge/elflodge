@@ -191,7 +191,8 @@ function splitRowIssues(issues: readonly unknown[], rows: readonly DraftRow[]) {
 function SubmitBatch() {
   const router = useRouter();
   const client = useQueryClient();
-  const create = useMutation(() => orpc.batches.create.mutationOptions());
+  // The request can be up to 16 MiB; the page reads the answer from `mutate`, so the cache need not keep it.
+  const create = useMutation(() => orpc.batches.create.mutationOptions({ gcTime: 0 }));
   const limits = useJobLimits();
   let nextRow = 0;
   const [rows, setRows] = createSignal<readonly DraftRow[]>([]);

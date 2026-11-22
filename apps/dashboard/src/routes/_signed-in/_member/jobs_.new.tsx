@@ -53,7 +53,8 @@ function SubmitJob() {
   const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
   let formElement: HTMLFormElement | undefined;
   const submission = createDraftSubmission(() => formElement);
-  const create = useMutation(() => orpc.batches.create.mutationOptions());
+  // The request can be up to 16 MiB; the page reads the answer from `mutate`, so the cache need not keep it.
+  const create = useMutation(() => orpc.batches.create.mutationOptions({ gcTime: 0 }));
 
   const { pending, onSubmit } = createFormAction(async (form) => {
     submission.sending();
