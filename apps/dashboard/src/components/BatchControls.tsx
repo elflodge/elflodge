@@ -1,17 +1,26 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
+import { Button } from "@ui-sdk/solid/button";
 import type { Batch } from "contract";
 import { Show, createSignal, flush, onFlush } from "solid-js";
 
-import { hubFailureMessage } from "../api-client.ts";
+import { hubWriteFailureMessage } from "../api-client.ts";
 import { unfinishedJobs } from "../batch.ts";
 import { focusIfLost } from "../form.ts";
 import { formatCount, plural } from "../format.ts";
-import { orpc } from "../query.ts";
+import { orpc, untilFlushed } from "../query.ts";
 import { BatchConditions, BatchStatus } from "./BatchStatus.tsx";
-import { ConfirmAction } from "./ConfirmAction.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Notice } from "./Notice.tsx";
 
 const finality = "It takes no new jobs, and none of its jobs can be resumed.";
+
+/** The Batch's counts as they were when Cancel was pressed, which every read can move. */
+type CancelCounts = { unfinished: number; statusUnknown: number };
+
+function unfinishedText(unfinished: number) {
+  return `${formatCount(unfinished)} unfinished ${plural(unfinished, "job", "jobs")}`;
+}
 
 export function BatchControls(props: { batch: Batch }) {
   const client = useQueryClient();
@@ -35,34 +44,39 @@ export function BatchControls(props: { batch: Batch }) {
     flush();
     focusIfLost(alert);
   }
-  async function act(control: "pause" | "resume" | "cancel", close?: () => boolean) {
-    // On its own: written beside the request, it would be held until the request settles.
+  /** Sends `control`, and resolves once the page shows the hub's answer; rejects with its failure. */
+  async function run(control: "pause" | "resume" | "cancel") {
+    // On its own: written beside the request, it would be held until it settles.
     onFlush(() => setFailure(undefined));
-    try {
-      await controls[control].mutate({ id: props.batch.id });
-    } catch (error) {
-      return hubFailureMessage(error);
-    }
-    // The status region is there whatever the Batch's state, so focus need not wait for the answer.
-    const closed = close?.();
-    if (closed === false) focusIfLost(status);
-    else status?.focus();
+    await controls[control].mutate({ id: props.batch.id });
+    // Shown before the reads start, which would hold it.
+    flush();
+  }
+  function readAgain() {
     void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
     void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
     void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
     void client.invalidateQueries({ queryKey: orpc.jobs.get.key() });
-    return undefined;
   }
+  // Pause and Resume keep the focus while they run, and the status takes it once the hub answers.
   async function press(control: "pause" | "resume") {
-    const message = await act(control);
-    if (message) showFailure(`${control === "pause" ? "Pause" : "Resume"} the Batch: ${message}`);
+    await untilFlushed();
+    try {
+      await run(control);
+    } catch (error) {
+      showFailure(
+        `${control === "pause" ? "Pause" : "Resume"} the Batch: ${hubWriteFailureMessage(error)}`,
+      );
+      return;
+    }
+    status?.focus();
+    readAgain();
   }
+  const confirmCancel = createAlertDialogController<CancelCounts>();
   const cancellationStarted = () =>
     !!props.batch.pendingControl || props.batch.status === "cancelled";
   const cancelLabel = () => `Cancel the Batch ${props.batch.id}`;
   const unfinished = () => unfinishedJobs(props.batch.jobCounts);
-  const unfinishedText = () =>
-    `${formatCount(unfinished())} unfinished ${plural(unfinished(), "job", "jobs")}`;
   const resumeExplanation = () => {
     const { breaker, pausedBy } = props.batch;
     const canary = breaker ? breaker.canary : 0;
@@ -92,8 +106,11 @@ export function BatchControls(props: { batch: Batch }) {
         <Show when={cancellationStarted()}>
           <p class="note">{finality}</p>
         </Show>
+        {/* Seen, not read: the control or the dialog that waits announces it. */}
         <Show when={pending()}>
-          <p class="note">Working…</p>
+          <p class="note" aria-hidden="true">
+            Working…
+          </p>
         </Show>
       </div>
       <Show when={failure()} keyed>
@@ -109,83 +126,63 @@ export function BatchControls(props: { batch: Batch }) {
         )}
       </Show>
       <div class="controls job-controls">
-        <Show when={!props.batch.pendingControl && props.batch.status === "active"}>
-          <button
-            type="button"
-            aria-describedby="pause-note"
+        {/* Disabled, each control keeps the focus while another runs, as the one running does, and
+            stays while its own request runs, whatever a read says meanwhile. */}
+        <Show
+          when={
+            (!props.batch.pendingControl && props.batch.status === "active") ||
+            controls.pause.isPending
+          }
+        >
+          {/* Kept while its request runs, after a read removed its note, it is described by the
+              status then. */}
+          <Button
+            aria-describedby={
+              !cancellationStarted() && props.batch.status === "active"
+                ? "pause-note"
+                : "batch-status"
+            }
             disabled={pending()}
-            onClick={() => void press("pause")}
+            focusableWhenDisabled
+            pendingAnnouncement="Working…"
+            onClick={() => press("pause")}
           >
             Pause
-          </button>
+          </Button>
         </Show>
-        <Show when={!cancellationStarted() && props.batch.status === "paused"}>
-          <button
-            type="button"
-            aria-describedby="resume-note"
+        <Show
+          when={
+            (!cancellationStarted() && props.batch.status === "paused") || controls.resume.isPending
+          }
+        >
+          <Button
+            aria-describedby={
+              !cancellationStarted() && props.batch.status !== "active"
+                ? "resume-note"
+                : "batch-status"
+            }
             disabled={pending()}
-            onClick={() => void press("resume")}
+            focusableWhenDisabled
+            pendingAnnouncement="Working…"
+            onClick={() => press("resume")}
           >
             Resume
-          </button>
+          </Button>
         </Show>
-        <Show when={props.batch.pendingControl}>
-          <button
-            type="button"
+        {/* A cancel awaiting its Runners keeps its button, which the status explains. */}
+        <Show when={props.batch.pendingControl || props.batch.status !== "cancelled"}>
+          <AlertDialogTrigger
+            controller={confirmCancel}
+            payload={{ unfinished: unfinished(), statusUnknown: props.batch.statusUnknownJobs }}
             class="danger"
-            disabled
             aria-label={cancelLabel()}
-            aria-describedby="batch-status"
+            aria-describedby={props.batch.pendingControl ? "batch-status" : "cancel-note"}
+            disabled={pending() || !!props.batch.pendingControl}
+            focusableWhenDisabled
           >
             Cancel
-          </button>
+          </AlertDialogTrigger>
         </Show>
-        <ConfirmAction
-          trigger="Cancel"
-          triggerLabel={cancelLabel()}
-          showTrigger={!cancellationStarted()}
-          canConfirm={!cancellationStarted()}
-          onClose={() => focusIfLost(status)}
-          confirm="Cancel the Batch"
-          heading={
-            <>
-              Cancel the Batch <code class="job-address">{props.batch.id}</code>?
-            </>
-          }
-          describedBy="cancel-note"
-          disabled={pending()}
-          act={(close) => act("cancel", close)}
-          reportPageFailure={(message) => showFailure(`Cancel the Batch: ${message}`)}
-        >
-          <Show
-            when={!cancellationStarted()}
-            fallback={
-              <p>
-                {props.batch.status === "cancelled"
-                  ? "The Batch is already cancelled."
-                  : "Cancel has already been asked."}
-              </p>
-            }
-          >
-            <p>
-              <Show when={unfinished()}>
-                {unfinished() === 1
-                  ? "Its one unfinished job is cancelled at once if it is unsent or paused. Otherwise its Runner is asked to stop it. If it ends first, it keeps its status and output."
-                  : `It has ${unfinishedText()}. Unsent and paused jobs are cancelled at once. Runners are asked to stop the others. Jobs that end first keep their status and output.`}{" "}
-              </Show>
-              {finality}
-            </p>
-            <Show when={props.batch.statusUnknownJobs} keyed>
-              {(n) => (
-                <p>
-                  {formatCount(n)} of its jobs {plural(n, "has", "have")} status unknown: the cancel
-                  waits until {n === 1 ? "its Runner reports or is" : "their Runners report or are"}{" "}
-                  removed.
-                </p>
-              )}
-            </Show>
-          </Show>
-        </ConfirmAction>
       </div>
       <Show when={!cancellationStarted()}>
         <Show
@@ -211,10 +208,55 @@ export function BatchControls(props: { batch: Batch }) {
           </p>
         </Show>
         <p class="note" id="cancel-note">
-          <Show when={unfinished()}>This Batch has {unfinishedText()}. </Show>Cancel is final.{" "}
-          {finality}
+          <Show when={unfinished()}>This Batch has {unfinishedText(unfinished())}. </Show>Cancel is
+          final. {finality}
         </p>
       </Show>
+      {/* Outside the Shows a read switches, so a read withdrawing Cancel keeps its dialog. */}
+      <ConfirmDialog
+        controller={confirmCancel}
+        heading={() => (
+          <>
+            Cancel the Batch <code class="job-address">{props.batch.id}</code>?
+          </>
+        )}
+        confirm={() => "Cancel the Batch"}
+        withdrawn={() =>
+          props.batch.status === "cancelled"
+            ? "The Batch is already cancelled."
+            : props.batch.pendingControl
+              ? "Cancel has already been asked."
+              : undefined
+        }
+        act={async () => {
+          await run("cancel");
+          readAgain();
+        }}
+        notice={() => status}
+      >
+        {(counts) => (
+          <>
+            <p>
+              <Show when={counts.unfinished}>
+                {counts.unfinished === 1
+                  ? "Its one unfinished job is cancelled at once if it is unsent or paused. Otherwise its Runner is asked to stop it. If it ends first, it keeps its status and output."
+                  : `It has ${unfinishedText(counts.unfinished)}. Unsent and paused jobs are cancelled at once. Runners are asked to stop the others. Jobs that end first keep their status and output.`}{" "}
+              </Show>
+              {finality}
+            </p>
+            <Show when={counts.statusUnknown}>
+              <p>
+                {formatCount(counts.statusUnknown)} of its jobs{" "}
+                {plural(counts.statusUnknown, "has", "have")} status unknown: the cancel waits until{" "}
+                {counts.statusUnknown === 1
+                  ? "its Runner reports or is"
+                  : "their Runners report or are"}{" "}
+                removed.
+              </p>
+            </Show>
+          </>
+        )}
+      </ConfirmDialog>
     </>
   );
 }

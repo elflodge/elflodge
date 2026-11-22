@@ -87,10 +87,14 @@ export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
   component: JobPage,
 });
 
-function MissingJob(props: { id: string; deleted?: boolean }) {
+/**
+ * `replaced` when it takes the place of the job's page, whose focus went with the page: when the
+ * job read answers 404, and with the page any confirmation open on it.
+ */
+function MissingJob(props: { id: string; deleted?: boolean; replaced?: boolean }) {
   let jobsLink: HTMLAnchorElement | undefined;
   onSettled(() => {
-    if (props.deleted) focusIfLost(jobsLink);
+    if (props.replaced) focusIfLost(jobsLink);
   });
   return (
     <FallbackPage heading={props.deleted ? "This job was deleted" : "Job not found"}>
@@ -158,14 +162,17 @@ function JobPage() {
       refetchInterval: REFRESH_INTERVAL_MS,
     });
   });
+  // Read as the job is, and only once read: before its first answer, `data` would suspend the page.
+  const lastBatch = createMemo(() =>
+    batch.dataUpdatedAt ? latest(() => deep(batch.data)) : undefined,
+  );
   const cannotResume = () => {
     if (!stopped()) return undefined;
     if (endedBeforeStart()) return "It ended before it started, so it cannot be resumed.";
     // Until the Batch read succeeds, offer Resume and let the hub explain any Batch refusal.
-    const lastBatch = batch.dataUpdatedAt ? latest(() => batch.data) : undefined;
-    if (lastBatch?.status === "cancelled")
+    if (lastBatch()?.status === "cancelled")
       return "Its Batch was cancelled, so it cannot be resumed.";
-    if (lastBatch?.pendingControl?.type === "cancel")
+    if (lastBatch()?.pendingControl?.type === "cancel")
       return "Its Batch is being cancelled, so it cannot be resumed.";
     if (job().status !== "paused" && !job().runner)
       return "Its Runner was removed, so it cannot be resumed.";
@@ -185,7 +192,9 @@ function JobPage() {
   return (
     <Show
       when={!(read.isError && problemOf(read.error)?.status === 404)}
-      fallback={<MissingJob id={params().id} deleted={deletedHere() || !!job().deletedAt} />}
+      fallback={
+        <MissingJob id={params().id} deleted={deletedHere() || !!job().deletedAt} replaced />
+      }
     >
       <RecordCrumbs to="/jobs" batchId={job().batchId} />
       <div class="head">

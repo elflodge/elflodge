@@ -3,6 +3,7 @@ import { ORPCError } from "@orpc/client";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { QueryClient, type UseQueryResult } from "@tanstack/solid-query";
 import { problemOf, type Runner } from "contract";
+import { onFlush } from "solid-js";
 
 import { api } from "./api-client.ts";
 
@@ -19,6 +20,15 @@ export const orpc = createTanstackQueryUtils(api);
 // Reading data before the first Runner answer suspends the list, even after its own list arrived.
 export function availableRunners(query: UseQueryResult<Runner[]>) {
   return query.dataUpdatedAt ? query.data : undefined;
+}
+
+/**
+ * Resolves once Solid has applied the writes made so far. A UI SDK part writes its pending state in
+ * the tick its action starts, and a mutation started in that same tick, a Solid action, would hold
+ * that write until the hub answers: an action awaits this before it calls `mutate`.
+ */
+export function untilFlushed() {
+  return new Promise<void>((resolve) => onFlush(resolve));
 }
 
 /** The client that holds what the dashboard reads from the hub, one for the document. */
