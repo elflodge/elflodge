@@ -92,7 +92,6 @@ export function JobControls(props: {
     });
     const id = props.job.id;
     try {
-      // Resolves once the job the hub answered, written in onSuccess, is on screen.
       if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
       else await controls[control].mutate({ id });
     } catch (error) {
@@ -103,6 +102,8 @@ export function JobControls(props: {
       return hubFailureMessage(error);
     }
     budgetDialog?.close();
+    // Renders the deletion notice that onSuccess asked for, if it has not shown yet.
+    flush();
     (deletionNotice ?? status)?.focus();
     void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
     void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });

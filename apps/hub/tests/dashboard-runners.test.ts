@@ -338,11 +338,13 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
   const remove = { name: `Remove refused-host ${id.slice(0, 8)}` };
   await record.getByRole("button", remove).click();
   const dialog = page.getByRole("dialog");
+  let refused = false;
+  const reread = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   await page.route(
     `**/runners/${id}`,
-    (route) =>
-      route.fulfill({
+    async (route) => {
+      await route.fulfill({
         status: 404,
         contentType: "application/problem+json",
         json: {
@@ -351,22 +353,31 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
           status: 404,
           detail: "No such Runner here.",
         },
-      }),
-    { times: 1 },
-  );
-  await page.route(
-    (url) => url.pathname.endsWith("/runners"),
-    async (route) => {
-      await release.promise;
-      await route.continue();
+      });
+      refused = true;
     },
     { times: 1 },
   );
+  // Every read of the list after the refusal, so a poll cannot take the place of the reread.
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (refused) {
+        reread.resolve();
+        await release.promise;
+      }
+      await route.continue();
+    },
+  );
   const confirm = dialog.getByRole("button", remove);
-  await confirm.click();
-  await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
-  await expectBrowser(confirm).toBeDisabled();
-  release.resolve();
+  try {
+    await confirm.click();
+    await reread.promise;
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await expectBrowser(confirm).toBeDisabled();
+  } finally {
+    release.resolve();
+  }
   await expectBrowser(dialog.getByRole("alert")).toHaveText("No such Runner here.");
   await expectBrowser(dialog.getByRole("status")).toHaveText("");
   await expectBrowser(confirm).toBeEnabled();
@@ -382,6 +393,8 @@ test("a row's revocation stays pending, and is sent once, while another row's is
     .apiKeys.create({ name: "row beta", permissions: { job: ["read"] } });
   const page = await signedInAt("api-keys");
   let sentA = 0;
+  let sentB = 0;
+  const arrivedB = Promise.withResolvers<void>();
   const releaseA = Promise.withResolvers<void>();
   const releaseB = Promise.withResolvers<void>();
   await page.route(`**/api-keys/${a.id}`, async (route) => {
@@ -390,6 +403,8 @@ test("a row's revocation stays pending, and is sent once, while another row's is
     await route.continue();
   });
   await page.route(`**/api-keys/${b.id}`, async (route) => {
+    sentB += 1;
+    arrivedB.resolve();
     await releaseB.promise;
     await route.continue();
   });
@@ -404,6 +419,8 @@ test("a row's revocation stays pending, and is sent once, while another row's is
     await page.getByRole("button", revokeB).click();
     await expectBrowser(dialog.getByRole("button", revokeB)).toBeEnabled();
     await dialog.getByRole("button", revokeB).click();
+    // B is sent while A is still held.
+    await arrivedB.promise;
     await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
     await page.keyboard.press("Escape");
     await page.getByRole("button", revokeA).click();
@@ -413,6 +430,9 @@ test("a row's revocation stays pending, and is sent once, while another row's is
     releaseA.resolve();
     releaseB.resolve();
   }
-  await expectBrowser(page.getByRole("row").filter({ hasText: "row alpha" })).toHaveCount(0);
-  expect(sentA).toBe(1);
+  await expectBrowser(page.getByRole("row").filter({ hasText: /row (alpha|beta)/ })).toHaveCount(0);
+  const listed = (await system.owner().apiKeys.list()).map((key) => key.id);
+  expect(listed).not.toContain(a.id);
+  expect(listed).not.toContain(b.id);
+  expect([sentA, sentB]).toEqual([1, 1]);
 }, 30_000);

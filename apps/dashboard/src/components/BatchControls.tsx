@@ -39,11 +39,11 @@ export function BatchControls(props: { batch: Batch }) {
     // On its own: written beside the request, it would be held until the request settles.
     onFlush(() => setFailure(undefined));
     try {
-      // Resolves once the Batch the hub answered, written in onSuccess, is on screen.
       await controls[control].mutate({ id: props.batch.id });
     } catch (error) {
       return hubFailureMessage(error);
     }
+    // The status region is there whatever the Batch's state, so focus need not wait for the answer.
     const closed = close?.();
     if (closed === false) focusIfLost(status);
     else status?.focus();

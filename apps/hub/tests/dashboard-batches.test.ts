@@ -215,10 +215,9 @@ test("a member sees when the Canary is holding queued jobs", async () => {
   await expectBrowser(status).toContainText("1 job waiting for its Canary");
 }, 30_000);
 
-test("a cancelled Batch shows as cancelled, with focus, before the jobs it changes are read again", async () => {
+test("a paused Batch shows as paused, with its controls free and focus on its status, before the jobs it changes are read again", async () => {
   const { id } = await system.owner().batches.create({ id: "slow-counts", agent });
   const page = await open("List waiter", `batches/${id}`);
-  await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const reread = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   await page.route(
@@ -230,12 +229,12 @@ test("a cancelled Batch shows as cancelled, with focus, before the jobs it chang
     },
   );
   try {
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Cancel the Batch", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
     await reread.promise;
-    await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
+    await expectBrowser(page.getByRole("status").filter({ hasText: "By a caller" })).toBeFocused();
+    await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toHaveCount(0);
+    await expectBrowser(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+    await expectBrowser(page.getByRole("button", { name: `Cancel the Batch ${id}` })).toBeEnabled();
   } finally {
     release.resolve();
   }
