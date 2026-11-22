@@ -23,9 +23,9 @@ import { Notice } from "./Notice.tsx";
  * a refusal still to show; this one stays when a read drops the record, naming it as the member saw
  * it, so the payload carries the record's words as they were at the press.
  *
- * The rows read the list through `latest`, as `createMemo(() => latest(() => deep(query.data)))`:
- * each trigger reads the dialog's state, and a row that read a list still being read again would
- * hold every write the dialog makes until that read lands.
+ * The page reads the list through `latest`, as `createMemo(() => latest(() => deep(query.data)))`,
+ * everywhere it reads it: a pass that reads a list still being read again can hold the dialog's
+ * writes until that read lands.
  *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
  * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,

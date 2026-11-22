@@ -138,9 +138,9 @@ function KeyList() {
   const queryClient = useQueryClient();
   const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
-  // While a read of the list is in flight, `keys.data` is pending, and so is any render pass that
-  // reads it. Each Revoke reads the confirmation's state, so read directly, every write the
-  // confirmation makes (its opening, "Working…", its closing) would wait for that read to land.
+  // While a read of the list is in flight, `keys.data` is pending, and Solid can hold the
+  // confirmation's writes with a render pass here that reads it until the read lands, as its opening
+  // and its "Working…" did.
   const list = createMemo(() => latest(() => deep(keys.data)));
   const revoking = useMutation(() => orpc.apiKeys.revoke.mutationOptions());
   const confirmRevoke = createAlertDialogController<Revocation>();

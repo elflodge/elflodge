@@ -45,9 +45,9 @@ function Runners() {
   const runners = useQuery(() =>
     orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
   );
-  // While a read of the list is in flight, `runners.data` is pending, and so is any render pass that
-  // reads it. Each Remove reads the confirmation's state, so read directly, every write the
-  // confirmation makes (its opening, "Working…", its closing) would wait for the poll to land.
+  // While a read of the list is in flight, `runners.data` is pending, and Solid can hold the
+  // confirmation's writes with a render pass here that reads it until the read lands: read directly
+  // by the rows, its opening waited; by the rest of the page alone, its "Working…" did.
   const list = createMemo(() => latest(() => deep(runners.data)));
   const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
