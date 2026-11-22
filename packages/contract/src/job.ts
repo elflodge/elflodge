@@ -17,57 +17,46 @@ export const jobRefSchema = z.strictObject({ id: jobIdSchema.check(z.describe("T
  * Text as a job keeps it. JSON can carry a lone UTF-16 surrogate, which is not Unicode text and which
  * neither UTF-8 storage nor canonical JSON accepts, and NUL, which Postgres text cannot hold.
  */
-export const textSchema = z
-  .string()
-  .check(
-    z.refine(
-      (text) => text.isWellFormed() && !text.includes("\0"),
-      "Must be Unicode text without NUL",
-    ),
-  );
+const storableText = (text: string) => text.isWellFormed() && !text.includes("\0");
+const textError = "Must be Unicode text without NUL";
+export const textSchema = z.string().check(z.refine(storableText, textError));
 
-const recursiveJsonTextSchema: z.ZodMiniType<z.infer<ReturnType<typeof z.json>>> = z.lazy(() =>
-  z.union([
-    textSchema,
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(recursiveJsonTextSchema),
-    // Keys are checked as the record's own refinement: a key the record's key schema refused would
-    // fail every option of the union, whose error then names neither the key nor the rule.
-    z.record(z.string(), recursiveJsonTextSchema).check(
-      z.superRefine((record, context) => {
-        for (const key of Object.keys(record)) {
-          const parsed = z.safeParse(textSchema, key);
-          for (const issue of parsed.success ? [] : parsed.error.issues) {
-            context.addIssue({ ...issue, path: [key] });
-          }
-        }
-      }),
-    ),
-  ]),
+const json = z.json();
+// Validate without replacing the input: Zod drops the own member named __proto__ from its copy.
+const originalJson = z.custom<z.infer<typeof json>, unknown>(
+  (value) => json.safeParse(value).success,
+  "Expected a JSON value",
 );
 
-// Zod recurses and can throw past roughly 1,000 levels on Node 26 and workerd, even in safeParse.
-// None of our dependencies caps depth on a parsed value, so probe before entering the schema.
-// Allow 64 nested containers, counting the root as one: .NET's default, below serde_json's 128.
-// The probe stops at the first container beyond the limit, so its own recursion stays bounded.
-function withinJsonDepth(value: unknown, remaining = 64): boolean {
-  return (
-    value === null ||
-    typeof value !== "object" ||
-    (remaining > 0 && Object.values(value).every((child) => withinJsonDepth(child, remaining - 1)))
-  );
-}
+const checkJsonText = z.superRefine((input: unknown, context) => {
+  const path: (string | number)[] = [];
+  const refuse = (message: string) =>
+    context.addIssue({ code: "custom", message, path: [...path] });
 
-/**
- * A JSON value nested at most 64 containers deep, whose strings and keys are text a job keeps
- * (`textSchema`), as Postgres's `jsonb` stores it: `jsonb` refuses NUL and lone surrogates too.
- */
-export const jsonTextSchema = z.pipe(
-  z.unknown().check(z.refine(withinJsonDepth, "JSON must not nest more than 64 containers")),
-  recursiveJsonTextSchema,
-);
+  function visit(value: unknown): boolean {
+    if (typeof value === "string" && !storableText(value)) refuse(textError);
+    if (value === null || typeof value !== "object") return true;
+    // Count the root as one. The .NET default of 64 stays below Zod’s call-stack limit.
+    if (path.length === 64) {
+      refuse("JSON must not nest more than 64 containers");
+      return false;
+    }
+    for (const [key, child] of Array.isArray(value) ? value.entries() : Object.entries(value)) {
+      path.push(key);
+      if (typeof key === "string" && !storableText(key)) refuse(textError);
+      if (!visit(child)) return false;
+      // Zod also skips validation under this key. Check that subtree after bounding its depth.
+      if (key === "__proto__" && !json.safeParse(child).success) refuse("Expected a JSON value");
+      path.pop();
+    }
+    return true;
+  }
+
+  visit(input);
+});
+
+/** A JSON value whose keys and strings the Hub's jsonb column can store, up to 64 containers deep. */
+export const jsonTextSchema = z.pipe(z.unknown().check(checkJsonText), originalJson);
 export type JsonValue = z.infer<typeof jsonTextSchema>;
 
 /**

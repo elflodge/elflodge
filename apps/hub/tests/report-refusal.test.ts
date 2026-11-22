@@ -1,5 +1,5 @@
 import { JOB_FAILED, JOB_SUCCEEDED } from "contract";
-import { afterAll, beforeAll, expect, test } from "vite-plus/test";
+import { afterAll, assert, beforeAll, expect, test } from "vite-plus/test";
 import type WebSocket from "ws";
 
 import { type OneJob, protocolClient, startSystem, submitJob } from "./harness.ts";
@@ -48,7 +48,8 @@ test.each([
   { problem: "output nested 5,000 containers deep", depth: 5_000 },
 ])("a $problem refuses only that job's report", async ({ depth }) => {
   const client = await system.clientWithNewJobsKey();
-  const output = JSON.parse('{"child":'.repeat(64) + "0" + "}".repeat(64));
+  // The accepted output must reach the client with every member, including names Zod skips.
+  const output = JSON.parse('{"child":'.repeat(63) + '{"__proto__":"kept"}' + "}".repeat(63));
   const good = await submitJob(client, { ...SUBMISSION, outputContract: { schema: {} } });
   const bad = await submitJob(client, SUBMISSION);
   const { socket } = await system.connectRunner();
@@ -105,7 +106,9 @@ test.each([
           : expect.stringContaining("JSON must not nest more than 64 containers"),
     },
   ]);
-  expect(await client.jobs.get({ id: good.id })).toMatchObject({ status: "succeeded", output });
+  const job = await client.jobs.get({ id: good.id });
+  assert(job.status === "succeeded");
+  expect(JSON.stringify(job.output)).toBe(JSON.stringify(output));
   expect((await client.jobs.get({ id: bad.id })).status).toBe("queued");
   socket.close(1000);
 });
