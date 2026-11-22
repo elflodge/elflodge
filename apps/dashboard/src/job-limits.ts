@@ -1,5 +1,4 @@
 import { noop, useQuery, type QueryClient } from "@tanstack/solid-query";
-import { createMemo, deep, latest } from "solid-js";
 
 import { orpc } from "./query.ts";
 
@@ -24,14 +23,8 @@ export function preloadJobLimits(context: { member?: unknown; queryClient: Query
  */
 export function useJobLimits() {
   const limits = useQuery(() => orpc.jobs.limits.queryOptions());
-  // Through `latest`, as a page that holds a UI SDK part reads a query that reads again under the
-  // same key: here when the member returns to the tab. A held read of the limits held neither
-  // dialog of Submit a job and Submit a Batch, but which reads hold depends on the page around them.
-  const held = createMemo(() =>
-    limits.dataUpdatedAt ? latest(() => deep(limits.data)) : undefined,
-  );
   return {
-    held,
+    held: () => (limits.dataUpdatedAt ? limits.data : undefined),
     failed: () => limits.isError,
   };
 }
