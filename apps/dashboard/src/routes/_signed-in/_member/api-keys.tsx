@@ -115,8 +115,11 @@ function ApiKeys() {
   );
 }
 
+/** A key to revoke, named as the member saw it when they pressed Revoke. */
+type Revocation = Pick<ApiKey, "id" | "name" | "start">;
+
 /** A key's name and the characters it starts with, as the page names it. */
-function keyLabel(key: ApiKey) {
+function keyLabel(key: Revocation) {
   const name = key.name || "Unnamed";
   return key.start ? `${name} ${key.start}` : name;
 }
@@ -126,10 +129,10 @@ function KeyList() {
   const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
   const revoking = useMutation(() => orpc.apiKeys.revoke.mutationOptions());
-  const confirmRevoke = createAlertDialogController<ApiKey>();
+  const confirmRevoke = createAlertDialogController<Revocation>();
   let notice: HTMLElement | undefined;
 
-  async function revoke(key: ApiKey) {
+  async function revoke(key: Revocation) {
     const label = keyLabel(key);
     // On its own: written beside the request, it would be held until it settles.
     onFlush(() => setRevoked(undefined));
@@ -392,7 +395,7 @@ function CreateKey(props: { onClose: () => void }) {
   );
 }
 
-function KeyTable(props: { keys: ApiKey[]; confirmRevoke: AlertDialogController<ApiKey> }) {
+function KeyTable(props: { keys: ApiKey[]; confirmRevoke: AlertDialogController<Revocation> }) {
   return (
     <table class="records is-narrow" role="table">
       <caption class="vh">API keys</caption>
@@ -457,7 +460,7 @@ function KeyTable(props: { keys: ApiKey[]; confirmRevoke: AlertDialogController<
                 <td role="cell" class="is-act">
                   <AlertDialogTrigger
                     controller={props.confirmRevoke}
-                    payload={key()}
+                    payload={{ id: key().id, name: key().name, start: key().start }}
                     class="danger"
                     aria-label={`Revoke ${keyLabel(key())}`}
                   >

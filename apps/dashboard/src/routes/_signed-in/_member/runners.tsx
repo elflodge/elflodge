@@ -20,8 +20,8 @@ import { memberPageHead } from "../../../page-title.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
-/** A Runner to remove, with its short ID as the member saw it when they pressed Remove. */
-type Removal = { runner: Runner; sid: string };
+/** A Runner to remove, named as the member saw it when they pressed Remove. */
+type Removal = { id: string; name: string; sid: string };
 
 const CONNECTION_NOTE =
   "Connected means the hub has heard from the Runner in about the last two minutes.";
@@ -58,8 +58,8 @@ function Runners() {
   const confirmRemove = createAlertDialogController<Removal>();
   let notice: HTMLElement | undefined;
 
-  async function remove({ runner, sid }: Removal) {
-    const label = `${runner.name} ${sid}`;
+  async function remove(runner: Removal) {
+    const label = `${runner.name} ${runner.sid}`;
     const queryKey = orpc.runners.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     let removal;
@@ -149,12 +149,12 @@ function Runners() {
       </Show>
       <ConfirmDialog
         controller={confirmRemove}
-        heading={({ runner, sid }) => (
+        heading={(runner) => (
           <>
-            Remove <span class="mono">{runner.name}</span> <span class="sid">{sid}</span>?
+            Remove <span class="mono">{runner.name}</span> <span class="sid">{runner.sid}</span>?
           </>
         )}
-        confirm={({ runner, sid }) => `Remove ${runner.name} ${sid}`}
+        confirm={(runner) => `Remove ${runner.name} ${runner.sid}`}
         act={remove}
         notice={() => notice}
       >
@@ -253,7 +253,7 @@ function RunnerList(props: {
                 <div class="runner-ctl">
                   <AlertDialogTrigger
                     controller={props.confirmRemove}
-                    payload={{ runner: runner(), sid: sid() }}
+                    payload={{ id: runner().id, name: runner().name, sid: sid() }}
                     class="danger"
                     aria-label={`Remove ${runner().name} ${sid()}`}
                   >

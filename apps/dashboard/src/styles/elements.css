@@ -354,7 +354,7 @@ dialog::backdrop,
 [data-slot="alert-dialog-content"]::backdrop {
   background: var(--c-scrim);
 }
-[popover]:not([role="dialog"], [role="alertdialog"]) {
+[popover]:where(:not([role="dialog"], [role="alertdialog"])) {
   background: var(--c-paper);
   color: var(--c-ink);
   border: var(--rule) solid var(--c-field-edge);

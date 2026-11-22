@@ -432,6 +432,10 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
   await expectBrowser(dialog.getByText("Working…")).toHaveCount(0);
   await expectBrowser(confirm).toBeEnabled();
   await expectBrowser(confirm).toBeFocused();
+  // Trying again sends the removal again.
+  await confirm.click();
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is removed" })).toBeFocused();
 }, 30_000);
 
 test("a confirmed revocation is sent once, however often it is pressed", async () => {

@@ -351,12 +351,12 @@ A dialog is at least a plain form's 24rem wide and at most 44rem, within the win
 ```tsx
 <ConfirmDialog
   controller={confirmRemove}
-  heading={({ runner, sid }) => (
+  heading={(runner) => (
     <>
-      Remove <span class="mono">{runner.name}</span> <span class="sid">{sid}</span>?
+      Remove <span class="mono">{runner.name}</span> <span class="sid">{runner.sid}</span>?
     </>
   )}
-  confirm={({ runner, sid }) => `Remove ${runner.name} ${sid}`}
+  confirm={(runner) => `Remove ${runner.name} ${runner.sid}`}
   act={remove}
   notice={() => notice}
 >
