@@ -416,7 +416,7 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
   await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
 }, 30_000);
 
-test("Leave asked while files upload says so once the create is sent", async () => {
+test("Leave asked while files upload says so once the create is sent, and chosen then, keeps to where the member was going", async () => {
   const page = await openSubmitBatch("Batch waverer");
   await page.getByLabel("Batch ID").fill("sent-while-asked");
   await addFiles(page, [["asked.txt", `Sent while asked, ${crypto.randomUUID()}.`]]);
@@ -449,14 +449,33 @@ test("Leave asked while files upload says so once the create is sent", async () 
   // A polite live region before the words change, so a screen reader hears the change.
   await expectBrowser(description).toHaveAttribute("aria-live", "polite");
   const element = await description.elementHandle();
+  // The session read of Batches is held, so this page stays while the create answers.
+  const leaving = Promise.withResolvers<void>();
+  const session = Promise.withResolvers<void>();
+  await page.route("**/api/auth/get-session", async (route) => {
+    leaving.resolve();
+    await session.promise;
+    await route.continue();
+  });
   try {
     upload.resolve();
     await sent.promise;
     await expect
       .poll(() => element?.textContent())
       .toContain("The hub may already have a Batch from this page");
+    const entries = await page.evaluate("history.length");
+    await page.getByRole("alertdialog").getByRole("button", { name: "Leave the page" }).click();
+    await leaving.promise;
+    const answered = page.waitForResponse((response) => isCreate(response.request()));
+    create.resolve();
+    await answered;
+    session.resolve();
+    await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Batches");
+    await expectBrowser(page).toHaveURL(/\/batches$/);
+    expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
   } finally {
     create.resolve();
+    session.resolve();
   }
 }, 30_000);
 
