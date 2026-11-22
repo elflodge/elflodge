@@ -30,7 +30,7 @@ import { Field, FieldGroup } from "../../../components/Field.tsx";
 import { FormDialog } from "../../../components/FormDialog.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { fieldText } from "../../../form.ts";
+import { fieldText, formRefusal } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
 import { orpc, writeAbsence } from "../../../query.ts";
@@ -291,18 +291,20 @@ function CreateKey(props: { controller: DialogController }) {
   return (
     <FormDialog
       controller={props.controller}
-      heading="Create an API key"
+      heading={() => "Create an API key"}
       confirm="Create key"
       wide
-      controls={{
-        name: ["name"],
-        // The fieldset owns both the permission set and each indexed action in a resource.
-        permissions: [
-          "permissions",
-          ...GRANTABLE.map(([resource]) => `permissions[${resource}][]`),
-        ],
-        expiresIn: ["expiresIn"],
-      }}
+      refusal={(error) =>
+        formRefusal(error, {
+          name: ["name"],
+          // The fieldset owns both the permission set and each indexed action in a resource.
+          permissions: [
+            "permissions",
+            ...GRANTABLE.map(([resource]) => `permissions[${resource}][]`),
+          ],
+          expiresIn: ["expiresIn"],
+        })
+      }
       send={create}
       answer={{
         heading: (created) => (
@@ -356,6 +358,7 @@ function CreateKey(props: { controller: DialogController }) {
             )}
           </Field>
           <FieldGroup
+            name="permissions"
             label="Permissions"
             hint="Choose at least one action."
             error={fields.refused("permissions")}
