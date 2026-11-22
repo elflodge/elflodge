@@ -2,8 +2,8 @@ import { type Kysely, sql } from "kysely";
 
 // What each Usage record's use went to, by model (`provider/modelId`) and by tool: pi's additive
 // counters for each name whose counters changed since the job's previous end, as `{ "models": {},
-// "tools": {} }`, their differences adding up to the record's own `totalTokens` and `costUsd` (ADR
-// 0051). Not null with no default, so an end a previous release writes, which gives no split, fails
+// "tools": {} }`, their differences adding up to the record's own `totalTokens` and `costUsd` for
+// every end whose previous end was recorded with them (ADR 0051). Not null with no default, so an end a previous release writes, which gives no split, fails
 // in full: its record and the job's recorded totals are written by one statement or transaction,
 // so neither a record without a split nor a moved baseline without `recordedUsage` is kept.
 // Records written before the column took empty maps: what they used cannot be split now.
@@ -13,7 +13,7 @@ import { type Kysely, sql } from "kysely";
 // subtracts it. A job whose records have counted nothing keeps the empty maps, which are exact, as
 // for a job that has not ended. One whose records have counted something takes its progress's usage
 // now, since its usage at its last end was never kept: exact where it has used nothing since, and
-// otherwise short by what it used between that end and this migration. Its next record's entries
+// otherwise short by what it used between that end and this migration. Its next end's entries
 // then fall short of the record's totals by that much, which reads as unattributed use, and never
 // exceed them, so nothing is counted twice.
 export async function up(db: Kysely<unknown>): Promise<void> {

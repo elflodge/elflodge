@@ -17,6 +17,9 @@ import {
   type JobsPage,
   type JobRunner,
   type JobUsage,
+  type JobUsageEntry,
+  USAGE_COST_COUNTERS,
+  USAGE_TOKEN_COUNTERS,
   type JobLimits,
   type Labels,
   type StatusUnknownReason,
@@ -961,66 +964,75 @@ export type UsageOfEnd = Pick<
   jobCostUsd: number;
 };
 
-/** pi's additive token counters of one model's or tool's usage, subtracted as `bigint`. */
-const TOKEN_COUNTERS = [
-  "totalTokens",
-  "input",
-  "output",
-  "cacheRead",
-  "cacheWrite",
-  "cacheWrite1h",
-  "reasoning",
-] as const;
-
-/**
- * pi's additive cost counters, in US dollars, subtracted as `numeric`. `cost.totalFromProvider` is
- * left out: pi's `addUsage` never updates it on a running total.
- */
-const COST_COUNTERS = ["total", "input", "output", "cacheRead", "cacheWrite"] as const;
-
-/** One model's or tool's usage, as a job's usage holds it. */
-type UsageEntry = JobUsage["models"][string];
-
 /**
  * One model's or tool's use between a job's previous end and now, from a row of its usage now
  * (`now`) beside the same name's row at its previous end (`before`), either absent: whether any of
  * pi's counters changed, and the entry of their differences, under pi's names. The differences
- * are taken in SQL as the totals are, so a record's entries add up exactly to its `totalTokens` and
- * `costUsd`. A name whose counter shrank gets a negative difference rather than none, which would
- * break that sum: pi's totals per name only grow, so it would be pi's fault. A counter absent on
- * both sides, as `reasoning` is from a provider that reports none, stays absent rather than 0; one
- * absent on one side counts as 0 there.
+ * are taken in SQL as the totals are, so for an end whose previous end was recorded with them, a
+ * record's entries add up exactly to its `totalTokens` and `costUsd`. A name whose counter shrank
+ * gets a negative difference rather than none, which would break that sum: pi's totals per name
+ * only grow, so it would be pi's fault. A name absent on one side counts as 0 there. A counter
+ * absent on a side where its name is present stays absent from the entry, as `reasoning` is from a
+ * provider that reports none, since that is not 0; `totalTokens` and `cost.total` are never
+ * absent, so the sum holds. A counter that is not a number counts as absent: snapshots stored
+ * before the protocol checked the counters may hold anything, and casting one would fail the end.
  */
 const usageEntries = (() => {
   const eb = expressionBuilder<
     {
-      now: { key: string | null; value: UsageEntry | null };
-      before: { key: string | null; value: UsageEntry | null };
+      now: { key: string | null; value: JobUsageEntry | null };
+      before: { key: string | null; value: JobUsageEntry | null };
     },
     "now" | "before"
   >();
-  // `now - before`, `now` where `before` is absent, `-before` where `now` is.
+  // Dollars as `numeric`, and token counts too, rather than `bigint`: a snapshot stored before the
+  // protocol checked them as integers may hold a fraction, and `numeric` subtracts integers exactly.
+  const counterOf = (
+    counter: Expression<unknown>,
+    text: Expression<unknown>,
+  ): Expression<number | null> =>
+    eb
+      .case()
+      .when(eb.fn("jsonb_typeof", [counter]), "=", eb.val("number"))
+      .then(eb.cast<number>(text, "numeric"))
+      .end();
   const differenceOf = (now: Expression<number | null>, before: Expression<number | null>) =>
-    eb.fn.coalesce(eb(now, "-", before), now, eb.neg(before));
-  const tokens = TOKEN_COUNTERS.map((counter) => {
-    const side = (from: "now" | "before") =>
-      eb.cast<number | null>(eb.ref(`${from}.value`, "->>").key(counter), "bigint");
-    return [counter, differenceOf(side("now"), side("before"))] as const;
-  });
-  const cost = COST_COUNTERS.map((counter) => {
-    const side = (from: "now" | "before") =>
-      eb.cast<number | null>(eb.ref(`${from}.value`, "->>").key("cost").key(counter), "numeric");
-    return [counter, differenceOf(side("now"), side("before"))] as const;
-  });
-  const objectOf = (fields: ReadonlyArray<readonly [string, Expression<unknown>]>) =>
-    eb.fn(
-      "jsonb_build_object",
-      fields.flatMap(([name, value]) => [eb.cast(eb.val(name), "text"), value]),
+    eb
+      .case()
+      .when("now.value", "is", null)
+      .then(eb.neg(before))
+      .when("before.value", "is", null)
+      .then(now)
+      .else(eb(now, "-", before))
+      .end();
+  const fieldsOf = <K extends string>(
+    counters: readonly K[],
+    sideOf: (from: "now" | "before", counter: K) => Expression<number | null>,
+  ) =>
+    Object.fromEntries(
+      counters.map((counter) => [
+        counter,
+        differenceOf(sideOf("now", counter), sideOf("before", counter)),
+      ]),
     );
+  const tokens = fieldsOf(USAGE_TOKEN_COUNTERS, (from, counter) =>
+    counterOf(
+      eb.ref(`${from}.value`, "->").key(counter),
+      eb.ref(`${from}.value`, "->>").key(counter),
+    ),
+  );
+  const cost = fieldsOf(USAGE_COST_COUNTERS, (from, counter) =>
+    counterOf(
+      eb.ref(`${from}.value`, "->").key("cost").key(counter),
+      eb.ref(`${from}.value`, "->>").key("cost").key(counter),
+    ),
+  );
   return {
-    changed: eb.or([...tokens, ...cost].map(([, value]) => eb(value, "<>", eb.lit(0)))),
-    entry: eb.fn<UsageEntry>("jsonb_strip_nulls", [
-      objectOf([...tokens, ["cost", objectOf(cost)]]),
+    changed: eb.or(
+      [...Object.values(tokens), ...Object.values(cost)].map((value) => eb(value, "<>", eb.lit(0))),
+    ),
+    entry: eb.fn<JobUsageEntry>("jsonb_strip_nulls", [
+      eb.cast(jsonBuildObject({ ...tokens, cost: jsonBuildObject(cost) }), "jsonb"),
     ]),
   };
 })();
@@ -1052,7 +1064,7 @@ export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfE
         // of the job's usage now beside those of its usage at its previous end, matched by name.
         const entriesOf = (map: "models" | "tools") => {
           const rowsOf = (usage: "e.jobUsage" | "e.recordedUsage") =>
-            select.fn<{ key: string; value: UsageEntry }>("jsonb_each", [
+            select.fn<{ key: string; value: JobUsageEntry }>("jsonb_each", [
               select.ref(usage, "->").key(map),
             ]);
           return select
@@ -1077,12 +1089,10 @@ export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfE
           select("e.jobTotalTokens", "-", select.ref("e.recordedTotalTokens")).as("totalTokens"),
           select("e.jobCostUsd", "-", select.ref("e.recordedCostUsd")).as("costUsd"),
           select
-            .fn<JobUsage>("jsonb_build_object", [
-              select.cast(select.val("models"), "text"),
-              entriesOf("models"),
-              select.cast(select.val("tools"), "text"),
-              entriesOf("tools"),
-            ])
+            .cast<JobUsage>(
+              jsonBuildObject({ models: entriesOf("models"), tools: entriesOf("tools") }),
+              "jsonb",
+            )
             .as("usage"),
           "e.jobTotalTokens",
           "e.jobCostUsd",

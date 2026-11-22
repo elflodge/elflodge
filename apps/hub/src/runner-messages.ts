@@ -23,6 +23,7 @@ import {
   type JobReport,
   type JobActivity,
   type JobUsage,
+  type JobUsageEntry,
   type JsonValue,
   type Load,
 } from "contract";
@@ -76,9 +77,6 @@ export interface RunnerMessageContext {
   /** How often Runners report their jobs' new events, as the hub's deployment sets it. */
   reportIntervalMs: number;
 }
-
-/** One model's or one tool's usage in a job's usage totals, as pi counts it. */
-type Usage = JobUsage["models"][string];
 
 /** Runs `effect` with the context's services. */
 function runWithServices<A, E>(
@@ -351,7 +349,7 @@ function applyReportsStatement(
               eb
                 .selectFrom(
                   eb
-                    .fn<{ value: Usage }>("jsonb_each", [eb.ref("r.usage", "->").key(map)])
+                    .fn<{ value: JobUsageEntry }>("jsonb_each", [eb.ref("r.usage", "->").key(map)])
                     .as("amount"),
                 )
                 .select("amount.value");

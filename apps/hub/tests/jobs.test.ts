@@ -1,17 +1,10 @@
-import {
-  JOB_CANCELLED,
-  JOB_PAUSED,
-  JOB_STARTED,
-  JOB_SUCCEEDED,
-  type JobReport,
-  type JobUsage,
-} from "contract";
+import { JOB_CANCELLED, JOB_PAUSED, JOB_SUCCEEDED, type JobUsageEntry } from "contract";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId } from "../src/db/types.ts";
-import { blobRef, protocolClient, startSystem, submitJob, uploadContent } from "./harness.ts";
+import { blobRef, startSystem, submitJob, uploadContent } from "./harness.ts";
 
 const system = startSystem();
 
@@ -256,7 +249,7 @@ test("an invalid Output contract or Input file path is refused with 400", async 
 
 /**
  * pi's usage of one model or tool: `input` tokens in and `output` out, priced in binary fractions
- * of a dollar so that sums are exact in JavaScript too.
+ * of a dollar.
  */
 function piUsage(input: number, output: number, extra: { reasoning?: number } = {}) {
   const cost = { input: input / 4096, output: output / 1024, cacheRead: 0, cacheWrite: 0 };
@@ -268,51 +261,6 @@ function piUsage(input: number, output: number, extra: { reasoning?: number } = 
     ...extra,
     totalTokens: input + output,
     cost: { ...cost, total: cost.input + cost.output },
-  };
-}
-
-/**
- * A Runner speaking the protocol on a socket of its own, so that its reports carry the usage a test
- * gives. `place` takes the job `jobId` from the hub; `report` sends one report of `run` from
- * `position`, its events Runner entries of the given kinds.
- */
-async function connectRunner() {
-  const { runnerId, socket } = await system.connectRunner();
-  const runner = protocolClient(socket);
-  return {
-    runnerId,
-    close: () => socket.close(1000),
-    async place(jobId: string) {
-      // Earlier tests leave jobs queued, which the hub sends too.
-      const { runs } = await runner.request("sync", { held: [], free: 100 }, 10_000);
-      const run = runs.find((each) => each.jobId === jobId);
-      assert(run, "The hub did not send the job");
-      return { jobId, runId: run.runId, position: run.position };
-    },
-    async report(
-      { jobId, runId, position }: { jobId: string; runId: string; position: number },
-      entries: { kind: string; data?: object }[],
-      usage: JobUsage,
-    ) {
-      const ref = { jobId, runId };
-      const job: JobReport = {
-        ...ref,
-        intent: "run",
-        position,
-        events: entries.map(({ kind, data }, index) => ({
-          id: position + index + 1,
-          type: "entry",
-          record: { kind, data: { timestamp: Date.now(), ...data } },
-        })),
-        usage,
-      };
-      const answer = await runner.request(
-        "report",
-        { held: [ref], free: 0, deleted: [], jobs: [job] },
-        10_000,
-      );
-      expect(answer.refused).toEqual([]);
-    },
   };
 }
 
@@ -330,9 +278,7 @@ async function usageRecordsOf(jobId: string) {
         eb
           .selectFrom(
             eb
-              .fn<{ value: JobUsage["models"][string] }>("jsonb_each", [
-                eb.ref("u.usage", "->").key(map),
-              ])
+              .fn<{ value: JobUsageEntry }>("jsonb_each", [eb.ref("u.usage", "->").key(map)])
               .as("entry"),
           )
           .select("entry.value");
@@ -384,20 +330,13 @@ async function recordedUsageOf(jobId: string) {
 test("each end a Runner reports records what the job used since its previous end, by model and by tool, adding up to the record's totals", async () => {
   const client = await system.clientWithNewJobsKey();
   const { id } = await submitJob(client, { ...AGENT, input: "Summarise." });
-  const runner = await connectRunner();
+  const runner = await system.connectReportingRunner();
   const first = await runner.place(id);
-  await runner.report(
-    first,
-    [{ kind: JOB_STARTED, data: { runId: first.runId, runnerVersion: "0.0.0" } }],
-    {
-      models: { "scripted/small": piUsage(1024, 64) },
-      tools: {},
-    },
-  );
+  await runner.start(first, { models: { "scripted/small": piUsage(1024, 64) }, tools: {} });
   // The ending report itself carries new usage: the record counts it.
   const firstEnd = {
     models: { "scripted/small": piUsage(2048, 128) },
-    tools: { web_search: piUsage(512, 0) },
+    tools: { web_search: { totalTokens: 1, cost: { total: 0.1 } } },
   };
   await runner.report({ ...first, position: 1 }, [{ kind: JOB_CANCELLED }], firstEnd);
 
@@ -409,7 +348,7 @@ test("each end a Runner reports records what the job used since its previous end
       "scripted/small": piUsage(2048, 128),
       "scripted/large": piUsage(4096, 256, { reasoning: 32 }),
     },
-    tools: { web_search: piUsage(1536, 0) },
+    tools: { web_search: { totalTokens: 3, cost: { total: 0.3 } } },
   });
   runner.close();
 
@@ -418,7 +357,8 @@ test("each end a Runner reports records what the job used since its previous end
     {
       usage: {
         models: { "scripted/large": piUsage(4096, 256, { reasoning: 32 }) },
-        tools: { web_search: piUsage(1024, 0) },
+        // Exactly 0.2, as `numeric` subtracts, where JavaScript's 0.3 - 0.1 is not.
+        tools: { web_search: { totalTokens: 2, cost: { total: 0.2 } } },
       },
       entriesAddUp: true,
     },
@@ -430,31 +370,35 @@ test.each([
   { end: "a cancel of its paused job's Batch", paused: true },
   { end: "its Runner's removal", paused: false },
 ])(
-  "an end by $end records the job's use by model and by tool, adding up to the record's totals",
+  "an end by $end records what the job used since its previous end, by model and by tool, adding up to the record's totals",
   async ({ end, paused }) => {
     const client = await system.clientWithNewJobsKey();
     const { id, batchId } = await submitJob(client, { ...AGENT, input: "Summarise." });
-    const runner = await connectRunner();
-    const run = await runner.place(id);
-    const used = {
+    const runner = await system.connectReportingRunner();
+    // A first end the Runner reports, so the hub's end counts from it.
+    const first = await runner.place(id);
+    const firstEnd = {
       models: { "scripted/small": piUsage(1024, 64) },
       tools: { web_search: piUsage(512, 0) },
     };
-    await runner.report(
-      run,
-      [
-        { kind: JOB_STARTED, data: { runId: run.runId, runnerVersion: "0.0.0" } },
-        ...(paused ? [{ kind: JOB_PAUSED }] : []),
-      ],
-      used,
-    );
+    await runner.start(first, firstEnd, [{ kind: JOB_CANCELLED }]);
+    await client.jobs.resume({ id });
+    const second = await runner.place(id);
+    const used = {
+      models: { "scripted/small": piUsage(3072, 64) },
+      tools: { web_search: piUsage(512, 0) },
+    };
+    await runner.report(second, paused ? [{ kind: JOB_PAUSED }] : [], used);
     if (end === "a cancel of the paused job") await client.jobs.cancel({ id });
     else if (paused) await client.batches.cancel({ id: batchId });
     else await system.owner().runners.delete({ id: runner.runnerId });
     runner.close();
 
     expect((await client.jobs.get({ id })).status).toBe(paused ? "cancelled" : "failed");
-    expect(await usageRecordsOf(id)).toEqual([{ usage: used, entriesAddUp: true }]);
+    expect(await usageRecordsOf(id)).toEqual([
+      { usage: firstEnd, entriesAddUp: true },
+      { usage: { models: { "scripted/small": piUsage(2048, 0) }, tools: {} }, entriesAddUp: true },
+    ]);
     // Its next end counts from here.
     expect(await recordedUsageOf(id)).toEqual({ recordedUsage: used, usage: used });
   },
