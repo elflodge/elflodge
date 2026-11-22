@@ -1,5 +1,14 @@
 import type { JSX } from "@solidjs/web";
-import { For, Show, createSignal, createUniqueId, flush, onSettled } from "solid-js";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+  createConfirm,
+  type AlertDialogController,
+} from "@ui-sdk/solid/alert-dialog";
+import { For, Show, createSignal, flush } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
 import { focusNextRemove } from "../form.ts";
@@ -93,11 +102,12 @@ export function DraftJobs(props: {
   mayHaveBatch: boolean;
 }) {
   const [said, setSaid] = createSignal("");
-  const [askingRemoveAll, setAskingRemoveAll] = createSignal(false);
+  const confirmRemoveAll = createConfirm<undefined>();
   const [receiving, setReceiving] = createSignal(false);
   let chooser: HTMLInputElement | undefined;
   let addFilesButton: HTMLButtonElement | undefined;
   let addJobButton: HTMLButtonElement | undefined;
+  let removeAllButton: HTMLButtonElement | undefined;
 
   function add(jobs: DraftJob[], words: (first: number, last: number) => string) {
     if (props.pending || !jobs.length) return;
@@ -136,7 +146,10 @@ export function DraftJobs(props: {
     props.onRemove(row.key);
     setSaid(`Job ${formatCount(number)} removed.`);
   }
-  function removeAll() {
+  async function removeAll() {
+    if (props.pending || !(await confirmRemoveAll())) return;
+    // Answered once the dialog has closed and returned focus to Remove all, so focus can move on from
+    // it, as it goes with the rows.
     const count = props.rows.length;
     props.onRemove("all");
     setSaid(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
@@ -217,10 +230,11 @@ export function DraftJobs(props: {
           <Show when={props.rows.length}>
             <button
               type="button"
-              aria-disabled={props.pending ? "true" : undefined}
-              onClick={() => {
-                if (!props.pending) setAskingRemoveAll(true);
+              ref={(element) => {
+                removeAllButton = element;
               }}
+              aria-disabled={props.pending ? "true" : undefined}
+              onClick={() => void removeAll()}
             >
               Remove all
             </button>
@@ -232,9 +246,6 @@ export function DraftJobs(props: {
         <Show when={!props.rows.length && !receiving()}>
           <p class="note">No jobs yet. Files can also be dropped here.</p>
         </Show>
-        <p role="status" class="vh">
-          {said()}
-        </p>
         <Show when={props.rows.length}>
           <a class="vh skip-list" href={`#${props.after}`}>
             Skip the jobs
@@ -361,51 +372,54 @@ export function DraftJobs(props: {
           </table>
         </Show>
       </FieldGroup>
-      {/* In the page's form, so its buttons are all `type="button"` and it has no form of its own. */}
-      <Show when={askingRemoveAll()}>
-        <RemoveAllDialog
-          jobs={props.rows.length}
-          mayHaveBatch={props.mayHaveBatch}
-          typedInputs={props.jobs.filter((job) => job.kind === "typed" && job.input !== "").length}
-          files={props.rows.some((row) => row.kind === "file")}
-          onClose={() => setAskingRemoveAll(false)}
-          onConfirm={removeAll}
-        />
-      </Show>
+      {/* Beside the group rather than in it: either question leaves out of what it makes inert a
+          live region and what holds it, and the group, then inert whole, takes no file dropped
+          while it is open. */}
+      <p role="status" class="vh">
+        {said()}
+      </p>
+      <RemoveAllDialog
+        controller={confirmRemoveAll.controller}
+        opener={() => removeAllButton}
+        jobs={props.rows.length}
+        mayHaveBatch={props.mayHaveBatch}
+        typedInputs={props.jobs.filter((job) => job.kind === "typed" && job.input !== "").length}
+        files={props.rows.some((row) => row.kind === "file")}
+      />
     </>
   );
 }
 
 /**
  * Asks before every row goes, saying what is lost and what is not. `mayHaveBatch`: a send got no
- * answer, so the hub may have a Batch with these jobs. Not `ConfirmAction`, which starts a request
- * and waits for the hub: removing rows sends nothing.
+ * answer, so the hub may have a Batch with these jobs. Not `ConfirmDialog`, whose confirming button
+ * runs a request and waits for the hub: removing rows sends nothing, so Remove all asks through
+ * `createConfirm` and removes them once the answer is in.
  */
 function RemoveAllDialog(props: {
+  controller: AlertDialogController<undefined>;
+  /** Remove all, where focus returns. */
+  opener: () => HTMLElement | undefined;
   jobs: number;
   mayHaveBatch: boolean;
   typedInputs: number;
   files: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
 }) {
-  const headingId = createUniqueId();
-  let dialog!: HTMLDialogElement;
   const jobs = () => `${formatCount(props.jobs)} ${plural(props.jobs, "job", "jobs")}`;
   return (
-    <dialog
-      aria-labelledby={headingId}
-      ref={(element) => {
-        dialog = element;
-        onSettled(() => element.showModal());
-      }}
-      onClose={() => props.onClose()}
+    <AlertDialog
+      controller={props.controller}
+      // Into the body, as `ConfirmDialog` does and for its reason; out of the page's form too, so
+      // none of its buttons can submit it.
+      container={document.body}
     >
-      <h2 class="dialog-h" id={headingId}>
-        {plural(props.jobs, "Remove the job?", `Remove all ${jobs()}?`)}
-      </h2>
-      <div class="dialog-b">
-        <p>
+      {/* Opened from code, it would return focus to what had it at the press, which is not Remove all
+          when the press does not focus it, as a click does not in Safari. */}
+      <AlertDialogContent finalFocus={props.opener}>
+        <AlertDialogTitle class="dialog-h">
+          {plural(props.jobs, "Remove the job?", `Remove all ${jobs()}?`)}
+        </AlertDialogTitle>
+        <AlertDialogDescription class="dialog-b">
           {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
           {props.mayHaveBatch
             ? ""
@@ -416,25 +430,14 @@ function RemoveAllDialog(props: {
             : ""}
           every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
           {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
-        </p>
-      </div>
-      <div class="dialog-f">
-        <button type="button" autofocus onClick={() => dialog.close()}>
-          {plural(props.jobs, "Keep it", "Keep them")}
-        </button>
-        <button
-          type="button"
-          class="danger is-fill"
-          onClick={() => {
-            // Closed first: a modal dialog keeps focus from the page, and closing it returns focus
-            // to Remove all, which goes with the rows.
-            dialog.close();
-            props.onConfirm();
-          }}
-        >
-          Remove {jobs()}
-        </button>
-      </div>
-    </dialog>
+        </AlertDialogDescription>
+        <div class="dialog-f">
+          <AlertDialogClose>{plural(props.jobs, "Keep it", "Keep them")}</AlertDialogClose>
+          <AlertDialogClose value="confirm" class="danger is-fill">
+            Remove {jobs()}
+          </AlertDialogClose>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
