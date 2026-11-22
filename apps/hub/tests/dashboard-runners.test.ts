@@ -54,7 +54,7 @@ test("revoking the last API key returns focus to the page and stops calls with t
   const row = page.getByRole("row").filter({ hasText: "old script" });
   await row.getByRole("button", { name: /^Revoke / }).click();
   await page
-    .getByRole("dialog")
+    .getByRole("alertdialog")
     .getByRole("button", { name: /^Revoke old script/ })
     .click();
   await row.waitFor({ state: "detached" });
@@ -65,7 +65,7 @@ test("revoking the last API key returns focus to the page and stops calls with t
   await expect(system.client({ "x-api-key": key }).jobs.counts({})).rejects.toThrow();
 }, 30_000);
 
-test("dismissing a pending revocation still announces a refusal on the page", async () => {
+test("a pending revocation cannot be left, and its refusal shows in the dialog", async () => {
   const { id } = await system.owner().apiKeys.create({
     name: "scheduled job",
     permissions: { job: ["read"] },
@@ -78,12 +78,16 @@ test("dismissing a pending revocation still announces a refusal on the page", as
   });
   const revoke = { name: /^Revoke scheduled job / };
   await page.getByRole("button", revoke).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
+  const confirm = dialog.getByRole("button", revoke);
   try {
-    await dialog.getByRole("button", revoke).click();
-    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await confirm.click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await expectBrowser(confirm).toBeFocused();
+    // Screen readers hear it once the request has run for a second.
+    await expectBrowser(page.getByRole("status").filter({ hasText: /^Working…$/ })).toBeAttached();
     await page.keyboard.press("Escape");
-    await expectBrowser(dialog).toHaveCount(0);
+    await expectBrowser(dialog).toBeVisible();
     const signedOut = await page.evaluate(
       async () =>
         (
@@ -98,9 +102,8 @@ test("dismissing a pending revocation still announces a refusal on the page", as
   } finally {
     release.resolve();
   }
-  await expectBrowser(
-    page.getByRole("alert").filter({ hasText: /Revoke scheduled job/ }),
-  ).toHaveText(/Revoke scheduled job .*: Unauthorized/);
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("Unauthorized");
+  await expectBrowser(confirm).toBeFocused();
 }, 30_000);
 
 test("in a browser, the Runners page lists a registered Runner by its name and short ID", async () => {
@@ -156,7 +159,7 @@ test("in a browser, removing a Runner takes it off the list", async () => {
   const record = runnerRecord(page, "retired-host");
   await record.getByRole("button", { name: /^Remove / }).click();
   await page
-    .getByRole("dialog")
+    .getByRole("alertdialog")
     .getByRole("button", { name: `Remove retired-host ${id.slice(0, 8)}` })
     .click();
   await record.waitFor({ state: "detached" });
@@ -166,21 +169,135 @@ test("in a browser, removing a Runner takes it off the list", async () => {
 
 test("removing an already removed Runner closes the dialog and explains its absence", async () => {
   const id = await registerRunner("former-host");
-  const page = await signedInAt("runners");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install();
+  await signInAt(system, page, "runners", OWNER);
   const record = runnerRecord(page, "former-host");
   const remove = { name: `Remove former-host ${id.slice(0, 8)}` };
   await record.getByRole("button", remove).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   // Another member removes the Runner before the hub receives this member's confirmation.
+  let refused = false;
   await page.route(`**/runners/${id}`, async (route) => {
     await system.owner().runners.delete({ id });
+    refused = true;
     await route.continue();
   });
+  // The read that finds it gone waits until a poll is under way; that poll and every later read of
+  // the list are held, so the row goes with the notice and not with a later read.
+  let reads = 0;
+  const checking = Promise.withResolvers<void>();
+  const polling = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (refused) {
+        reads += 1;
+        if (reads === 1) {
+          checking.resolve();
+          await polling.promise;
+        } else {
+          polling.resolve();
+          await release.promise;
+        }
+      }
+      await route.continue();
+    },
+  );
+  // No poll comes between the removal and the read that checks it.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   await dialog.getByRole("button", remove).click();
+  await checking.promise;
+  // The page reads the list every five seconds.
+  await page.clock.runFor(5_000);
+  await polling.promise;
+  await page.clock.resume();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(record).toHaveCount(0);
   await expectBrowser(page.getByRole("status").filter({ hasText: "is already gone" })).toHaveText(
     `former-host ${id.slice(0, 8)} is already gone.`,
+  );
+}, 30_000);
+
+test("an already-gone check keeps a Runner that a later read added while it ran", async () => {
+  const id = await registerRunner("checked-host");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install();
+  await signInAt(system, page, "runners", OWNER);
+  const remove = { name: `Remove checked-host ${id.slice(0, 8)}` };
+  await runnerRecord(page, "checked-host").getByRole("button", remove).click();
+  const dialog = page.getByRole("alertdialog");
+  let refused = false;
+  await page.route(`**/runners/${id}`, async (route) => {
+    await system.owner().runners.delete({ id });
+    refused = true;
+    await route.continue();
+  });
+  // The check's answer is read at once and delivered once a later read has shown a new Runner.
+  // Reads after that one are held, so none can restore a Runner the check wrongly discarded.
+  let reads = 0;
+  const checking = Promise.withResolvers<void>();
+  const shown = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (refused && ++reads === 1) {
+        // Playwright fetches outside the browser, which maps the hub's host to the test hub.
+        const url = new URL(route.request().url());
+        const response = await route.fetch({
+          url: new URL(url.pathname + url.search, system.url()).href,
+          headers: { ...route.request().headers(), host: url.host },
+        });
+        checking.resolve();
+        await shown.promise;
+        await route.fulfill({ response });
+        return;
+      }
+      if (refused && reads > 2) await release.promise;
+      await route.continue();
+    },
+  );
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  await dialog.getByRole("button", remove).click();
+  await checking.promise;
+  await registerRunner("later-host");
+  // The page reads the list every five seconds.
+  await page.clock.runFor(5_000);
+  await runnerRecord(page, "later-host").waitFor();
+  shown.resolve();
+  await page.clock.resume();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is already gone" })).toHaveText(
+    `checked-host ${id.slice(0, 8)} is already gone.`,
+  );
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(runnerRecord(page, "later-host")).toBeVisible();
+}, 30_000);
+
+test("a removal the hub fails with a 500 says it could not be confirmed", async () => {
+  const id = await registerRunner("failing-host");
+  const page = await signedInAt("runners");
+  await page.route(
+    `**/runners/${id}`,
+    (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/problem+json",
+        json: { type: "about:blank", title: "Internal Server Error", status: 500, detail: "boom" },
+      }),
+    { times: 1 },
+  );
+  const remove = { name: `Remove failing-host ${id.slice(0, 8)}` };
+  await runnerRecord(page, "failing-host").getByRole("button", remove).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", remove).click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The dashboard could not confirm this was done. Check before trying again.",
   );
 }, 30_000);
 
@@ -304,7 +421,7 @@ test("in a browser, a plain member gets no owner's actions on Runners and API ke
   expect(await page.getByRole("button", { name: "Create key" }).count()).toBe(0);
 }, 30_000);
 
-test("a revoked key's notice shows before the list is read again", async () => {
+test("a revoked key's notice has focus before the list is read again, and if that read fails", async () => {
   await system.owner().apiKeys.create({ name: "held list key", permissions: { job: ["read"] } });
   const page = await signedInAt("api-keys");
   const revoke = { name: /^Revoke held list key/ };
@@ -316,19 +433,78 @@ test("a revoked key's notice shows before the list is read again", async () => {
     async (route) => {
       reread.resolve();
       await release.promise;
-      await route.continue();
+      await route.abort("failed");
     },
   );
   const notice = page.getByRole("status").filter({ hasText: /held list key .* is revoked\./ });
   try {
-    await page.getByRole("dialog").getByRole("button", revoke).click();
+    await page.getByRole("alertdialog").getByRole("button", revoke).click();
     await reread.promise;
-    await expectBrowser(notice).toBeVisible();
-    await expectBrowser(page.getByRole("dialog")).toBeHidden();
+    await expectBrowser(page.getByRole("alertdialog")).toBeHidden();
+    await expectBrowser(notice).toBeFocused();
   } finally {
     release.resolve();
   }
+  // Query tries the read again before it reports the failure.
+  await expectBrowser(page.getByText("The API keys could not be read")).toBeVisible({
+    timeout: 15_000,
+  });
   await expectBrowser(notice).toBeFocused();
+}, 30_000);
+
+test("keeping a key returns focus to its Revoke, while an earlier key's notice is shown", async () => {
+  await system.owner().apiKeys.create({ name: "kept key a", permissions: { job: ["read"] } });
+  await system.owner().apiKeys.create({ name: "kept key b", permissions: { job: ["read"] } });
+  const page = await signedInAt("api-keys");
+  const dialog = page.getByRole("alertdialog");
+  const revokeA = { name: /^Revoke kept key a/ };
+  await page.getByRole("button", revokeA).click();
+  await dialog.getByRole("button", revokeA).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: /kept key a/ })).toBeFocused();
+  const revokeB = page.getByRole("button", { name: /^Revoke kept key b/ });
+  await revokeB.click();
+  await dialog.getByRole("button", { name: "Keep it" }).click();
+  await expectBrowser(revokeB).toBeFocused();
+  await revokeB.press("Enter");
+  await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expectBrowser(revokeB).toBeFocused();
+}, 30_000);
+
+test("a revocation the hub never answers ends on its own after 30 seconds, saying it may have been done", async () => {
+  const { id } = await system.owner().apiKeys.create({
+    name: "unanswered key",
+    permissions: { job: ["read"] },
+  });
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install();
+  await signInAt(system, page, "api-keys", OWNER);
+  const revoke = { name: /^Revoke unanswered key/ };
+  await page.getByRole("button", revoke).click();
+  const dialog = page.getByRole("alertdialog");
+  const arrived = Promise.withResolvers<void>();
+  await page.route(`**/api-keys/${id}`, () => arrived.resolve());
+  // Nor does it answer the reads of the list the failure starts.
+  await page.route(
+    (url) => url.pathname.endsWith("/api-keys"),
+    () => {},
+  );
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  await dialog.getByRole("button", revoke).click();
+  await arrived.promise;
+  await page.clock.runFor(29_999);
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
+  await page.clock.runFor(1);
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The dashboard could not confirm this was done. Check before trying again.",
+  );
+  await expectBrowser(dialog.getByText("Working…")).toHaveCount(0);
+  await page.clock.resume();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("button", revoke)).toBeFocused();
 }, 30_000);
 
 test("a refusal decided after a reread shows in the open dialog, with focus on its button", async () => {
@@ -337,8 +513,12 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
   const record = runnerRecord(page, "refused-host");
   const remove = { name: `Remove refused-host ${id.slice(0, 8)}` };
   await record.getByRole("button", remove).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   let refused = false;
+  let sent = 0;
+  page.on("request", (request) => {
+    if (request.method() === "DELETE" && request.url().endsWith(`/runners/${id}`)) sent += 1;
+  });
   const reread = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   await page.route(
@@ -373,66 +553,267 @@ test("a refusal decided after a reread shows in the open dialog, with focus on i
   try {
     await confirm.click();
     await reread.promise;
-    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
     await expectBrowser(confirm).toBeDisabled();
   } finally {
     release.resolve();
   }
   await expectBrowser(dialog.getByRole("alert")).toHaveText("No such Runner here.");
-  await expectBrowser(dialog.getByRole("status")).toHaveText("");
+  await expectBrowser(dialog.getByText("Working…")).toHaveCount(0);
   await expectBrowser(confirm).toBeEnabled();
   await expectBrowser(confirm).toBeFocused();
+  // Trying again sends the removal again.
+  await confirm.click();
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is removed" })).toBeFocused();
+  expect(sent).toBe(2);
+  expect(await system.findRunner(id)).toBeUndefined();
 }, 30_000);
 
-test("a row's revocation stays pending, and is sent once, while another row's is sent", async () => {
-  const a = await system
+test("a confirmed revocation is sent once, however often it is pressed", async () => {
+  const { id } = await system
     .owner()
-    .apiKeys.create({ name: "row alpha", permissions: { job: ["read"] } });
-  const b = await system
-    .owner()
-    .apiKeys.create({ name: "row beta", permissions: { job: ["read"] } });
+    .apiKeys.create({ name: "pressed key", permissions: { job: ["read"] } });
   const page = await signedInAt("api-keys");
-  let sentA = 0;
-  let sentB = 0;
-  const arrivedB = Promise.withResolvers<void>();
-  const releaseA = Promise.withResolvers<void>();
-  const releaseB = Promise.withResolvers<void>();
-  await page.route(`**/api-keys/${a.id}`, async (route) => {
-    sentA += 1;
-    await releaseA.promise;
+  let sent = 0;
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/api-keys/${id}`, async (route) => {
+    sent += 1;
+    await release.promise;
     await route.continue();
   });
-  await page.route(`**/api-keys/${b.id}`, async (route) => {
-    sentB += 1;
-    arrivedB.resolve();
-    await releaseB.promise;
-    await route.continue();
-  });
-  const dialog = page.getByRole("dialog");
-  const revokeA = { name: /^Revoke row alpha/ };
-  const revokeB = { name: /^Revoke row beta/ };
+  const dialog = page.getByRole("alertdialog");
+  const revoke = { name: /^Revoke pressed key/ };
+  await page.getByRole("button", revoke).click();
+  const confirm = dialog.getByRole("button", revoke);
   try {
-    await page.getByRole("button", revokeA).click();
-    await dialog.getByRole("button", revokeA).click();
-    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", revokeB).click();
-    await expectBrowser(dialog.getByRole("button", revokeB)).toBeEnabled();
-    await dialog.getByRole("button", revokeB).click();
-    // B is sent while A is still held.
-    await arrivedB.promise;
-    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", revokeA).click();
-    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
-    await dialog.getByRole("button", revokeA).click({ force: true });
+    await confirm.click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await confirm.click({ force: true });
+    await confirm.press("Enter");
+    // Nor can the safe choice leave it while the request runs, and it says so.
+    const keep = dialog.getByRole("button", { name: "Keep it" });
+    await expectBrowser(keep).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(keep).toHaveAttribute("data-disabled", "");
+    await keep.click({ force: true });
+    await expectBrowser(dialog).toBeVisible();
   } finally {
-    releaseA.resolve();
-    releaseB.resolve();
+    release.resolve();
   }
-  await expectBrowser(page.getByRole("row").filter({ hasText: /row (alpha|beta)/ })).toHaveCount(0);
-  const listed = (await system.owner().apiKeys.list()).map((key) => key.id);
-  expect(listed).not.toContain(a.id);
-  expect(listed).not.toContain(b.id);
-  expect([sentA, sentB]).toEqual([1, 1]);
+  await expectBrowser(page.getByRole("row").filter({ hasText: "pressed key" })).toHaveCount(0);
+  expect(sent).toBe(1);
 }, 30_000);
+
+test("a removal confirmed while the list is being read shows its progress and ends on its notice", async () => {
+  const id = await registerRunner("polled-host");
+  const page = await signedInAt("runners");
+  const remove = { name: `Remove polled-host ${id.slice(0, 8)}` };
+  await runnerRecord(page, "polled-host").getByRole("button", remove).click();
+  const reading = Promise.withResolvers<void>();
+  const releaseRead = Promise.withResolvers<void>();
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      reading.resolve();
+      await releaseRead.promise;
+      await route.continue();
+    },
+  );
+  const releaseRemoval = Promise.withResolvers<void>();
+  await page.route(`**/runners/${id}`, async (route) => {
+    await releaseRemoval.promise;
+    await route.continue();
+  });
+  const dialog = page.getByRole("alertdialog");
+  try {
+    // The page reads the list again every few seconds.
+    await reading.promise;
+    await dialog.getByRole("button", remove).click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    releaseRemoval.resolve();
+    await expectBrowser(dialog).toHaveCount(0);
+    await expectBrowser(page.getByRole("status").filter({ hasText: "is removed" })).toBeFocused();
+  } finally {
+    releaseRemoval.resolve();
+    releaseRead.resolve();
+  }
+}, 30_000);
+
+test("a second revocation while the first one's reread is unanswered shows its progress and ends on its notice", async () => {
+  const first = await system
+    .owner()
+    .apiKeys.create({ name: "first held key", permissions: { job: ["read"] } });
+  const second = await system
+    .owner()
+    .apiKeys.create({ name: "second held key", permissions: { job: ["read"] } });
+  const page = await signedInAt("api-keys");
+  const dialog = page.getByRole("alertdialog");
+  // Every read of the list from the first revocation on.
+  let revoked = false;
+  const reread = Promise.withResolvers<void>();
+  const releaseRead = Promise.withResolvers<void>();
+  await page.route(
+    (url) => url.pathname.endsWith("/api-keys"),
+    async (route) => {
+      if (revoked) {
+        reread.resolve();
+        await releaseRead.promise;
+      }
+      await route.continue();
+    },
+  );
+  await page.route(`**/api-keys/${first.id}`, async (route) => {
+    revoked = true;
+    await route.continue();
+  });
+  const releaseRevocation = Promise.withResolvers<void>();
+  await page.route(`**/api-keys/${second.id}`, async (route) => {
+    await releaseRevocation.promise;
+    await route.continue();
+  });
+  try {
+    const revokeFirst = { name: /^Revoke first held key/ };
+    await page.getByRole("button", revokeFirst).click();
+    await dialog.getByRole("button", revokeFirst).click();
+    await expectBrowser(
+      page.getByRole("status").filter({ hasText: /first held key .* is revoked/ }),
+    ).toBeFocused();
+    await reread.promise;
+    const revokeSecond = { name: /^Revoke second held key/ };
+    await page.getByRole("button", revokeSecond).click();
+    await dialog.getByRole("button", revokeSecond).click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    releaseRevocation.resolve();
+    await expectBrowser(dialog).toHaveCount(0);
+    await expectBrowser(
+      page.getByRole("status").filter({ hasText: /second held key .* is revoked/ }),
+    ).toBeFocused();
+  } finally {
+    releaseRevocation.resolve();
+    releaseRead.resolve();
+  }
+}, 30_000);
+
+test("an already removed Runner whose list the hub does not answer ends after 30 seconds on the hub's refusal", async () => {
+  const id = await registerRunner("unchecked-host");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install();
+  await signInAt(system, page, "runners", OWNER);
+  const remove = { name: `Remove unchecked-host ${id.slice(0, 8)}` };
+  await runnerRecord(page, "unchecked-host").getByRole("button", remove).click();
+  const dialog = page.getByRole("alertdialog");
+  let refused = false;
+  await page.route(`**/runners/${id}`, async (route) => {
+    refused = true;
+    await route.fulfill({
+      status: 404,
+      contentType: "application/problem+json",
+      json: {
+        type: "about:blank",
+        title: "Not Found",
+        status: 404,
+        detail: "No such Runner here.",
+      },
+    });
+  });
+  // No read of the list after the refusal is answered.
+  const checking = Promise.withResolvers<void>();
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (!refused) return route.continue();
+      checking.resolve();
+    },
+  );
+  await dialog.getByRole("button", remove).click();
+  await checking.promise;
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  await page.clock.fastForward(30_000);
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("No such Runner here.");
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toHaveCount(0);
+}, 30_000);
+
+test("removing a Runner far down a long list brings its notice into view", async () => {
+  for (const name of ["tall-a", "tall-b", "tall-c", "tall-d"]) await registerRunner(name);
+  const page = await signedInAt("runners");
+  await page.setViewportSize({ width: 800, height: 500 });
+  const button = page
+    .locator("ul.runners > li")
+    .last()
+    .getByRole("button", { name: /^Remove / });
+  const remove = { name: (await button.getAttribute("aria-label")) ?? "" };
+  await button.scrollIntoViewIfNeeded();
+  await expectBrowser(
+    page.getByRole("heading", { name: "Runners", level: 1 }),
+  ).not.toBeInViewport();
+  await button.click();
+  await page.getByRole("alertdialog").getByRole("button", remove).click();
+  const removed = page.getByRole("status").filter({ hasText: / is removed\./ });
+  await expectBrowser(removed).toBeFocused();
+  await expectBrowser(removed).toBeInViewport();
+}, 30_000);
+
+test("a Runner a read drops while its dialog is open is still named there, and is already gone", async () => {
+  const id = await registerRunner("dropped-host");
+  const page = await signedInAt("runners");
+  const record = runnerRecord(page, "dropped-host");
+  await record.getByRole("button", { name: /^Remove / }).click();
+  const dialog = page.getByRole("alertdialog");
+  const heading = `Remove dropped-host ${id.slice(0, 8)}?`;
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  await system.owner().runners.delete({ id });
+  // The page reads the list again every few seconds.
+  await record.waitFor({ state: "detached", timeout: 15_000 });
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  await dialog.getByRole("button", { name: `Remove dropped-host ${id.slice(0, 8)}` }).click();
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: "is already gone" }),
+  ).toBeFocused();
+}, 30_000);
+
+test("a row that arrives beside an open confirmation cannot hand it another Runner", async () => {
+  const earlier = await registerRunner("earlier-host");
+  const first = await registerRunner("first-host");
+  const page = await signedInAt("runners");
+  const dialog = page.getByRole("alertdialog");
+  // An earlier notice keeps the page beside the dialog out of the inert set.
+  await runnerRecord(page, "earlier-host")
+    .getByRole("button", { name: /^Remove / })
+    .click();
+  await dialog.getByRole("button", { name: `Remove earlier-host ${earlier.slice(0, 8)}` }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is removed" })).toBeFocused();
+  const remove = { name: `Remove first-host ${first.slice(0, 8)}` };
+  await runnerRecord(page, "first-host").getByRole("button", remove).click();
+  const heading = `Remove first-host ${first.slice(0, 8)}?`;
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(`**/runners/${first}`, async (route) => {
+    await release.promise;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      json: { type: "about:blank", title: "Conflict", status: 409, detail: "The Runner is busy." },
+    });
+  });
+  const confirm = dialog.getByRole("button", remove);
+  await confirm.click();
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  // The list empties and a new row arrives under the open dialog, outside what it made inert.
+  for (const runner of await system.owner().runners.list()) {
+    await system.owner().runners.delete({ id: runner.id });
+  }
+  await page.getByRole("heading", { name: "No Runners yet" }).waitFor({ timeout: 15_000 });
+  await registerRunner("arriving-host");
+  const arriving = runnerRecord(page, "arriving-host").getByRole("button", { name: /^Remove / });
+  await arriving.waitFor({ timeout: 15_000 });
+  await arriving.click();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  release.resolve();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("The Runner is busy.");
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+}, 60_000);

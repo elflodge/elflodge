@@ -20,6 +20,8 @@
     "@tanstack/solid-query": "catalog:",
     "@tanstack/solid-router": "catalog:",
     "@tanstack/solid-start": "catalog:",
+    "@ui-sdk/core": "catalog:",
+    "@ui-sdk/solid": "catalog:",
     "better-auth": "catalog:",
     "contract": "workspace:*",
     "effect": "catalog:",

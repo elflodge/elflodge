@@ -18,6 +18,12 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    // UI SDK's installation guide asks for this with Vite: pre-bundled, a core entry an app imports
+    // is a second copy beside the one @ui-sdk/solid loads, and its parts throw in development. The
+    // dashboard imports no core entry yet; this keeps one added later from breaking them.
+    exclude: ["@ui-sdk/core"],
+  },
   server: {
     // `vp dev` serves the dashboard and sends every other path, the hub's API and Better Auth's
     // routes among them, to a hub running locally, by default `wrangler dev`'s in `apps/hub`, so

@@ -1,20 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
+import {
+  AlertDialogTrigger,
+  createAlertDialogController,
+  type AlertDialogController,
+} from "@ui-sdk/solid/alert-dialog";
 import { type Runner, type RunnerCapabilities, problemOf } from "contract";
-import { For, Show, createMemo, createSignal, flush, onFlush } from "solid-js";
+import { For, Show, createMemo, createSignal, deep, flush, latest } from "solid-js";
 
-import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { api, hubFailureDetail, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
-import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
+import { ConfirmDialog } from "../../../components/ConfirmDialog.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Instant, LastContact } from "../../../components/Instant.tsx";
 import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { focusAfterRowDrops } from "../../../form.ts";
 import { formatCount, plural, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
 import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
+
+/** A Runner to remove, named as the member saw it when they pressed Remove. */
+type Removal = { id: string; name: string; sid: string };
 
 const CONNECTION_NOTE =
   "Connected means the hub has heard from the Runner in about the last two minutes.";
@@ -38,10 +45,13 @@ function Runners() {
   const runners = useQuery(() =>
     orpc.runners.list.queryOptions({ refetchInterval: REFRESH_INTERVAL_MS }),
   );
-  const [actionFailure, setActionFailure] = createSignal<string>();
+  // While a read of the list is in flight, `runners.data` is pending, and Solid can hold the
+  // confirmation's writes with a render pass here that reads it until the read lands: read directly
+  // by the rows, its opening waited; by the rest of the page alone, its "Working…" did.
+  const list = createMemo(() => latest(() => deep(runners.data)));
   const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
   const [runnersAtOpen, setRunnersAtOpen] = createSignal<ReadonlySet<string>>();
-  const ids = createMemo(() => shortIds(runners.data.map((runner) => runner.id)));
+  const ids = createMemo(() => shortIds(list().map((runner) => runner.id)));
   const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
 
   function openAddRunner() {
@@ -49,36 +59,63 @@ function Runners() {
   }
 
   const removing = useMutation(() => orpc.runners.delete.mutationOptions());
+  const confirmRemove = createAlertDialogController<Removal>();
+  let notice: HTMLElement | undefined;
 
-  async function remove(runner: Runner, label: string) {
-    // On its own: written beside the request, it would be held until it settles.
-    onFlush(() => setActionFailure(undefined));
+  async function remove(runner: Removal) {
+    const label = `${runner.name} ${runner.sid}`;
     const queryKey = orpc.runners.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     let removal;
     try {
       removal = await removing.mutate({ id: runner.id });
     } catch (error) {
-      // Even a refused removal can mean the Runner is gone since the list was read.
-      const refreshed = reread();
-      if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
-      await refreshed;
-      const list = queryClient.getQueryState(queryKey);
-      if (!list?.data || list.isInvalidated || list.data.some((item) => item.id === runner.id))
-        return hubFailureMessage(error);
+      if (problemOf(error)?.status !== 404) {
+        // Even a refused removal can mean the Runner is gone since the list was read.
+        void reread();
+        throw error;
+      }
+      // One read decides whether it is already gone, while the dialog waits: tried once, within the
+      // hub deadline, offline too. Not through Query: `queryClient.query` with its own retry and
+      // networkMode leaves those options on the query, and an invalidation, which fetches with the
+      // query's options, would then try the list once and without waiting for the network, until the
+      // page's own observer reads it again.
+      const current = await api.runners.list().catch(() => undefined);
+      if (!current) {
+        void reread();
+        throw error;
+      }
+      if (current.some((item) => item.id === runner.id)) throw error;
+      // The read shows one fact, that the Runner is gone, so only that is written: a read that landed
+      // while it ran can hold a newer list. Reads still running are cancelled, since one that started
+      // before the removal could bring the row back; the list is then marked stale but not fetched,
+      // since a fetch now would hold the written list back until it answered.
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      // The list keeps the time it was read: what is left of it is no newer.
+      queryClient.setQueryData(
+        queryKey,
+        (cached) => cached?.filter((item) => item.id !== runner.id),
+        {
+          updatedAt: queryClient.getQueryState(queryKey)?.dataUpdatedAt,
+        },
+      );
+      await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
-      return undefined;
+      // On the page before the dialog closes and focus moves to it.
+      flush();
+      return;
     }
     setRemoved({
       id: runner.id,
       message: removalSummary(label, removal.endedJobs.length, removal.jobsWithFilesLeft.length),
     });
-    // Render the outcome before starting a background read that may need to retry.
+    // Render the outcome before starting a background read that may need to retry. The reads start
+    // before UI SDK closes the dialog, which is no matter: nothing the dialog, the notice or a row
+    // reads waits for them.
     flush();
     void reread();
     // Jobs ended by the removal are stale wherever they are shown.
     void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
-    return undefined;
   }
 
   return (
@@ -91,7 +128,7 @@ function Runners() {
           </button>
         </div>
       </div>
-      <Show when={runners.isError || runners.data.length}>
+      <Show when={runners.isError || list().length}>
         <p class="note">
           {timeZoneNote()} {CONNECTION_NOTE}
         </p>
@@ -100,14 +137,13 @@ function Runners() {
         {(removal) => (
           <Notice
             role="status"
-            focusRef={(element) => focusAfterRowDrops(element, () => ids().has(removal.id))}
+            focusRef={(element) => {
+              notice = element;
+            }}
           >
             {removal.message}
           </Notice>
         )}
-      </Show>
-      <Show when={actionFailure()} keyed>
-        {(message) => <Notice role="alert">{message}</Notice>}
       </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
       <Show when={runners.isError}>
@@ -119,7 +155,7 @@ function Runners() {
         />
       </Show>
       <Show
-        when={runners.data.length}
+        when={list().length}
         fallback={
           <div class="empty">
             <h2>No Runners yet</h2>
@@ -131,20 +167,41 @@ function Runners() {
         }
       >
         <RunnerList
-          runners={runners.data}
+          runners={list()}
           managesKeys={context().managesKeys}
-          remove={remove}
-          reportPageFailure={setActionFailure}
+          confirmRemove={confirmRemove}
           readAt={runners.dataUpdatedAt}
           shortId={shortId}
         />
       </Show>
+      <ConfirmDialog
+        controller={confirmRemove}
+        heading={(runner) => (
+          <>
+            Remove <span class="mono">{runner.name}</span> <span class="sid">{runner.sid}</span>?
+          </>
+        )}
+        confirm={(runner) => `Remove ${runner.name} ${runner.sid}`}
+        act={remove}
+        notice={() => notice}
+      >
+        {() => (
+          <>
+            <p>Its key stops working and its connection is dropped at once.</p>
+            <p>
+              <b>Every job it holds that has not ended, ends now</b>: failed as{" "}
+              <code>runnerRemoved</code>, or cancelled where a cancel was waiting. None of them can
+              be resumed, and they may still run on the host unseen.
+            </p>
+          </>
+        )}
+      </ConfirmDialog>
       <Show when={runnersAtOpen()} keyed>
         {(atOpen) => (
           <AddRunner
             organizationName={context().member?.organization.name}
             managesKeys={context().managesKeys}
-            registered={runners.data.find((runner) => !atOpen.has(runner.id))}
+            registered={list().find((runner) => !atOpen.has(runner.id))}
             readFailed={runners.isError}
             shortId={shortId}
             onClose={() => setRunnersAtOpen(undefined)}
@@ -173,16 +230,14 @@ function RunnerList(props: {
   readAt: number;
   shortId: (runner: Runner) => string;
   managesKeys: boolean;
-  reportPageFailure: (message: string) => void;
-  remove: (runner: Runner, label: string) => Promise<string | undefined>;
+  confirmRemove: AlertDialogController<Removal>;
 }) {
   return (
     <ul class="runners">
-      {/* Keyed by ID, so that a read again keeps each record, and a dialog open in it. */}
+      {/* Keyed by ID, so that a read again keeps each record. */}
       <For each={props.runners} keyed={(runner) => runner.id}>
         {(runner) => {
           const sid = () => props.shortId(runner());
-          const label = () => `${runner().name} ${sid()}`;
           return (
             <li class="runner" id={runner().id}>
               <div class="runner-id">
@@ -223,28 +278,14 @@ function RunnerList(props: {
               <Capabilities capabilities={runner().capabilities} />
               <Show when={props.managesKeys}>
                 <div class="runner-ctl">
-                  <ConfirmAction
-                    trigger="Remove"
-                    reportPageFailure={(message) =>
-                      props.reportPageFailure(`Remove ${label()}: ${message}`)
-                    }
-                    triggerLabel={`Remove ${label()}`}
-                    heading={
-                      <>
-                        Remove <span class="mono">{runner().name}</span>{" "}
-                        <span class="sid">{sid()}</span>?
-                      </>
-                    }
-                    confirm={`Remove ${label()}`}
-                    act={() => props.remove(runner(), label())}
+                  <AlertDialogTrigger
+                    controller={props.confirmRemove}
+                    payload={{ id: runner().id, name: runner().name, sid: sid() }}
+                    class="danger"
+                    aria-label={`Remove ${runner().name} ${sid()}`}
                   >
-                    <p>Its key stops working and its connection is dropped at once.</p>
-                    <p>
-                      <b>Every job it holds that has not ended, ends now</b>: failed as{" "}
-                      <code>runnerRemoved</code>, or cancelled where a cancel was waiting. None of
-                      them can be resumed, and they may still run on the host unseen.
-                    </p>
-                  </ConfirmAction>
+                    Remove
+                  </AlertDialogTrigger>
                 </div>
               </Show>
             </li>
