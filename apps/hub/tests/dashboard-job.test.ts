@@ -259,6 +259,11 @@ test("a cancel asked elsewhere while the member's own is sent leaves the hub's a
   try {
     await dialog.getByRole("button", { name: "Cancel the job" }).click();
     await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    // Not announced while the member's own request runs: its answer decides what to say.
+    await expectBrowser(dialog.locator('[data-slot="alert-dialog-description"]')).toHaveAttribute(
+      "aria-live",
+      "off",
+    );
     await system.owner().jobs.cancel({ id: job.id });
     await expectBrowser(dialog).toContainText("Cancel has already been asked.", {
       timeout: 15_000,
