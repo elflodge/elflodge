@@ -22,10 +22,10 @@ import type { Database } from "./db/types.ts";
 // `grafana cli admin reset-admin-password` and GitLab's `gitlab:password:reset`.
 
 /**
- * How long a setup link works: the operator opens it soon after starting the hub. A log shipped to a
- * log service can reach more people than the hub's operators, and an hour, as PocketBase's installer
- * link lasts half that, keeps a link there from working long after the start. A new link is one
- * restart, or one `vp run setup` on Workers, away.
+ * How long a setup link works. The hub's log can be shipped to a log service that more people read
+ * than run the hub, so a link there must stop working soon after the start. PocketBase gives its
+ * installer link 30 minutes; an hour also leaves time for the deploy that follows `vp run setup` on
+ * Workers. A new link takes one restart, or one `vp run setup` on Workers.
  */
 const SETUP_LINK_LIFETIME_MS = 60 * 60 * 1000;
 

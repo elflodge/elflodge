@@ -104,8 +104,9 @@ function Setup() {
           when={token()}
           fallback={
             <p class="prose">
-              Open the setup link the hub printed when it started. For a hub in Docker,{" "}
-              <code>docker compose logs hub</code> shows it; for a hub on Workers,{" "}
+              Open the setup link the hub printed when it started; it works for an hour. For a hub
+              in Docker, <code>docker compose logs hub</code> shows it and{" "}
+              <code>docker compose restart hub</code> prints a new one; for a hub on Workers,{" "}
               <code>vp run setup</code> prints one.
             </p>
           }
