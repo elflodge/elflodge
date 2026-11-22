@@ -8,9 +8,9 @@ import {
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
-import { Show } from "solid-js";
+import { Show, createMemo } from "solid-js";
 
-import { hubWriteFailureMessage } from "../api-client.ts";
+import { hubWriteFailureMessage, isWriteRefusal } from "../api-client.ts";
 import { untilFlushed } from "../query.ts";
 import { Notice } from "./Notice.tsx";
 
@@ -43,13 +43,25 @@ export function ConfirmDialog<T>(props: {
   heading: (record: T) => JSX.Element;
   /** The confirming button's words, which name what it acts on. */
   confirm: (record: T) => string;
-  /** What the action ends, and whether that is final. */
-  children: (record: T) => JSX.Element;
+  /** The keeping button's words: "Keep it" unless given, or "Keep them" or "Stay". */
+  keep?: string;
+  /**
+   * What the action ends, and whether that is final. `pending` reads true while the confirmed action
+   * runs, when nothing in the explanation may lead away from the dialog: its answer would have
+   * nowhere to show.
+   */
+  children: (record: T, pending: () => boolean) => JSX.Element;
   /**
    * Why the action is no longer there to confirm, read live: a read can take it away while the
    * dialog is open. It replaces what the action ends, and the confirming button does nothing.
    */
   withdrawn?: (record: T) => string | undefined;
+  /**
+   * The page's words for a refusal, an answer with a 4xx status, that the hub words for another case,
+   * such as Better Auth's code for the only owner leaving, which it also answers a non-owner removing
+   * an owner; otherwise the hub's own words show. Any other failure keeps the dialog's words for it.
+   */
+  refusal?: (error: unknown) => string | undefined;
   act: (record: T) => Promise<void>;
   /** The page's notice of the outcome, for focus once `act` has resolved. */
   notice: () => HTMLElement | undefined;
@@ -93,48 +105,64 @@ export function ConfirmDialog<T>(props: {
                     await untilFlushed();
                     await props.act(record);
                   }}
-                  render={(button, close) => (
-                    <>
-                      <div class="dialog-b">
-                        <AlertDialogDescription
-                          render={(description) => (
-                            // The explanation is rendered text a read changes, so its own element is
-                            // the live region; UI SDK's `announce` is for an action's result that has
-                            // no element of its own. Off while the action runs: its own answer
-                            // changes the record as the dialog closes.
-                            <div {...description} aria-live={close.pending ? "off" : "polite"} />
-                          )}
-                        >
-                          <Show
-                            when={props.withdrawn?.(record)}
-                            keyed
-                            fallback={props.children(record)}
+                  render={(button, close) => {
+                    const failure = createMemo(() => {
+                      const error = close.error;
+                      if (error === undefined) return undefined;
+                      const words = isWriteRefusal(error) ? props.refusal?.(error) : undefined;
+                      return words ?? hubWriteFailureMessage(error);
+                    });
+                    // A refusal that says what a read's withdrawal says takes the sentence into its
+                    // alert, so one copy shows at a time and it is said once, by the alert: a
+                    // withdrawal that arrives first, while the request runs, shows it silently. The
+                    // withdrawal still disables the confirming button.
+                    const withdrawal = () => {
+                      const reason = props.withdrawn?.(record);
+                      return reason === failure() ? undefined : reason;
+                    };
+                    return (
+                      <>
+                        <div class="dialog-b">
+                          <AlertDialogDescription
+                            render={(description) => (
+                              // The explanation is rendered text a read changes, so its own element is
+                              // the live region; UI SDK's `announce` is for an action's result that has
+                              // no element of its own. Off while the action runs: its own answer
+                              // changes the record as the dialog closes.
+                              <div {...description} aria-live={close.pending ? "off" : "polite"} />
+                            )}
                           >
-                            {(reason) => <p>{reason}</p>}
+                            <Show
+                              when={withdrawal()}
+                              keyed
+                              fallback={props.children(record, () => close.pending)}
+                            >
+                              {(reason) => <p>{reason}</p>}
+                            </Show>
+                          </AlertDialogDescription>
+                          <Show when={close.pending}>
+                            <p class="note">Working…</p>
                           </Show>
-                        </AlertDialogDescription>
-                        <Show when={close.pending}>
-                          <p class="note">Working…</p>
-                        </Show>
-                        <Show when={close.error} keyed>
-                          {(error) => <Notice role="alert">{hubWriteFailureMessage(error)}</Notice>}
-                        </Show>
-                      </div>
-                      <div class="dialog-f">
-                        <AlertDialogClose>Keep it</AlertDialogClose>
-                        {/* Disabled, the confirming button keeps the focus a read withdrawing the
+                          <Show when={failure()} keyed>
+                            {(message) => <Notice role="alert">{message}</Notice>}
+                          </Show>
+                        </div>
+                        <div class="dialog-f">
+                          <AlertDialogClose>{props.keep ?? "Keep it"}</AlertDialogClose>
+                          {/* Disabled, the confirming button keeps the focus a read withdrawing the
                             action finds on it, and refuses presses. */}
-                        <Button
-                          {...button}
-                          class="danger is-fill"
-                          disabled={!!props.withdrawn?.(record)}
-                          focusableWhenDisabled
-                        >
-                          {props.confirm(record)}
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                          <Button
+                            {...button}
+                            class="danger is-fill"
+                            disabled={!!props.withdrawn?.(record)}
+                            focusableWhenDisabled
+                          >
+                            {props.confirm(record)}
+                          </Button>
+                        </div>
+                      </>
+                    );
+                  }}
                 />
               </>
             )}

@@ -5,9 +5,9 @@ import type { ContractRouterClient } from "@orpc/contract";
 import { apiContract, asError, createProblemDetailsLink, problemOf } from "contract";
 
 /**
- * How long the dashboard waits for the hub to answer one of its oRPC calls before it gives up. A
- * member cannot leave a confirmation while its request runs, so a request the hub never answers
- * has to end by itself.
+ * How long the dashboard waits for the hub to answer one of its oRPC calls, or a Better Auth call a
+ * confirmation waits on, before it gives up. A member cannot leave a confirmation while its request
+ * runs, so a request the hub never answers has to end by itself.
  */
 export const HUB_DEADLINE_MS = 30_000;
 
@@ -55,6 +55,17 @@ export function hubFailureMessage(caught: unknown): string {
 }
 
 /**
+ * Whether the hub refused a write, with a 4xx status, so that nothing was done. Not `refused` from
+ * query.ts, which also counts an error without Problem Details, as an answer that fails the contract
+ * check is, since reading again would not help.
+ */
+export function isWriteRefusal(caught: unknown): boolean {
+  const error = asError(caught);
+  const status = error instanceof BetterFetchError ? error.status : problemOf(error)?.status;
+  return status !== undefined && status >= 400 && status < 500;
+}
+
+/**
  * The words for a write that failed: the hub's own when it refused, with a 4xx status, so that
  * nothing was done. Any other failure may have come after the write was done: no answer within
  * `HUB_DEADLINE_MS`, a dropped connection, a 5xx from the hub or a proxy in front of it, or an
@@ -62,10 +73,7 @@ export function hubFailureMessage(caught: unknown): string {
  */
 export function hubWriteFailureMessage(caught: unknown): string {
   const error = asError(caught);
-  // Not `refused` from query.ts, which also counts an error without Problem Details, as an answer
-  // that fails the contract check is, since reading again would not help.
-  const status = error instanceof BetterFetchError ? error.status : problemOf(error)?.status;
-  if (status !== undefined && status >= 400 && status < 500) return hubFailureMessage(error);
+  if (isWriteRefusal(error)) return hubFailureMessage(error);
   // A mistake in the dashboard ends here too, which the console keeps.
   console.error(error);
   return "The dashboard could not confirm this was done. Check before trying again.";

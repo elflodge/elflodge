@@ -3,7 +3,7 @@ import { isSchemaIssue } from "@orpc/contract";
 import { getIssueMessage } from "@orpc/openapi/helpers";
 import { useRouter } from "@tanstack/solid-router";
 import { PASSWORD_LENGTH } from "contract";
-import { action, createEffect, createOptimistic } from "solid-js";
+import { action, createOptimistic } from "solid-js";
 
 import { hubFailureMessage } from "./api-client.ts";
 
@@ -73,13 +73,6 @@ export function focusIfLost(target: HTMLElement | null | undefined) {
   const active = document.activeElement;
   if (active === document.body || !active?.checkVisibility({ visibilityProperty: true }))
     target?.focus();
-}
-
-/** Closing the dialog can return focus to its trigger until a later read drops the row. */
-export function focusAfterRowDrops(target: HTMLElement, isListed: () => boolean) {
-  createEffect(isListed, (listed) => {
-    if (!listed) focusIfLost(target);
-  });
 }
 
 /** Restore lost focus after navigation has rendered the link's replacement. */
