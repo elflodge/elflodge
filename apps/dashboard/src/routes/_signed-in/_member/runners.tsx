@@ -90,6 +90,9 @@ function Runners() {
       // notice rather than with a later read. A read started meanwhile is cancelled too.
       await queryClient.cancelQueries({ queryKey, exact: true });
       queryClient.setQueryData(queryKey, current);
+      // Marked stale but not fetched: a fetch now would hold the published list back until it answers;
+      // a newer list this one overwrote comes back with the next read.
+      await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
       if (current.some((item) => item.id === runner.id)) throw error;
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
