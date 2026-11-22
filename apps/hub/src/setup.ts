@@ -22,10 +22,12 @@ import type { Database } from "./db/types.ts";
 // `grafana cli admin reset-admin-password` and GitLab's `gitlab:password:reset`.
 
 /**
- * How long a setup link works: the operator opens it soon after starting the hub, and a day, as
- * kubeadm gives the bootstrap token that joins a node, also covers an overnight pause.
+ * How long a setup link works. The hub's log can be shipped to a log service that more people read
+ * than run the hub, so a link there must stop working soon after the start. PocketBase gives its
+ * installer link 30 minutes; an hour also leaves time for the deploy that follows `vp run setup` on
+ * Workers. A new link takes one restart, or one `vp run setup` on Workers.
  */
-const SETUP_LINK_LIFETIME_MS = 24 * 60 * 60 * 1000;
+const SETUP_LINK_LIFETIME_MS = 60 * 60 * 1000;
 
 /**
  * The advisory lock under which a link is issued, in Postgres's two-key form: the first key spells
@@ -88,7 +90,7 @@ export async function setUpOrganization(
     );
   }
   log(
-    `The hub has no owner yet. Open this link to create one; it works once, within a day, and setting up again replaces it:\n${await issueSetupLink(db, hubUrl)}`,
+    `The hub has no owner yet. Open this link to create one; it works once, within an hour, and setting up again replaces it:\n${await issueSetupLink(db, hubUrl)}`,
   );
 }
 
