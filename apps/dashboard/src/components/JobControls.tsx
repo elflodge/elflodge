@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
-import { Show, createSignal, flush, onSettled } from "solid-js";
+import { Show, createSignal, flush, onFlush } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
 import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
@@ -72,9 +72,6 @@ export function JobControls(props: {
   const pending = () => Object.values(controls).some((control) => control.isPending);
   const [pageFailure, setPageFailure] = createSignal<string>();
   const [budgetFailure, setBudgetFailure] = createSignal<ReturnType<typeof formRefusal>>();
-  // An earlier failure belongs to the last press until the next one ends.
-  const shownPageFailure = () => (pending() ? undefined : pageFailure());
-  const shownBudgetFailure = () => (pending() ? undefined : budgetFailure());
   let budgetDialog: HTMLDialogElement | undefined;
   let budgetField: HTMLInputElement | undefined;
   let status: HTMLDivElement | undefined;
@@ -82,17 +79,20 @@ export function JobControls(props: {
   let failureNotice: HTMLDivElement | undefined;
 
   function showPageFailure(control: Control, message: string) {
-    // Once the failed request has settled, which also ends "Working…".
-    onSettled(() => {
-      setPageFailure(`${control[0].toUpperCase()}${control.slice(1)}: ${message}`);
-      flush();
-      focusIfLost(failureNotice);
-    });
+    setPageFailure(`${control[0].toUpperCase()}${control.slice(1)}: ${message}`);
+    flush();
+    focusIfLost(failureNotice);
   }
 
   async function act(control: Control, modelBudgetUsd?: number) {
+    // On their own: written beside the request, they would be held until the request settles.
+    onFlush(() => {
+      setPageFailure(undefined);
+      setBudgetFailure(undefined);
+    });
     const id = props.job.id;
     try {
+      // Resolves once the job the hub answered, written in onSuccess, is on screen.
       if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
       else await controls[control].mutate({ id });
     } catch (error) {
@@ -102,16 +102,10 @@ export function JobControls(props: {
       }
       return hubFailureMessage(error);
     }
-    // Once the job the hub answered is on screen. Lists reread inside the mutation would hold it,
-    // and "Working…", until each had loaded, through its retries.
-    onSettled(() => {
-      setPageFailure(undefined);
-      setBudgetFailure(undefined);
-      budgetDialog?.close();
-      (deletionNotice ?? status)?.focus();
-      void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
-    });
+    budgetDialog?.close();
+    (deletionNotice ?? status)?.focus();
+    void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
     return undefined;
   }
 
@@ -120,20 +114,18 @@ export function JobControls(props: {
     if (message) showPageFailure(control, message);
   }
 
-  // Not createFormAction: the budget field and every job control read this request's pending state
-  // from the resume mutation, which a pending flag of the form's own would only repeat.
+  // createFormAction holds shared signal writes until its action settles. The budget field and
+  // every job control must reflect this request while the hub is still answering it.
   async function submitBudget(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
     if (!props.resumeOffered || !budgetField || pending()) return;
     const { currentTarget, submitter } = event;
     const focused = document.activeElement;
     await press("resume", budgetField.valueAsNumber);
-    onSettled(() => {
-      if (!budgetDialog?.open) return;
-      // The refusal has rendered with aria-invalid, so a screen reader can announce it on focus.
+    if (budgetDialog?.open) {
       flush();
       if (!focusRefusedField(currentTarget, focused)) focusIfLost(submitter);
-    });
+    }
   }
 
   const active = () =>
@@ -205,7 +197,7 @@ export function JobControls(props: {
           Deleted. Its Usage record stays.
         </Notice>
       </Show>
-      <Show when={shownPageFailure()} keyed>
+      <Show when={pageFailure()} keyed>
         {(message) => (
           <Notice
             role="alert"
@@ -262,7 +254,7 @@ export function JobControls(props: {
                 label="New model budget"
                 unit="USD"
                 hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
-                error={shownBudgetFailure()?.fields.get("budget")}
+                error={budgetFailure()?.fields.get("budget")}
               >
                 {(control) => (
                   <input
@@ -289,7 +281,7 @@ export function JobControls(props: {
                   Working…
                 </p>
               </Show>
-              <Show when={shownBudgetFailure()?.alert} keyed>
+              <Show when={budgetFailure()?.alert} keyed>
                 {(message) => <Notice role="alert">{message}</Notice>}
               </Show>
             </div>
@@ -325,7 +317,6 @@ export function JobControls(props: {
           confirm="Cancel the job"
           heading="Cancel this job?"
           disabled={pending()}
-          pending={controls.cancel.isPending}
           act={() => act("cancel")}
           reportPageFailure={(message) => showPageFailure("cancel", message)}
         >
@@ -347,7 +338,6 @@ export function JobControls(props: {
           confirm="Delete the job"
           heading="Delete this job?"
           disabled={pending()}
-          pending={controls.delete.isPending}
           act={() => act("delete")}
           reportPageFailure={(message) => showPageFailure("delete", message)}
         >

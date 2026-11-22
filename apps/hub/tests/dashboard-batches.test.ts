@@ -214,3 +214,29 @@ test("a member sees when the Canary is holding queued jobs", async () => {
   const status = page.getByRole("status").filter({ hasText: "Active" });
   await expectBrowser(status).toContainText("1 job waiting for its Canary");
 }, 30_000);
+
+test("a cancelled Batch shows as cancelled, with focus, before the jobs it changes are read again", async () => {
+  const { id } = await system.owner().batches.create({ id: "slow-counts", agent });
+  const page = await open("List waiter", `batches/${id}`);
+  await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
+  const reread = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route(
+    (url) => /\/jobs(\/counts)?$/.test(url.pathname),
+    async (route) => {
+      reread.resolve();
+      await release.promise;
+      await route.continue();
+    },
+  );
+  try {
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel the Batch", exact: true })
+      .click();
+    await reread.promise;
+    await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
+  } finally {
+    release.resolve();
+  }
+}, 30_000);

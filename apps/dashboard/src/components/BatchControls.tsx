@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import type { Batch } from "contract";
-import { Show, createSignal, flush, onSettled } from "solid-js";
+import { Show, createSignal, flush, onFlush } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
 import { unfinishedJobs } from "../batch.ts";
@@ -28,36 +28,29 @@ export function BatchControls(props: { batch: Batch }) {
   };
   const pending = () => Object.values(controls).some((control) => control.isPending);
   const [failure, setFailure] = createSignal<string>();
-  // An earlier failure belongs to the last press until the next one ends.
-  const shownFailure = () => (pending() ? undefined : failure());
   let status: HTMLDivElement | undefined;
   let alert: HTMLDivElement | undefined;
   function showFailure(message: string) {
-    // Once the failed request has settled, which also ends "Working…".
-    onSettled(() => {
-      setFailure(message);
-      flush();
-      focusIfLost(alert);
-    });
+    setFailure(message);
+    flush();
+    focusIfLost(alert);
   }
   async function act(control: "pause" | "resume" | "cancel", close?: () => boolean) {
+    // On its own: written beside the request, it would be held until the request settles.
+    onFlush(() => setFailure(undefined));
     try {
+      // Resolves once the Batch the hub answered, written in onSuccess, is on screen.
       await controls[control].mutate({ id: props.batch.id });
     } catch (error) {
       return hubFailureMessage(error);
     }
-    // Once the Batch the hub answered is on screen. Lists reread inside the mutation would hold it,
-    // and "Working…", until each had loaded, through its retries.
-    onSettled(() => {
-      setFailure(undefined);
-      const closed = close?.();
-      if (closed === false) focusIfLost(status);
-      else status?.focus();
-      void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.get.key() });
-    });
+    const closed = close?.();
+    if (closed === false) focusIfLost(status);
+    else status?.focus();
+    void client.invalidateQueries({ queryKey: orpc.batches.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.get.key() });
     return undefined;
   }
   async function press(control: "pause" | "resume") {
@@ -103,7 +96,7 @@ export function BatchControls(props: { batch: Batch }) {
           <p class="note">Working…</p>
         </Show>
       </div>
-      <Show when={shownFailure()} keyed>
+      <Show when={failure()} keyed>
         {(message) => (
           <Notice
             role="alert"
@@ -161,7 +154,6 @@ export function BatchControls(props: { batch: Batch }) {
           }
           describedBy="cancel-note"
           disabled={pending()}
-          pending={controls.cancel.isPending}
           act={(close) => act("cancel", close)}
           reportPageFailure={(message) => showFailure(`Cancel the Batch: ${message}`)}
         >

@@ -2,7 +2,7 @@ import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { focusManager, noop, useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
-import { For, Show, createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onFlush, onSettled } from "solid-js";
 
 import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { authClient, hasAuthCode, isAuthAccessError } from "../../../auth-client.ts";
@@ -223,11 +223,6 @@ function OrganizationPage(props: { organizationId: string }) {
     mutationFn: (input: { organizationId: string; data: { name: string } }) =>
       authClient.organization.update(input),
   }));
-  // An earlier outcome belongs to the last control until the next one ends.
-  const shownNotice = () =>
-    [leaving, removing, changingRole, revokingInvitation].some((write) => write.isPending)
-      ? undefined
-      : notice();
 
   async function membershipAction(
     person: Member,
@@ -238,13 +233,14 @@ function OrganizationPage(props: { organizationId: string }) {
     const name = person.user.name;
     const listed = () => members.data.members.some((m) => m.id === person.id);
     const organizationId = orgId();
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setNotice(undefined));
     try {
       if (next === "leave") await leaving.mutate({ organizationId });
       else if (next === "remove")
         await removing.mutate({ organizationId, memberIdOrEmail: person.id });
       else await changingRole.mutate({ organizationId, memberId: person.id, role: next });
     } catch (error) {
-      setNotice(undefined);
       await refreshAfterMembershipChange();
       let message = hubFailureMessage(error);
       const list = client.getQueryState(membersOptions(organizationId).queryKey);
@@ -309,20 +305,16 @@ function OrganizationPage(props: { organizationId: string }) {
       await refreshSession();
       return undefined;
     }
-    // Once the change has settled, so rereads that may need to retry hold nothing.
-    onSettled(() => {
-      const closed = close?.();
-      if (next === "remove") status(`${name} is removed.`, listed);
-      else if (own)
-        setNotice({
-          role: "status",
-          message: `You are now ${asRole(next)}.`,
-          focusRef: closed ? (element) => onSettled(() => element.focus()) : undefined,
-        });
-      else status(`${name} is now ${asRole(next)}.`);
-      void refreshAfterMembershipChange();
-      if (own) void refreshSession();
-    });
+    const closed = close?.();
+    if (next === "remove") status(`${name} is removed.`, listed);
+    else if (own)
+      setNotice({
+        role: "status",
+        message: `You are now ${asRole(next)}.`,
+        focusRef: closed ? (element) => onSettled(() => element.focus()) : undefined,
+      });
+    else status(`${name} is now ${asRole(next)}.`);
+    await Promise.all([refreshAfterMembershipChange(), own ? refreshSession() : undefined]);
     return undefined;
   }
 
@@ -334,10 +326,11 @@ function OrganizationPage(props: { organizationId: string }) {
     );
     const listed = () => invitations.data.some((i) => i.id === id);
     const queryKey = invitationsOptions(role()).queryKey;
+    // On its own: written beside the request, it would be held until it settles.
+    onFlush(() => setNotice(undefined));
     try {
       await revokingInvitation.mutate({ invitationId: id });
     } catch (error) {
-      setNotice(undefined);
       await Promise.all([refreshMembers(), refreshInvites()]);
       const list = client.getQueryState(queryKey);
       if (
@@ -353,11 +346,8 @@ function OrganizationPage(props: { organizationId: string }) {
         await refreshSession();
       return hubFailureMessage(error);
     }
-    // Once the revocation has settled, so a reread that may need to retry holds nothing.
-    onSettled(() => {
-      status(<>{label} is revoked.</>, listed);
-      void refreshInvites();
-    });
+    status(<>{label} is revoked.</>, listed);
+    await refreshInvites();
     return undefined;
   }
 
@@ -431,7 +421,7 @@ function OrganizationPage(props: { organizationId: string }) {
           </button>
         </Show>
       </div>
-      <Show when={shownNotice()} keyed>
+      <Show when={notice()} keyed>
         {({ role: noticeRole, message, focusRef }) => (
           <Notice role={noticeRole} focusRef={focusRef}>
             {message}
@@ -534,9 +524,6 @@ function OrganizationPage(props: { organizationId: string }) {
                             heading={`Remove ${name()} from ${org()?.name}?`}
                             keep="Keep them"
                             confirm={`Remove ${name()}`}
-                            pending={
-                              removing.isPending && removing.variables?.memberIdOrEmail === row().id
-                            }
                             act={(close) => membershipAction(row(), "remove", close)}
                             reportPageFailure={(message) => report(`Remove ${name()}: ${message}`)}
                           >
@@ -558,7 +545,6 @@ function OrganizationPage(props: { organizationId: string }) {
                             heading={`Leave ${org()?.name}?`}
                             keep="Stay"
                             confirm={`Leave ${org()?.name}`}
-                            pending={leaving.isPending}
                             act={(close) => membershipAction(row(), "leave", close)}
                             reportPageFailure={(message) =>
                               report(`Leave ${org()?.name}: ${message}`)
@@ -643,10 +629,6 @@ function OrganizationPage(props: { organizationId: string }) {
                                   Revoke the invitation for{" "}
                                   <span class="mono">{invite().email}</span>?
                                 </>
-                              }
-                              pending={
-                                revokingInvitation.isPending &&
-                                revokingInvitation.variables?.invitationId === invite().id
                               }
                               act={() => revoke(invite().id, invite().email)}
                               reportPageFailure={(message) => report(`${label()}: ${message}`)}
