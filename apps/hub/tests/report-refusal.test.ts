@@ -108,7 +108,7 @@ test.each([
   ]);
   const job = await client.jobs.get({ id: good.id });
   assert(job.status === "succeeded");
-  expect(JSON.stringify(job.output)).toBe(JSON.stringify(output));
+  expect(job.output).toStrictEqual(output);
   expect((await client.jobs.get({ id: bad.id })).status).toBe("queued");
   socket.close(1000);
 });
