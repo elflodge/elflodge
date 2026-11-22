@@ -24,8 +24,8 @@ import { Notice } from "./Notice.tsx";
  * it, so the payload carries the record's words as they were at the press.
  *
  * The page reads the list through `latest`, as `createMemo(() => latest(() => deep(query.data)))`,
- * everywhere it reads it: a pass that reads a list still being read again can hold the dialog's
- * writes until that read lands.
+ * everywhere it reads it: a pass that reads a list being read again under the same key, by a poll
+ * or an invalidation, can hold the dialog's writes until that read lands.
  *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
  * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,
@@ -49,7 +49,9 @@ export function ConfirmDialog<T>(props: {
     <AlertDialog
       controller={props.controller}
       // Beside the page rather than in it: UI SDK makes inert what is beside the dialog when it opens,
-      // so the page's root holds everything else, a list or a notice rendered later included.
+      // which is then the page's root, so what a read renders later is inert too. UI SDK leaves out
+      // live regions showing at that moment and what holds them, so with an earlier notice showing,
+      // what a read renders later beside it stays exposed.
       container={document.body}
       pendingAnnouncement="Working…"
       onOpenChange={(open, details) => {

@@ -169,7 +169,10 @@ test("in a browser, removing a Runner takes it off the list", async () => {
 
 test("removing an already removed Runner closes the dialog and explains its absence", async () => {
   const id = await registerRunner("former-host");
-  const page = await signedInAt("runners");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install();
+  await signInAt(system, page, "runners", OWNER);
   const record = runnerRecord(page, "former-host");
   const remove = { name: `Remove former-host ${id.slice(0, 8)}` };
   await record.getByRole("button", remove).click();
@@ -181,19 +184,37 @@ test("removing an already removed Runner closes the dialog and explains its abse
     refused = true;
     await route.continue();
   });
-  // The read that finds it gone is answered; every later read of the list is held, so the row goes
-  // with the notice and not with a later read.
+  // The read that finds it gone waits until a poll is under way; that poll and every later read of
+  // the list are held, so the row goes with the notice and not with a later read.
   let reads = 0;
+  const checking = Promise.withResolvers<void>();
+  const polling = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   onTestFinished(() => release.resolve());
   await page.route(
     (url) => url.pathname.endsWith("/runners"),
     async (route) => {
-      if (refused && ++reads > 1) await release.promise;
+      if (refused) {
+        reads += 1;
+        if (reads === 1) {
+          checking.resolve();
+          await polling.promise;
+        } else {
+          polling.resolve();
+          await release.promise;
+        }
+      }
       await route.continue();
     },
   );
+  // No poll comes between the removal and the read that checks it.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   await dialog.getByRole("button", remove).click();
+  await checking.promise;
+  // The page reads the list every five seconds.
+  await page.clock.runFor(5_000);
+  await polling.promise;
+  await page.clock.resume();
   await expectBrowser(dialog).toHaveCount(0);
   await expectBrowser(record).toHaveCount(0);
   await expectBrowser(page.getByRole("status").filter({ hasText: "is already gone" })).toHaveText(

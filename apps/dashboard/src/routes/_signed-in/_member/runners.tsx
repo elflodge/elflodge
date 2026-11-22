@@ -76,15 +76,18 @@ function Runners() {
         throw error;
       }
       // One read decides whether it is already gone, while the dialog waits: tried once, within the
-      // hub deadline, offline too. Query's `fetchQuery` would join a read of the list already in
-      // flight, with its retries and its pause while the browser is offline.
+      // hub deadline, offline too. Older reads of the list are cancelled first, so none lands after
+      // it. Not through Query: `queryClient.query` with its own retry and networkMode leaves those
+      // options on the query, and an invalidation, which fetches with the query's options, would
+      // then try the list once and without waiting for the network, until the page's own observer reads it again.
+      await queryClient.cancelQueries({ queryKey, exact: true });
       const current = await api.runners.list().catch(() => undefined);
       if (!current) {
         void reread();
         throw error;
       }
       // The list as it is now, published as a write's answer is, so a row that is gone goes with the
-      // notice rather than with a later read.
+      // notice rather than with a later read. A read started meanwhile is cancelled too.
       await queryClient.cancelQueries({ queryKey, exact: true });
       queryClient.setQueryData(queryKey, current);
       if (current.some((item) => item.id === runner.id)) throw error;

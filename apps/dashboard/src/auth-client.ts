@@ -22,8 +22,9 @@ export const authClient = createAuthClient({
     customSessionClient<BetterAuth>(),
   ],
   // better-fetch's timeout covers a call made without a signal of its own, and only until the
-  // answer's headers arrive. The session read and its renewal, and the members read, pass a
-  // signal, so they have no deadline, and none locks a dialog.
+  // answer's headers arrive: the shell's `getSession()` in `beforeLoad`. The session store's read
+  // and renewal, and the members read, pass their own signal, so they have no deadline. No dialog
+  // on Runners or API keys waits on this client.
   fetchOptions: { throw: true, timeout: HUB_DEADLINE_MS },
 });
 
