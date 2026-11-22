@@ -1,3 +1,11 @@
+import {
+  JOB_CANCELLED,
+  JOB_PAUSED,
+  JOB_SUCCEEDED,
+  type JobUsage,
+  type JobUsageEntry,
+} from "contract";
+import { Struct } from "effect";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -244,4 +252,214 @@ test("an invalid Output contract or Input file path is refused with 400", async 
     status: 400,
     detail: expect.stringContaining("agent.outputContract.schema"),
   });
+});
+
+/**
+ * pi's usage of one model or tool: `input` tokens in and `output` out, priced in binary fractions
+ * of a dollar.
+ */
+function piUsage(input: number, output: number, extra: { reasoning?: number } = {}) {
+  const cost = { input: input / 4096, output: output / 1024, cacheRead: 0, cacheWrite: 0 };
+  return {
+    input,
+    output,
+    cacheRead: 0,
+    cacheWrite: 0,
+    ...extra,
+    totalTokens: input + output,
+    cost: { ...cost, total: cost.input + cost.output },
+  };
+}
+
+/**
+ * The job's Usage records in order, each with its use by model and by tool and whether those
+ * entries add up, exactly, as `numeric` in SQL, to its own `totalTokens` and `costUsd`.
+ */
+async function usageRecordsOf(jobId: string) {
+  await using database = openDatabase(inject("databaseUrl"));
+  return await database
+    .withSchema(DB_SCHEMA)
+    .selectFrom("usageRecord as u")
+    .select((eb) => {
+      const entriesOf = (map: "models" | "tools") =>
+        eb
+          .selectFrom(
+            eb
+              .fn<{ value: JobUsageEntry }>("jsonb_each", [eb.ref("u.usage", "->").key(map)])
+              .as("entry"),
+          )
+          .select("entry.value");
+      const sums = eb
+        .selectFrom(entriesOf("models").unionAll(entriesOf("tools")).as("entry"))
+        .select((sum) =>
+          sum
+            .and([
+              sum(
+                sum.fn.coalesce(
+                  sum.fn.sum(sum.cast(sum.ref("entry.value", "->>").key("totalTokens"), "bigint")),
+                  sum.lit(0),
+                ),
+                "=",
+                sum.ref("u.totalTokens"),
+              ),
+              sum(
+                sum.fn.coalesce(
+                  sum.fn.sum(
+                    sum.cast(sum.ref("entry.value", "->>").key("cost").key("total"), "numeric"),
+                  ),
+                  sum.lit(0),
+                ),
+                "=",
+                sum.ref("u.costUsd"),
+              ),
+            ])
+            .as("addsUp"),
+        );
+      return ["u.usage", sums.as("entriesAddUp")];
+    })
+    .where("u.jobId", "=", JobId(jobId))
+    .orderBy("u.id")
+    .execute();
+}
+
+/** The usage the job's records count, and its usage now. */
+async function recordedUsageOf(jobId: string) {
+  await using database = openDatabase(inject("databaseUrl"));
+  return await database
+    .withSchema(DB_SCHEMA)
+    .selectFrom("job")
+    .innerJoin("jobProgress", "jobProgress.jobId", "job.id")
+    .select(["job.recordedUsage", "jobProgress.usage"])
+    .where("job.id", "=", JobId(jobId))
+    .executeTakeFirstOrThrow();
+}
+
+test("each end a Runner reports records what the job used since its previous end, by model and by tool, adding up to the record's totals", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const { id } = await submitJob(client, { ...AGENT, input: "Summarise." });
+  const runner = await system.connectReportingRunner();
+  const first = await runner.place(id);
+  await runner.start(first, { models: { "scripted/small": piUsage(1024, 64) }, tools: {} });
+  // The ending report itself carries new usage: the record counts it.
+  const firstEnd = {
+    models: { "scripted/small": piUsage(2048, 128) },
+    // `reasoning`, given here and not at the next end, stays out of that end's entry.
+    tools: { web_search: { totalTokens: 1, reasoning: 1, cost: { total: 0.1 } } },
+  };
+  await runner.report({ ...first, position: 1 }, [{ kind: JOB_CANCELLED }], firstEnd);
+
+  // The resumed run uses another model and the tool again, and the first model no more.
+  await client.jobs.resume({ id });
+  const second = await runner.place(id);
+  await runner.report(second, [{ kind: JOB_SUCCEEDED, data: { output: { summary: "Done." } } }], {
+    models: {
+      "scripted/small": piUsage(2048, 128),
+      "scripted/large": piUsage(4096, 256, { reasoning: 32 }),
+    },
+    tools: { web_search: { totalTokens: 3, cost: { total: 0.3 } } },
+  });
+  runner.close();
+
+  expect(await usageRecordsOf(id)).toEqual([
+    { usage: firstEnd, entriesAddUp: true },
+    {
+      usage: {
+        models: { "scripted/large": piUsage(4096, 256, { reasoning: 32 }) },
+        // Exactly 0.2, as `numeric` subtracts, where JavaScript's 0.3 - 0.1 is not.
+        tools: { web_search: { totalTokens: 2, cost: { total: 0.2 } } },
+      },
+      entriesAddUp: true,
+    },
+  ]);
+});
+
+test.each([
+  { end: "a cancel of the paused job", paused: true },
+  { end: "a cancel of its paused job's Batch", paused: true },
+  { end: "its Runner's removal", paused: false },
+])(
+  "an end by $end records what the job used since its previous end, by model and by tool, adding up to the record's totals",
+  async ({ end, paused }) => {
+    const client = await system.clientWithNewJobsKey();
+    const { id, batchId } = await submitJob(client, { ...AGENT, input: "Summarise." });
+    const runner = await system.connectReportingRunner();
+    // A first end the Runner reports, so the hub's end counts from it.
+    const first = await runner.place(id);
+    const firstEnd = {
+      models: { "scripted/small": piUsage(1024, 64) },
+      tools: { web_search: piUsage(512, 0) },
+    };
+    await runner.start(first, firstEnd, [{ kind: JOB_CANCELLED }]);
+    await client.jobs.resume({ id });
+    const second = await runner.place(id);
+    const used = {
+      // `reasoning` first reported in this run counts in full.
+      models: { "scripted/small": piUsage(3072, 64, { reasoning: 16 }) },
+      tools: { web_search: piUsage(512, 0) },
+    };
+    await runner.report(second, paused ? [{ kind: JOB_PAUSED }] : [], used);
+    if (end === "a cancel of the paused job") await client.jobs.cancel({ id });
+    else if (paused) await client.batches.cancel({ id: batchId });
+    else await system.owner().runners.delete({ id: runner.runnerId });
+    runner.close();
+
+    expect((await client.jobs.get({ id })).status).toBe(paused ? "cancelled" : "failed");
+    expect(await usageRecordsOf(id)).toEqual([
+      { usage: firstEnd, entriesAddUp: true },
+      {
+        usage: { models: { "scripted/small": piUsage(2048, 0, { reasoning: 16 }) }, tools: {} },
+        entriesAddUp: true,
+      },
+    ]);
+    // Its next end counts from here.
+    expect(await recordedUsageOf(id)).toEqual({ recordedUsage: used, usage: used });
+  },
+);
+
+test("an end leaves out a stored counter that is not a number, or a token count that is not whole, and is recorded", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const { id } = await submitJob(client, { ...AGENT, input: "Summarise." });
+  // A Runner of the older protocol could store any counter beside `totalTokens` and `cost.total`.
+  const counted = piUsage(1024, 64);
+  const stored = {
+    models: {
+      "scripted/small": {
+        ...counted,
+        input: "unknown",
+        cacheRead: 1.5,
+        cost: { ...counted.cost, input: "7" },
+      },
+    },
+    tools: {},
+  };
+  {
+    await using database = openDatabase(inject("databaseUrl"));
+    await database
+      .withSchema(DB_SCHEMA)
+      .updateTable("jobProgress")
+      .set((eb) => ({
+        usage: eb.cast<JobUsage>(eb.val(JSON.stringify(stored)), "jsonb"),
+        totalTokens: counted.totalTokens,
+        costUsd: counted.cost.total,
+      }))
+      .where("jobId", "=", JobId(id))
+      .execute();
+  }
+  await client.jobs.cancel({ id });
+
+  expect((await client.jobs.get({ id })).status).toBe("cancelled");
+  expect(await usageRecordsOf(id)).toEqual([
+    {
+      usage: {
+        models: {
+          "scripted/small": {
+            ...Struct.omit(counted, ["input", "cacheRead"]),
+            cost: Struct.omit(counted.cost, ["input"]),
+          },
+        },
+        tools: {},
+      },
+      entriesAddUp: true,
+    },
+  ]);
 });

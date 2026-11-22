@@ -248,13 +248,56 @@ export const jobEventSchema = z
   .register(z.globalRegistry, { id: "JobEvent" });
 export type JobEvent = z.infer<typeof jobEventSchema>;
 
-/** One model's or tool's usage as pi-ai counts it; the hub reads its tokens and cost and keeps the rest. */
-const usageSchema = z.looseObject({
+/**
+ * pi's additive token counters of one model's or tool's usage, under pi's names: each end's Usage
+ * record takes, in SQL, each counter at this end less the same name's at the job's previous end, so
+ * each is checked as a number: `totalTokens` as an integer for the hub's `bigint` sum, the others as
+ * integers so that records hold whole tokens.
+ */
+const usageTokenCounters = {
   totalTokens: z.int(),
-  cost: z.looseObject({ total: z.number() }),
+  input: z.optional(z.int()),
+  output: z.optional(z.int()),
+  cacheRead: z.optional(z.int()),
+  cacheWrite: z.optional(z.int()),
+  cacheWrite1h: z.optional(z.int()),
+  reasoning: z.optional(z.int()),
+};
+
+/**
+ * pi's additive cost counters, in US dollars, under `cost`, taken as the token counters are.
+ * `cost.totalFromProvider` is not one: pi's `addUsage` never updates it on a running total.
+ */
+const usageCostCounters = {
+  total: z.number(),
+  input: z.optional(z.number()),
+  output: z.optional(z.number()),
+  cacheRead: z.optional(z.number()),
+  cacheWrite: z.optional(z.number()),
+};
+
+/** The names of pi's additive token counters (`usageTokenCounters`). */
+export const USAGE_TOKEN_COUNTERS = z.keyof(z.object(usageTokenCounters)).options;
+
+/** The names of pi's additive cost counters (`usageCostCounters`). */
+export const USAGE_COST_COUNTERS = z.keyof(z.object(usageCostCounters)).options;
+
+/**
+ * One model's or tool's usage as pi-ai counts it: its additive counters, checked as numbers, and
+ * other fields kept as they come.
+ */
+const usageSchema = z.looseObject({
+  ...usageTokenCounters,
+  cost: z.looseObject(usageCostCounters),
 });
 
-/** A job's usage totals so far, per model (`provider/modelId`) and per tool, as pi reports them. */
+export type JobUsageEntry = z.infer<typeof usageSchema>;
+
+/**
+ * Usage per model (`provider/modelId`) and per tool, as pi reports it: a job's totals so far on its
+ * progress, and on a Usage record what the job used since its previous end, each counter the
+ * difference between the two ends' totals.
+ */
 export const jobUsageSchema = z.looseObject({
   models: z.record(z.string(), usageSchema),
   tools: z.record(z.string(), usageSchema),

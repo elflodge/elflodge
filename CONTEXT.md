@@ -43,7 +43,7 @@ A running job carrying on from its journal after its Runner stopped and started 
 A job reaching a final status. A job resumed after it ended can end again. Each job end writes one Usage record.
 
 **Usage record**:
-The small, lasting record of a job end and its usage (labels, Batch, status, Runner, its submitter, tokens, cost, times), kept after the job's content is deleted. It counts what the job used since its previous end.
+The small, lasting record of a job end and its usage (labels, Batch, status, Runner, its submitter, tokens, cost, times), kept after the job's content is deleted. It counts what the job used since its previous end, and what that use went to, by model and by tool.
 _Avoid_: billing record, receipt
 
 **Batch**:

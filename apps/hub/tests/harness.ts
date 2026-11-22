@@ -17,6 +17,7 @@ import {
   hubNotifications,
   JOB_STARTED,
   type JobReport,
+  type JobUsage,
   KEY_PERMISSIONS,
   type RunRef,
   RUNNER_CONNECT_PATH,
@@ -330,6 +331,18 @@ export function startSystem(
     );
   }
 
+  /**
+   * Registers a Runner and opens its socket to the hub directly with its own key, without a Runner's
+   * reconnects and heartbeats.
+   */
+  async function connectRunner() {
+    const registration = runnerClient({ "x-api-key": await createRegistrationKey() });
+    const { id: runnerId, key } = await registration.register({ name: "test runner" });
+    const socket = await openSocket(key);
+    if (socket instanceof Response) throw new Error(`Hub refused the WebSocket: ${socket.status}`);
+    return { runnerId, key, socket };
+  }
+
   /** Signs in with `credentials`, returning the session cookie a member's requests carry. */
   async function signIn(credentials: { email: string; password: string }): Promise<string> {
     const response = await hubFetch("/api/auth/sign-in/email", {
@@ -525,17 +538,59 @@ export function startSystem(
       if (runnerDataDir === undefined) throw new Error("No Runner has started");
       return path.join(runnerDataDir, "jobs", jobId, "workspace");
     },
+    connectRunner,
     /**
-     * Registers a Runner and opens its socket to the hub directly with its own key, without a Runner's
-     * reconnects and heartbeats.
+     * Registers a Runner speaking the protocol on a socket of its own (`connectRunner`), whose reports
+     * carry the usage a test gives. `place` takes the job `jobId` from the hub; `start` reports a
+     * run's start (`startedJobReport`), then Runner entries of the given kinds; `report` reports
+     * Runner entries of the given kinds from `position`.
      */
-    async connectRunner() {
-      const registration = runnerClient({ "x-api-key": await createRegistrationKey() });
-      const { id: runnerId, key } = await registration.register({ name: "test runner" });
-      const socket = await openSocket(key);
-      if (socket instanceof Response)
-        throw new Error(`Hub refused the WebSocket: ${socket.status}`);
-      return { runnerId, key, socket };
+    async connectReportingRunner() {
+      const { runnerId, socket } = await connectRunner();
+      const protocol = protocolClient(socket);
+      type Run = RunRef & { position: number };
+      type Entries = { kind: string; data?: object }[];
+      const send = async (job: JobReport) => {
+        const ref = { jobId: job.jobId, runId: job.runId };
+        const answer = await protocol.request(
+          "report",
+          { held: [ref], free: 0, deleted: [], jobs: [job] },
+          10_000,
+        );
+        expect(answer.refused).toEqual([]);
+      };
+      const entriesFrom = (position: number, entries: Entries) =>
+        entries.map(({ kind, data }, index) => ({
+          id: position + index + 1,
+          type: "entry" as const,
+          record: { kind, data: { timestamp: Date.now(), ...data } },
+        }));
+      return {
+        runnerId,
+        close: () => socket.close(1000),
+        async place(jobId: string): Promise<Run> {
+          // Jobs other tests left queued may be sent too.
+          const { runs } = await protocol.request("sync", { held: [], free: 100 }, 10_000);
+          const run = runs.find((each) => each.jobId === jobId);
+          if (!run) throw new Error(`The hub did not send the job ${jobId}`);
+          return { jobId, runId: run.runId, position: run.position };
+        },
+        async start(run: RunRef, usage: JobUsage, then: Entries = []) {
+          const started = startedJobReport(run);
+          await send({ ...started, events: [...started.events, ...entriesFrom(1, then)], usage });
+        },
+        async report(run: Run, entries: Entries, usage: JobUsage) {
+          const { jobId, runId, position } = run;
+          await send({
+            jobId,
+            runId,
+            intent: "run",
+            position,
+            events: entriesFrom(position, entries),
+            usage,
+          });
+        },
+      };
     },
     /** The hub's listing of one Runner, or `undefined` if it lists none by that ID. */
     findRunner,
