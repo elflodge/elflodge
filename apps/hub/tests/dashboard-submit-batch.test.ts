@@ -468,7 +468,12 @@ test("Leave asked while files upload says so once the create is sent, and chosen
     await leaving.promise;
     const answered = page.waitForResponse((response) => isCreate(response.request()));
     create.resolve();
-    await answered;
+    expect((await answered).ok()).toBe(true);
+    // The draft has taken the success, while Batches still loads: chosen to leave, it does not follow
+    // the Batch, and says the hub may have it.
+    await expectBrowser(page.getByRole("alert")).toContainText(
+      "The hub may already have a Batch under this Batch ID: sent-while-asked",
+    );
     session.resolve();
     await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Batches");
     await expectBrowser(page).toHaveURL(/\/batches$/);
