@@ -191,7 +191,7 @@ export const toolCallsSchema = z
   .register(z.globalRegistry, {
     id: "ToolCalls",
     description:
-      "How many times tools were called, by tool name. A call counts once its result is recorded, including a call that failed or was cut off, but not one that never ran, such as a call the Runner refused or whose arguments were invalid. It counts calls, not what a provider bills: one `web_search` call can run several queries and try more than one provider.",
+      "How many times tools were called, by tool name. A call counts once its result is recorded, including a call that failed or was cut off, but not one known not to have run, such as a call the Runner refused or whose arguments were invalid. A call cut off before it started can count, as its result may not say that it never ran. It counts calls, not what a provider bills: one `web_search` call can run several queries and try more than one provider.",
   });
 export type ToolCalls = z.infer<typeof toolCallsSchema>;
 
@@ -244,8 +244,8 @@ const jobBaseSchema = z.object({
   usage: usageSchema,
   /**
    * How many times the job's agent has called each tool, as of the Events the hub holds: `{}` until
-   * a call's result is recorded. Absent once the job is deleted, as its Events are; its calls stay in
-   * its Usage records.
+   * a call's result is recorded. Absent once the job is deleted, as its Events are; its calls are kept
+   * in its Usage records, which nothing reads yet.
    */
   toolCalls: z.optional(toolCallsSchema),
   /**
@@ -560,7 +560,8 @@ export const batchSchema = z
     usage: usageSchema,
     /**
      * How many times its jobs have called each tool, each job's `toolCalls` added up by tool name;
-     * a deleted job's calls are not included, and stay in its Usage records.
+     * a deleted job's calls are not included, and are kept in its Usage records, which nothing reads
+     * yet.
      */
     toolCalls: toolCallsSchema,
   })
@@ -660,6 +661,7 @@ const listedJobBaseSchema = z.required(z.omit(jobBaseSchema, { activity: true })
   customId: true,
   labels: true,
   submitter: true,
+  toolCalls: true,
   runTimeoutSeconds: true,
   modelBudgetUsd: true,
 });

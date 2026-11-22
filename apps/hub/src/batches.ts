@@ -57,6 +57,7 @@ import {
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
+  summedToolCalls,
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
@@ -203,34 +204,18 @@ function selectBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: stri
       // Its jobs' tool calls added up by tool name, apart from the counts and sums above, so that
       // expanding each job's names multiplies neither.
       .select((eb) =>
-        eb
-          .selectFrom(
-            eb
-              .selectFrom("job as cj")
-              .innerJoin("jobProgress as cp", "cp.jobId", "cj.id")
-              .crossJoinLateral((each) =>
-                each
-                  .fn<{ key: string; value: string }>("jsonb_each_text", [each.ref("cp.toolCalls")])
-                  .as("count"),
-              )
-              .whereRef("cj.batchUid", "=", "b.uid")
-              .select((sum) => [
-                "count.key",
-                sum.fn.sum<number>(sum.cast("count.value", "bigint")).as("calls"),
-              ])
-              .groupBy("count.key")
-              .as("tool"),
-          )
-          .select((agg) =>
-            agg.fn
-              .coalesce(
-                agg.fn<ToolCalls>("jsonb_object_agg", ["tool.key", "tool.calls"]),
-                agg.fn<ToolCalls>("jsonb_build_object", []),
-              )
-              .as("toolCalls"),
-          )
-          .$asScalar()
-          .as("toolCalls"),
+        summedToolCalls(
+          eb
+            .selectFrom("job as cj")
+            .innerJoin("jobProgress as cp", "cp.jobId", "cj.id")
+            .crossJoinLateral((each) =>
+              each
+                .fn<{ key: string; value: string }>("jsonb_each_text", [each.ref("cp.toolCalls")])
+                .as("count"),
+            )
+            .whereRef("cj.batchUid", "=", "b.uid")
+            .select(["count.key", "count.value"]),
+        ).as("toolCalls"),
       )
       .select((eb) =>
         batchStatus(

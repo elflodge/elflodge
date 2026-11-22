@@ -37,6 +37,7 @@ import {
   type Kysely,
   type Nullable,
   type QueryCreator,
+  type SelectQueryBuilder,
   type SqlBool,
   sql,
   type Transaction,
@@ -1076,6 +1077,36 @@ const toolCallsSinceOf = (() => {
 })();
 
 /**
+ * The tool calls `rows` give as `jsonb_each_text` rows, a tool's name and a count, added up by
+ * tool name in one map, `{}` when there are none.
+ */
+export function summedToolCalls<DB, TB extends keyof DB>(
+  rows: SelectQueryBuilder<DB, TB, { key: string; value: string }>,
+) {
+  const eb = expressionBuilder<Database>();
+  return eb
+    .selectFrom(
+      eb
+        .selectFrom(rows.as("count"))
+        .select((sum) => [
+          "count.key",
+          sum.cast<number>(sum.fn.sum(sum.cast("count.value", "bigint")), "bigint").as("calls"),
+        ])
+        .groupBy("count.key")
+        .as("tool"),
+    )
+    .select((agg) =>
+      agg.fn
+        .coalesce(
+          agg.fn<ToolCalls>("jsonb_object_agg", ["tool.key", "tool.calls"]),
+          agg.fn<ToolCalls>("jsonb_build_object", []),
+        )
+        .as("calls"),
+    )
+    .$asScalar();
+}
+
+/**
  * The tool calls of a job's end in `ended` since its previous end: its count less the count its
  * records already hold, by tool name, a name with no new calls left out. Counts only grow, as each
  * report's calls add to them, so every name the recorded count holds is in the job's.
@@ -1581,7 +1612,7 @@ export function listJobs(query: JobListQuery) {
         // Without the content a list leaves out.
         .select((eb) => [
           ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
+          ...(["totalTokens", "costUsd", "toolCalls", "lastReportedAt"] as const).map(
             (column) => `p.${column}` as const,
           ),
           blockedByOf({
@@ -1621,13 +1652,10 @@ export function listJobs(query: JobListQuery) {
         .limit(limit + 1)
         .execute();
       return {
-        // Read without their content and tool calls, which the contract's `ListedJob` leaves out of
-        // the answer.
+        // Read without their content, which the contract's `ListedJob` leaves out of the answer.
         jobs: rows
           .slice(0, limit)
-          .map((row) =>
-            toApiJob({ ...row, output: null, failureMessage: null, activity: null, toolCalls: {} }),
-          ),
+          .map((row) => toApiJob({ ...row, output: null, failureMessage: null, activity: null })),
         hasMore: rows.length > limit,
       } satisfies JobsPage;
     }),

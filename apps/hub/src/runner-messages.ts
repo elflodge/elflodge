@@ -26,6 +26,7 @@ import {
   type JobUsageEntry,
   type JsonValue,
   type Load,
+  textSchema,
   type ToolCalls,
 } from "contract";
 import { Array, type Context, Effect, Result } from "effect";
@@ -46,6 +47,7 @@ import {
   FINAL_STATUSES,
   insertUsageRecords,
   QUEUED_OR_RUNNING,
+  summedToolCalls,
   USAGE_COPIED_COLUMNS,
   blockedByOf,
 } from "./jobs.ts";
@@ -137,30 +139,36 @@ function reportRow(report: JobReport, now: Date): ReportRow {
 }
 
 /**
- * A finished tool call, as pi records it: a `pi.tool-result` entry, its message's `toolName` (the
- * name pi keys a tool's usage by), and the diagnostics pi's harness wrote for it. Only what the
- * count reads; the rest is kept as it comes.
+ * A tool call's result, as pi records it: a `pi.tool-result` entry, its message's `toolName` (the
+ * name pi keys a tool's usage by) and `durationMs`, and its diagnostics. Only what the count reads;
+ * the rest is kept as it comes. A name Postgres cannot hold as a `jsonb` key (`textSchema`) makes
+ * a result of another shape, so it cannot fail the report's statement.
  */
 const toolResultSchema = z.object({
   kind: z.literal("pi.tool-result"),
-  model: z.tuple([z.object({ toolName: z.string() })]),
+  model: z.tuple([z.object({ toolName: textSchema, durationMs: z.optional(z.unknown()) })]),
   data: z.optional(
     z.object({ diagnostics: z.optional(z.array(z.object({ code: z.optional(z.string()) }))) }),
   ),
 });
 
 /**
- * The codes of pi's harness for a result it wrote for a call it never ran: a hook refused it, as the
- * Runner's web-access guard does, its arguments were invalid, the tool was not available, or its
- * caller ended with a restart before it started. A call ended `tool_error`, `interrupted`,
- * `restart_limit` or `aborted` may have run, so it counts, as does a code the hub does not know.
+ * The diagnostic codes pi's harness writes on a result of a call it did not run: a hook refused it,
+ * as the Runner's web-access guard does, its arguments were invalid, the tool was not available, or
+ * its caller ended with a restart before it started. They are read only where the result has no
+ * duration (`toolCallsOf`), as a tool that ran can give the same codes in the same list. A call
+ * ended `tool_error`, `interrupted` or `restart_limit` may have run, so it counts, as does a code
+ * the hub does not know. `aborted` counts too: pi writes it both for a call cut off while it ran and
+ * for one that never started, such as the rest of a round run one call at a time, and the result
+ * does not tell them apart.
  */
 const NEVER_RAN = new Set(["blocked", "invalid_arguments", "tool_unavailable", "abandoned"]);
 
 /**
- * How many tool calls `events` record finished, by tool name: one for each `pi.tool-result` entry,
- * unless pi's harness wrote it for a call it never ran (`NEVER_RAN`). A record of another shape
- * counts as nothing, and never refuses its report.
+ * How many tool calls `events` record a result of, by tool name, leaving out those known not to
+ * have run. pi's harness writes a result's `durationMs` only when it ran the tool, so a duration is
+ * the evidence of a run; for a result without one, its diagnostic codes are the inference
+ * (`NEVER_RAN`). A record of another shape counts as nothing, and never refuses its report.
  */
 function toolCallsOf(events: JobReport["events"]): ToolCalls {
   // A Map, then own properties, so a tool named `__proto__` is counted rather than setting a prototype.
@@ -169,12 +177,11 @@ function toolCallsOf(events: JobReport["events"]): ToolCalls {
     if (event.type !== "entry") continue;
     const result = z.safeParse(toolResultSchema, event.record).data;
     if (!result) continue;
-    const ran = !result.data?.diagnostics?.some(
-      ({ code }) => code !== undefined && NEVER_RAN.has(code),
-    );
-    if (!ran) continue;
-    const [{ toolName }] = result.model;
-    counts.set(toolName, (counts.get(toolName) ?? 0) + 1);
+    const [{ toolName, durationMs }] = result.model;
+    const ran =
+      typeof durationMs === "number" ||
+      !result.data?.diagnostics?.some(({ code }) => code !== undefined && NEVER_RAN.has(code));
+    if (ran) counts.set(toolName, (counts.get(toolName) ?? 0) + 1);
   }
   return Object.fromEntries(counts);
 }
@@ -318,36 +325,14 @@ function applyReports(runnerId: RunnerId, reports: JobReport[]) {
   );
 }
 
-/** Two counts of tool calls added up by tool name, as `bigint`, in one map. */
-function addedToolCalls(
-  stored: Expression<ToolCalls>,
-  reported: Expression<ToolCalls>,
-): Expression<ToolCalls> {
+/** Two counts of tool calls added up by tool name, in one map. */
+function addedToolCalls(stored: Expression<ToolCalls>, reported: Expression<ToolCalls>) {
   const eb = expressionBuilder<Database>();
   const countsOf = (calls: Expression<ToolCalls>) =>
     eb
       .selectFrom(eb.fn<{ key: string; value: string }>("jsonb_each_text", [calls]).as("count"))
       .select(["count.key", "count.value"]);
-  return eb
-    .selectFrom(
-      eb
-        .selectFrom(countsOf(stored).unionAll(countsOf(reported)).as("count"))
-        .select((sum) => [
-          "count.key",
-          sum.fn.sum<number>(sum.cast("count.value", "bigint")).as("calls"),
-        ])
-        .groupBy("count.key")
-        .as("tool"),
-    )
-    .select((agg) =>
-      agg.fn
-        .coalesce(
-          agg.fn<ToolCalls>("jsonb_object_agg", ["tool.key", "tool.calls"]),
-          agg.fn<ToolCalls>("jsonb_build_object", []),
-        )
-        .as("calls"),
-    )
-    .$asScalar();
+  return summedToolCalls(countsOf(stored).unionAll(countsOf(reported)));
 }
 
 /**

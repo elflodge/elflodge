@@ -19,6 +19,7 @@ export {
   type OutputContract,
   jobIdSchema,
   jobRefSchema,
+  textSchema,
 } from "./job.ts";
 export * from "./json-rpc.ts";
 export { openOutputSchemaConverter } from "./json-schema.ts";

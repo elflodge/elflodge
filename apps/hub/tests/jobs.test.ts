@@ -273,10 +273,10 @@ function piUsage(input: number, output: number, extra: { reasoning?: number } = 
 }
 
 /**
- * pi's entry of a finished call of `toolName`, with a diagnostic of pi's harness of `code` when
- * given, as for a call that failed or never ran.
+ * pi's entry of a result of a call of `toolName`, with a diagnostic of `code` when given. pi's
+ * harness times a call it ran, `durationMs`, unless `ran` is false, as for a call it refused.
  */
-function toolResult(toolName: string, code?: string) {
+function toolResult(toolName: string, { code, ran = true }: { code?: string; ran?: boolean } = {}) {
   return {
     kind: "pi.tool-result",
     model: [
@@ -286,6 +286,7 @@ function toolResult(toolName: string, code?: string) {
         toolName,
         content: [],
         isError: code !== undefined,
+        ...(ran && { durationMs: 5 }),
         timestamp: Date.now(),
       },
     ],
@@ -511,29 +512,40 @@ test("an end leaves out a stored counter that is not a number, or a token count 
   ]);
 });
 
-test("a job counts each tool call its Events record as finished once, but not one that never ran", async () => {
+test("a job counts each tool call its Events record a result of once, but not one known not to have run", async () => {
   const client = await system.clientWithNewJobsKey();
-  const { id } = await submitJob(client, { ...AGENT, input: "Summarise." });
+  const { id, batchId } = await submitJob(client, { ...AGENT, input: "Summarise." });
   expect((await client.jobs.get({ id })).toolCalls).toEqual({});
   const runner = await system.connectReportingRunner();
   const run = await runner.place(id);
-  const usage = { models: {}, tools: {} };
-  await runner.start(run, usage);
+  await runner.start(run, { models: {}, tools: {} });
   const calls = [
     toolResult("web_search"),
     // Refused before it ran, as the Runner's web-access guard refuses a call.
-    toolResult("web_search", "blocked"),
+    toolResult("web_search", { code: "blocked", ran: false }),
+    // Ran, and gave the same code itself.
+    toolResult("web_search", { code: "blocked" }),
     // Ran and failed.
-    toolResult("bash", "tool_error"),
-    // An entry the hub cannot read counts as nothing.
+    toolResult("bash", { code: "tool_error" }),
+    // Entries the hub cannot read count as nothing: one without a tool name, and one whose name
+    // Postgres cannot hold as a key.
     { kind: "pi.tool-result", model: [{ role: "toolResult" }] },
+    toolResult("web\u0000search"),
   ];
-  await runner.report({ ...run, position: 1 }, calls, usage);
-  // Sent again, as after an answer that was lost.
-  await runner.report({ ...run, position: 1 }, calls, usage);
+  const smaller = { models: { "scripted/small": piUsage(1024, 64) }, tools: {} };
+  await runner.report({ ...run, position: 1 }, calls, smaller);
+  const counted = { web_search: 2, bash: 1 };
+  expect((await client.jobs.get({ id })).toolCalls).toEqual(counted);
+  // Sent again with newer usage, as after an answer that was lost: the usage applies, its calls not.
+  const larger = { models: { "scripted/small": piUsage(2048, 128) }, tools: {} };
+  await runner.report({ ...run, position: 1 }, calls, larger);
   runner.close();
 
-  expect((await client.jobs.get({ id })).toolCalls).toEqual({ web_search: 1, bash: 1 });
+  const read = await client.jobs.get({ id });
+  expect(read.usage.totalTokens).toBe(larger.models["scripted/small"].totalTokens);
+  expect(read.toolCalls).toEqual(counted);
+  // A list states the same count.
+  expect((await client.jobs.list({ batchId })).jobs).toMatchObject([{ id, toolCalls: counted }]);
 });
 
 test("a Batch adds up its jobs' tool calls by tool name, counting each job once", async () => {

@@ -137,7 +137,7 @@ exports[`the commands and their flags 1`] = `
         {
           "arguments": [],
           "commands": [],
-          "description": "Lists Batches, newest first, in pages of at most \`limit\`. Filters combine: a Batch is listed when it has one of the \`status\` values given and every label in \`labels\`, its own labels rather than its jobs'. Read the next page with the same filters and \`after\` set to the last Batch's \`id\`, while the page says \`hasMore\`; an \`after\` naming no Batch is refused. A listed Batch has no \`usage\`: read the Batch for it.",
+          "description": "Lists Batches, newest first, in pages of at most \`limit\`. Filters combine: a Batch is listed when it has one of the \`status\` values given and every label in \`labels\`, its own labels rather than its jobs'. Read the next page with the same filters and \`after\` set to the last Batch's \`id\`, while the page says \`hasMore\`; an \`after\` naming no Batch is refused. A listed Batch has no \`usage\` or \`toolCalls\`: read the Batch for them.",
           "name": "list",
           "options": [
             {
