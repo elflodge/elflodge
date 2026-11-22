@@ -10,12 +10,12 @@ import { type Kysely, sql } from "kysely";
 //
 // `job.recordedUsage` is the usage the job's records already count: its progress's `usage` at its
 // last end, beside the totals then in `recordedTotalTokens` and `recordedCostUsd`. Each end
-// subtracts it. Where those totals equal the job's progress totals, the job has used nothing since
-// its last end, so its progress's usage is that baseline. Elsewhere the usage at its last end was
-// never kept, and the job keeps the empty maps. They are exact while its records have counted
-// nothing, as for a job that has not ended. A job that used more after an end that counted
-// something counts that earlier use again in its next record's entries, which then exceed the
-// record's totals by the job's recorded totals.
+// subtracts it. A job whose records have counted nothing keeps the empty maps, which are exact, as
+// for a job that has not ended. One whose records have counted something takes its progress's usage
+// now, since its usage at its last end was never kept: exact where it has used nothing since, and
+// otherwise short by what it used between that end and this migration. Its next record's entries
+// then fall short of the record's totals by that much, which reads as unattributed use, and never
+// exceed them, so nothing is counted twice.
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .withSchema("elflodge")
@@ -51,8 +51,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .from("jobProgress")
     .set((eb) => ({ recordedUsage: eb.ref("jobProgress.usage") }))
     .whereRef("jobProgress.jobId", "=", "job.id")
-    .whereRef("jobProgress.totalTokens", "=", "job.recordedTotalTokens")
-    .whereRef("jobProgress.costUsd", "=", "job.recordedCostUsd")
+    .where((eb) =>
+      eb.or([
+        eb("job.recordedTotalTokens", "<>", eb.lit(0)),
+        eb("job.recordedCostUsd", "<>", eb.lit(0)),
+      ]),
+    )
     .execute();
 }
 
