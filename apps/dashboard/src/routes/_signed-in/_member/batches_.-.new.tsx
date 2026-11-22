@@ -717,14 +717,12 @@ function SubmitBatch() {
         </div>
         <Sending progress={progress()} />
       </form>
-      <Show when={submission.blocker().status === "blocked"}>
-        <LeaveDialog
-          submission={submission}
-          record="Batch"
-          list="Batches"
-          loses="what you typed and the jobs you added"
-        />
-      </Show>
+      <LeaveDialog
+        submission={submission}
+        record="Batch"
+        list="Batches"
+        loses="what you typed and the jobs you added"
+      />
     </>
   );
 }
