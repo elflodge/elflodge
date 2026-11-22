@@ -316,7 +316,10 @@ test("in a browser, a new API key is shown once", async () => {
   await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
   await dialog.getByRole("group", { name: "Runners" }).getByLabel("read").check();
   await dialog.getByRole("button", { name: "Create key" }).click();
-  await expectBrowser(dialog.getByRole("button", { name: "Copy the key" })).toBeFocused();
+  const copy = dialog.getByRole("button", { name: "Copy the key" });
+  await expectBrowser(copy).toBeFocused();
+  // The new heading is not announced while focus is in the dialog; the button's description says it.
+  await expectBrowser(copy).toHaveAccessibleDescription(/^Shown this once: copy it now\./);
   const key = (await dialog.getByLabel("The new API key").innerText()).trim();
   // The key holds what was granted.
   const client = system.client({ "x-api-key": key });
@@ -326,15 +329,99 @@ test("in a browser, a new API key is shown once", async () => {
     .getByRole("row")
     .filter({ has: page.getByRole("cell", { name: "Unnamed", exact: true }) });
   await row.getByText("job: read").waitFor();
-  // Closing the dialog forgets it.
+  // Closing the dialog forgets it: opened again, it asks afresh.
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect.poll(() => page.content()).not.toContain(key);
+  await page.getByRole("button", { name: "Create key" }).click();
+  await expectBrowser(dialog.getByRole("textbox", { name: "Name" })).toHaveValue("");
+  await expectBrowser(dialog.getByRole("heading")).toHaveText("Create an API key");
+  expect(await page.content()).not.toContain(key);
+  await page.keyboard.press("Escape");
 
   await page.reload();
   await row.waitFor();
   expect(await page.content()).not.toContain(key);
 }, 30_000);
 
+test("Create key cannot be left while the hub answers, and then shows the key with Copy focused", async () => {
+  const page = await signedInAt("api-keys");
+  await page.getByRole("button", { name: "Create key" }).click();
+  const dialog = page.getByRole("dialog");
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await name.fill("held key");
+  await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
+  let sent = 0;
+  const arrived = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const reread = Promise.withResolvers<void>();
+  const releaseReread = Promise.withResolvers<void>();
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    async (route) => {
+      if (route.request().method() !== "POST") {
+        reread.resolve();
+        await releaseReread.promise;
+        return route.fallback();
+      }
+      sent++;
+      arrived.resolve();
+      await release.promise;
+      await route.fallback();
+    },
+  );
+  const create = dialog.getByRole("button", { name: "Create key" });
+  const cancel = dialog.getByRole("button", { name: "Cancel" });
+  try {
+    await create.press("Enter");
+    await arrived.promise;
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await expectBrowser(create).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(cancel).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(name).toHaveJSProperty("readOnly", true);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Enter");
+    await expectBrowser(create).toBeFocused();
+    await cancel.click({ force: true });
+    await name.press("Enter");
+  } finally {
+    release.resolve();
+  }
+  // Still the same dialog: the answer shows in it, without waiting for the list's reread.
+  try {
+    await reread.promise;
+    await expectBrowser(dialog.getByRole("button", { name: "Copy the key" })).toBeFocused();
+    await expectBrowser(dialog.getByRole("heading")).toHaveText("The new key, held key");
+  } finally {
+    releaseReread.resolve();
+  }
+  expect(sent).toBe(1);
+  // Once the hub has answered, Escape closes it.
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+}, 30_000);
+
+test("a key the hub made but whose answer was lost is listed, and the dialog does not say to try again", async () => {
+  const page = await signedInAt("api-keys");
+  await page.getByRole("button", { name: "Create key" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Name" }).fill("lost answer");
+  await dialog.getByRole("group", { name: "Jobs" }).getByLabel("read").check();
+  // The hub creates the key; its answer never reaches the page.
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      // Sent by the test to the hub's own address, which the browser reaches by its host name.
+      await route.fetch({ url: route.request().url().replace(system.origin, system.url().origin) });
+      await route.abort("connectionreset");
+    },
+  );
+  await dialog.getByRole("button", { name: "Create key" }).click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The dashboard could not confirm this was done. Check before trying again.",
+  );
+  await expectBrowser(page.locator("tbody tr", { hasText: "lost answer" })).toHaveCount(1);
+});
 test("a member can correct a refused key name and keep the permissions they chose", async () => {
   const page = await signedInAt("api-keys");
   await page.getByRole("button", { name: "Create key" }).click();
@@ -365,7 +452,9 @@ test("a member can correct a refused key name and keep the permissions they chos
   await expectBrowser(name).toBeFocused();
   await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
 
+  // An edit of the refused field ends its words.
   await name.fill(corrected);
+  await expectBrowser(name).not.toHaveAttribute("aria-invalid", "true");
   await page.route(
     (url) => url.pathname === "/api-keys",
     (route) =>

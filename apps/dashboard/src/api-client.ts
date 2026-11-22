@@ -6,8 +6,9 @@ import { apiContract, asError, createProblemDetailsLink, problemOf } from "contr
 
 /**
  * How long the dashboard waits for the hub to answer one of its oRPC calls, or a Better Auth call a
- * confirmation waits on, before it gives up. A member cannot leave a confirmation while its request
- * runs, so a request the hub never answers has to end by itself.
+ * confirmation waits on, before it gives up. A member cannot leave a confirmation, nor a form dialog
+ * that writes to the hub, while its request runs, so a request the hub never answers has to end by
+ * itself.
  */
 export const HUB_DEADLINE_MS = 30_000;
 

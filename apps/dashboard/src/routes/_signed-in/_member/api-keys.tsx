@@ -6,6 +6,7 @@ import {
   createAlertDialogController,
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
+import { DialogTrigger, createDialogController, type DialogController } from "@ui-sdk/solid/dialog";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
 import {
@@ -25,9 +26,10 @@ import { ConfirmDialog } from "../../../components/ConfirmDialog.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
 import { Field, FieldGroup } from "../../../components/Field.tsx";
+import { FormDialog } from "../../../components/FormDialog.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { formRefusal, createFormAction, fieldText } from "../../../form.ts";
+import { fieldText } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
 import { orpc, writeAbsence } from "../../../query.ts";
@@ -92,7 +94,7 @@ function OpenApiParagraph() {
 
 function ApiKeys() {
   const context = Route.useRouteContext();
-  const [creating, setCreating] = createSignal(false);
+  const createKey = createDialogController();
 
   return (
     <>
@@ -100,9 +102,9 @@ function ApiKeys() {
         <h1>API keys</h1>
         <Show when={context().managesKeys}>
           <div class="controls">
-            <button type="button" class="primary" onClick={() => setCreating(true)}>
+            <DialogTrigger controller={createKey} class="primary">
               Create key
-            </button>
+            </DialogTrigger>
           </div>
         </Show>
       </div>
@@ -118,8 +120,8 @@ function ApiKeys() {
         <KeyList />
       </Show>
       <OpenApiParagraph />
-      <Show when={context().managesKeys && creating()}>
-        <CreateKey onClose={() => setCreating(false)} />
+      <Show when={context().managesKeys}>
+        <CreateKey controller={createKey} />
       </Show>
     </>
   );
@@ -256,21 +258,18 @@ function validatePermissions(group: HTMLFieldSetElement) {
 
 /**
  * The dialog that creates a key: its name, its permissions and when it expires, then the key itself,
- * which the hub gives only in its answer. The key is held here alone, and forgotten when the dialog
- * closes.
+ * which the hub gives only in its answer and the dialog shows in place of the form, until it closes.
  */
-function CreateKey(props: { onClose: () => void }) {
+function CreateKey(props: { controller: DialogController }) {
   const queryClient = useQueryClient();
-  let dialog: HTMLDialogElement | undefined;
-  const [created, setCreated] = createSignal<{ name: string; key: string }>();
-  const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
-  const field = (name: string) => failure()?.fields.get(name);
-  const { pending, onSubmit } = createFormAction(create);
 
+  // A direct call, not a mutation: the mutation cache would keep the key from its answer. It ends
+  // within the hub deadline, through the API client, so the dialog that waits for it can be left.
+  // The list is read again, without waiting, whatever the answer: a failure that is not a refusal
+  // may come after the key was made, whose row then shows behind the dialog to check.
   async function create(element: HTMLFormElement) {
     const form = new FormData(element);
     const { permissions = {} } = parseFormData(form);
-    setFailure(undefined);
     const name = fieldText(form, "name");
     const expiresIn = EXPIRIES[Number(fieldText(form, "expiresIn"))]?.seconds;
     try {
@@ -279,145 +278,116 @@ function CreateKey(props: { onClose: () => void }) {
         permissions,
         ...(expiresIn === undefined ? {} : { expiresIn }),
       });
+      return { name, key };
+    } finally {
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
-      setCreated({ name, key });
-    } catch (error) {
-      setFailure(
-        formRefusal(error, {
-          name: ["name"],
-          // The fieldset owns both the permission set and each indexed action in a resource.
-          permissions: [
-            "permissions",
-            ...GRANTABLE.map(([resource]) => `permissions[${resource}][]`),
-          ],
-          expiresIn: ["expiresIn"],
-        }),
-      );
     }
   }
 
   return (
-    <dialog
-      class="is-wide"
-      aria-labelledby="create-key-heading"
-      ref={(element) => {
-        dialog = element;
-        onSettled(() => element.showModal());
+    <FormDialog
+      controller={props.controller}
+      heading="Create an API key"
+      confirm="Create key"
+      wide
+      controls={{
+        name: ["name"],
+        // The fieldset owns both the permission set and each indexed action in a resource.
+        permissions: [
+          "permissions",
+          ...GRANTABLE.map(([resource]) => `permissions[${resource}][]`),
+        ],
+        expiresIn: ["expiresIn"],
       }}
-      onClose={props.onClose}
+      send={create}
+      answer={{
+        heading: (created) => (
+          <>
+            The new key,{" "}
+            <span class={created.name ? "mono" : "unnamed"}>{created.name || "Unnamed"}</span>
+          </>
+        ),
+        children: (created, focus) => (
+          <>
+            <div class="copyable">
+              <pre class="code wraps command" tabindex="0" aria-label="The new API key">
+                <mark class="key">{created.key}</mark>
+              </pre>
+              <CopyButton
+                text={created.key}
+                label="Copy the key"
+                describedBy={focus.noteId}
+                buttonRef={focus.buttonRef}
+              />
+            </div>
+            <p class="shown-once" role="note" id={focus.noteId}>
+              <b>Shown this once:</b> copy it now. The hub keeps only its hash, and this page will
+              not show it again.
+            </p>
+          </>
+        ),
+      }}
     >
-      <Show
-        when={created()}
-        fallback={
-          <form onSubmit={onSubmit}>
-            <h2 class="dialog-h" id="create-key-heading">
-              Create an API key
-            </h2>
-            <div class="dialog-b">
-              <Field
-                label="Name"
-                hint={`Optional, up to ${MAX_API_KEY_NAME_LENGTH} characters.`}
-                error={field("name")}
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    name="name"
-                    autocomplete="off"
-                    onInput={({ currentTarget }) =>
-                      currentTarget.setCustomValidity(
-                        currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
-                          ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
-                          : "",
-                      )
-                    }
-                  />
-                )}
-              </Field>
-              <FieldGroup
-                label="Permissions"
-                hint="Choose at least one action."
-                error={field("permissions")}
-                ref={(group) => {
-                  onSettled(() => validatePermissions(group));
-                }}
-                onChange={(event) => validatePermissions(event.currentTarget)}
-              >
-                <For each={GRANTABLE}>
-                  {([resource, group]) => (
-                    <fieldset class="check-group">
-                      <legend>{group.legend}</legend>
-                      <For each={group.actions}>
-                        {(action) => (
-                          <label class="check">
-                            <input
-                              type="checkbox"
-                              name={`permissions[${resource}][]`}
-                              value={action}
-                            />
-                            <span class="mono">{action}</span>
-                          </label>
-                        )}
-                      </For>
-                    </fieldset>
-                  )}
+      {(fields) => (
+        <>
+          <Field
+            label="Name"
+            hint={`Optional, up to ${MAX_API_KEY_NAME_LENGTH} characters.`}
+            error={fields.refused("name")}
+          >
+            {(control) => (
+              <input
+                {...control}
+                name="name"
+                autocomplete="off"
+                readonly={fields.pending()}
+                onInput={({ currentTarget }) =>
+                  currentTarget.setCustomValidity(
+                    currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
+                      ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
+                      : "",
+                  )
+                }
+              />
+            )}
+          </Field>
+          <FieldGroup
+            label="Permissions"
+            hint="Choose at least one action."
+            error={fields.refused("permissions")}
+            ref={(group) => {
+              onSettled(() => validatePermissions(group));
+            }}
+            onChange={(event) => validatePermissions(event.currentTarget)}
+          >
+            <For each={GRANTABLE}>
+              {([resource, group]) => (
+                <fieldset class="check-group">
+                  <legend>{group.legend}</legend>
+                  <For each={group.actions}>
+                    {(action) => (
+                      <label class="check">
+                        <input type="checkbox" name={`permissions[${resource}][]`} value={action} />
+                        <span class="mono">{action}</span>
+                      </label>
+                    )}
+                  </For>
+                </fieldset>
+              )}
+            </For>
+          </FieldGroup>
+          <Field label="Expires" error={fields.refused("expiresIn")}>
+            {(control) => (
+              <select {...control} name="expiresIn">
+                <For each={EXPIRIES}>
+                  {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
                 </For>
-              </FieldGroup>
-              <Field label="Expires" error={field("expiresIn")}>
-                {(control) => (
-                  <select {...control} name="expiresIn">
-                    <For each={EXPIRIES}>
-                      {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
-                    </For>
-                  </select>
-                )}
-              </Field>
-              <Show when={failure()?.alert} keyed>
-                {(message) => <Notice role="alert">{message}</Notice>}
-              </Show>
-            </div>
-            <div class="dialog-f">
-              <button type="button" onClick={() => dialog?.close()}>
-                Cancel
-              </button>
-              <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
-                Create key
-              </button>
-            </div>
-          </form>
-        }
-      >
-        {(shown) => (
-          <form method="dialog">
-            <h2 class="dialog-h" id="create-key-heading">
-              The new key,{" "}
-              <span class={shown().name ? "mono" : "unnamed"}>{shown().name || "Unnamed"}</span>
-            </h2>
-            <div class="dialog-b">
-              <div class="copyable">
-                <pre class="code wraps command" tabindex="0" aria-label="The new API key">
-                  <mark class="key">{shown().key}</mark>
-                </pre>
-                <CopyButton
-                  text={shown().key}
-                  label="Copy the key"
-                  buttonRef={(button) => {
-                    onSettled(() => button.focus());
-                  }}
-                />
-              </div>
-              <p class="shown-once" role="note">
-                <b>Shown this once:</b> copy it now. The hub keeps only its hash, and this page will
-                not show it again.
-              </p>
-            </div>
-            <div class="dialog-f">
-              <button value="done">Done</button>
-            </div>
-          </form>
-        )}
-      </Show>
-    </dialog>
+              </select>
+            )}
+          </Field>
+        </>
+      )}
+    </FormDialog>
   );
 }
 

@@ -36,14 +36,18 @@ export function issuesRefusal(
   return { fields, alert: alerts.join("\n") || undefined };
 }
 
-/** The refusal `error` makes: its issues at their controls, or the hub's words in the alert. */
+/**
+ * The refusal `error` makes: its issues at their controls, or else `failure`'s words in the alert,
+ * the hub's by default.
+ */
 export function formRefusal(
   error: unknown,
   controls: Record<string, readonly string[]>,
+  failure: (error: unknown) => string = hubFailureMessage,
 ): FormRefusal {
   if (error instanceof ORPCError && Array.isArray(error.data?.issues))
     return issuesRefusal(error.data.issues, controls);
-  return { fields: new Map(), alert: hubFailureMessage(error) };
+  return { fields: new Map(), alert: failure(error) };
 }
 
 /**
