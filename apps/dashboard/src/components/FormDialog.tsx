@@ -7,10 +7,11 @@ import {
   DialogTitle,
   type DialogController,
 } from "@ui-sdk/solid/dialog";
-import { Show, createSignal, onCleanup, onFlush, onSettled } from "solid-js";
+import { Show, createSignal, onCleanup, onFlush, onSettled, untrack } from "solid-js";
 
 import { hubWriteFailureMessage, isWriteRefusal } from "../api-client.ts";
 import { createFormAction, formRefusal, withoutRefusals } from "../form.ts";
+import { untilFlushed } from "../query.ts";
 import { Notice } from "./Notice.tsx";
 
 type Refusal = ReturnType<typeof formRefusal>;
@@ -29,6 +30,39 @@ export type FormDialogAnswerFocus = {
   buttonRef: (button: HTMLButtonElement) => void;
 };
 
+type FormDialogProps<A, T> = {
+  controller: DialogController<T>;
+  heading: (payload: T) => JSX.Element;
+  /** The words of the button that sends, which name what it does. */
+  confirm: string;
+  /** As wide as the dialog can be, for a form with groups of choices. */
+  wide?: boolean;
+  /** Places a 4xx refusal at named controls or in the alert. Defaults to the hub's words. */
+  refusal?: (error: unknown, form: HTMLFormElement) => Refusal | undefined;
+  /**
+   * Why the form no longer applies, read live: a read can take it away while the dialog is open. The
+   * dialog says it above the fields, and the button that sends does nothing.
+   */
+  withdrawn?: (payload: T) => string | undefined;
+  children: (fields: FormDialogFields, payload: T) => JSX.Element;
+} & (
+  | {
+      send: (form: HTMLFormElement, payload: T) => Promise<A>;
+      answer: {
+        heading: (answer: A) => JSX.Element;
+        children: (answer: A, focus: FormDialogAnswerFocus) => JSX.Element;
+      };
+      notice?: undefined;
+    }
+  | {
+      /** Resolves once the page shows the outcome, or false when there was nothing to send. */
+      send: (form: HTMLFormElement, payload: T) => Promise<void | false>;
+      answer?: undefined;
+      /** The page's notice of the outcome, for focus once `send` has reported an outcome. */
+      notice: () => HTMLElement | undefined;
+    }
+);
+
 /**
  * A dialog whose form sends a write to the hub, UI SDK's Dialog: a focused task over the page. Its
  * heading, its fields in the body, and in the footer Cancel and the button that sends, named by
@@ -38,107 +72,117 @@ export type FormDialogAnswerFocus = {
  * Once sent, the dialog cannot be left by its own means until `send` settles: Escape and Cancel do
  * nothing, another press or Enter sends nothing more, and focus stays where it was. Leaving the
  * page still leaves it. The caller makes its text fields read-only from `fields.pending`. A press
- * outside it never closes it, as with a native modal dialog. A refusal, an answer with a 4xx
- * status, places each of its issues, through `formRefusal`, at the control of `controls` that edits
- * its path, with focus on the refused field, or else in the alert with the hub's words; an edit of
- * that control ends its words. Any other failure may have come after the write was done, whatever
- * issues it carries, so the alert says what a confirmation says then. Opened by a `DialogTrigger`
- * with the same `controller`.
+ * outside it leaves it open. The caller can place a 4xx refusal at a named field or fieldset.
+ * Editing it clears its refusal. Other failures say the write may have been done.
  *
- * `answer` shows what `send` resolved in the same dialog, in place of the form, with its own
- * heading and Done; its button given to `buttonRef` takes focus, which the answer should describe
- * by `aria-describedby`, since a heading changed while focus is in the dialog is not announced.
+ * A list shares one dialog outside every `Show` a read can switch. Each trigger passes the
+ * record as its payload. An open dialog keeps that record even if a second trigger is pressed.
+ *
+ * An answer replaces the fields and has its own heading and Done. Its Copy button takes focus,
+ * described by the caller's note because a changed heading alone is not announced. A form with
+ * a page notice closes with focus on that notice. Returning false for an unchanged form closes
+ * it with the usual focus return to its trigger.
  */
-export function FormDialog<A>(props: {
-  controller: DialogController;
-  heading: JSX.Element;
-  /** The words of the button that sends, which name what it does. */
-  confirm: string;
-  /** As wide as the dialog can be, for a form with groups of choices. */
-  wide?: boolean;
-  /** The controls that a refusal can locate, by name, each with the input paths it edits. */
-  controls: Record<string, readonly string[]>;
-  send: (form: HTMLFormElement) => Promise<A>;
-  answer: {
-    heading: (answer: A) => JSX.Element;
-    children: (answer: A, focus: FormDialogAnswerFocus) => JSX.Element;
-  };
-  children: (fields: FormDialogFields) => JSX.Element;
-}) {
+export function FormDialog<A, T = undefined>(props: FormDialogProps<A, T>) {
   // The open dialog's own send, which writes its answer or refusal: see `OpenForm`.
   let sendOpen: ((form: HTMLFormElement) => Promise<void>) | undefined;
   const { pending, onSubmit } = createFormAction(async (form) => {
     await sendOpen?.(form);
   });
+  // Only an outcome the page shows takes focus: Cancel, Escape or a send that sent nothing returns
+  // it to the trigger, even with an older notice on the page.
+  let acted = false;
   return (
     <Dialog
       controller={props.controller}
       // An answer that came after a dismissal would be shown nowhere, as a new key would, and a form
-      // opened again could send the same write twice. So every request `send` awaits must end by
-      // itself.
+      // opened again could send the same write twice. Each awaited request needs its own deadline.
       dismissible={!pending()}
       closeOnOutsidePress={false}
       // Beside the page rather than in it, as ConfirmDialog is: UI SDK makes inert what is beside the
       // dialog when it opens, which is then the page's root.
       container={document.body}
+      // The form sends for the record it opened for, as ConfirmDialog's confirmation acts on its own.
+      onPayloadChange={(_, details) => {
+        if (props.controller.isOpen()) details.cancel();
+      }}
+      onOpenChange={(open, details) => {
+        acted = !open && details.reason === "action";
+      }}
+      onOpenChangeComplete={(open) => {
+        // UI SDK focuses without scrolling, and the notice can be above a long list scrolled down.
+        if (!open && acted) props.notice?.()?.scrollIntoView({ block: "nearest" });
+      }}
     >
-      <DialogContent class={props.wide ? "is-wide" : undefined}>
-        <OpenForm
-          {...props}
-          pending={pending}
-          onSubmit={onSubmit}
-          // Called as the open form is built, so its cleanup is the form's: once the dialog has
-          // closed, nothing here keeps the form's send, and with it its answer.
-          register={(send) => {
-            sendOpen = send;
-            onCleanup(() => {
-              if (sendOpen === send) sendOpen = undefined;
-            });
-          }}
-        />
+      <DialogContent<T>
+        class={props.wide ? "is-wide" : undefined}
+        finalFocus={() => (acted ? props.notice?.() : undefined)}
+      >
+        {(state) => (
+          <OpenForm
+            {...props}
+            // Taken as the content is built: the dialog refuses a change while open, and its content
+            // goes when it closes.
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- UI SDK types the payload as possibly absent, since a controller can open a dialog without one; a dialog with a payload type is opened by triggers that give one
+            payload={state.payload as T}
+            pending={pending}
+            onSubmit={onSubmit}
+            // Called as the open form is built, so its cleanup is the form's: once the dialog has
+            // closed, nothing here keeps the form's send, and with it its answer.
+            register={(send) => {
+              sendOpen = send;
+              onCleanup(() => {
+                if (sendOpen === send) sendOpen = undefined;
+              });
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
-function OpenForm<A>(props: {
-  heading: JSX.Element;
-  confirm: string;
-  controls: Record<string, readonly string[]>;
-  send: (form: HTMLFormElement) => Promise<A>;
-  answer: {
-    heading: (answer: A) => JSX.Element;
-    children: (answer: A, focus: FormDialogAnswerFocus) => JSX.Element;
-  };
-  children: (fields: FormDialogFields) => JSX.Element;
-  pending: () => boolean;
-  onSubmit: (event: SubmitEvent & { currentTarget: HTMLFormElement }) => Promise<void>;
-  register: (send: (form: HTMLFormElement) => Promise<void>) => void;
-}) {
-  // The answer, such as a key the hub shows only once, lives here alone: in the state of the open
-  // dialog's content, which UI SDK removes when the dialog closes, so it is gone then. Never in the
-  // controller's payload, an announcement or a query's cache.
+function OpenForm<A, T>(
+  props: FormDialogProps<A, T> & {
+    payload: T;
+    pending: () => boolean;
+    onSubmit: (event: SubmitEvent & { currentTarget: HTMLFormElement }) => Promise<void>;
+    register: (send: (form: HTMLFormElement) => Promise<void>) => void;
+  },
+) {
+  const payload = untrack(() => props.payload);
+  // UI SDK removes this content when the dialog closes. Reopening starts a fresh form, and a
+  // key shown only once stays out of the controller's payload, announcements and the query cache.
   const [answer, setAnswer] = createSignal<{ value: A }>();
   const [refusal, setRefusal] = createSignal<Refusal>();
+  const withdrawn = () => props.withdrawn?.(payload);
+  // A refusal that says what a read's withdrawal says takes the sentence into its alert, so one copy
+  // shows at a time and it is said once, as in ConfirmDialog. The withdrawal still stops the send.
+  const withdrawal = () => {
+    const reason = withdrawn();
+    return reason === refusal()?.alert ? undefined : reason;
+  };
 
   props.register(async (form) => {
     // On its own: a write in the action before the request would be held until it settles.
     onFlush(() => setRefusal(undefined));
-    let value: A;
+    // Let the dialog lock before a caller starts a Solid Query mutation in its own action.
+    await untilFlushed();
     try {
-      value = await props.send(form);
+      if (props.answer) {
+        const value = await props.send(form, payload);
+        setAnswer({ value });
+      } else {
+        const outcome = await props.send(form, payload);
+        props.controller.close(outcome === false ? undefined : { reason: "action" });
+      }
     } catch (error) {
-      // A write that failed without a refusal may have been done, so the alert does not say to try
-      // again, nor places issues at fields as if the hub had refused them.
       setRefusal(
         isWriteRefusal(error)
-          ? formRefusal(error, props.controls)
+          ? (props.refusal?.(error, form) ?? formRefusal(error, {}))
           : { fields: new Map(), alert: hubWriteFailureMessage(error) },
       );
-      return;
     }
-    // Written after the request's await, this takes effect at once, before the action settles.
-    setAnswer({ value });
   });
 
   // The form and the title stay through the swap to the answer, which happens inside them: with a
@@ -146,18 +190,21 @@ function OpenForm<A>(props: {
   return (
     <form
       onSubmit={props.onSubmit}
-      onInput={({ target }) => {
-        const name = target instanceof Element ? target.getAttribute("name") : null;
-        setRefusal((current) =>
-          current && name
-            ? withoutRefusals(current, (control) => props.controls[control].includes(name))
-            : current,
+      onInput={({ target, currentTarget }) => {
+        if (!(target instanceof Element)) return;
+        setRefusal(
+          (current) =>
+            current &&
+            withoutRefusals(current, (name) => {
+              const control = currentTarget.elements.namedItem(name);
+              return control instanceof Element && control.contains(target);
+            }),
         );
       }}
     >
       <DialogTitle class="dialog-h">
-        <Show when={answer()} keyed fallback={props.heading}>
-          {(shown) => props.answer.heading(shown.value)}
+        <Show when={answer()} keyed fallback={props.heading(payload)}>
+          {(shown) => props.answer?.heading(shown.value)}
         </Show>
       </DialogTitle>
       <Show
@@ -166,10 +213,23 @@ function OpenForm<A>(props: {
         fallback={
           <>
             <div class="dialog-b">
-              {props.children({
-                pending: props.pending,
-                refused: (name) => refusal()?.fields.get(name),
-              })}
+              <Show when={props.withdrawn}>
+                {/* The sentence is rendered text a read changes, so its own element is the live
+                    region, there from the start, as ConfirmDialog's explanation is. Off while the hub
+                    answers: its own answer changes the record. */}
+                <div class="withdrawal" aria-live={props.pending() ? "off" : "polite"}>
+                  <Show when={withdrawal()} keyed>
+                    {(reason) => <p>{reason}</p>}
+                  </Show>
+                </div>
+              </Show>
+              {props.children(
+                {
+                  pending: props.pending,
+                  refused: (name) => refusal()?.fields.get(name),
+                },
+                payload,
+              )}
               {/* In the dialog from the start, so that a screen reader says what is written into it. */}
               <p role="status" class={props.pending() ? "note" : "vh"}>
                 {props.pending() ? "Working…" : ""}
@@ -189,11 +249,12 @@ function OpenForm<A>(props: {
                 )}
               />
               {/* Disabled with focusableWhenDisabled, as UI SDK's Button page says of an async
-                  submit handler, so it keeps the focus while the hub answers. */}
+                  submit handler, so it keeps the focus while the hub answers, or a read withdraws the
+                  form; it also refuses the press that Enter in a field makes on it. */}
               <Button
                 type="submit"
                 class="primary"
-                disabled={props.pending()}
+                disabled={props.pending() || !!withdrawn()}
                 focusableWhenDisabled
               >
                 {props.confirm}
@@ -205,7 +266,7 @@ function OpenForm<A>(props: {
         {(shown) => (
           <>
             <div class="dialog-b">
-              {props.answer.children(shown.value, {
+              {props.answer?.children(shown.value, {
                 buttonRef: (button) => onSettled(() => button.focus()),
               })}
             </div>

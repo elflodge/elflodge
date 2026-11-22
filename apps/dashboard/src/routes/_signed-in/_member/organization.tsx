@@ -1,8 +1,8 @@
-import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { focusManager, noop, useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
+import { DialogTrigger, createDialogController } from "@ui-sdk/solid/dialog";
 import {
   For,
   Show,
@@ -13,13 +13,11 @@ import {
   flush,
   latest,
   onFlush,
-  onSettled,
 } from "solid-js";
 
 import {
   HUB_DEADLINE_MS,
   hubFailureDetail,
-  hubFailureMessage,
   isWriteRefusal,
   readFromHub,
 } from "../../../api-client.ts";
@@ -35,7 +33,6 @@ import {
   InvitationAddressNote,
   RenameOrganization,
 } from "../../../components/OrganizationForms.tsx";
-import { focusIfLost } from "../../../form.ts";
 import { plural, timeZoneNote } from "../../../format.ts";
 import {
   asRole,
@@ -79,9 +76,11 @@ type Revocation = { id: string; email: string; role: string };
 
 const MANAGERS_ONLY = "Only owners and admins invite members, change roles and remove members.";
 const OWNERS_REMOVE_OWNERS = "Only an owner can remove an owner.";
+const OWNERS_CHANGE_OWNERS = "Only an owner can change the role of an owner.";
 const NOW_ONLY_OWNER = "You are now the only owner, so you cannot leave or change your own role.";
-// Better Auth's client has no deadline of its own. A confirmed write, and a read it waits on, take
-// better-fetch's, which ends a call whose answer's headers have not arrived by then.
+// Better Auth's client has no deadline of its own. A write a confirmation or a form dialog waits on,
+// and a read it waits on, take better-fetch's, which ends a call whose answer's headers have not
+// arrived by then.
 const CONFIRMED = { timeout: HUB_DEADLINE_MS };
 
 const rank = { owner: 0, admin: 1, member: 2 };
@@ -144,6 +143,16 @@ function removalRefusal(error: unknown) {
     : undefined;
 }
 
+/**
+ * Better Auth refuses the only owner changing their own role with its code for an Organization left
+ * without an owner, which it answers no other change of role.
+ */
+function roleChangeRefusal(error: unknown) {
+  return hasAuthCode(error, "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER")
+    ? { fields: new Map<string, string>(), alert: NOW_ONLY_OWNER }
+    : undefined;
+}
+
 function OrganizationPage(props: { organizationId: string }) {
   const context = Route.useRouteContext();
   const router = useRouter();
@@ -202,21 +211,10 @@ function OrganizationPage(props: { organizationId: string }) {
       };
     },
   );
-  const [form, setForm] = createSignal<"rename" | "invite">();
-  const [notice, setNotice] = createSignal<{
-    role: "alert" | "status";
-    message: JSX.Element;
-    focusRef?: (element: HTMLDivElement) => void;
-  }>();
-  // For a confirmation's focus once the page shows its outcome.
+  // What was done, the outcome of a confirmation or a form dialog, which then focuses it.
+  const [notice, setNotice] = createSignal<{ message: JSX.Element }>();
   let noticeElement: HTMLElement | undefined;
-  const report = (message: JSX.Element) =>
-    setNotice({
-      role: "alert",
-      message,
-      focusRef: (element) => onSettled(() => focusIfLost(element)),
-    });
-  const status = (message: JSX.Element) => setNotice({ role: "status", message });
+  const status = (message: JSX.Element) => setNotice({ message });
   // Set once the member has left: the page is stale until the session read replaces it, so it shows
   // only what happened.
   const [left, setLeft] = createSignal(false);
@@ -300,7 +298,7 @@ function OrganizationPage(props: { organizationId: string }) {
   }));
   const changingRole = useMutation(() => ({
     mutationFn: (input: { organizationId: string; memberId: string; role: MemberRole }) =>
-      authClient.organization.updateMemberRole(input),
+      authClient.organization.updateMemberRole({ ...input, fetchOptions: CONFIRMED }),
   }));
   const revokingInvitation = useMutation(() => ({
     mutationFn: (input: { invitationId: string }) =>
@@ -308,12 +306,15 @@ function OrganizationPage(props: { organizationId: string }) {
   }));
   const renaming = useMutation(() => ({
     mutationFn: (input: { organizationId: string; data: { name: string } }) =>
-      authClient.organization.update(input),
+      authClient.organization.update({ ...input, fetchOptions: CONFIRMED }),
   }));
 
   const confirmRemove = createAlertDialogController<Membership>();
   const confirmLeave = createAlertDialogController<Membership>();
   const confirmRevoke = createAlertDialogController<Revocation>();
+  const inviteDialog = createDialogController();
+  const renameDialog = createDialogController();
+  const changeRoleDialog = createDialogController<Member>();
 
   async function remove({ member: person }: Membership) {
     const organizationId = orgId();
@@ -367,7 +368,7 @@ function OrganizationPage(props: { organizationId: string }) {
     void refreshSession();
   }
 
-  async function changeRole(person: Member, next: MemberRole, close: () => boolean) {
+  async function changeRole(person: Member, next: MemberRole) {
     const own = isOwn(person);
     const name = person.user.name;
     const organizationId = orgId();
@@ -381,64 +382,34 @@ function OrganizationPage(props: { organizationId: string }) {
         hasAuthCode(error, "MEMBER_NOT_FOUND") &&
         (await memberGone(organizationId, person))
       ) {
-        // The list just written drops the row, and the dialog in it.
-        setNotice({
-          role: "status",
-          message: `${name} is already gone.`,
-          focusRef: (element) => onSettled(() => focusIfLost(element)),
-        });
+        status(`${name} is already gone.`);
+        // On the page before the dialog closes and focus moves to it.
+        flush();
         void refreshInvites();
         void refreshKeys();
-        return undefined;
+        return;
       }
-      await refreshAfterMembershipChange();
-      let message = hubFailureMessage(error);
-      const list = client.getQueryState(membersOptions(organizationId).queryKey);
-      const fresh =
-        list?.status === "success" && !list.isInvalidated ? list.data?.members : undefined;
-      const reader = fresh?.find(isOwn);
-      const target = fresh?.find((m) => m.id === person.id);
-      if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
-        await refreshSession();
-      if (
-        hasAuthCode(
-          error,
-          "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
-          "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
-        ) &&
-        fresh &&
-        soleOwner(fresh, context().user.id)
-      ) {
-        message = NOW_ONLY_OWNER;
-      } else if (error instanceof BetterFetchError && error.status >= 500 && fresh) {
-        message = `Check the refreshed member list before trying again (${message.replace(/\.$/, "")}).`;
-      }
-      // Query can finish the read before the table unmounts a control that no longer applies.
-      if (fresh && !(reader && target && canChangeRole(fresh, reader, target))) {
-        const closed = close();
-        setNotice({
-          role: "alert",
-          message: `Change role: ${message}`,
-          focusRef: (element) => onSettled(() => (closed ? element.focus() : focusIfLost(element))),
-        });
-        return undefined;
-      }
-      return message;
+      // A fresh roster can withdraw the change, which the dialog then says.
+      refusedMembership(error);
+      throw error;
     }
-    const closed = close();
-    if (own)
-      setNotice({
-        role: "status",
-        message: `You are now ${asRole(next)}.`,
-        focusRef: closed ? (element) => onSettled(() => element.focus()) : undefined,
-      });
-    else status(`${name} is now ${asRole(next)}.`);
+    status(own ? `You are now ${asRole(next)}.` : `${name} is now ${asRole(next)}.`);
+    flush();
     void refreshAfterMembershipChange();
-    // One's own role decides what the page offers, from the session. As before, the change settles
-    // once the session is read again, though the dialog has closed, and until then the page still
-    // offers the old role's controls.
-    if (own) await refreshSession();
-    return undefined;
+    // One's own role decides what the page offers, from the session: until it is read again, the
+    // page still offers the old role's controls.
+    if (own) void refreshSession();
+  }
+
+  async function rename(name: string) {
+    try {
+      const renamed = await renaming.mutate({ organizationId: orgId(), data: { name } });
+      status(`Renamed to ${renamed.name}.`);
+      flush();
+    } finally {
+      // The bar and this page name the Organization from the session.
+      void refreshSession();
+    }
   }
 
   async function revoke(invite: Revocation) {
@@ -483,6 +454,18 @@ function OrganizationPage(props: { organizationId: string }) {
     if (!target) return `${person.user.name} is no longer a member.`;
     if (canChangeRole(list, reader, target)) return undefined;
     return manager(reader) ? OWNERS_REMOVE_OWNERS : MANAGERS_ONLY;
+  }
+
+  // Why a role change the member opened no longer applies, by the roster as last read, as for Remove.
+  function roleChangeWithdrawn(person: Member) {
+    const list = roster().members;
+    const reader = list.find(isOwn);
+    const target = list.find((m) => m.id === person.id);
+    if (!reader) return MANAGERS_ONLY;
+    if (!target) return `${person.user.name} is no longer a member.`;
+    if (canChangeRole(list, reader, target)) return undefined;
+    if (reader.id === target.id && soleOwner(list, reader.userId)) return NOW_ONLY_OWNER;
+    return manager(reader) ? OWNERS_CHANGE_OWNERS : MANAGERS_ONLY;
   }
 
   function leaveWithdrawn() {
@@ -568,9 +551,9 @@ function OrganizationPage(props: { organizationId: string }) {
         <h1>Organization</h1>
         <Show when={manages() && !left()}>
           <div class="controls">
-            <button class="primary" type="button" onClick={() => setForm("invite")}>
+            <DialogTrigger controller={inviteDialog} class="primary">
               Invite a member
-            </button>
+            </DialogTrigger>
           </div>
         </Show>
       </div>
@@ -578,19 +561,16 @@ function OrganizationPage(props: { organizationId: string }) {
         <div class="org-name">
           <strong>{org()?.name}</strong>
           <Show when={manages()}>
-            <button type="button" onClick={() => setForm("rename")}>
-              Rename
-            </button>
+            <DialogTrigger controller={renameDialog}>Rename</DialogTrigger>
           </Show>
         </div>
       </Show>
       <Show when={notice()} keyed>
-        {({ role: noticeRole, message, focusRef }) => (
+        {({ message }) => (
           <Notice
-            role={noticeRole}
+            role="status"
             focusRef={(element) => {
               noticeElement = element;
-              focusRef?.(element);
             }}
           >
             {message}
@@ -641,7 +621,6 @@ function OrganizationPage(props: { organizationId: string }) {
                       canChangeRole(roster().members, reader, row())
                     );
                   };
-                  const [changing, setChanging] = createSignal(false);
                   const name = () => row().user.name;
 
                   return (
@@ -665,27 +644,15 @@ function OrganizationPage(props: { organizationId: string }) {
                       <td role="cell" class="is-act">
                         <div class="controls">
                           <Show when={canChange()}>
-                            <button
+                            <DialogTrigger
+                              controller={changeRoleDialog}
+                              payload={row()}
                               aria-label={
                                 own() ? "Change role for yourself" : `Change role for ${name()}`
                               }
-                              type="button"
-                              onClick={() => setChanging(true)}
                             >
                               Change role
-                            </button>
-                            <Show when={changing()}>
-                              <ChangeRole
-                                own={own()}
-                                owner={owner()}
-                                name={name()}
-                                role={row().role}
-                                change={(next, close) => changeRole(row(), next, close)}
-                                consequences={(next) => consequences(row(), next)}
-                                close={() => setChanging(false)}
-                                report={report}
-                              />
-                            </Show>
+                            </DialogTrigger>
                           </Show>
                           <Show when={!own() && canChange()}>
                             <AlertDialogTrigger
@@ -789,38 +756,34 @@ function OrganizationPage(props: { organizationId: string }) {
               </table>
             </Show>
           </section>
-          <Show when={form() === "invite"}>
-            <InviteMember
-              owner={owner()}
-              organizationId={orgId()}
-              refresh={() => void refreshInvites()}
-              refreshSession={refreshSession}
-              close={() => setForm(undefined)}
-              report={report}
-            />
-          </Show>
-          <Show when={form() === "rename"}>
-            <RenameOrganization
-              name={org()?.name ?? ""}
-              close={() => setForm(undefined)}
-              report={report}
-              rename={async (name) => {
-                try {
-                  const renamed = await renaming.mutate({
-                    organizationId: orgId(),
-                    data: { name },
-                  });
-                  status(`Renamed to ${renamed.name}.`);
-                } finally {
-                  await refreshSession();
-                }
-              }}
-            />
-          </Show>
         </Show>
       </Show>
       {/* Outside every Show a read switches, so a read that drops a record or withdraws its control
-          keeps its dialog, and a refusal still to come has somewhere to show. */}
+          keeps its dialog, and a refusal or an answer still to come has somewhere to show. */}
+      <InviteMember
+        controller={inviteDialog}
+        owner={owner()}
+        organizationId={orgId()}
+        refreshInvites={() => void refreshInvites()}
+        refreshSession={() => void refreshSession()}
+      />
+      <RenameOrganization
+        controller={renameDialog}
+        name={org()?.name ?? ""}
+        rename={rename}
+        notice={() => noticeElement}
+      />
+      <ChangeRole
+        controller={changeRoleDialog}
+        owner={rolesOf(roster().members.find(isOwn)?.role ?? "").includes("owner")}
+        own={isOwn}
+        current={(person) => roster().members.find((m) => m.id === person.id)}
+        withdrawn={roleChangeWithdrawn}
+        refusal={roleChangeRefusal}
+        change={changeRole}
+        consequences={consequences}
+        notice={() => noticeElement}
+      />
       <ConfirmDialog
         controller={confirmRemove}
         heading={({ member, organization }) => `Remove ${member.user.name} from ${organization}?`}

@@ -1092,8 +1092,10 @@ dialog.is-wide,
 .dialog-b > .notice {
   margin: 0;
 }
-/* UI SDK's description part holds the body's paragraphs, which stay the body's own grid items. */
-.dialog-b > [data-slot="alert-dialog-description"] {
+/* UI SDK's description part, and a form dialog's live region for a withdrawal, hold the body's
+   paragraphs, which stay the body's own grid items. */
+.dialog-b > [data-slot="alert-dialog-description"],
+.dialog-b > .withdrawal {
   display: contents;
 }
 .dialog-f {

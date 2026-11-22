@@ -1,110 +1,36 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { useMutation } from "@tanstack/solid-query";
-import { For, Show, createSignal, createUniqueId, onSettled, untrack } from "solid-js";
+import type { DialogController } from "@ui-sdk/solid/dialog";
+import { For, Show, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
 
-import { hubFailureMessage } from "../api-client.ts";
+import { HUB_DEADLINE_MS } from "../api-client.ts";
 import { authClient, hasAuthCode, isAuthAccessError } from "../auth-client.ts";
-import { createFormAction, fieldText } from "../form.ts";
+import { fieldText } from "../form.ts";
 import { isLoopback } from "../hub-address.ts";
-import { ROLE_LABEL, asRole, invitationLink, rolesOf, type MemberRole } from "../organization.ts";
+import {
+  ROLE_LABEL,
+  asRole,
+  invitationLink,
+  rolesOf,
+  type Member,
+  type MemberRole,
+} from "../organization.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { Field } from "./Field.tsx";
+import { FormDialog } from "./FormDialog.tsx";
 import { Instant } from "./Instant.tsx";
-import { Notice } from "./Notice.tsx";
 
-/** A refusal of one field: its words, and how to show them at the field while the dialog is open. */
-type FieldRefusal = { message: string; showAtField: () => void };
-
-/** Form dialogs can be closed while the hub is answering. */
-function FormDialog(props: {
-  heading: JSX.Element;
-  confirm: string;
-  children: JSX.Element;
-  answered?: boolean;
-  answer?: JSX.Element;
-  close: () => void;
-  submit: (form: FormData, close: () => boolean) => Promise<string | FieldRefusal | void>;
-  /** Reports on the page a refusal that arrives after the dialog closed. */
-  report: (message: JSX.Element) => void;
-  /** What the page says then; by default the confirming button's words and the refusal. */
-  pageMessage?: (message: string, submitted: FormData) => JSX.Element;
-}) {
-  const headingId = createUniqueId();
-  let dialog!: HTMLDialogElement;
-  const [failure, setFailure] = createSignal<string>();
-  const { pending, onSubmit } = createFormAction(async (form) => {
-    setFailure(undefined);
-    const submitted = new FormData(form);
-    let refusal;
-    try {
-      refusal = await props.submit(submitted, () => {
-        const open = dialog.open && dialog.isConnected;
-        dialog.close();
-        return open;
-      });
-    } catch (error) {
-      refusal = hubFailureMessage(error);
-    }
-    if (!refusal) return;
-    const message = typeof refusal === "string" ? refusal : refusal.message;
-    if (!dialog.isConnected || !dialog.open)
-      props.report(props.pageMessage?.(message, submitted) ?? `${props.confirm}: ${message}`);
-    else if (typeof refusal === "string") setFailure(message);
-    else refusal.showAtField();
-  });
-  return (
-    <dialog
-      aria-labelledby={headingId}
-      ref={(element) => {
-        dialog = element;
-        onSettled(() => element.showModal());
-      }}
-      onClose={props.close}
-    >
-      <h2 class="dialog-h" id={headingId}>
-        {props.heading}
-      </h2>
-      <Show
-        when={props.answered}
-        fallback={
-          <form onSubmit={onSubmit}>
-            <fieldset class="dialog-b" disabled={pending()}>
-              {props.children}
-              <p role="status" class={pending() ? "note" : "vh"}>
-                {pending() ? "Working…" : ""}
-              </p>
-              <Show when={failure()} keyed>
-                {(message) => <Notice role="alert">{message}</Notice>}
-              </Show>
-            </fieldset>
-            <div class="dialog-f">
-              <button type="button" onClick={() => dialog.close()}>
-                {pending() ? "Close" : "Cancel"}
-              </button>
-              <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
-                {props.confirm}
-              </button>
-            </div>
-          </form>
-        }
-      >
-        <form method="dialog">
-          {props.answer}
-          <div class="dialog-f">
-            <button>Done</button>
-          </div>
-        </form>
-      </Show>
-    </dialog>
-  );
+/** The role a form's checked Role choice names; the choices are required, so one is checked. */
+function chosenRole(form: FormData): MemberRole | undefined {
+  return rolesOf(fieldText(form, "role"))[0];
 }
 
 function RoleChoices(props: {
   owner: boolean;
   own?: boolean;
   value?: string;
-  choose: (role: MemberRole) => void;
+  choose?: (role: MemberRole) => void;
 }) {
   // A click on the Role legend leaves focus on the dialog. FieldGroup would focus the group itself.
   return (
@@ -123,7 +49,7 @@ function RoleChoices(props: {
               value={role}
               required
               checked={props.value === role}
-              onChange={() => props.choose(role)}
+              onChange={() => props.choose?.(role)}
             />
             <span>
               {ROLE_LABEL[role]}
@@ -142,8 +68,6 @@ function RoleChoices(props: {
   );
 }
 
-type DialogProps = { close: () => void; report: (message: JSX.Element) => void };
-
 export function InvitationAddressNote() {
   return (
     <Show when={isLoopback(window.location.hostname)}>
@@ -155,199 +79,220 @@ export function InvitationAddressNote() {
   );
 }
 
-export function InviteMember(
-  props: DialogProps & {
-    organizationId: string;
-    owner: boolean;
-    refresh: () => void;
-    refreshSession: () => Promise<void>;
-  },
-) {
-  const [role, setRole] = createSignal<MemberRole>("member");
-  const [emailError, setEmailError] = createSignal<string>();
-  const [created, setCreated] = createSignal<{
-    link: URL;
-    email: string;
-    role: MemberRole;
-    expires: Date;
-  }>();
-  let emailField!: HTMLInputElement;
+export function InviteMember(props: {
+  controller: DialogController;
+  organizationId: string;
+  owner: boolean;
+  refreshInvites: () => void;
+  refreshSession: () => void;
+}) {
   const inviting = useMutation(() => ({
     mutationFn: (input: { email: string; role: MemberRole; organizationId: string }) =>
-      authClient.organization.inviteMember(input),
+      // Better Auth's client has no deadline of its own, and the dialog waits for this call.
+      authClient.organization.inviteMember({
+        ...input,
+        fetchOptions: { timeout: HUB_DEADLINE_MS },
+      }),
   }));
-  async function invite(form: FormData) {
+  const instructionsId = createUniqueId();
+  async function invite(element: HTMLFormElement) {
+    const form = new FormData(element);
     const email = fieldText(form, "email");
-    const grant = role();
-    setEmailError(undefined);
+    const role = chosenRole(form) ?? "member";
     try {
       const answer = await inviting.mutate({
         email,
-        role: grant,
+        role,
         organizationId: props.organizationId,
       });
-      setCreated({
+      return {
         link: invitationLink(answer.id),
         email: answer.email,
-        role: grant,
+        role,
         expires: answer.expiresAt,
-      });
-      props.refresh();
-    } catch (error) {
-      if (!(error instanceof BetterFetchError)) throw error;
-      if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
-        await props.refreshSession();
-
-      const alreadyMember = hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION");
-      // For a Member or Admin grant, this refusal refers to the invitation already at the address.
-      const ownerInvitation =
-        hasAuthCode(error, "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE") &&
-        error.status === 403 &&
-        grant !== "owner";
-      if (!alreadyMember && !ownerInvitation) throw error;
-      const message = alreadyMember
-        ? "This address is already a member."
-        : "This address has an invitation only an owner can replace.";
-      return {
-        message,
-        showAtField() {
-          if (emailField.value === email) setEmailError(message);
-        },
       };
+    } catch (error) {
+      if (isAuthAccessError(error) || hasAuthCode(error, "MEMBER_NOT_FOUND"))
+        props.refreshSession();
+      throw error;
+    } finally {
+      // Also after a failure that is not a refusal, which may come after the invitation was made.
+      props.refreshInvites();
     }
-    return undefined;
   }
   return (
     <FormDialog
-      {...props}
-      heading={
-        <Show when={created()} fallback="Invite a member">
-          {(answer) => (
-            <>
-              The invitation for <span class="mono">{answer().email}</span>
-            </>
-          )}
-        </Show>
-      }
+      controller={props.controller}
+      heading={() => "Invite a member"}
       confirm="Create invitation"
-      submit={invite}
-      pageMessage={(message, submitted) => (
-        <>
-          Create invitation for <span class="mono">{fieldText(submitted, "email")}</span>: {message}
-        </>
-      )}
-      answered={!!created()}
-      answer={
-        <Show when={created()}>
-          {(answer) => (
-            <div class="dialog-b">
-              <div class="copyable">
-                <pre class="code wraps command" tabindex="0" aria-label="Invitation link">
-                  <Show when={isLoopback(answer().link.hostname)} fallback={answer().link.origin}>
-                    <mark class="placeholder">{answer().link.origin}</mark>
-                  </Show>
-                  {answer().link.pathname}
-                  {answer().link.hash}
-                </pre>
-                <CopyButton
-                  text={answer().link.href}
-                  label="Copy the link"
-                  buttonRef={(button) => onSettled(() => button.focus())}
-                />
-              </div>
-              <InvitationAddressNote />
-              <p>
-                Send this link to <span class="mono">{answer().email}</span> yourself. It works
-                once, until <Instant value={answer().expires} />, and lets them join as{" "}
-                {asRole(answer().role)}. It stays under Invitations until then.
-              </p>
+      refusal={(error, form) => {
+        const sent = inviting.variables;
+        if (!sent || fieldText(new FormData(form), "email") !== sent.email) return undefined;
+        let message;
+        if (hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION"))
+          message = "This address is already a member.";
+        // For a Member or Admin grant, this refusal refers to the invitation already at the address.
+        else if (
+          hasAuthCode(error, "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE") &&
+          error instanceof BetterFetchError &&
+          error.status === 403 &&
+          sent.role !== "owner"
+        )
+          message = "This address has an invitation only an owner can replace.";
+        if (message) return { fields: new Map([["email", message]]), alert: undefined };
+        return undefined;
+      }}
+      send={invite}
+      answer={{
+        heading: (created) => (
+          <>
+            The invitation for <span class="mono">{created.email}</span>
+          </>
+        ),
+        children: (created, focus) => (
+          <>
+            <div class="copyable">
+              <pre class="code wraps command" tabindex="0" aria-label="Invitation link">
+                <Show when={isLoopback(created.link.hostname)} fallback={created.link.origin}>
+                  <mark class="placeholder">{created.link.origin}</mark>
+                </Show>
+                {created.link.pathname}
+                {created.link.hash}
+              </pre>
+              <CopyButton
+                text={created.link.href}
+                label="Copy the link"
+                describedBy={instructionsId}
+                buttonRef={focus.buttonRef}
+              />
             </div>
-          )}
-        </Show>
-      }
-    >
-      <p class="note">
-        The hub sends no email. You get a link to send them yourself. To replace an earlier
-        invitation, invite the address again. Only an owner can replace an invitation that grants
-        owner.
-      </p>
-      <Field label="Email" error={emailError()}>
-        {(control) => (
-          <input
-            {...control}
-            name="email"
-            type="email"
-            required
-            ref={(element) => {
-              emailField = element;
-            }}
-            onInput={() => setEmailError(undefined)}
-          />
-        )}
-      </Field>
-      <RoleChoices owner={props.owner} value={role()} choose={setRole} />
-    </FormDialog>
-  );
-}
-
-export function RenameOrganization(
-  props: DialogProps & { name: string; rename: (name: string) => Promise<void> },
-) {
-  const startingName = untrack(() => props.name);
-  return (
-    <FormDialog
-      {...props}
-      heading="Rename the Organization"
-      confirm="Rename"
-      submit={async (form, close) => {
-        await props.rename(fieldText(form, "name"));
-        close();
+            <InvitationAddressNote />
+            <p id={instructionsId}>
+              Send this link to <span class="mono">{created.email}</span> yourself. It works once,
+              until <Instant value={created.expires} />, and lets them join as{" "}
+              {asRole(created.role)}. It stays under Invitations until then.
+            </p>
+          </>
+        ),
       }}
     >
-      <Field label="Name">
-        {(control) => <input {...control} name="name" defaultValue={startingName} required />}
-      </Field>
+      {(fields) => (
+        <>
+          <p class="note">
+            The hub sends no email. You get a link to send them yourself. To replace an earlier
+            invitation, invite the address again. Only an owner can replace an invitation that
+            grants owner.
+          </p>
+          <Field label="Email" error={fields.refused("email")}>
+            {(control) => (
+              <input {...control} name="email" type="email" required readonly={fields.pending()} />
+            )}
+          </Field>
+          <RoleChoices owner={props.owner} value="member" />
+        </>
+      )}
     </FormDialog>
   );
 }
 
-export function ChangeRole(
-  props: DialogProps & {
-    name: string;
-    own: boolean;
-    owner: boolean;
-    role: string;
-    change: (role: MemberRole, close: () => boolean) => Promise<string | undefined>;
-    consequences: (role: MemberRole) => JSX.Element;
-  },
-) {
+export function RenameOrganization(props: {
+  controller: DialogController;
+  name: string;
+  rename: (name: string) => Promise<void>;
+  notice: () => HTMLElement | undefined;
+}) {
+  return (
+    <FormDialog
+      controller={props.controller}
+      heading={() => "Rename the Organization"}
+      confirm="Rename"
+      send={(form) => props.rename(fieldText(new FormData(form), "name"))}
+      notice={props.notice}
+    >
+      {(fields) => (
+        <Field label="Name">
+          {(control) => (
+            <input
+              {...control}
+              name="name"
+              // The name as the dialog opens; a session read while it is open leaves the draft.
+              defaultValue={untrack(() => props.name)}
+              required
+              readonly={fields.pending()}
+            />
+          )}
+        </Field>
+      )}
+    </FormDialog>
+  );
+}
+
+/**
+ * The role of the member the dialog opened for, one for the members list. What it reads of them while
+ * open comes from `current`, the roster as last read, and `member` as at the press when the
+ * roster no longer lists them.
+ */
+export function ChangeRole(props: {
+  controller: DialogController<Member>;
+  owner: boolean;
+  own: (member: Member) => boolean;
+  current: (member: Member) => Member | undefined;
+  withdrawn: (member: Member) => string | undefined;
+  change: (member: Member, role: MemberRole) => Promise<void>;
+  refusal: (error: unknown) => { fields: Map<string, string>; alert: string } | undefined;
+  consequences: (member: Member, role: MemberRole) => JSX.Element;
+  notice: () => HTMLElement | undefined;
+}) {
+  return (
+    <FormDialog
+      controller={props.controller}
+      heading={(member) =>
+        props.own(member) ? "Change your role" : `Change the role of ${member.user.name}`
+      }
+      confirm="Change role"
+      withdrawn={props.withdrawn}
+      refusal={props.refusal}
+      send={async (form, member) => {
+        const role = chosenRole(new FormData(form));
+        // The role the member has now sends nothing.
+        if (!role || role === (props.current(member) ?? member).role) return false;
+        return props.change(member, role);
+      }}
+      notice={props.notice}
+    >
+      {(_fields, member) => (
+        <RoleFields
+          member={props.current(member) ?? member}
+          own={props.own(member)}
+          owner={props.owner}
+          consequences={props.consequences}
+        />
+      )}
+    </FormDialog>
+  );
+}
+
+function RoleFields(props: {
+  member: Member;
+  own: boolean;
+  owner: boolean;
+  consequences: (member: Member, role: MemberRole) => JSX.Element;
+}) {
+  const role = createMemo(() => props.member.role);
   // A newly read role replaces any draft based on the old one, even while this dialog stays open.
   const [choice, setChoice] = createSignal<MemberRole | undefined>(() =>
-    rolesOf(props.role).find((role) => role === props.role),
+    rolesOf(role()).find((each) => each === role()),
   );
   const consequences = () => {
     const selected = choice();
-    return selected && props.consequences(selected);
+    return selected && props.consequences(props.member, selected);
   };
   return (
-    <FormDialog
-      {...props}
-      heading={props.own ? "Change your role" : `Change the role of ${props.name}`}
-      confirm="Change role"
-      submit={async (_form, close) => {
-        const selected = choice();
-        if (!selected) return undefined;
-        if (selected === props.role) {
-          close();
-          return undefined;
-        }
-        return props.change(selected, close);
-      }}
-    >
-      <Show when={rolesOf(props.role).length > 1}>
+    <>
+      <Show when={rolesOf(role()).length > 1}>
         <p>
-          {props.own ? "Your" : "Their"} role is {rolesOf(props.role).join(" and ")} together;
-          choosing one replaces {rolesOf(props.role).length === 2 ? "both" : "them all"}.
+          {props.own ? "Your" : "Their"} role is {rolesOf(role()).join(" and ")} together; choosing
+          one replaces {rolesOf(role()).length === 2 ? "both" : "them all"}.
         </p>
       </Show>
       <RoleChoices owner={props.owner} own={props.own} value={choice()} choose={setChoice} />
@@ -355,6 +300,6 @@ export function ChangeRole(
       <Show when={props.own}>
         <p>Once you change your own role, you cannot change it back yourself.</p>
       </Show>
-    </FormDialog>
+    </>
   );
 }
