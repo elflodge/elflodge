@@ -385,7 +385,8 @@ test.each([
     await client.jobs.resume({ id });
     const second = await runner.place(id);
     const used = {
-      models: { "scripted/small": piUsage(3072, 64) },
+      // `reasoning` first reported in this run counts in full.
+      models: { "scripted/small": piUsage(3072, 64, { reasoning: 16 }) },
       tools: { web_search: piUsage(512, 0) },
     };
     await runner.report(second, paused ? [{ kind: JOB_PAUSED }] : [], used);
@@ -397,7 +398,10 @@ test.each([
     expect((await client.jobs.get({ id })).status).toBe(paused ? "cancelled" : "failed");
     expect(await usageRecordsOf(id)).toEqual([
       { usage: firstEnd, entriesAddUp: true },
-      { usage: { models: { "scripted/small": piUsage(2048, 0) }, tools: {} }, entriesAddUp: true },
+      {
+        usage: { models: { "scripted/small": piUsage(2048, 0, { reasoning: 16 }) }, tools: {} },
+        entriesAddUp: true,
+      },
     ]);
     // Its next end counts from here.
     expect(await recordedUsageOf(id)).toEqual({ recordedUsage: used, usage: used });

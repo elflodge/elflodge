@@ -972,10 +972,12 @@ export type UsageOfEnd = Pick<
  * record's entries add up exactly to its `totalTokens` and `costUsd`. A name whose counter shrank
  * gets a negative difference rather than none, which would break that sum: pi's totals per name
  * only grow, so it would be pi's fault. A name absent on one side counts as 0 there. A counter
- * absent on a side where its name is present stays absent from the entry, as `reasoning` is from a
+ * absent now from a name present now stays absent from the entry, as `reasoning` is from a
  * provider that reports none, since that is not 0; `totalTokens` and `cost.total` are never
- * absent, so the sum holds. A counter that is not a number counts as absent: snapshots stored
- * before the protocol checked the counters may hold anything, and casting one would fail the end.
+ * absent, so the sum holds. A counter absent before from a name present before counts as 0 there:
+ * pi's `addUsage` starts a counter when it is first reported, so its earlier value was 0. A counter
+ * that is not a number counts as absent: snapshots stored before the protocol checked the counters
+ * may hold anything, and casting one would fail the end.
  */
 const usageEntries = (() => {
   const eb = expressionBuilder<
@@ -1001,9 +1003,7 @@ const usageEntries = (() => {
       .case()
       .when("now.value", "is", null)
       .then(eb.neg(before))
-      .when("before.value", "is", null)
-      .then(now)
-      .else(eb(now, "-", before))
+      .else(eb(now, "-", eb.fn.coalesce(before, eb.lit(0))))
       .end();
   const fieldsOf = <K extends string>(
     counters: readonly K[],
