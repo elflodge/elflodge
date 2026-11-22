@@ -1,4 +1,5 @@
 import { noop, useQuery, type QueryClient } from "@tanstack/solid-query";
+import { createMemo, deep, latest } from "solid-js";
 
 import { orpc } from "./query.ts";
 
@@ -23,8 +24,14 @@ export function preloadJobLimits(context: { member?: unknown; queryClient: Query
  */
 export function useJobLimits() {
   const limits = useQuery(() => orpc.jobs.limits.queryOptions());
+  // Through `latest`, as the pages that use these hold UI SDK parts: `data` is pending while the
+  // limits are read again, when the member returns to the tab, and a pass reading it could hold
+  // the parts' writes until the read lands.
+  const held = createMemo(() =>
+    limits.dataUpdatedAt ? latest(() => deep(limits.data)) : undefined,
+  );
   return {
-    held: () => (limits.dataUpdatedAt ? limits.data : undefined),
+    held,
     failed: () => limits.isError,
   };
 }

@@ -237,9 +237,7 @@ function SubmitJob() {
           {pending() ? "Working…" : ""}
         </p>
       </form>
-      <Show when={submission.blocker().status === "blocked"}>
-        <LeaveDialog submission={submission} record="job" list="Jobs" loses="what you typed" />
-      </Show>
+      <LeaveDialog submission={submission} record="job" list="Jobs" loses="what you typed" />
     </>
   );
 }

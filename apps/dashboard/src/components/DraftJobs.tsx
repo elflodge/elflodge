@@ -1,5 +1,14 @@
 import type { JSX } from "@solidjs/web";
-import { For, Show, createSignal, createUniqueId, flush, onSettled } from "solid-js";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+  createConfirm,
+  type AlertDialogController,
+} from "@ui-sdk/solid/alert-dialog";
+import { For, Show, createSignal, flush } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
 import { focusNextRemove } from "../form.ts";
@@ -93,7 +102,7 @@ export function DraftJobs(props: {
   mayHaveBatch: boolean;
 }) {
   const [said, setSaid] = createSignal("");
-  const [askingRemoveAll, setAskingRemoveAll] = createSignal(false);
+  const confirmRemoveAll = createConfirm<undefined>();
   const [receiving, setReceiving] = createSignal(false);
   let chooser: HTMLInputElement | undefined;
   let addFilesButton: HTMLButtonElement | undefined;
@@ -136,7 +145,10 @@ export function DraftJobs(props: {
     props.onRemove(row.key);
     setSaid(`Job ${formatCount(number)} removed.`);
   }
-  function removeAll() {
+  async function removeAll() {
+    if (props.pending || !(await confirmRemoveAll())) return;
+    // Answered once the dialog has closed and returned focus here, with the page no longer inert,
+    // so the status line is heard and focus can move on from this button, which goes with the rows.
     const count = props.rows.length;
     props.onRemove("all");
     setSaid(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
@@ -218,9 +230,7 @@ export function DraftJobs(props: {
             <button
               type="button"
               aria-disabled={props.pending ? "true" : undefined}
-              onClick={() => {
-                if (!props.pending) setAskingRemoveAll(true);
-              }}
+              onClick={() => void removeAll()}
             >
               Remove all
             </button>
@@ -361,80 +371,65 @@ export function DraftJobs(props: {
           </table>
         </Show>
       </FieldGroup>
-      {/* In the page's form, so its buttons are all `type="button"` and it has no form of its own. */}
-      <Show when={askingRemoveAll()}>
-        <RemoveAllDialog
-          jobs={props.rows.length}
-          mayHaveBatch={props.mayHaveBatch}
-          typedInputs={props.jobs.filter((job) => job.kind === "typed" && job.input !== "").length}
-          files={props.rows.some((row) => row.kind === "file")}
-          onClose={() => setAskingRemoveAll(false)}
-          onConfirm={removeAll}
-        />
-      </Show>
+      <RemoveAllDialog
+        controller={confirmRemoveAll.controller}
+        jobs={props.rows.length}
+        mayHaveBatch={props.mayHaveBatch}
+        typedInputs={props.jobs.filter((job) => job.kind === "typed" && job.input !== "").length}
+        files={props.rows.some((row) => row.kind === "file")}
+      />
     </>
   );
 }
 
 /**
  * Asks before every row goes, saying what is lost and what is not. `mayHaveBatch`: a send got no
- * answer, so the hub may have a Batch with these jobs. Not `ConfirmAction`, which starts a request
- * and waits for the hub: removing rows sends nothing.
+ * answer, so the hub may have a Batch with these jobs. Not `ConfirmDialog`, whose confirming button
+ * runs a request and waits for the hub: removing rows sends nothing, so Remove all asks through
+ * `createConfirm` and removes them once the answer is in.
  */
 function RemoveAllDialog(props: {
+  controller: AlertDialogController<undefined>;
   jobs: number;
   mayHaveBatch: boolean;
   typedInputs: number;
   files: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
 }) {
-  const headingId = createUniqueId();
-  let dialog!: HTMLDialogElement;
   const jobs = () => `${formatCount(props.jobs)} ${plural(props.jobs, "job", "jobs")}`;
   return (
-    <dialog
-      aria-labelledby={headingId}
-      ref={(element) => {
-        dialog = element;
-        onSettled(() => element.showModal());
-      }}
-      onClose={() => props.onClose()}
+    <AlertDialog
+      controller={props.controller}
+      // Into the body, as `ConfirmDialog` does and for its reason; out of the page's form too, so
+      // none of its buttons can submit it.
+      container={document.body}
     >
-      <h2 class="dialog-h" id={headingId}>
-        {plural(props.jobs, "Remove the job?", `Remove all ${jobs()}?`)}
-      </h2>
-      <div class="dialog-b">
-        <p>
-          {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
-          {props.mayHaveBatch
-            ? ""
-            : `${plural(props.jobs, "It has", "They have")} not been submitted. `}
-          Removing {plural(props.jobs, "it", "them")} here loses{" "}
-          {props.typedInputs
-            ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
-            : ""}
-          every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
-          {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
-        </p>
-      </div>
-      <div class="dialog-f">
-        <button type="button" autofocus onClick={() => dialog.close()}>
-          {plural(props.jobs, "Keep it", "Keep them")}
-        </button>
-        <button
-          type="button"
-          class="danger is-fill"
-          onClick={() => {
-            // Closed first: a modal dialog keeps focus from the page, and closing it returns focus
-            // to Remove all, which goes with the rows.
-            dialog.close();
-            props.onConfirm();
-          }}
-        >
-          Remove {jobs()}
-        </button>
-      </div>
-    </dialog>
+      <AlertDialogContent>
+        <AlertDialogTitle class="dialog-h">
+          {plural(props.jobs, "Remove the job?", `Remove all ${jobs()}?`)}
+        </AlertDialogTitle>
+        <div class="dialog-b">
+          <AlertDialogDescription render={(description) => <div {...description} />}>
+            <p>
+              {/* After a lost answer the hub may have them, and removing rows here removes nothing there. */}
+              {props.mayHaveBatch
+                ? ""
+                : `${plural(props.jobs, "It has", "They have")} not been submitted. `}
+              Removing {plural(props.jobs, "it", "them")} here loses{" "}
+              {props.typedInputs
+                ? `the ${formatCount(props.typedInputs)} ${plural(props.typedInputs, "input", "inputs")} you typed and `
+                : ""}
+              every Custom ID you changed{props.files ? "; the files stay on your computer." : "."}
+              {props.mayHaveBatch ? " A Batch the hub may already have keeps its jobs." : ""}
+            </p>
+          </AlertDialogDescription>
+        </div>
+        <div class="dialog-f">
+          <AlertDialogClose>{plural(props.jobs, "Keep it", "Keep them")}</AlertDialogClose>
+          <AlertDialogClose value="confirm" class="danger is-fill">
+            Remove {jobs()}
+          </AlertDialogClose>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

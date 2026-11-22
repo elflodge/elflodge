@@ -1,7 +1,14 @@
 import type { JSX } from "@solidjs/web";
 import { useBlocker, useRouter } from "@tanstack/solid-router";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@ui-sdk/solid/alert-dialog";
 import { problemOf } from "contract";
-import { For, Show, createOptimistic, createSignal, createUniqueId, onSettled } from "solid-js";
+import { For, Show, createOptimistic, createSignal } from "solid-js";
 // Not crypto.randomUUID, which is undefined outside a secure context: the dashboard may be served
 // over plain HTTP on a private network (docs/deploy.md, "Runners on other machines",
 // "A private network").
@@ -207,8 +214,10 @@ export function EarlierWords(props: {
 }
 
 /**
- * The question before leaving a draft not yet sent, while the router holds the navigation. While a
- * send may have made the record, it says so and where to look before submitting it again.
+ * The question before leaving a draft not yet sent, open while the router holds the navigation.
+ * While a send may have made the record, it says so and where to look before submitting it again.
+ * Rendered on the page at all times, as its blocker decides when it opens: a success that resets the
+ * blocker while it is open closes it.
  */
 export function LeaveDialog(props: {
   submission: ReturnType<typeof createDraftSubmission>;
@@ -219,36 +228,42 @@ export function LeaveDialog(props: {
   /** What leaving loses, such as "what you typed". */
   loses: string;
 }) {
-  const headingId = createUniqueId();
   return (
-    <dialog
-      aria-labelledby={headingId}
-      ref={(element) => {
-        onSettled(() => element.showModal());
+    <AlertDialog
+      open={props.submission.blocker().status === "blocked"}
+      // Into the body, as `ConfirmDialog` does and for its reason.
+      container={document.body}
+      onOpenChange={(open, details) => {
+        if (open) return;
+        if (details.returnValue === "leave") props.submission.leave();
+        else props.submission.blocker().reset?.();
       }}
-      onClose={() => props.submission.blocker().reset?.()}
     >
-      <form method="dialog">
-        <h2 class="dialog-h" id={headingId}>
+      <AlertDialogContent>
+        <AlertDialogTitle class="dialog-h">
           {props.submission.mayHaveRecord() ? "Leave this page?" : "Leave without submitting?"}
-        </h2>
+        </AlertDialogTitle>
         <div class="dialog-b">
-          <p>
-            {props.submission.mayHaveRecord()
-              ? `The hub may already have a ${props.record} from this page: look for it in ${props.list} before submitting it again.`
-              : `The ${props.record} has not been submitted.`}
-            {props.submission.holdsDraft() ? ` Leaving this page loses ${props.loses}.` : ""}
-          </p>
+          {/* A create sent while the question is open changes what it says. */}
+          <AlertDialogDescription
+            aria-live="polite"
+            render={(description) => <div {...description} />}
+          >
+            <p>
+              {props.submission.mayHaveRecord()
+                ? `The hub may already have a ${props.record} from this page: look for it in ${props.list} before submitting it again.`
+                : `The ${props.record} has not been submitted.`}
+              {props.submission.holdsDraft() ? ` Leaving this page loses ${props.loses}.` : ""}
+            </p>
+          </AlertDialogDescription>
         </div>
         <div class="dialog-f">
-          <button value="keep" autofocus>
-            Stay
-          </button>
-          <button type="button" class="danger is-fill" onClick={() => props.submission.leave()}>
+          <AlertDialogClose>Stay</AlertDialogClose>
+          <AlertDialogClose value="leave" class="danger is-fill">
             Leave the page
-          </button>
+          </AlertDialogClose>
         </div>
-      </form>
-    </dialog>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

@@ -294,7 +294,7 @@ test("Leave confirmed while an upload is held sends no create", async () => {
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Leave without submitting?" });
+  const dialog = page.getByRole("alertdialog", { name: "Leave without submitting?" });
   await dialog.getByRole("button", { name: "Leave the page" }).click();
   // Stopped by Leave itself, while the page is still here.
   await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toBeVisible();
@@ -341,7 +341,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
   // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
   await page.getByRole("button", { name: "Remove all" }).click();
-  const dialog = page.getByRole("dialog", { name: "Remove the job?" });
+  const dialog = page.getByRole("alertdialog", { name: "Remove the job?" });
   await expectBrowser(dialog).toContainText("A Batch the hub may already have keeps its jobs.");
   await expectBrowser(dialog).not.toContainText("not been submitted");
   await dialog.getByRole("button", { name: "Keep it" }).click();
@@ -364,7 +364,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
 }, 30_000);
 
-test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it", async () => {
+test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it until it lands there", async () => {
   const page = await openSubmitBatch("Batch waiter");
   await page.getByLabel("Batch ID").fill("typed-only");
   await page.getByRole("button", { name: "Add a job" }).click();
@@ -383,16 +383,19 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Leave this page?" });
+  const dialog = page.getByRole("alertdialog", { name: "Leave this page?" });
   await expectBrowser(dialog).toContainText(
     "The hub may already have a Batch from this page: look for it in Batches before submitting it again.",
   );
-  await dialog.getByRole("button", { name: "Stay" }).click();
+  // The Batch is made while the question is open, which gives way to it.
+  const entries = await page.evaluate("history.length");
   held.resolve();
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("typed-only");
+  await expectBrowser(dialog).toBeHidden();
+  expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
 }, 30_000);
 
-test("Remove all asks first: keeping keeps every job, and removing sends nothing and leaves focus on Add files", async () => {
+test("Remove all asks first: keeping keeps every job, and removing sends nothing, says so and leaves focus on Add files", async () => {
   const page = await openSubmitBatch("Batch tidier");
   // A submission of the page's form starts in the click that causes it, so counting them needs no
   // wait. A string, as these tests are typed without the DOM's names.
@@ -404,7 +407,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await page.getByRole("button", { name: "Add a job" }).click();
   await page.getByLabel("Input of job 2").fill("Typed.");
   const removeAll = page.getByRole("button", { name: "Remove all" });
-  const dialog = page.getByRole("dialog", { name: "Remove all 2 jobs?" });
+  const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
   await removeAll.click();
   await dialog.getByRole("button", { name: "Keep them" }).click();
   await expectBrowser(dialog).toBeHidden();
@@ -414,9 +417,31 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
   await removeAll.click();
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(removeAll).toBeFocused();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  // Each change of the status line, and whether a screen reader could hear it then: what is inert or
+  // hidden says nothing.
+  await page.evaluate(`(() => {
+    const jobs = [...document.querySelectorAll("fieldset")].find(
+      (group) => group.querySelector("legend")?.textContent === "Jobs",
+    );
+    const status = jobs.querySelector("[role=status]");
+    window.statusChanges = [];
+    new MutationObserver(() => window.statusChanges.push({
+      text: status.textContent,
+      exposed: !status.closest("[inert], [aria-hidden='true']"),
+    })).observe(status, { childList: true, characterData: true, subtree: true });
+  })()`);
+  await removeAll.click();
   await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
   await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
   await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  expect(await page.evaluate("window.statusChanges")).toEqual([
+    { text: "All 2 jobs removed.", exposed: true },
+  ]);
   expect(await page.evaluate("window.submissions")).toBe(0);
 }, 30_000);
 
