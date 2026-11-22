@@ -12,10 +12,8 @@ overrides:
   vitest@*: "catalog:"
 peerDependencyRules:
   allowAny:
-    - vite
     - vitest
   allowedVersions:
-    vite: "*"
     vitest: "*"
 minimumReleaseAge: 1440
 allowBuilds:
@@ -110,7 +108,6 @@ catalog:
   testcontainers: ^12.2.1
   tiny-merge-patch: ^1.0.0
   trpc-cli: ^0.17.1
-  type-fest: ^5.10.0
   # Exactly the version Pi pins, so installs share Pi's copy; a range would resolve to a newer one
   # beside it. Follow Pi when it moves: Dependabot leaves it alone, and the adapter's tests fail
   # while the two differ.
@@ -122,8 +119,9 @@ catalog:
   ufo: 1.6.4
   uuid: ^14.0.3
   valid-filename: ^5.0.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
-  vite-plus: 1.6.0
+  # Vite+ pins both this core alias and Vitest in its published dependencies.
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
+  vite-plus: 1.7.0
   vitest: 5.1.0
   wrangler: ^4.161.0
   # The version Pi's chord takes as a peer, exactly: with any other, pi-ai resolves twice, and

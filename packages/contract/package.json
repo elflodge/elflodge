@@ -27,7 +27,6 @@
     "ensure-error": "catalog:",
     "json-rpc-2.0": "catalog:",
     "statuses": "catalog:",
-    "type-fest": "catalog:",
     "valid-filename": "catalog:",
     "zod": "catalog:"
   },

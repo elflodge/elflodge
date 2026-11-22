@@ -195,9 +195,6 @@ export const toolCallsSchema = z
   });
 export type ToolCalls = z.infer<typeof toolCallsSchema>;
 
-/** Any JSON value, such as a job's output: what its Output contract's schema accepts. */
-export type { JsonValue } from "type-fest";
-
 /** The `kind` of a submitter that is an API key. */
 export const KEY_SUBMITTER = "key";
 /** The `kind` of a submitter that is a member, who submitted with their session. */

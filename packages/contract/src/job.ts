@@ -68,6 +68,7 @@ export const jsonTextSchema = z.pipe(
   z.unknown().check(z.refine(withinJsonDepth, "JSON must not nest more than 64 containers")),
   recursiveJsonTextSchema,
 );
+export type JsonValue = z.infer<typeof jsonTextSchema>;
 
 /**
  * How long each run of a job on a Runner may work, in whole seconds: above zero, and no more than a
