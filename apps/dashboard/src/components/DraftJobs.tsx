@@ -147,8 +147,8 @@ export function DraftJobs(props: {
   }
   async function removeAll() {
     if (props.pending || !(await confirmRemoveAll())) return;
-    // Answered once the dialog has closed and returned focus here, with the page no longer inert,
-    // so the status line is heard and focus can move on from this button, which goes with the rows.
+    // Answered once the dialog has closed and returned focus here, so focus can move on from this
+    // button, which goes with the rows.
     const count = props.rows.length;
     props.onRemove("all");
     setSaid(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
