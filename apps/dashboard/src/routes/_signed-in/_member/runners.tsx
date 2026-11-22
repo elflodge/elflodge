@@ -76,24 +76,25 @@ function Runners() {
         throw error;
       }
       // One read decides whether it is already gone, while the dialog waits: tried once, within the
-      // hub deadline, offline too. Older reads of the list are cancelled first, so none lands after
-      // it. Not through Query: `queryClient.query` with its own retry and networkMode leaves those
-      // options on the query, and an invalidation, which fetches with the query's options, would
-      // then try the list once and without waiting for the network, until the page's own observer reads it again.
-      await queryClient.cancelQueries({ queryKey, exact: true });
+      // hub deadline, offline too. Not through Query: `queryClient.query` with its own retry and
+      // networkMode leaves those options on the query, and an invalidation, which fetches with the
+      // query's options, would then try the list once and without waiting for the network, until the
+      // page's own observer reads it again.
       const current = await api.runners.list().catch(() => undefined);
       if (!current) {
         void reread();
         throw error;
       }
-      // The list as it is now, published as a write's answer is, so a row that is gone goes with the
-      // notice rather than with a later read. A read started meanwhile is cancelled too.
-      await queryClient.cancelQueries({ queryKey, exact: true });
-      queryClient.setQueryData(queryKey, current);
-      // Marked stale but not fetched: a fetch now would hold the published list back until it answers;
-      // a newer list this one overwrote comes back with the next read.
-      await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
       if (current.some((item) => item.id === runner.id)) throw error;
+      // The read shows one fact, that the Runner is gone, so only that is written: a read that landed
+      // while it ran can hold a newer list. Reads still running are cancelled, since one that started
+      // before the removal could bring the row back; the list is then marked stale but not fetched,
+      // since a fetch now would hold the written list back until it answered.
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      queryClient.setQueryData(queryKey, (cached) =>
+        cached?.filter((item) => item.id !== runner.id),
+      );
+      await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();

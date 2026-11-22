@@ -222,6 +222,81 @@ test("removing an already removed Runner closes the dialog and explains its abse
   );
 }, 30_000);
 
+test("an already-gone check keeps a Runner that a later read added while it ran", async () => {
+  const id = await registerRunner("checked-host");
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await page.clock.install();
+  await signInAt(system, page, "runners", OWNER);
+  const remove = { name: `Remove checked-host ${id.slice(0, 8)}` };
+  await runnerRecord(page, "checked-host").getByRole("button", remove).click();
+  const dialog = page.getByRole("alertdialog");
+  let refused = false;
+  await page.route(`**/runners/${id}`, async (route) => {
+    await system.owner().runners.delete({ id });
+    refused = true;
+    await route.continue();
+  });
+  // The check's answer is read at once and delivered once a later read has shown a new Runner.
+  let reads = 0;
+  const checking = Promise.withResolvers<void>();
+  const shown = Promise.withResolvers<void>();
+  await page.route(
+    (url) => url.pathname.endsWith("/runners"),
+    async (route) => {
+      if (refused && ++reads === 1) {
+        // Playwright fetches outside the browser, which maps the hub's host to the test hub.
+        const url = new URL(route.request().url());
+        const response = await route.fetch({
+          url: new URL(url.pathname + url.search, system.url()).href,
+          headers: { ...route.request().headers(), host: url.host },
+        });
+        checking.resolve();
+        await shown.promise;
+        await route.fulfill({ response });
+        return;
+      }
+      await route.continue();
+    },
+  );
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  await dialog.getByRole("button", remove).click();
+  await checking.promise;
+  await registerRunner("later-host");
+  // The page reads the list every five seconds.
+  await page.clock.runFor(5_000);
+  await runnerRecord(page, "later-host").waitFor();
+  shown.resolve();
+  await page.clock.resume();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is already gone" })).toHaveText(
+    `checked-host ${id.slice(0, 8)} is already gone.`,
+  );
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(runnerRecord(page, "later-host")).toBeVisible();
+}, 30_000);
+
+test("a removal the hub fails with a 500 says it could not be confirmed", async () => {
+  const id = await registerRunner("failing-host");
+  const page = await signedInAt("runners");
+  await page.route(
+    `**/runners/${id}`,
+    (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/problem+json",
+        json: { type: "about:blank", title: "Internal Server Error", status: 500, detail: "boom" },
+      }),
+    { times: 1 },
+  );
+  const remove = { name: `Remove failing-host ${id.slice(0, 8)}` };
+  await runnerRecord(page, "failing-host").getByRole("button", remove).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", remove).click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The dashboard could not confirm this was done. Check before trying again.",
+  );
+}, 30_000);
+
 test("in a browser, a new API key is shown once", async () => {
   const page = await signedInAt("api-keys");
   await page.getByRole("button", { name: "Create key" }).click();
@@ -694,3 +769,47 @@ test("a Runner a read drops while its dialog is open is still named there, and i
     page.getByRole("status").filter({ hasText: "is already gone" }),
   ).toBeFocused();
 }, 30_000);
+
+test("a row that arrives beside an open confirmation cannot hand it another Runner", async () => {
+  const earlier = await registerRunner("earlier-host");
+  const first = await registerRunner("first-host");
+  const page = await signedInAt("runners");
+  const dialog = page.getByRole("alertdialog");
+  // An earlier notice keeps the page beside the dialog out of the inert set.
+  await runnerRecord(page, "earlier-host")
+    .getByRole("button", { name: /^Remove / })
+    .click();
+  await dialog.getByRole("button", { name: `Remove earlier-host ${earlier.slice(0, 8)}` }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is removed" })).toBeFocused();
+  const remove = { name: `Remove first-host ${first.slice(0, 8)}` };
+  await runnerRecord(page, "first-host").getByRole("button", remove).click();
+  const heading = `Remove first-host ${first.slice(0, 8)}?`;
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(`**/runners/${first}`, async (route) => {
+    await release.promise;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      json: { type: "about:blank", title: "Conflict", status: 409, detail: "The Runner is busy." },
+    });
+  });
+  const confirm = dialog.getByRole("button", remove);
+  await confirm.click();
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  // The list empties and a new row arrives under the open dialog, outside what it made inert.
+  for (const runner of await system.owner().runners.list()) {
+    await system.owner().runners.delete({ id: runner.id });
+  }
+  await page.getByRole("heading", { name: "No Runners yet" }).waitFor({ timeout: 15_000 });
+  await registerRunner("arriving-host");
+  const arriving = runnerRecord(page, "arriving-host").getByRole("button", { name: /^Remove / });
+  await arriving.waitFor({ timeout: 15_000 });
+  await arriving.click();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  release.resolve();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("The Runner is busy.");
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+}, 60_000);
