@@ -1,15 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
+import { createDialogController } from "@ui-sdk/solid/dialog";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
 import { Show, createSignal, flush, onFlush } from "solid-js";
 
 import { hubWriteFailureMessage } from "../api-client.ts";
-import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
+import { fieldText, focusIfLost, formRefusal } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
 import { orpc, untilFlushed } from "../query.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
+import { FormDialog } from "./FormDialog.tsx";
 import { BesideStatus, JobStatus } from "./JobStatus.tsx";
 import { Notice } from "./Notice.tsx";
 
@@ -83,12 +85,7 @@ export function JobControls(props: {
     ),
   };
   const pending = () => Object.values(controls).some((control) => control.isPending);
-  const budgetResumeRunning = () =>
-    controls.resume.isPending && controls.resume.variables?.modelBudgetUsd !== undefined;
   const [pageFailure, setPageFailure] = createSignal<string>();
-  const [budgetFailure, setBudgetFailure] = createSignal<ReturnType<typeof formRefusal>>();
-  let budgetDialog: HTMLDialogElement | undefined;
-  let budgetField: HTMLInputElement | undefined;
   let status: HTMLDivElement | undefined;
   let deletionNotice: HTMLDivElement | undefined;
   let failureNotice: HTMLDivElement | undefined;
@@ -101,11 +98,8 @@ export function JobControls(props: {
 
   /** Sends `control`, and resolves once the page shows the hub's answer; rejects with its failure. */
   async function run(control: Control, modelBudgetUsd?: number) {
-    // On their own: written beside the request, they would be held until it settles.
-    onFlush(() => {
-      setPageFailure(undefined);
-      setBudgetFailure(undefined);
-    });
+    // Clear an earlier failure while the hub is answering.
+    onFlush(() => setPageFailure(undefined));
     const id = props.job.id;
     if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
     else await controls[control].mutate({ id });
@@ -137,30 +131,6 @@ export function JobControls(props: {
     readListsAgain();
   }
 
-  // createFormAction holds shared signal writes until its action settles. The budget field and
-  // every job control must reflect this request while the hub is still answering it.
-  async function submitBudget(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
-    event.preventDefault();
-    if (!props.resumeOffered || !budgetField || pending()) return;
-    const { currentTarget, submitter } = event;
-    const focused = document.activeElement;
-    try {
-      await run("resume", budgetField.valueAsNumber);
-    } catch (error) {
-      if (!budgetDialog?.open || !budgetDialog.isConnected) {
-        showPageFailure("resume", hubWriteFailureMessage(error));
-        return;
-      }
-      setBudgetFailure(formRefusal(error, { budget: ["modelBudgetUsd"] }));
-      flush();
-      if (!focusRefusedField(currentTarget, focused)) focusIfLost(submitter);
-      return;
-    }
-    budgetDialog?.close();
-    status?.focus();
-    readListsAgain();
-  }
-
   const active = () =>
     !props.job.deletedAt && (props.job.status === "queued" || props.job.status === "running");
   const spent = () =>
@@ -170,7 +140,7 @@ export function JobControls(props: {
   const waiting = () => props.job.pendingControl?.type;
 
   const deleteAvailable = () => !props.job.deletedAt && !canCancel();
-  const focusStatusIfLost = () => focusIfLost(deletionNotice ?? status);
+  const budget = createDialogController();
   const confirm = createAlertDialogController<Confirmed>();
   // Read live, as the open dialog's words are.
   function withdrawn(control: Confirmed) {
@@ -222,11 +192,9 @@ export function JobControls(props: {
         <Show when={props.cannotResume} keyed>
           {(reason) => <p class="note">{reason}</p>}
         </Show>
-        {/* Seen, not read, while a UI SDK part announces the wait: the pressed Pause or Resume, or
-            the confirmation. The budget form's Resume has no such part; while its dialog is open
-            the page is inert beneath it, and once it is closed the status is what says it. */}
+        {/* The pressed button or the open dialog announces the wait. */}
         <Show when={pending()}>
-          <p class="note" aria-hidden={budgetResumeRunning() ? undefined : "true"}>
+          <p class="note" aria-hidden="true">
             Working…
           </p>
         </Show>
@@ -272,15 +240,10 @@ export function JobControls(props: {
             disabled={pending()}
             focusableWhenDisabled
             pendingAnnouncement="Working…"
+            aria-haspopup={spent() ? "dialog" : undefined}
             aria-describedby={resumeNote() ? "resume-note" : undefined}
-            onClick={() => {
-              if (!spent()) return press("resume");
-              setBudgetFailure(undefined);
-              if (budgetField) budgetField.value = "";
-              flush();
-              budgetDialog?.showModal();
-              return undefined;
-            }}
+            // open() resolves on dismissal. Only a direct resume keeps this button pending.
+            onClick={(event) => (spent() ? void budget.open({ event }) : press("resume"))}
           >
             Resume
           </Button>
@@ -334,67 +297,46 @@ export function JobControls(props: {
           </p>
         </Show>
       </Show>
-      {/* Outside the controls' row: its live region would keep the row out of what an open
-          confirmation makes inert, and a control a read renders there would stay pressable. */}
-      <dialog
-        onClose={focusStatusIfLost}
-        aria-labelledby="resume-heading"
-        ref={(element) => {
-          budgetDialog = element;
+      {/* Both dialogs outlive any control a poll withdraws. */}
+      <FormDialog
+        controller={budget}
+        heading={() => "Resume the job"}
+        confirm="Resume the job"
+        // On this page Cancel cancels the job.
+        dismissLabel="Close"
+        withdrawn={() =>
+          props.resumeOffered
+            ? undefined
+            : (props.cannotResume ?? "This job can no longer be resumed.")
+        }
+        refusal={(error) => formRefusal(error, { modelBudgetUsd: ["modelBudgetUsd"] })}
+        send={async (form) => {
+          await run("resume", Number(fieldText(new FormData(form), "modelBudgetUsd")));
+          readListsAgain();
         }}
+        notice={() => status}
       >
-        <form onSubmit={submitBudget}>
-          <h2 id="resume-heading" class="dialog-h">
-            Resume the job
-          </h2>
-          <div class="dialog-b">
-            <Field
-              label="New model budget"
-              unit="USD"
-              hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
-              error={budgetFailure()?.fields.get("budget")}
-            >
-              {(control) => (
-                <input
-                  {...control}
-                  name="modelBudgetUsd"
-                  type="number"
-                  required
-                  min="0"
-                  step="any"
-                  readonly={pending()}
-                  onInput={() => setBudgetFailure(undefined)}
-                  autofocus
-                  ref={(element) => {
-                    budgetField = element;
-                  }}
-                />
-              )}
-            </Field>
-            <Show when={!props.resumeOffered}>
-              <p role="status">{props.cannotResume ?? "This job can no longer be resumed."}</p>
-            </Show>
-            <Show when={pending()}>
-              <p class="note" role="status">
-                Working…
-              </p>
-            </Show>
-            <Show when={budgetFailure()?.alert} keyed>
-              {(message) => <Notice role="alert">{message}</Notice>}
-            </Show>
-          </div>
-          <div class="dialog-f">
-            {/* Not "Cancel", as other form dialogs say: on a job's page, Cancel cancels the job. */}
-            <button type="button" onClick={() => budgetDialog?.close()}>
-              Close
-            </button>
-            <button type="submit" class="primary" disabled={pending() || !props.resumeOffered}>
-              Resume the job
-            </button>
-          </div>
-        </form>
-      </dialog>
-      {/* Outside the Shows a read switches, so a read withdrawing a control keeps its dialog. */}
+        {(fields) => (
+          <Field
+            label="New model budget"
+            unit="USD"
+            hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
+            error={fields.refused("modelBudgetUsd")}
+          >
+            {(control) => (
+              <input
+                {...control}
+                name="modelBudgetUsd"
+                type="number"
+                required
+                min="0"
+                step="any"
+                readonly={fields.pending()}
+              />
+            )}
+          </Field>
+        )}
+      </FormDialog>
       <ConfirmDialog
         controller={confirm}
         heading={(control) => (control === "cancel" ? "Cancel this job?" : "Delete this job?")}
