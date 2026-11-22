@@ -812,7 +812,7 @@ export const InvitationUnavailable = error("NOT_FOUND", {
 /** A setup link the hub did not issue, or one it no longer accepts. */
 export const SetupLinkRefused = error("FORBIDDEN", {
   message:
-    "The setup link is not valid: it may have been used, replaced by a newer one or be more than a day old. Restarting the hub, or running `vp run setup` for a hub on Workers, prints a new one.",
+    "The setup link is not valid: it may have been used, replaced by a newer one or be more than an hour old. Restarting the hub, or running `vp run setup` for a hub on Workers, prints a new one.",
 });
 /** Setting up a hub that is already set up. */
 export const AlreadySetUp = error("CONFLICT", { message: "The hub is already set up" });
