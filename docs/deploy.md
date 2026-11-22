@@ -110,6 +110,8 @@ If a command fails during the window, retry reads and calls that are safe to rep
 
 Once the local Runner's jobs have finished, upgrade it with `docker compose up --wait --no-deps runner`. Upgrade [Runners on other machines](#start-a-runner-on-another-machine) to the same release, then resume any Batches you paused. Upgrade the hub first because a pre-1.0 release may change the Runner protocol and a Runner newer than its hub is unsupported, just as [Kubernetes requires the kubelet to be no newer than its API server](https://kubernetes.io/releases/version-skew-policy/#kubelet).
 
+Before upgrading to Pi 1.6, check any explicitly configured `RUNNER_MODEL_ID` against the provider's current catalog. For example, the Qwen Token Plan Team providers retired `deepseek-v3.2` and `deepseek-v4-flash`. A Runner configured with a retired ID cannot start. [Pi model changes](https://github.com/earendil-works/pi/blob/v1.6.0/packages/ai/CHANGELOG.md#160---2026-11-20)
+
 Pi 1.6 writes newer task versions to each Runner's SQLite journals. An older image cannot finish these tasks. Drain unfinished jobs before downgrading. If a rollback must recover unfinished work, the backups must cover the Runner job data and the matching Hub state: the Hub may already have acknowledged events beyond the restored journal. Restoring the Hub database alone does not rewind a Runner.
 
 ## Upgrading on a rolling platform

@@ -133,11 +133,32 @@ test("accepting output beside another tool lets both finish without another mode
     ),
   ]);
 
-  expect(await runJob(SUBMISSION)).toMatchObject({
-    status: "succeeded",
-    output,
-    toolCalls: { submit_output: 1, bash: 1 },
-  });
+  const client = await system.clientWithNewJobsKey();
+  const { id } = await submitJob(client, SUBMISSION);
+  await untilStatus(client, id, "succeeded");
+  const { job, events } = await client.jobs.events({ id });
+  expect(job).toMatchObject({ output, toolCalls: { submit_output: 1, bash: 1 } });
+  expect(events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        record: expect.objectContaining({
+          kind: "pi.tool-result",
+          model: [
+            expect.objectContaining({
+              toolName: "bash",
+              isError: false,
+              content: [
+                expect.objectContaining({
+                  type: "text",
+                  text: expect.stringContaining("complete"),
+                }),
+              ],
+            }),
+          ],
+        }),
+      }),
+    ]),
+  );
   expect(system.model.state.callCount - before).toBe(1);
 });
 

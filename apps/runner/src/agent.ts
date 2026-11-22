@@ -257,8 +257,7 @@ const runnerInstructions = (networkNote: string | undefined) =>
   `You are running a job unattended; nobody will answer questions. Your Workspace, where your files are and your commands run, is the current directory; the job's Input files, if any, are in its \`inputs\` folder. For temporary files, use the directory in $TMPDIR, not /tmp${MKTEMP_ON_MACOS}. To read a PDF, \`pdftotext\` extracts its text and \`pdftoppm\` renders its pages as images.${networkNote === undefined ? "" : ` ${networkNote}`}
 When the work is complete, call submit_output once with the complete output: as \`value\`, or, for a large output or one a script produced, as the \`path\` of a JSON file in the Workspace. The output is checked against the job's Output contract; if it is rejected, correct it and submit again. A reply in prose does not complete the job.`;
 
-// A single submit_output asks Pi to stop directly. A mixed round can end only after its other
-// calls settle, when an afterTools decision can end the generation normally.
+// Pi applies an afterTools decision through a child task after all calls in the round settle.
 const finishOutput = defineTask<null, { phase: "finish" }, AfterToolsDecision>({
   name: "elflodge.finish-output",
   version: 1,
@@ -380,9 +379,9 @@ export function openJob(
           // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
           // whether the prefix this job's requests share with other jobs' is cached.
           afterResponse: (message) => options.modelResponded(message),
-          // An accepted output ends the run only when every call of its round asks to; the job
-          // ends once the round's other calls are done, without another model turn. The output is
-          // read from the journal, so a round a restarted Runner finishes ends the run too.
+          // Pi stops on tool controls only when every call in the round asks to stop. A sibling
+          // tool may continue, or a restart can lose submit_output's control after the output is
+          // saved. Using the accepted output for every round covers both cases.
           afterTools: async (_assistant, _results, api) => {
             const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
             return accepted && "output" in accepted
@@ -718,13 +717,14 @@ export function recordStop(
   const paths = jobPaths(settings.jobsDir, jobId);
   return Effect.gen(function* () {
     if (!(yield* openAndCheckJournal(settings, jobId, position))) return undefined;
+    // A stop settles Pi's tasks and any pending output-completion task without opening a sandbox.
+    const registry = createRegistry();
+    registry.install(defineExtension({ name: "elflodge", tasks: [finishOutput] }));
     const journal = yield* Effect.acquireRelease(
       Effect.promise(async () =>
         Harness.open(
           await openNodeSqliteStorage(paths.journal),
-          // Nothing runs, and every registry holds pi's own tasks, whose abort settles the work: no
-          // tool needs registering and no environment opening.
-          { models: settings.models, registry: createRegistry() },
+          { models: settings.models, registry },
           context,
         ),
       ),

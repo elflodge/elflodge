@@ -173,12 +173,16 @@ async function reportEntry(tx: Tx, entry: EntryRecord): Promise<JobEvent> {
     return event;
 
   const writer = await tx.task(entry.byTaskId);
-  // Pi 1.6 introduced task lifecycle timestamps. Retain the old counting rule when reading
-  // an older result, including an old journal uploaded after upgrading the Runner.
-  if (writer?.startedAt === undefined && writer?.endedAt === undefined) return event;
-  if (writer.kind === GenerationTask.definition.name)
+  // Pi 1.6 changed the duration semantics in tool task v4 and generation v3. Terminal tasks
+  // retain their writer version when a new Runner opens an older journal.
+  if (writer?.kind === GenerationTask.definition.name && writer.version >= 3)
     return { ...event, toolTaskOutcome: "unstarted" };
-  if (writer.kind !== ToolTask.definition.name || writer.state.status !== "terminal") return event;
+  if (
+    writer?.kind !== ToolTask.definition.name ||
+    writer.version < 4 ||
+    writer.state.status !== "terminal"
+  )
+    return event;
   const outcome = writer.state.outcome.status;
   // Pi's tool task writes its result in the same commit as one of these three endings.
   if (outcome === "completed" || outcome === "aborted" || outcome === "failed") {
@@ -220,7 +224,7 @@ export function readEvents(
       cursor = page.next;
     } while (cursor !== undefined);
 
-    const events: JobEvent[] = [];
+    const records: (ConversationRecord | EntryRecord)[] = [];
     const heads: ConversationHead[] = [];
     // Reading stops at the lowest ID a conversation has left unread, so the merge has no gap.
     let horizon = Number.POSITIVE_INFINITY;
@@ -231,7 +235,7 @@ export function readEvents(
       );
       heads.push({ id: conversation.id, lastEntryId: latest.items[0]?.id });
       if (conversation.id > after) {
-        events.push({ id: conversation.id, type: "conversation", record: conversation });
+        records.push(conversation);
       }
       const minEntryId = Math.max(after, conversation.id) + 1;
       if (!isEntryId(minEntryId)) throw new RangeError(`${minEntryId} is not a journal ID`);
@@ -239,16 +243,20 @@ export function readEvents(
         { conversationId: conversation.id, minEntryId, order: "ascending" },
         PAGE_SIZE,
       );
-      for (const entry of page.items) events.push(await reportEntry(tx, entry));
+      records.push(...page.items);
       const last = page.items.at(-1);
       if (page.next !== undefined && last) horizon = Math.min(horizon, last.id);
     }
 
-    const sorted = Array.sortWith(events, ({ id }) => id, Order.Number);
+    const sorted = Array.sortWith(records, ({ id }) => id, Order.Number);
     const read: JobEvent[] = [];
     let bytes = 0;
-    for (const event of sorted) {
-      if (event.id > horizon) break;
+    for (const record of sorted) {
+      if (record.id > horizon) break;
+      const event: JobEvent =
+        "conversationId" in record
+          ? await reportEntry(tx, record)
+          : { type: "conversation", id: record.id, record };
       const size = Buffer.byteLength(JSON.stringify(event)) + 1;
       if (bytes + size > maxBytes && read.length > 0) break;
       read.push(event);
@@ -314,21 +322,19 @@ export async function readActivity(
   for (const { id: conversationId, lastEntryId } of conversations) {
     const state = await journal.snapshot(LiveDoc, conversationId, BACKGROUND_CONTEXT);
     const { generation } = state ?? {};
-    const tools = (state?.tools ?? []).flatMap(({ callId, name, status }) =>
-      status === "done"
-        ? []
-        : [
-            {
-              callId,
-              name,
-              // A parked tool is waiting. Keep the two states understood by existing Hubs.
-              status: status === "running" ? status : ("pending" as const),
-              changedAt: changedAt(
-                `${conversationId} tool ${callId} ${status === "running" ? status : "pending"}`,
-              ),
-            },
-          ],
-    );
+    const tools = (state?.tools ?? []).flatMap(({ callId, name, status }) => {
+      if (status === "done") return [];
+      // A parked tool is waiting. Neither a new wire status nor a new timestamp is needed.
+      const visible = status === "running" ? status : "pending";
+      return [
+        {
+          callId,
+          name,
+          status: visible,
+          changedAt: changedAt(`${conversationId} tool ${callId} ${visible}`),
+        },
+      ] as const;
+    });
     const compactions = (state?.compactions ?? []).map(
       ({ taskId, trigger: reason, blocking, attempt, retry }) => ({
         reason,
