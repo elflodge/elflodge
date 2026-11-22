@@ -24,14 +24,21 @@ export function asRole(role: MemberRole) {
   return role === "member" ? "a member" : `an ${role}`;
 }
 
+/**
+ * The Organization's members, in one read. Without a `signal` the read has Better Auth's client's
+ * deadline; with one, as Query passes, it has none.
+ */
+export function readMembers(organizationId: string, signal?: AbortSignal) {
+  return authClient.organization.listMembers({
+    query: { organizationId, limit: 100 },
+    fetchOptions: { signal },
+  });
+}
+
 export function membersOptions(organizationId: string) {
   return queryOptions({
     queryKey: ["organization", organizationId, "members"],
-    queryFn: ({ signal }) =>
-      authClient.organization.listMembers({
-        query: { organizationId, limit: 100 },
-        fetchOptions: { signal },
-      }),
+    queryFn: ({ signal }) => readMembers(organizationId, signal),
   });
 }
 

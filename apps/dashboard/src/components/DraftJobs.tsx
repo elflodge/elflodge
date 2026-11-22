@@ -378,7 +378,7 @@ export function DraftJobs(props: {
 
 /**
  * Asks before every row goes, saying what is lost and what is not. `mayHaveBatch`: a send got no
- * answer, so the hub may have a Batch with these jobs. Not `ConfirmAction`, which starts a request
+ * answer, so the hub may have a Batch with these jobs. Not `ConfirmDialog`, which starts a request
  * and waits for the hub: removing rows sends nothing.
  */
 function RemoveAllDialog(props: {

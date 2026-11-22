@@ -39,6 +39,8 @@ export function ConfirmDialog<T>(props: {
   heading: (record: T) => JSX.Element;
   /** The confirming button's words, which name what it acts on. */
   confirm: (record: T) => string;
+  /** The keeping button's words: "Keep it" unless given, or "Keep them" or "Stay". */
+  keep?: (record: T) => string;
   /** What the action ends, and whether that is final. */
   children: (record: T) => JSX.Element;
   /**
@@ -109,7 +111,7 @@ export function ConfirmDialog<T>(props: {
                         </Show>
                       </div>
                       <div class="dialog-f">
-                        <AlertDialogClose>Keep it</AlertDialogClose>
+                        <AlertDialogClose>{props.keep?.(record) ?? "Keep it"}</AlertDialogClose>
                         {/* Disabled, the confirming button keeps the focus a read withdrawing the
                             action finds on it, and refuses presses. */}
                         <Button

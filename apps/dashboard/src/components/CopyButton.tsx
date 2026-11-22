@@ -1,3 +1,4 @@
+import { announce } from "@ui-sdk/core";
 import { asError } from "contract";
 import { createSignal } from "solid-js";
 
@@ -12,6 +13,12 @@ export function CopyButton(props: {
   accessibleLabel?: string;
   /** A table button has no adjacent copyable text unless a clipboard write fails. */
   showTextOnFailure?: boolean;
+  /**
+   * In a list's row, beside a control that opens a confirmation: the result is said through UI SDK's
+   * shared announcer rather than a live region of its own, which would keep the row's ancestors out of
+   * what the open confirmation makes inert, and a row a read adds there pressable.
+   */
+  inRow?: boolean;
   buttonRef?: (button: HTMLButtonElement) => void;
 }) {
   const [result, setResult] = createSignal<{ text: string; message: string; manual?: boolean }>();
@@ -21,15 +28,20 @@ export function CopyButton(props: {
     try {
       // Absent outside a secure context, which the catch also takes.
       await navigator.clipboard.writeText(text);
-      setResult({ text, message: "Copied." });
+      show({ text, message: "Copied." });
     } catch (error) {
       console.error(asError(error));
-      setResult({
+      show({
         text,
         manual: props.showTextOnFailure,
         message: "This browser did not allow copying here: select the text and copy it.",
       });
     }
+  }
+
+  function show(next: { text: string; message: string; manual?: boolean }) {
+    setResult(next);
+    if (props.inRow) announce(next.message);
   }
 
   return (
@@ -43,7 +55,9 @@ export function CopyButton(props: {
         {props.label}
       </button>
       {/* In the page from the start, so that a screen reader says what is written into it. */}
-      <span role="status">{result()?.text === props.text ? result()?.message : ""}</span>
+      <span role={props.inRow ? undefined : "status"}>
+        {result()?.text === props.text ? result()?.message : ""}
+      </span>
       {result()?.text === props.text && result()?.manual && (
         <code class="command">{props.text}</code>
       )}
