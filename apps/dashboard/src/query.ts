@@ -1,7 +1,12 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import { ORPCError } from "@orpc/client";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
-import { QueryClient, type UseQueryResult } from "@tanstack/solid-query";
+import {
+  QueryClient,
+  type DataTag,
+  type QueryKey,
+  type UseQueryResult,
+} from "@tanstack/solid-query";
 import { problemOf, type Runner } from "contract";
 import { onFlush } from "solid-js";
 
@@ -29,6 +34,28 @@ export function availableRunners(query: UseQueryResult<Runner[]>) {
  */
 export function untilFlushed() {
   return new Promise<void>((resolve) => onFlush(resolve));
+}
+
+/**
+ * Writes the one fact a check found, that a record is gone, into the cached list `queryKey`, where
+ * `without` takes it out. Only that is written: a read that landed while the check ran can hold a
+ * newer list than the check saw. Reads of the list still running are cancelled first, since one that
+ * started before the record went could bring it back. The list keeps the time it was read, as what is
+ * left of it is no newer, and is marked stale but not fetched, since a fetch now would hold the
+ * written list back until it answered.
+ */
+export async function writeAbsence<T, E>(
+  queryClient: QueryClient,
+  queryKey: DataTag<QueryKey, T, E>,
+  without: (cached: T) => T,
+) {
+  await queryClient.cancelQueries({ queryKey, exact: true });
+  queryClient.setQueryData(
+    queryKey,
+    (cached) => (cached === undefined ? cached : without(cached)),
+    { updatedAt: queryClient.getQueryState(queryKey)?.dataUpdatedAt },
+  );
+  await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
 }
 
 /** The client that holds what the dashboard reads from the hub, one for the document. */

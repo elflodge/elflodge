@@ -30,7 +30,7 @@ import { Notice } from "../../../components/Notice.tsx";
 import { formRefusal, createFormAction, fieldText } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { orpc } from "../../../query.ts";
+import { orpc, writeAbsence } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/api-keys")({
   head: ({ match }) => memberPageHead(match.context, "API keys"),
@@ -171,16 +171,9 @@ function KeyList() {
         throw error;
       }
       if (current.some((item) => item.id === key.id)) throw error;
-      // The read shows one fact, that the key is gone, so only that is written: a read that landed
-      // while it ran can hold a newer list. Reads still running are cancelled, since one that started
-      // before the removal could bring the row back; the list is then marked stale but not fetched,
-      // since a fetch now would hold the written list back until it answered.
-      await queryClient.cancelQueries({ queryKey, exact: true });
-      // The list keeps the time it was read: what is left of it is no newer.
-      queryClient.setQueryData(queryKey, (cached) => cached?.filter((item) => item.id !== key.id), {
-        updatedAt: queryClient.getQueryState(queryKey)?.dataUpdatedAt,
-      });
-      await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
+      await writeAbsence(queryClient, queryKey, (cached) =>
+        cached.filter((item) => item.id !== key.id),
+      );
       setRevoked({ id: key.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();

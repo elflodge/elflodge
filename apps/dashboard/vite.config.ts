@@ -21,7 +21,7 @@ export default defineConfig({
   optimizeDeps: {
     // UI SDK's installation guide asks for this with Vite: pre-bundled, a core entry an app imports
     // is a second copy beside the one @ui-sdk/solid loads, and its parts throw in development. The
-    // dashboard imports no core entry yet; this keeps one added later from breaking them.
+    // dashboard imports core's `announce` and `prepareAnnouncements` for `CopyButton`.
     exclude: ["@ui-sdk/core"],
   },
   server: {
