@@ -7,7 +7,7 @@ import {
   JOB_STARTED,
   type Job,
 } from "contract";
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo, deep, latest } from "solid-js";
 
 import {
   DATE_TIME_SECONDS,
@@ -28,11 +28,14 @@ import { ToolCallsLedger } from "./ToolCallsLedger.tsx";
 
 export function JobFacts(props: { job: Job; readAt: number }) {
   const runners = useQuery(() => orpc.runners.list.queryOptions());
+  // Through `latest`, as the job page reads its job: the hub strip polls this list.
+  const listed = createMemo(() =>
+    runners.dataUpdatedAt ? latest(() => deep(runners.data)).map((runner) => runner.id) : [],
+  );
   const runnerId = createMemo(() => {
     const id = props.job.runner?.id;
     if (!id) return undefined;
-    const listed = runners.dataUpdatedAt ? runners.data.map((runner) => runner.id) : [];
-    return shortIds([...listed, id]).get(id);
+    return shortIds([...listed(), id]).get(id);
   });
   return (
     <aside class="facts-aside" aria-labelledby="job-facts">

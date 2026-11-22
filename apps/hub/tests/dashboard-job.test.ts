@@ -1,5 +1,5 @@
 import { JOB_FAILED, JOB_SUCCEEDED, problemDetailsSchema, type JobEvent } from "contract";
-import type { Browser, Route } from "playwright";
+import type { Browser, Page, Route } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, assert, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
@@ -102,8 +102,9 @@ test("a member can finish reading a Cancel confirmation after the job starts", a
   const client = await system.clientWithNewJobsKey();
   const job = await submitJob(client, submission);
   const page = await openAsMember("Job confirmation", `jobs/${job.id}`);
-  await page.getByRole("button", { name: "Cancel the job" }).click();
-  const dialog = page.getByRole("dialog");
+  const cancel = page.getByRole("button", { name: "Cancel the job" });
+  await cancel.click();
+  const dialog = page.getByRole("alertdialog");
   await expectBrowser(dialog).toContainText("it has not started");
 
   system.model.setResponses([untilAborted]);
@@ -119,7 +120,7 @@ test("a member can finish reading a Cancel confirmation after the job starts", a
   await expectBrowser(dialog).toContainText("Not final: it can be resumed.", { timeout: 15_000 });
   await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await page.keyboard.press("Escape");
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Running" })).toBeFocused();
+  await expectBrowser(cancel).toBeFocused();
 }, 30_000);
 
 test("a member confirms deletion and sees when the job has gone", async () => {
@@ -132,12 +133,12 @@ test("a member confirms deletion and sees when the job has gone", async () => {
     await release.promise;
     await route.continue();
   });
-  const cancellation = page.getByRole("dialog");
+  const cancellation = page.getByRole("alertdialog");
   const confirm = cancellation.getByRole("button", { name: "Cancel the job" });
   try {
     await confirm.click();
     await expectBrowser(confirm).toBeDisabled();
-    await expectBrowser(cancellation.getByRole("status")).toHaveText("Working…");
+    await expectBrowser(cancellation.getByText("Working…")).toBeVisible();
   } finally {
     release.resolve();
   }
@@ -147,7 +148,7 @@ test("a member confirms deletion and sees when the job has gone", async () => {
       .filter({ hasText: "It ended before it started, so it cannot be resumed." }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Delete the job" }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await dialog.getByRole("button", { name: "Delete the job" }).click();
   await expectBrowser(
@@ -159,6 +160,229 @@ test("a member confirms deletion and sees when the job has gone", async () => {
   await expectBrowser(
     page.getByRole("main").getByRole("link", { name: "Jobs", exact: true }),
   ).toBeVisible();
+}, 30_000);
+
+/** A job a Runner has started and still runs, which acts on no control it is sent. */
+async function runningJob() {
+  const job = await submitJob(system.owner(), submission);
+  const runner = await system.connectReportingRunner();
+  onTestFinished(() => runner.close());
+  const run = await runner.place(job.id);
+  await runner.start(run, { models: {}, tools: {} }, []);
+  return job;
+}
+
+/** Counts the requests the page sends to `path`. */
+function countRequests(page: Page, path: string) {
+  const sent = { count: 0 };
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === path) sent.count += 1;
+  });
+  return sent;
+}
+
+/** An answer in Problem Details, as the hub gives a refusal or a failure. */
+function problemAnswer(status: number, title: string, detail: string) {
+  return {
+    status,
+    contentType: "application/problem+json",
+    json: { type: "about:blank", title, status, detail },
+  };
+}
+
+test("Cancel on a running job asks first, and a stray Enter keeps it running", async () => {
+  const job = await runningJob();
+  const page = await openAsMember("Stray Enter", `jobs/${job.id}`);
+  const sent = countRequests(page, `/jobs/${job.id}/cancel`);
+  const cancel = page.getByRole("button", { name: "Cancel the job" });
+  await cancel.click();
+  const dialog = page.getByRole("alertdialog", { name: "Cancel this job?" });
+  await expectBrowser(dialog).toContainText("Not final: it can be resumed.");
+  await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(cancel).toBeFocused();
+  expect(sent.count).toBe(0);
+  expect((await system.owner().jobs.get({ id: job.id })).pendingControl).toBeUndefined();
+}, 30_000);
+
+test("a job that ends under an open Cancel says so once, and its confirming button does nothing", async () => {
+  const job = await submitJob(system.owner(), submission);
+  const page = await openAsMember("Ended under Cancel", `jobs/${job.id}`);
+  const sent = countRequests(page, `/jobs/${job.id}/cancel`);
+  await page.getByRole("button", { name: "Cancel the job" }).click();
+  const dialog = page.getByRole("alertdialog");
+  const explanation = dialog.locator('[aria-live="polite"]');
+  await expectBrowser(explanation).toHaveText(
+    "Cancel ends it now. Final: it has not started, so it cannot be resumed.",
+  );
+  // Each change a screen reader is told of: a batch of mutations inside the live node.
+  await explanation.evaluate((element) => {
+    new element.ownerDocument.defaultView.MutationObserver(() => {
+      element.dataset.changes = String(Number(element.dataset.changes ?? 0) + 1);
+    }).observe(element, { subtree: true, childList: true, characterData: true });
+  });
+  const confirm = dialog.getByRole("button", { name: "Cancel the job" });
+  await page.keyboard.press("Tab");
+  await expectBrowser(confirm).toBeFocused();
+  await system.owner().jobs.cancel({ id: job.id });
+  const ended = "This job can no longer be cancelled.";
+  await expectBrowser(explanation).toHaveText(ended, { timeout: 15_000 });
+  await expectBrowser(confirm).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Space");
+  await confirm.click({ force: true });
+  // Two more reads of the job, which change nothing it says.
+  for (let read = 0; read < 2; read++) {
+    await page.waitForResponse((response) =>
+      new URL(response.url()).pathname.startsWith(`/jobs/${job.id}`),
+    );
+  }
+  await expectBrowser(explanation).toHaveAttribute("data-changes", "1");
+  await expectBrowser(
+    page.locator('[role="status"], [aria-live="polite"]').filter({ hasText: ended }),
+  ).toHaveCount(1);
+  await expectBrowser(confirm).toBeFocused();
+  expect(sent.count).toBe(0);
+}, 45_000);
+
+test("a cancel asked elsewhere while the member's own is sent leaves the hub's answer to decide", async () => {
+  const job = await runningJob();
+  const page = await openAsMember("Cancelled twice", `jobs/${job.id}`);
+  await page.getByRole("button", { name: "Cancel the job" }).click();
+  const dialog = page.getByRole("alertdialog");
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${job.id}/cancel`, async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await dialog.getByRole("button", { name: "Cancel the job" }).click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await system.owner().jobs.cancel({ id: job.id });
+    await expectBrowser(dialog).toContainText("Cancel has already been asked.", {
+      timeout: 15_000,
+    });
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  } finally {
+    release.resolve();
+  }
+  // The hub takes a second cancel as the first.
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Cancel asked" })).toBeFocused();
+}, 45_000);
+
+test("Pause keeps the focus while the hub answers, and a second press sends nothing", async () => {
+  const job = await runningJob();
+  const page = await openAsMember("Pause presser", `jobs/${job.id}`);
+  const sent = countRequests(page, `/jobs/${job.id}/pause`);
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${job.id}/pause`, async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  const pause = page.getByRole("button", { name: "Pause", exact: true });
+  try {
+    await pause.click();
+    await expectBrowser(pause).toHaveAttribute("aria-busy", "true");
+    await expectBrowser(pause).toBeFocused();
+    await pause.click({ force: true });
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Space");
+    await expectBrowser(pause).toBeFocused();
+    // Cancel waits too, and keeps its place among the controls.
+    await expectBrowser(page.getByRole("button", { name: "Cancel the job" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Pause asked" })).toBeFocused();
+  expect(sent.count).toBe(1);
+}, 30_000);
+
+test("a job read that answers 404 under an open Cancel leaves its not-found page usable", async () => {
+  const job = await submitJob(system.owner(), submission);
+  // Short enough that the not-found page scrolls.
+  const page = await browser.newPage({ viewport: { width: 390, height: 200 } });
+  onTestFinished(async () => {
+    await page.close();
+    // Unsent, it would go to the next test's Runner.
+    await system.owner().jobs.cancel({ id: job.id });
+  });
+  await signInAt(system, page, `jobs/${job.id}`, await newMember(system, "Gone under Cancel"));
+  await page.getByRole("button", { name: "Cancel the job" }).click();
+  const dialog = page.getByRole("alertdialog");
+  const gone = problemAnswer(404, "Not Found", "No job with this ID.");
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/jobs/${job.id}/cancel`, async (route) => {
+    await release.promise;
+    await route.fulfill(gone);
+  });
+  const link = page.getByRole("main").getByRole("link", { name: "Jobs", exact: true });
+  async function expectNothingLeft() {
+    // The page reads the job again every few seconds.
+    await expectBrowser(page.getByRole("heading", { name: "Job not found" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectBrowser(link).toBeFocused();
+    await expectBrowser(page.locator('[role="alertdialog"]')).toHaveCount(0);
+    await expectBrowser(page.locator("[inert]")).toHaveCount(0);
+    const root = page.locator("html");
+    await root.evaluate((html) => {
+      html.scrollTop = 0;
+    });
+    await page.mouse.move(100, 100);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(() => root.evaluate((html) => html.scrollTop)).toBeGreaterThan(0);
+  }
+  try {
+    await dialog.getByRole("button", { name: "Cancel the job" }).click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await page.route(
+      (url) => url.pathname === `/jobs/${job.id}` || url.pathname === `/jobs/${job.id}/events`,
+      (route) => route.fulfill(gone),
+    );
+    await expectNothingLeft();
+  } finally {
+    release.resolve();
+  }
+  await page.waitForResponse(`**/jobs/${job.id}/cancel`);
+  await expectNothingLeft();
+  await link.click();
+  await page.waitForURL(`${system.origin}/dashboard/jobs`);
+}, 45_000);
+
+test("a refused Cancel shows why in the dialog for a retry, and a 5xx says it may have been done", async () => {
+  const job = await submitJob(system.owner(), submission);
+  const page = await openAsMember("Refused Cancel", `jobs/${job.id}`);
+  await page.getByRole("button", { name: "Cancel the job" }).click();
+  const dialog = page.getByRole("alertdialog");
+  const confirm = dialog.getByRole("button", { name: "Cancel the job" });
+  const cancel = `**/jobs/${job.id}/cancel`;
+  await page.route(
+    cancel,
+    (route) => route.fulfill(problemAnswer(503, "Service Unavailable", "Busy.")),
+    {
+      times: 1,
+    },
+  );
+  await confirm.click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The dashboard could not confirm this was done. Check before trying again.",
+  );
+  await page.route(
+    cancel,
+    (route) => route.fulfill(problemAnswer(409, "Conflict", "The job is changing; try again.")),
+    { times: 1 },
+  );
+  await confirm.click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("The job is changing; try again.");
+  await expectBrowser(confirm).toBeFocused();
+  await confirm.click();
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
 }, 30_000);
 
 test("a member can correct a refused budget and resume the job to its Output", async () => {

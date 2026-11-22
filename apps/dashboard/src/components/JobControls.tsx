@@ -1,17 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
+import { Button } from "@ui-sdk/solid/button";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
 import { Show, createSignal, flush, onFlush } from "solid-js";
 
-import { hubFailureMessage } from "../api-client.ts";
+import { hubWriteFailureMessage } from "../api-client.ts";
 import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
-import { orpc } from "../query.ts";
-import { ConfirmAction } from "./ConfirmAction.tsx";
+import { orpc, untilFlushed } from "../query.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { BesideStatus, JobStatus } from "./JobStatus.tsx";
 import { Notice } from "./Notice.tsx";
 
 type Control = "pause" | "resume" | "cancel" | "delete";
+/** The controls that ask first. */
+type Confirmed = "cancel" | "delete";
 
 function cancelConsequence(job: Job) {
   const sentBeforeStart = job.status === "queued" && !!job.runner && !job.startedAt;
@@ -84,36 +88,41 @@ export function JobControls(props: {
     focusIfLost(failureNotice);
   }
 
-  async function act(control: Control, modelBudgetUsd?: number) {
-    // On their own: written beside the request, they would be held until the request settles.
-    onFlush(() => {
-      setPageFailure(undefined);
-      setBudgetFailure(undefined);
-    });
+  /** Sends `control`, and resolves once the page shows the hub's answer; rejects with its failure. */
+  async function run(control: Control, modelBudgetUsd?: number) {
     const id = props.job.id;
-    try {
-      if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
-      else await controls[control].mutate({ id });
-    } catch (error) {
-      if (modelBudgetUsd !== undefined && budgetDialog?.open && budgetDialog.isConnected) {
-        setBudgetFailure(formRefusal(error, { budget: ["modelBudgetUsd"] }));
-        return undefined;
-      }
-      return hubFailureMessage(error);
-    }
-    budgetDialog?.close();
-    // Applies pending renders, so the deletion notice onSuccess asked for can take focus; the status
-    // takes it otherwise.
+    if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
+    else await controls[control].mutate({ id });
+    setPageFailure(undefined);
+    // Applies pending renders, so the deletion notice onSuccess asked for is there to take focus.
     flush();
-    (deletionNotice ?? status)?.focus();
-    void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
-    void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
-    return undefined;
   }
 
-  async function press(control: Control, modelBudgetUsd?: number) {
-    const message = await act(control, modelBudgetUsd);
-    if (message) showPageFailure(control, message);
+  function readListsAgain() {
+    void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
+    void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
+  }
+
+  // Pause and Resume keep the focus while they run, and the status takes it once the hub answers.
+  async function press(control: "pause" | "resume") {
+    // Written at the press, before the request, which would hold them until it settles.
+    setPageFailure(undefined);
+    setBudgetFailure(undefined);
+    await untilFlushed();
+    try {
+      await run(control);
+    } catch (error) {
+      showPageFailure(control, hubWriteFailureMessage(error));
+      return;
+    }
+    status?.focus();
+    readListsAgain();
+  }
+
+  // The dialog closes once `confirmed` resolves, with focus on the status or the deletion notice.
+  async function confirmed(control: Confirmed) {
+    await run(control);
+    readListsAgain();
   }
 
   // createFormAction holds shared signal writes until its action settles. The budget field and
@@ -123,11 +132,26 @@ export function JobControls(props: {
     if (!props.resumeOffered || !budgetField || pending()) return;
     const { currentTarget, submitter } = event;
     const focused = document.activeElement;
-    await press("resume", budgetField.valueAsNumber);
-    if (budgetDialog?.open) {
+    // On their own: written beside the request, they would be held until the request settles.
+    onFlush(() => {
+      setPageFailure(undefined);
+      setBudgetFailure(undefined);
+    });
+    try {
+      await run("resume", budgetField.valueAsNumber);
+    } catch (error) {
+      if (!budgetDialog?.open || !budgetDialog.isConnected) {
+        showPageFailure("resume", hubWriteFailureMessage(error));
+        return;
+      }
+      setBudgetFailure(formRefusal(error, { budget: ["modelBudgetUsd"] }));
       flush();
       if (!focusRefusedField(currentTarget, focused)) focusIfLost(submitter);
+      return;
     }
+    budgetDialog?.close();
+    status?.focus();
+    readListsAgain();
   }
 
   const active = () =>
@@ -138,11 +162,16 @@ export function JobControls(props: {
   const canCancel = () => !FINAL_JOB_STATUSES.includes(props.job.status);
   const waiting = () => props.job.pendingControl?.type;
 
-  const cancelAvailable = () => !props.job.deletedAt && canCancel() && waiting() !== "cancel";
-  const confirmCancel = () =>
-    cancelAvailable() && props.job.status !== "running" && !props.job.startedAt;
   const deleteAvailable = () => !props.job.deletedAt && !canCancel();
   const focusStatusIfLost = () => focusIfLost(deletionNotice ?? status);
+  const confirm = createAlertDialogController<Confirmed>();
+  // Read live, as the open dialog's words are.
+  function withdrawn(control: Confirmed) {
+    if (props.job.deletedAt) return "This job has already been deleted.";
+    if (control === "delete") return canCancel() ? "This job can no longer be deleted." : undefined;
+    if (waiting() === "cancel") return "Cancel has already been asked.";
+    return canCancel() ? undefined : "This job can no longer be cancelled.";
+  }
 
   const journalLost = () =>
     props.job.status === "failed" && props.job.failure.reason === "journalLost";
@@ -185,8 +214,11 @@ export function JobControls(props: {
         <Show when={props.cannotResume} keyed>
           {(reason) => <p class="note">{reason}</p>}
         </Show>
+        {/* Seen, not read: the control or the dialog that waits announces it. */}
         <Show when={pending()}>
-          <p class="note">Working…</p>
+          <p class="note" aria-hidden="true">
+            Working…
+          </p>
         </Show>
       </div>
       <Show when={props.deletedHere}>
@@ -212,33 +244,34 @@ export function JobControls(props: {
         )}
       </Show>
       <div class="controls job-controls">
+        {/* Disabled, each control keeps the focus while another runs, as the one running does. */}
         <Show when={active() && waiting() !== "cancel"}>
-          <button
-            type="button"
+          <Button
             disabled={pending() || waiting() === "pause"}
-            onClick={() => void press("pause")}
+            focusableWhenDisabled
+            pendingAnnouncement="Working…"
+            onClick={() => press("pause")}
           >
             Pause
-          </button>
+          </Button>
         </Show>
         <Show when={props.resumeOffered}>
-          <button
-            type="button"
+          <Button
             disabled={pending()}
+            focusableWhenDisabled
+            pendingAnnouncement="Working…"
             aria-describedby={resumeNote() ? "resume-note" : undefined}
             onClick={() => {
-              if (!spent()) {
-                void press("resume");
-                return;
-              }
+              if (!spent()) return press("resume");
               setBudgetFailure(undefined);
               if (budgetField) budgetField.value = "";
               flush();
               budgetDialog?.showModal();
+              return undefined;
             }}
           >
             Resume
-          </button>
+          </Button>
         </Show>
         <dialog
           onClose={focusStatusIfLost}
@@ -298,61 +331,32 @@ export function JobControls(props: {
             </div>
           </form>
         </dialog>
-        <Show when={!props.job.deletedAt && canCancel() && !confirmCancel()}>
-          <button
+        <Show when={!props.job.deletedAt && canCancel()}>
+          <AlertDialogTrigger
+            controller={confirm}
+            payload="cancel"
             class="danger"
-            type="button"
+            aria-label="Cancel the job"
             aria-describedby={waiting() !== "cancel" ? "cancel-note" : undefined}
             disabled={pending() || waiting() === "cancel"}
-            onClick={() => void press("cancel")}
+            focusableWhenDisabled
           >
             Cancel
-          </button>
+          </AlertDialogTrigger>
         </Show>
-        <ConfirmAction
-          trigger="Cancel"
-          showTrigger={confirmCancel()}
-          canConfirm={cancelAvailable()}
-          onClose={focusStatusIfLost}
-          describedBy="cancel-note"
-          triggerLabel="Cancel the job"
-          confirm="Cancel the job"
-          heading="Cancel this job?"
-          disabled={pending()}
-          act={() => act("cancel")}
-          reportPageFailure={(message) => showPageFailure("cancel", message)}
-        >
-          <p>
-            {cancelAvailable()
-              ? cancelConsequence(props.job)
-              : waiting() === "cancel"
-                ? "Cancel has already been asked."
-                : "This job can no longer be cancelled."}
-          </p>
-        </ConfirmAction>
-        <ConfirmAction
-          trigger="Delete"
-          showTrigger={deleteAvailable()}
-          canConfirm={deleteAvailable()}
-          onClose={focusStatusIfLost}
-          describedBy="delete-note"
-          triggerLabel="Delete the job"
-          confirm="Delete the job"
-          heading="Delete this job?"
-          disabled={pending()}
-          act={() => act("delete")}
-          reportPageFailure={(message) => showPageFailure("delete", message)}
-        >
-          <Show when={deleteAvailable()} fallback={<p>This job can no longer be deleted.</p>}>
-            <p>
-              Its input, Input files, Events and Output go from the hub now
-              <Show when={props.job.runner} keyed>
-                {(runner) => <>, and from {runner.name} once that Runner has deleted its files</>}
-              </Show>
-              . Its Usage record stays.
-            </p>
-          </Show>
-        </ConfirmAction>
+        <Show when={deleteAvailable()}>
+          <AlertDialogTrigger
+            controller={confirm}
+            payload="delete"
+            class="danger"
+            aria-label="Delete the job"
+            aria-describedby="delete-note"
+            disabled={pending()}
+            focusableWhenDisabled
+          >
+            Delete
+          </AlertDialogTrigger>
+        </Show>
       </div>
       <Show when={!props.job.deletedAt}>
         <Show when={resumeNote()}>
@@ -376,6 +380,29 @@ export function JobControls(props: {
           </p>
         </Show>
       </Show>
+      {/* Outside the Shows a read switches, so a read withdrawing a control keeps its dialog. */}
+      <ConfirmDialog
+        controller={confirm}
+        heading={(control) => (control === "cancel" ? "Cancel this job?" : "Delete this job?")}
+        confirm={(control) => (control === "cancel" ? "Cancel the job" : "Delete the job")}
+        withdrawn={withdrawn}
+        act={confirmed}
+        notice={() => deletionNotice ?? status}
+      >
+        {(control) =>
+          control === "cancel" ? (
+            <p>{cancelConsequence(props.job)}</p>
+          ) : (
+            <p>
+              Its input, Input files, Events and Output go from the hub now
+              <Show when={props.job.runner?.name} keyed>
+                {(runner) => <>, and from {runner} once that Runner has deleted its files</>}
+              </Show>
+              . Its Usage record stays.
+            </p>
+          )
+        }
+      </ConfirmDialog>
     </>
   );
 }

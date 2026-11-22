@@ -7,25 +7,28 @@ import {
   AlertDialogTitle,
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
-import { Show, onFlush } from "solid-js";
+import { Button } from "@ui-sdk/solid/button";
+import { Show } from "solid-js";
 
 import { hubWriteFailureMessage } from "../api-client.ts";
+import { untilFlushed } from "../query.ts";
 import { Notice } from "./Notice.tsx";
 
 /**
- * The dialog that confirms a destructive action on one of a list's records: it says what the action
- * ends and whether that is final, and acts only on its confirming button, which names what it acts
- * on. The safe choice comes first and has focus, so a stray Enter keeps; opened by touch, the
- * dialog itself has focus, as UI SDK does it.
+ * The dialog that confirms a destructive action on a record: it says what the action ends and
+ * whether that is final, and acts only on its confirming button, which names what it acts on. The
+ * safe choice comes first and has focus, so a stray Enter keeps; opened by touch, the dialog itself
+ * has focus, as UI SDK does it.
  *
- * One per list, outside it, opened by an `AlertDialogTrigger` in each row with the same
- * `controller` and the record as its payload. A dialog in the row would go with the row, and with it
- * a refusal still to show; this one stays when a read drops the record, naming it as the member saw
- * it, so the payload carries the record's words as they were at the press.
+ * One per list, outside it, or one for a record's controls, outside every `Show` a read can switch,
+ * opened by an `AlertDialogTrigger` with the same `controller` and the record, or the control, as its
+ * payload. A dialog beside its trigger would go with it, and with it a refusal still to show; this
+ * one stays when a read drops the record or withdraws the control, naming it as the member saw it,
+ * so the payload carries the words that change with every read as they were at the press.
  *
- * The page reads the list through `latest`, as `createMemo(() => latest(() => deep(query.data)))`,
- * everywhere it reads it: a pass that reads a list still being read again can hold the dialog's
- * writes until that read lands.
+ * The page reads every query it shows through `latest`, as
+ * `createMemo(() => latest(() => deep(query.data)))`: a pass that reads a query still being read
+ * again can hold the dialog's writes until that read lands.
  *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
  * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,
@@ -38,12 +41,17 @@ export function ConfirmDialog<T>(props: {
   confirm: (record: T) => string;
   /** What the action ends, and whether that is final. */
   children: (record: T) => JSX.Element;
+  /**
+   * Why the action is no longer there to confirm, read live: a read can take it away while the
+   * dialog is open. It replaces what the action ends, and the confirming button does nothing.
+   */
+  withdrawn?: (record: T) => string | undefined;
   act: (record: T) => Promise<void>;
   /** The page's notice of the outcome, for focus once `act` has resolved. */
   notice: () => HTMLElement | undefined;
 }) {
-  // Only an outcome the page shows takes focus: a keep or Escape returns it to the row's button,
-  // even with an older notice on the page. A resolved action closes with the reason "action".
+  // Only an outcome the page shows takes focus: a keep or Escape returns it to the trigger, even
+  // with an older notice on the page. A resolved action closes with the reason "action".
   let acted = false;
   return (
     <AlertDialog
@@ -69,16 +77,27 @@ export function ConfirmDialog<T>(props: {
                 <AlertDialogClose
                   value="confirm"
                   action={async () => {
-                    // `act` starts a mutation, a Solid action that would hold the part's pending
-                    // state, written in this same tick, until the hub answers.
-                    await new Promise<void>((resolve) => onFlush(resolve));
+                    // `act` starts a mutation, which would hold the part's pending state.
+                    await untilFlushed();
                     await props.act(record);
                   }}
                   render={(button, close) => (
                     <>
                       <div class="dialog-b">
-                        <AlertDialogDescription render={(description) => <div {...description} />}>
-                          {props.children(record)}
+                        <AlertDialogDescription
+                          render={(description) => (
+                            // What a read changes while the dialog is open is announced, but not
+                            // while the action runs: its own answer changes the record as it closes.
+                            <div {...description} aria-live={close.pending ? "off" : "polite"} />
+                          )}
+                        >
+                          <Show
+                            when={props.withdrawn?.(record)}
+                            keyed
+                            fallback={props.children(record)}
+                          >
+                            {(reason) => <p>{reason}</p>}
+                          </Show>
                         </AlertDialogDescription>
                         <Show when={close.pending}>
                           <p class="note">Working…</p>
@@ -89,9 +108,16 @@ export function ConfirmDialog<T>(props: {
                       </div>
                       <div class="dialog-f">
                         <AlertDialogClose>Keep it</AlertDialogClose>
-                        <button {...button} class="danger is-fill">
+                        {/* Disabled, the confirming button keeps the focus a read withdrawing the
+                            action finds on it, and refuses presses. */}
+                        <Button
+                          {...button}
+                          class="danger is-fill"
+                          disabled={!!props.withdrawn?.(record)}
+                          focusableWhenDisabled
+                        >
                           {props.confirm(record)}
-                        </button>
+                        </Button>
                       </div>
                     </>
                   )}
