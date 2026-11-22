@@ -1074,7 +1074,8 @@ p:has(> button) + .prose {
 
 /* ---------- Dialog parts: a heading under a heavy rule, the body, the actions ----------
    A long name in the heading or a button, such as a host name, wraps, so it stays inside the dialog. */
-dialog.is-wide {
+dialog.is-wide,
+[data-slot="dialog-content"].is-wide {
   width: 44rem;
 }
 .dialog-h {
