@@ -22,6 +22,8 @@ export function CopyButton(props: {
    * UI SDK's, which leave the announcer live, this can be the only way.
    */
   sharedAnnouncer?: boolean;
+  /** The ID of what the button's purpose depends on, such as a note that the text is shown once. */
+  describedBy?: string;
   buttonRef?: (button: HTMLButtonElement) => void;
 }) {
   const [result, setResult] = createSignal<{ text: string; message: string; manual?: boolean }>();
@@ -52,6 +54,7 @@ export function CopyButton(props: {
       <button
         type="button"
         aria-label={props.accessibleLabel}
+        aria-describedby={props.describedBy}
         ref={(element) => {
           // Some screen readers announce only into a live region that was there before.
           if (props.sharedAnnouncer) prepareAnnouncements(element.ownerDocument);
