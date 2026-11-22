@@ -413,6 +413,11 @@ test("a Leave refused for the only owner says so in the dialog, and works once a
     for (const member of others)
       await setRole(member.userId, "owner", system.authClient(second.cookie));
   };
+  // Even if the test fails, so the owner of every later test is an owner again.
+  let restored = false;
+  onTestFinished(async () => {
+    if (!restored) await restore();
+  });
   const reads = await holdMemberReads(page);
   reads.start();
   const confirm = dialog.getByRole("button", { name: "Leave Organization" });
@@ -423,6 +428,7 @@ test("a Leave refused for the only owner says so in the dialog, and works once a
   await expectBrowser(confirm).toBeFocused();
   await reads.arrived;
   await restore();
+  restored = true;
   reads.release();
   await confirm.click();
   await expectBrowser(page.getByRole("heading", { name: "Organization access" })).toBeFocused();

@@ -54,7 +54,8 @@ export function CopyButton(props: {
       >
         {props.label}
       </button>
-      {/* In the page from the start, so that a screen reader says what is written into it. */}
+      {/* In the page from the start, so that a screen reader says what is written into it, unless
+          the announcer says it instead. */}
       <span role={props.inRow ? undefined : "status"}>
         {result()?.text === props.text ? result()?.message : ""}
       </span>
