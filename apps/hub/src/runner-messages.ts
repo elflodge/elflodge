@@ -152,7 +152,11 @@ const toolResultSchema = z.object({
   ),
 });
 
-/** Pi before 1.6 timed execute() alone. A duration then took precedence over these codes. */
+/**
+ * Pi before 1.6 timed only execute(). A tool that ran and returned `blocked` could have a
+ * duration of 0 ms. When Pi blocked the call before execution, it omitted the duration.
+ * These codes therefore exclude a legacy call only when its duration is absent.
+ */
 const LEGACY_REFUSALS = new Set(["blocked", "invalid_arguments", "tool_unavailable", "abandoned"]);
 
 /** Finished calls by tool name. An ambiguous interruption counts because work may have run. */

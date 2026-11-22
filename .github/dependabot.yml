@@ -9,6 +9,8 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
       # Move ws with the Pi graph: separate peer versions break the Runner production deploy.
+      # This also suppresses security-update PRs for ws. Review its advisories manually and
+      # verify the Runner's production deploy when updating the pin.
       - dependency-name: "ws"
       # The exact version Pi pins, which installs then share (pnpm-workspace.yaml); it moves with Pi.
       - dependency-name: "typebox"
