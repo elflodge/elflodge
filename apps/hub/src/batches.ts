@@ -7,6 +7,7 @@ import {
   type JobLimits,
   type Labels,
   type ListedBatch,
+  type ToolCalls,
   BREAKER_DEFAULTS,
   blockedBySchema,
   ControlRefused,
@@ -56,6 +57,7 @@ import {
   jobCountsBy,
   insertUsageRecords,
   limitProblems,
+  summedToolCalls,
   outputContractProblems,
   isStatusUnknown,
   type Submitter,
@@ -199,6 +201,22 @@ function selectBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: stri
       )
       .select(BATCH_COLUMNS)
       .selectAll("j")
+      // Its jobs' tool calls added up by tool name, apart from the counts and sums above, so that
+      // expanding each job's names multiplies neither.
+      .select((eb) =>
+        summedToolCalls(
+          eb
+            .selectFrom("job as cj")
+            .innerJoin("jobProgress as cp", "cp.jobId", "cj.id")
+            .crossJoinLateral((each) =>
+              each
+                .fn<{ key: string; value: string }>("jsonb_each_text", [each.ref("cp.toolCalls")])
+                .as("count"),
+            )
+            .whereRef("cj.batchUid", "=", "b.uid")
+            .select(["count.key", "count.value"]),
+        ).as("toolCalls"),
+      )
       .select((eb) =>
         batchStatus(
           eb.ref("b.cancelledAt"),
@@ -209,10 +227,13 @@ function selectBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: stri
   );
 }
 
-function batchOf(row: ListedBatchRow & { totalTokens: number; costUsd: number }): Batch {
+function batchOf(
+  row: ListedBatchRow & { totalTokens: number; costUsd: number; toolCalls: ToolCalls },
+): Batch {
   return {
     ...listedBatchOf(row),
     usage: { totalTokens: row.totalTokens, cost: { totalUsd: row.costUsd } },
+    toolCalls: row.toolCalls,
   };
 }
 
@@ -1017,6 +1038,7 @@ export function cancelBatch(id: string) {
                   recordedTotalTokens: eb.ref("jobProgress.totalTokens"),
                   recordedCostUsd: eb.ref("jobProgress.costUsd"),
                   recordedUsage: eb.ref("jobProgress.usage"),
+                  recordedToolCalls: eb.ref("jobProgress.toolCalls"),
                 }))
                 .where("job.batchUid", "=", uid)
                 .where((eb) =>
@@ -1029,6 +1051,7 @@ export function cancelBatch(id: string) {
                   "job.id",
                   ...USAGE_COPIED_COLUMNS.map((column) => `job.${column}` as const),
                   "jobProgress.usage as jobUsage",
+                  "jobProgress.toolCalls as jobToolCalls",
                   "jobProgress.totalTokens as jobTotalTokens",
                   "jobProgress.costUsd as jobCostUsd",
                 ]),
@@ -1045,6 +1068,8 @@ export function cancelBatch(id: string) {
                   "before.recordedCostUsd",
                   "before.recordedUsage",
                   "j.jobUsage",
+                  "before.recordedToolCalls",
+                  "j.jobToolCalls",
                   "j.jobTotalTokens",
                   "j.jobCostUsd",
                 ]),

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import canonicalize from "canonicalize";
 import {
   type BlockedBy,
+  type ToolCalls,
   ControlRefused,
   FINAL_JOB_STATUSES,
   KEY_SUBMITTER,
@@ -36,6 +37,7 @@ import {
   type Kysely,
   type Nullable,
   type QueryCreator,
+  type SelectQueryBuilder,
   type SqlBool,
   sql,
   type Transaction,
@@ -112,7 +114,13 @@ const JOB_COLUMNS = [
   "labels",
   ...SUBMITTER_COLUMNS,
 ] as const;
-const PROGRESS_COLUMNS = ["totalTokens", "costUsd", "activity", "lastReportedAt"] as const;
+const PROGRESS_COLUMNS = [
+  "totalTokens",
+  "costUsd",
+  "toolCalls",
+  "activity",
+  "lastReportedAt",
+] as const;
 
 type SelectedJob = Pick<JobRow, (typeof JOB_COLUMNS)[number]> &
   Pick<JobProgressRow, (typeof PROGRESS_COLUMNS)[number]> & {
@@ -957,9 +965,11 @@ export type UsageOfEnd = Pick<
   | "recordedTotalTokens"
   | "recordedCostUsd"
   | "recordedUsage"
+  | "recordedToolCalls"
 > & {
   jobId: JobId;
   jobUsage: JobUsage;
+  jobToolCalls: ToolCalls;
   jobTotalTokens: number;
   jobCostUsd: number;
 };
@@ -1053,13 +1063,81 @@ const usageEntries = (() => {
   };
 })();
 
+/** A tool's calls now beside its calls at a job's previous end, from `jsonb_each_text` rows. */
+const toolCallsSinceOf = (() => {
+  const eb = expressionBuilder<
+    { now: { key: string; value: string }; before: { key: string | null; value: string | null } },
+    "now" | "before"
+  >();
+  return eb(
+    eb.cast<number>("now.value", "bigint"),
+    "-",
+    eb.fn.coalesce(eb.cast<number | null>("before.value", "bigint"), eb.lit(0)),
+  );
+})();
+
+/**
+ * The tool calls `rows` give as `jsonb_each_text` rows, a tool's name and a count, added up by
+ * tool name in one map, `{}` when there are none.
+ */
+export function summedToolCalls<DB, TB extends keyof DB>(
+  rows: SelectQueryBuilder<DB, TB, { key: string; value: string }>,
+) {
+  const eb = expressionBuilder<Database>();
+  return eb
+    .selectFrom(
+      eb
+        .selectFrom(rows.as("count"))
+        .select((sum) => [
+          "count.key",
+          sum.cast<number>(sum.fn.sum(sum.cast("count.value", "bigint")), "bigint").as("calls"),
+        ])
+        .groupBy("count.key")
+        .as("tool"),
+    )
+    .select((agg) =>
+      agg.fn
+        .coalesce(
+          agg.fn<ToolCalls>("jsonb_object_agg", ["tool.key", "tool.calls"]),
+          agg.fn<ToolCalls>("jsonb_build_object", []),
+        )
+        .as("calls"),
+    )
+    .$asScalar();
+}
+
+/**
+ * The tool calls of a job's end in `ended` since its previous end: its count less the count its
+ * records already hold, by tool name, a name with no new calls left out. Counts only grow, as each
+ * report's calls add to them, so every name the recorded count holds is in the job's.
+ */
+function toolCallsSince(eb: ExpressionBuilder<Database & { e: UsageOfEnd }, "e">) {
+  const rowsOf = (calls: "e.jobToolCalls" | "e.recordedToolCalls") =>
+    eb.fn<{ key: string; value: string }>("jsonb_each_text", [eb.ref(calls)]);
+  return eb
+    .selectFrom(rowsOf("e.jobToolCalls").as("now"))
+    .leftJoin(rowsOf("e.recordedToolCalls").as("before"), "now.key", "before.key")
+    .where(toolCallsSinceOf, "<>", 0)
+    .select((calls) =>
+      calls.fn
+        .coalesce(
+          calls.fn<ToolCalls>("jsonb_object_agg", ["now.key", toolCallsSinceOf]),
+          calls.fn<ToolCalls>("jsonb_build_object", []),
+        )
+        .as("toolCalls"),
+    )
+    .$asScalar()
+    .as("toolCalls");
+}
+
 /**
  * Inserts the Usage record of each job end in the `ended` table, a `WITH` query of the statement
  * `db` builds: the job as it ended, what it used since its previous end, and its totals now. What
  * it used is its totals less what its records already count (`recordedTotalTokens`,
- * `recordedCostUsd`), and its usage by model and by tool less the usage they count
- * (`recordedUsage`), as the job's row held them before this end; the statement that ends the job
- * sets them to its totals and its usage, from the same snapshot of its progress as `ended` gives.
+ * `recordedCostUsd`), its usage by model and by tool less the usage they count (`recordedUsage`),
+ * and its tool calls less those they hold (`recordedToolCalls`), as the job's row held them before
+ * this end; the statement that ends the job sets them to its totals, its usage and its tool calls,
+ * from the same snapshot of its progress as `ended` gives.
  * The ends the hub makes itself and those its Runners report are recorded alike.
  */
 export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfEnd }>) {
@@ -1071,6 +1149,7 @@ export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfE
       "totalTokens",
       "costUsd",
       "usage",
+      "toolCalls",
       "jobTotalTokens",
       "jobCostUsd",
     ])
@@ -1110,6 +1189,7 @@ export function insertUsageRecords(db: QueryCreator<Database & { ended: UsageOfE
               "jsonb",
             )
             .as("usage"),
+          toolCallsSince(select),
           "e.jobTotalTokens",
           "e.jobCostUsd",
         ];
@@ -1136,6 +1216,8 @@ async function recordUsageOfEnd(trx: Transaction<Database>, jobId: JobId) {
             "j.recordedCostUsd",
             "j.recordedUsage",
             "p.usage as jobUsage",
+            "j.recordedToolCalls",
+            "p.toolCalls as jobToolCalls",
             "p.totalTokens as jobTotalTokens",
             "p.costUsd as jobCostUsd",
           ])
@@ -1150,6 +1232,7 @@ async function recordUsageOfEnd(trx: Transaction<Database>, jobId: JobId) {
             recordedTotalTokens: eb.ref("p.totalTokens"),
             recordedCostUsd: eb.ref("p.costUsd"),
             recordedUsage: eb.ref("p.usage"),
+            recordedToolCalls: eb.ref("p.toolCalls"),
           }))
           .whereRef("p.jobId", "=", "j.id")
           .where("j.id", "=", jobId)
@@ -1374,6 +1457,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                     recordedTotalTokens: eb.ref("jobProgress.totalTokens"),
                     recordedCostUsd: eb.ref("jobProgress.costUsd"),
                     recordedUsage: eb.ref("jobProgress.usage"),
+                    recordedToolCalls: eb.ref("jobProgress.toolCalls"),
                   };
                 })
                 .where("job.runnerId", "=", runnerId)
@@ -1382,6 +1466,7 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                   "job.id",
                   ...USAGE_COPIED_COLUMNS.map((column) => `job.${column}` as const),
                   "jobProgress.usage as jobUsage",
+                  "jobProgress.toolCalls as jobToolCalls",
                   "jobProgress.totalTokens as jobTotalTokens",
                   "jobProgress.costUsd as jobCostUsd",
                 ]),
@@ -1398,6 +1483,8 @@ export function deleteRunnerWithItsWork(runnerId: RunnerId) {
                   "before.recordedCostUsd",
                   "before.recordedUsage",
                   "j.jobUsage",
+                  "before.recordedToolCalls",
+                  "j.jobToolCalls",
                   "j.jobTotalTokens",
                   "j.jobCostUsd",
                 ]),
@@ -1525,7 +1612,7 @@ export function listJobs(query: JobListQuery) {
         // Without the content a list leaves out.
         .select((eb) => [
           ...LISTED_JOB_COLUMNS.map((column) => `j.${column}` as const),
-          ...(["totalTokens", "costUsd", "lastReportedAt"] as const).map(
+          ...(["totalTokens", "costUsd", "toolCalls", "lastReportedAt"] as const).map(
             (column) => `p.${column}` as const,
           ),
           blockedByOf({

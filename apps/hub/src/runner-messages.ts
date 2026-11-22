@@ -26,9 +26,11 @@ import {
   type JobUsageEntry,
   type JsonValue,
   type Load,
+  textSchema,
+  type ToolCalls,
 } from "contract";
 import { Array, type Context, Effect, Result } from "effect";
-import { type Expression, type Kysely, sql } from "kysely";
+import { type Expression, expressionBuilder, type Kysely, sql } from "kysely";
 import { jsonArrayFrom, jsonBuildObject } from "kysely/helpers/postgres";
 import * as z from "zod/mini";
 
@@ -45,6 +47,7 @@ import {
   FINAL_STATUSES,
   insertUsageRecords,
   QUEUED_OR_RUNNING,
+  summedToolCalls,
   USAGE_COPIED_COLUMNS,
   blockedByOf,
 } from "./jobs.ts";
@@ -98,6 +101,8 @@ interface ReportRow {
   usage?: JobUsage;
   /** The activity, absent when the report carries none. */
   activity?: JobActivity;
+  /** The tool calls its events record (`toolCallsOf`). */
+  toolCalls: ToolCalls;
   /** The job's status and times, or null when the report carries no status. */
   status: JobStatus | null;
   startedAt: string | null;
@@ -128,8 +133,57 @@ function reportRow(report: JobReport, now: Date): ReportRow {
     lastId: events.at(-1)?.id ?? null,
     usage,
     activity,
+    toolCalls: toolCallsOf(report.events),
   };
   return { ...row, ...lifecycleOf(report, now) };
+}
+
+/**
+ * A tool call's result, as pi records it: a `pi.tool-result` entry, its message's `toolName` (the
+ * name pi keys a tool's usage by) and `durationMs`, and its diagnostics. Only what the count reads;
+ * the rest is kept as it comes. A name Postgres cannot hold as a `jsonb` key (`textSchema`) makes
+ * a result of another shape, so it cannot fail the report's statement.
+ */
+const toolResultSchema = z.object({
+  kind: z.literal("pi.tool-result"),
+  model: z.tuple([z.object({ toolName: textSchema, durationMs: z.optional(z.unknown()) })]),
+  data: z.optional(
+    z.object({ diagnostics: z.optional(z.array(z.object({ code: z.optional(z.string()) }))) }),
+  ),
+});
+
+/**
+ * The diagnostic codes pi's harness writes on a result of a call it did not run: a hook refused it,
+ * as the Runner's web-access guard does, its arguments were invalid, the tool was not available, or
+ * its caller ended with a restart before it started. They are read only where the result has no
+ * duration (`toolCallsOf`), as a tool that ran can give the same codes in the same list. A call
+ * ended `tool_error`, `interrupted` or `restart_limit` may have run, so it counts, as does a code
+ * the hub does not know. `aborted` counts too: pi writes it both for a call cut off while it ran and
+ * for one that never started, such as the rest of a round run one call at a time, and the result
+ * does not tell them apart.
+ */
+const NEVER_RAN = new Set(["blocked", "invalid_arguments", "tool_unavailable", "abandoned"]);
+
+/**
+ * How many tool calls `events` record a result of, by tool name, leaving out those known not to
+ * have run. pi's harness writes a result's `durationMs` only when it ran the tool, so a duration is
+ * the evidence of a run; for a result without one, its diagnostic codes are the inference
+ * (`NEVER_RAN`). A record of another shape counts as nothing, and never refuses its report.
+ */
+function toolCallsOf(events: JobReport["events"]): ToolCalls {
+  // A Map, then own properties, so a tool named `__proto__` is counted rather than setting a prototype.
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    if (event.type !== "entry") continue;
+    const result = z.safeParse(toolResultSchema, event.record).data;
+    if (!result) continue;
+    const [{ toolName, durationMs }] = result.model;
+    const ran =
+      typeof durationMs === "number" ||
+      !result.data?.diagnostics?.some(({ code }) => code !== undefined && NEVER_RAN.has(code));
+    if (ran) counts.set(toolName, (counts.get(toolName) ?? 0) + 1);
+  }
+  return Object.fromEntries(counts);
 }
 
 /** The kinds of the Runner's entries that end a job, with the status each ends it in. */
@@ -271,6 +325,16 @@ function applyReports(runnerId: RunnerId, reports: JobReport[]) {
   );
 }
 
+/** Two counts of tool calls added up by tool name, in one map. */
+function addedToolCalls(stored: Expression<ToolCalls>, reported: Expression<ToolCalls>) {
+  const eb = expressionBuilder<Database>();
+  const countsOf = (calls: Expression<ToolCalls>) =>
+    eb
+      .selectFrom(eb.fn<{ key: string; value: string }>("jsonb_each_text", [calls]).as("count"))
+      .select(["count.key", "count.value"]);
+  return summedToolCalls(countsOf(stored).unionAll(countsOf(reported)));
+}
+
 /**
  * The statement that applies the Runner's reports, read as `rows`, each to its job while the
  * reported run is the job's current one on the Runner, and returns the Usage records of the ends it
@@ -300,7 +364,7 @@ function applyReportsStatement(
           .selectFrom((eb) => jsonRows(eb, rows))
           .select((eb) => {
             const field = (name: keyof ReportRow) => eb.ref("row.value", "->>").key(name);
-            const json = <Name extends "usage" | "activity" | "output">(name: Name) =>
+            const json = <Name extends "usage" | "activity" | "output" | "toolCalls">(name: Name) =>
               eb.ref("row.value", "->").key(name);
             return [
               eb.cast<JobId>(field("jobId"), "uuid").as("jobId"),
@@ -310,6 +374,7 @@ function applyReportsStatement(
               eb.cast<number | null>(field("lastId"), "bigint").as("lastId"),
               json("usage").as("usage"),
               json("activity").as("activity"),
+              json("toolCalls").as("toolCalls"),
               eb.cast<JobStatus | null>(field("status"), jobStatus).as("status"),
               eb.cast<Date | null>(field("startedAt"), "timestamptz").as("startedAt"),
               eb.cast<Date | null>(field("endedAt"), "timestamptz").as("endedAt"),
@@ -410,6 +475,16 @@ function applyReportsStatement(
               afterUsage(eb.ref("r.usage").$notNull(), eb.ref("p.usage")).as("nextUsage"),
               afterUsage(eb.ref("totals.tokens"), eb.ref("p.totalTokens")).as("nextTotalTokens"),
               afterUsage(eb.ref("totals.cost"), eb.ref("p.costUsd")).as("nextCostUsd"),
+              // The report's tool calls add to the job's under the condition that stores its events
+              // and moves the position, so a report sent again adds nothing, and the count stays
+              // the count over the job's stored Events.
+              eb
+                .case()
+                .when(fresh)
+                .then(addedToolCalls(eb.ref("p.toolCalls"), eb.ref("r.toolCalls")))
+                .else(eb.ref("p.toolCalls"))
+                .end()
+                .as("nextToolCalls"),
               // A paused or ended job is doing nothing, whatever its last report said.
               eb
                 .case()
@@ -434,6 +509,7 @@ function applyReportsStatement(
             totalTokens: eb.ref("c.nextTotalTokens"),
             costUsd: eb.ref("c.nextCostUsd"),
             activity: eb.ref("c.nextActivity"),
+            toolCalls: eb.ref("c.nextToolCalls"),
             // Any report of the current run counts, one behind the hub's position or partway
             // through a backlog included: the job is reporting, so its state is not unknown.
             // Never back: two reports can be applied out of order. `greatest` skips a null.
@@ -446,7 +522,8 @@ function applyReportsStatement(
           }))
           .whereRef("p.jobId", "=", "c.jobId")
           // A report that changes nothing leaves the row as it is, unless the time of its last
-          // report is due to be written. The totals change with the usage.
+          // report is due to be written. The totals change with the usage, and the tool calls
+          // with the position.
           .where((eb) =>
             eb.or([
               eb("c.nextPosition", "is distinct from", eb.ref("p.position")),
@@ -494,6 +571,7 @@ function applyReportsStatement(
             "nextUsage",
             "nextTotalTokens",
             "nextCostUsd",
+            "nextToolCalls",
           ])
           .where("fresh", "=", true)
           .where("status", "is not", null)
@@ -559,6 +637,12 @@ function applyReportsStatement(
                 .then(eb.ref("r.nextUsage"))
                 .else(eb.ref("j.recordedUsage"))
                 .end(),
+              recordedToolCalls: eb
+                .case()
+                .when(ends)
+                .then(eb.ref("r.nextToolCalls"))
+                .else(eb.ref("j.recordedToolCalls"))
+                .end(),
             };
           })
           .whereRef("j.id", "=", "r.jobId")
@@ -592,6 +676,8 @@ function applyReportsStatement(
             "before.recordedCostUsd",
             "before.recordedUsage",
             "c.nextUsage as jobUsage",
+            "before.recordedToolCalls",
+            "c.nextToolCalls as jobToolCalls",
             "c.nextTotalTokens as jobTotalTokens",
             "c.nextCostUsd as jobCostUsd",
           ])

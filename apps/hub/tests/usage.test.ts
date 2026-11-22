@@ -81,6 +81,11 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   system.model.setResponses([callTool("submit_output", { value: 1 })]);
   await billing.client.jobs.resume({ id: resumedId });
   await untilStatus(billing.client, resumedId, "succeeded");
+  // A Runner's own tool results count: the command the cancel cut off, and the submission.
+  expect((await billing.client.jobs.get({ id: resumedId })).toolCalls).toEqual({
+    bash: 1,
+    submit_output: 1,
+  });
 
   // Run to the end by another key, then deleted.
   system.model.setResponses([callTool("submit_output", { value: 2 })]);

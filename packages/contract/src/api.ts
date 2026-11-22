@@ -182,6 +182,19 @@ export const usageSchema = z
   .register(z.globalRegistry, { id: "Usage" });
 export type Usage = z.infer<typeof usageSchema>;
 
+/**
+ * How many times tools were called, by tool name: a call counts once its result is recorded, ran
+ * or not known not to have run. Calls, not what a call is billed.
+ */
+export const toolCallsSchema = z
+  .record(z.string(), z.int().check(z.nonnegative()))
+  .register(z.globalRegistry, {
+    id: "ToolCalls",
+    description:
+      "How many times tools were called, by tool name. A call counts once its result is recorded, including a call that failed or was cut off, but not one known not to have run, such as a call the Runner refused or whose arguments were invalid. A call cut off before it started can count, as its result may not say that it never ran. It counts calls, not what a provider bills: one `web_search` call can run several queries and try more than one provider.",
+  });
+export type ToolCalls = z.infer<typeof toolCallsSchema>;
+
 /** Any JSON value, such as a job's output: what its Output contract's schema accepts. */
 export type { JsonValue } from "type-fest";
 
@@ -229,6 +242,12 @@ const jobBaseSchema = z.object({
    * sub-agents, including those made inside tools. Zeros until the job runs.
    */
   usage: usageSchema,
+  /**
+   * How many times the job's agent has called each tool, as of the Events the hub holds: `{}` until
+   * a call's result is recorded. Absent once the job is deleted, as its Events are; its calls are kept
+   * in its Usage records, whose `toolCalls` no report reads yet.
+   */
+  toolCalls: z.optional(toolCallsSchema),
   /**
    * How long the job may work each time it runs on a Runner, in seconds: counted from when its
    * agent starts there, so time queued, paused or waiting for a Runner counts nothing, and started
@@ -539,6 +558,12 @@ export const batchSchema = z
      * in its Usage records.
      */
     usage: usageSchema,
+    /**
+     * How many times its jobs have called each tool, each job's `toolCalls` added up by tool name;
+     * a deleted job's calls are not included, and are kept in its Usage records, whose `toolCalls` no
+     * report reads yet.
+     */
+    toolCalls: toolCallsSchema,
   })
   .register(z.globalRegistry, { id: "Batch" });
 export type Batch = z.infer<typeof batchSchema>;
@@ -574,11 +599,11 @@ export const jobLimitsSchema = z
 export type JobLimits = z.infer<typeof jobLimitsSchema>;
 
 /**
- * A Batch as a list shows it: without its `usage`, which only reading every job's progress tells,
- * so a list of large Batches stays quick; read the Batch for it.
+ * A Batch as a list shows it: without its `usage` and `toolCalls`, which only reading every job's
+ * progress tells, so a list of large Batches stays quick; read the Batch for them.
  */
 export const listedBatchSchema = z
-  .omit(batchSchema, { usage: true })
+  .omit(batchSchema, { usage: true, toolCalls: true })
   .register(z.globalRegistry, { id: "ListedBatch" });
 export type ListedBatch = z.infer<typeof listedBatchSchema>;
 
@@ -636,6 +661,7 @@ const listedJobBaseSchema = z.required(z.omit(jobBaseSchema, { activity: true })
   customId: true,
   labels: true,
   submitter: true,
+  toolCalls: true,
   runTimeoutSeconds: true,
   modelBudgetUsd: true,
 });
@@ -1178,7 +1204,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           method: "GET",
           path: "/batches",
           description:
-            "Lists Batches, newest first, in pages of at most `limit`. Filters combine: a Batch is listed when it has one of the `status` values given and every label in `labels`, its own labels rather than its jobs'. Read the next page with the same filters and `after` set to the last Batch's `id`, while the page says `hasMore`; an `after` naming no Batch is refused. A listed Batch has no `usage`: read the Batch for it.",
+            "Lists Batches, newest first, in pages of at most `limit`. Filters combine: a Batch is listed when it has one of the `status` values given and every label in `labels`, its own labels rather than its jobs'. Read the next page with the same filters and `after` set to the last Batch's `id`, while the page says `hasMore`; an `after` naming no Batch is refused. A listed Batch has no `usage` or `toolCalls`: read the Batch for them.",
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),
