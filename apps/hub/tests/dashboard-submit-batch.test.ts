@@ -400,13 +400,59 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
   held.resolve();
   try {
     await reached.promise;
-    await expectBrowser(dialog).toBeHidden();
+    await expectBrowser(page.getByRole("alertdialog")).toHaveCount(0);
     await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
   } finally {
     record.resolve();
   }
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("typed-only");
   expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
+  await expectBrowser(page.locator("[inert]")).toHaveCount(0);
+  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+}, 30_000);
+
+test("Leave asked while files upload says so once the create is sent", async () => {
+  const page = await openSubmitBatch("Batch waverer");
+  await page.getByLabel("Batch ID").fill("sent-while-asked");
+  await addFiles(page, [["asked.txt", `Sent while asked, ${crypto.randomUUID()}.`]]);
+  const reached = Promise.withResolvers<void>();
+  const upload = Promise.withResolvers<void>();
+  await page.route("**/blobs/**", async (route) => {
+    if (!isUpload(route.request())) return route.continue();
+    reached.resolve();
+    await upload.promise;
+    await route.continue();
+  });
+  const sent = Promise.withResolvers<void>();
+  const create = Promise.withResolvers<void>();
+  await page.route("**/batches", async (route) => {
+    if (!isCreate(route.request())) return route.continue();
+    sent.resolve();
+    await create.promise;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await reached.promise;
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  const description = page
+    .getByRole("alertdialog")
+    .locator('[data-slot="alert-dialog-description"]');
+  await expectBrowser(description).toContainText("The Batch has not been submitted.");
+  const element = await description.elementHandle();
+  try {
+    upload.resolve();
+    await sent.promise;
+    // The same element takes the warning, a polite live region, so a screen reader hears it.
+    await expect
+      .poll(() => element?.textContent())
+      .toContain("The hub may already have a Batch from this page");
+    expect(await element?.getAttribute("aria-live")).toBe("polite");
+  } finally {
+    create.resolve();
+  }
 }, 30_000);
 
 test("Remove all asks first: keeping keeps every job, and removing sends nothing, says so and leaves focus on Add files", async () => {
@@ -430,19 +476,45 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await page.keyboard.press("Enter");
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
-  await removeAll.click();
+  // Pressed without taking focus, as a click does not in Safari.
+  await page.getByLabel("Input of job 2").focus();
+  await removeAll.dispatchEvent("click");
   await expectBrowser(dialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(removeAll).toBeFocused();
   await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
-  await removeAll.click();
-  await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
-  await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
-  await expectBrowser(page.getByRole("group", { name: "Jobs" }).getByRole("status")).toHaveText(
-    "All 2 jobs removed.",
-  );
-  await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  // The rows go while the limits, from which the draft's figures are recomputed, are read again:
+  // back on the tab, Query reads them again once they are stale.
+  await expectBrowser(page.getByLabel("Model budget")).toHaveAccessibleDescription(/At most/);
+  let reread = false;
+  const release = Promise.withResolvers<void>();
+  await page.route("**/jobs/limits", async (route) => {
+    reread = true;
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await expect
+      .poll(
+        async () => {
+          await page.evaluate(`window.dispatchEvent(new Event("visibilitychange"))`);
+          return reread;
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await removeAll.click();
+    await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
+    await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
+    await expectBrowser(page.getByRole("group", { name: "Jobs" }).getByRole("status")).toHaveText(
+      "All 2 jobs removed.",
+    );
+    await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+    await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  } finally {
+    release.resolve();
+  }
   expect(await page.evaluate("window.submissions")).toBe(0);
 }, 30_000);
 
