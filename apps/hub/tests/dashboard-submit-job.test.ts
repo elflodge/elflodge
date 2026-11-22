@@ -87,22 +87,36 @@ test("a job submitted with Labels carries them", async () => {
   );
 }, 30_000);
 
-test("a member leaving typed input can stay with the draft or discard it", async () => {
+test("a member leaving typed input, by a link or by Back, can stay with the draft or discard it", async () => {
   const page = await openSubmitJob("Draft writer");
   const input = page.getByLabel("Input", { exact: true });
   const jobs = page
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Jobs" });
+  const dialog = page.getByRole("alertdialog", { name: "Leave without submitting?" });
+  const stay = dialog.getByRole("button", { name: "Stay" });
   await input.fill("Still writing.");
   await jobs.click();
-  const dialog = page.getByRole("dialog", { name: "Leave without submitting?" });
-  await expectBrowser(dialog.getByRole("button", { name: "Stay" })).toBeFocused();
+  await expectBrowser(stay).toBeFocused();
   await page.keyboard.press("Escape");
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(input).toHaveValue("Still writing.");
   await jobs.click();
+  await stay.click();
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(jobs).toBeFocused();
+  // Not `goBack`, which would wait for the navigation the page holds.
+  await page.evaluate("history.back()");
+  await stay.click();
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(page).toHaveURL(/\/jobs\/new$/);
+  await expectBrowser(input).toHaveValue("Still writing.");
+  const entries = await page.evaluate("history.length");
+  await jobs.click();
   await dialog.getByRole("button", { name: "Leave the page" }).click();
   await expectBrowser(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+  await expectBrowser(dialog).toBeHidden();
+  expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
 }, 30_000);
 
 test("after a lost answer the Custom ID field holds the ID sent: an edit cannot make a second job, and another ID says one may exist", async () => {
