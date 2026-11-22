@@ -26,9 +26,9 @@ import { Notice } from "./Notice.tsx";
  * one stays when a read drops the record or withdraws the control, naming it as the member saw it,
  * so the payload carries the words that change with every read as they were at the press.
  *
- * The page reads every query it shows through `latest`, as
- * `createMemo(() => latest(() => deep(query.data)))`: a pass that reads a query still being read
- * again can hold the dialog's writes until that read lands.
+ * The page reads each query it shows that reads again under the same key, by a poll or an
+ * invalidation, through `latest`, as `createMemo(() => latest(() => deep(query.data)))`: a pass that
+ * reads a query still being read again can hold the dialog's writes until that read lands.
  *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
  * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,
