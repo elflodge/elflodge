@@ -1,13 +1,14 @@
 import { BetterFetchError } from "@better-fetch/fetch";
-import { createORPCClient, ORPCError } from "@orpc/client";
+import { createORPCClient, ORPCError, ResponseError } from "@orpc/client";
 import { TimeoutLinkPlugin } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import { apiContract, asError, createProblemDetailsLink, problemOf } from "contract";
 
 /**
  * How long the dashboard waits for the hub to answer one of its oRPC calls, or a Better Auth call a
- * confirmation waits on, before it gives up. A member cannot leave a confirmation while its request
- * runs, so a request the hub never answers has to end by itself.
+ * confirmation waits on, before it gives up. A member cannot leave a confirmation, nor a form dialog
+ * that writes to the hub, while its request runs, so a request the hub never answers has to end by
+ * itself.
  */
 export const HUB_DEADLINE_MS = 30_000;
 
@@ -77,6 +78,21 @@ export function hubWriteFailureMessage(caught: unknown): string {
   // A mistake in the dashboard ends here too, which the console keeps.
   console.error(error);
   return "The dashboard could not confirm this was done. Check before trying again.";
+}
+
+/**
+ * A refusal describes the input. Any other error from a call that returns a secret can carry it
+ * in the message, response body or cause, so give the caller a fresh error it can safely log.
+ */
+export function secretAnswerFailure(caught: unknown): Error {
+  const error = asError(caught);
+  if (isWriteRefusal(error)) return error;
+  const responseError = error instanceof ORPCError ? error.cause : error;
+  const status =
+    responseError instanceof ResponseError
+      ? responseError.response.status
+      : problemOf(error)?.status;
+  return new Error(status === undefined ? error.name : `${error.name}, status ${status}`);
 }
 
 /** Finish a failure notice with the hub's words when it supplied any. */

@@ -327,7 +327,8 @@ progress {
 
 /* A native dialog, and UI SDK's, which is a popover in the top layer rather than a `dialog`. */
 dialog,
-[data-slot="alert-dialog-content"] {
+[data-slot="alert-dialog-content"],
+[data-slot="dialog-content"] {
   text-align: start;
   white-space: normal;
   font-size: var(--text-sm);
@@ -342,7 +343,8 @@ dialog,
   box-shadow: var(--shadow-dialog);
 }
 /* What the browser gives a modal `dialog`, and UI SDK's reset takes off its popover. */
-[data-slot="alert-dialog-content"] {
+[data-slot="alert-dialog-content"],
+[data-slot="dialog-content"] {
   inset: 0;
   margin: auto;
   width: fit-content;
@@ -351,7 +353,8 @@ dialog,
   overflow: auto;
 }
 dialog::backdrop,
-[data-slot="alert-dialog-content"]::backdrop {
+[data-slot="alert-dialog-content"]::backdrop,
+[data-slot="dialog-content"]::backdrop {
   background: var(--c-scrim);
 }
 /* The dashboard's own popovers: UI SDK's parts, which carry `data-slot`, are styled by their own. */
