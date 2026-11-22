@@ -968,16 +968,17 @@ export type UsageOfEnd = Pick<
  * One model's or tool's use between a job's previous end and now, from a row of its usage now
  * (`now`) beside the same name's row at its previous end (`before`), either absent: whether any of
  * pi's counters changed, and the entry of their differences, under pi's names. The differences
- * are taken in SQL as the totals are, so for an end whose previous end was recorded with them, a
- * record's entries add up exactly to its `totalTokens` and `costUsd`. A name whose counter shrank
- * gets a negative difference rather than none, which would break that sum: pi's totals per name
- * only grow, so it would be pi's fault. A name absent on one side counts as 0 there. A counter
- * absent now from a name present now stays absent from the entry, as `reasoning` is from a
- * provider that reports none, since that is not 0; `totalTokens` and `cost.total` are never
- * absent, so the sum holds. A counter absent before from a name present before counts as 0 there:
- * pi's `addUsage` starts a counter when it is first reported, so its earlier value was 0. A counter
- * that is not a number counts as absent: snapshots stored before the protocol checked the counters
- * may hold anything, and casting one would fail the end.
+ * are taken in SQL as the totals are, so a record's entries add up exactly to its `totalTokens` and
+ * `costUsd`, except at the first end after the migration that added them of a job that had a
+ * Usage record and used more since, where they fall short. A name whose counter shrank gets a
+ * negative difference rather than none, which would break that sum: pi's totals per name only
+ * grow, so it would be pi's fault. A name absent on one side counts as 0 there. A counter absent
+ * now from a name present now stays absent from the entry, as `reasoning` is from a provider that
+ * reports none, since that is not 0; `totalTokens` and `cost.total` are never absent, so the sum
+ * holds. A counter absent before from a name present before counts as 0 there: pi's `addUsage`
+ * starts a counter when it is first reported, so its earlier value was 0. A stored counter that is
+ * not a number, or a token count that is not a whole number, counts as absent: snapshots stored
+ * before the protocol checked the counters may hold anything, and casting one would fail the end.
  */
 const usageEntries = (() => {
   const eb = expressionBuilder<
@@ -987,17 +988,29 @@ const usageEntries = (() => {
     },
     "now" | "before"
   >();
-  // Dollars as `numeric`, and token counts too, rather than `bigint`: a snapshot stored before the
-  // protocol checked them as integers may hold a fraction, and `numeric` subtracts integers exactly.
+  // Dollars as `numeric`, and token counts too, rather than `bigint`: a stored whole number may be
+  // larger than `bigint` holds, and `numeric` subtracts integers exactly. Nested `CASE`s, as
+  // Postgres evaluates a `CASE`'s branches in order but may evaluate either side of an `AND` first.
   const counterOf = (
     counter: Expression<unknown>,
     text: Expression<unknown>,
-  ): Expression<number | null> =>
-    eb
+    whole: boolean,
+  ): Expression<number | null> => {
+    const value = eb.cast<number>(text, "numeric");
+    return eb
       .case()
       .when(eb.fn("jsonb_typeof", [counter]), "=", eb.val("number"))
-      .then(eb.cast<number>(text, "numeric"))
+      .then(
+        whole
+          ? eb
+              .case()
+              .when(value, "=", eb.fn<number>("trunc", [value]))
+              .then(value)
+              .end()
+          : value,
+      )
       .end();
+  };
   const differenceOf = (now: Expression<number | null>, before: Expression<number | null>) =>
     eb
       .case()
@@ -1019,12 +1032,14 @@ const usageEntries = (() => {
     counterOf(
       eb.ref(`${from}.value`, "->").key(counter),
       eb.ref(`${from}.value`, "->>").key(counter),
+      true,
     ),
   );
   const cost = fieldsOf(USAGE_COST_COUNTERS, (from, counter) =>
     counterOf(
       eb.ref(`${from}.value`, "->").key("cost").key(counter),
       eb.ref(`${from}.value`, "->>").key("cost").key(counter),
+      false,
     ),
   );
   return {

@@ -1,4 +1,11 @@
-import { JOB_CANCELLED, JOB_PAUSED, JOB_SUCCEEDED, type JobUsageEntry } from "contract";
+import {
+  JOB_CANCELLED,
+  JOB_PAUSED,
+  JOB_SUCCEEDED,
+  type JobUsage,
+  type JobUsageEntry,
+} from "contract";
+import { Struct } from "effect";
 import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
@@ -336,7 +343,8 @@ test("each end a Runner reports records what the job used since its previous end
   // The ending report itself carries new usage: the record counts it.
   const firstEnd = {
     models: { "scripted/small": piUsage(2048, 128) },
-    tools: { web_search: { totalTokens: 1, cost: { total: 0.1 } } },
+    // `reasoning`, given here and not at the next end, stays out of that end's entry.
+    tools: { web_search: { totalTokens: 1, reasoning: 1, cost: { total: 0.1 } } },
   };
   await runner.report({ ...first, position: 1 }, [{ kind: JOB_CANCELLED }], firstEnd);
 
@@ -407,3 +415,39 @@ test.each([
     expect(await recordedUsageOf(id)).toEqual({ recordedUsage: used, usage: used });
   },
 );
+
+test("an end leaves out a stored counter that is not a number, or a token count that is not whole, and is recorded", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const { id } = await submitJob(client, { ...AGENT, input: "Summarise." });
+  // A Runner of the older protocol could store any counter beside `totalTokens` and `cost.total`.
+  const counted = piUsage(1024, 64);
+  const stored = {
+    models: { "scripted/small": { ...counted, input: "unknown", cacheRead: 1.5 } },
+    tools: {},
+  };
+  {
+    await using database = openDatabase(inject("databaseUrl"));
+    await database
+      .withSchema(DB_SCHEMA)
+      .updateTable("jobProgress")
+      .set((eb) => ({
+        usage: eb.cast<JobUsage>(eb.val(JSON.stringify(stored)), "jsonb"),
+        totalTokens: counted.totalTokens,
+        costUsd: counted.cost.total,
+      }))
+      .where("jobId", "=", JobId(id))
+      .execute();
+  }
+  await client.jobs.cancel({ id });
+
+  expect((await client.jobs.get({ id })).status).toBe("cancelled");
+  expect(await usageRecordsOf(id)).toEqual([
+    {
+      usage: {
+        models: { "scripted/small": Struct.omit(counted, ["input", "cacheRead"]) },
+        tools: {},
+      },
+      entriesAddUp: true,
+    },
+  ]);
+});

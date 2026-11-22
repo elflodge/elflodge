@@ -269,11 +269,13 @@ export const USAGE_TOKEN_COUNTERS = [
 export const USAGE_COST_COUNTERS = ["total", "input", "output", "cacheRead", "cacheWrite"] as const;
 
 /**
- * One model's or tool's usage as pi-ai counts it. The hub adds up its tokens and cost, and casts
- * each counter it subtracts between ends in SQL, so each is checked as the number SQL reads: token
- * counts as integers. The shapes name exactly `USAGE_TOKEN_COUNTERS` and `USAGE_COST_COUNTERS`,
- * which `satisfies` checks both ways, since a shape built from the lists would need an unsafe type
- * assertion. Other fields are kept as they come.
+ * One model's or tool's usage as pi-ai counts it. The hub adds up its tokens and cost, and
+ * subtracts each counter between ends in SQL, so each is checked as a number: `totalTokens` as an
+ * integer for the hub's `bigint` sum, the other token counts as integers so that records hold
+ * whole tokens. The shapes name exactly `USAGE_TOKEN_COUNTERS` and `USAGE_COST_COUNTERS`, which
+ * `satisfies` checks both ways: a shape built from the lists needs an unsafe type assertion, and
+ * Zod Mini types `z.keyof` as a literal schema without the `options` it has. Other fields are kept
+ * as they come.
  */
 const usageSchema = z.looseObject({
   totalTokens: z.int(),
