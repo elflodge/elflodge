@@ -250,34 +250,11 @@ export type JobEvent = z.infer<typeof jobEventSchema>;
 
 /**
  * pi's additive token counters of one model's or tool's usage, under pi's names: each end's Usage
- * record takes, in SQL, each counter at this end less the same name's at the job's previous end.
+ * record takes, in SQL, each counter at this end less the same name's at the job's previous end, so
+ * each is checked as a number: `totalTokens` as an integer for the hub's `bigint` sum, the others as
+ * integers so that records hold whole tokens.
  */
-export const USAGE_TOKEN_COUNTERS = [
-  "totalTokens",
-  "input",
-  "output",
-  "cacheRead",
-  "cacheWrite",
-  "cacheWrite1h",
-  "reasoning",
-] as const;
-
-/**
- * pi's additive cost counters, in US dollars, under `cost`, taken as the token counters are.
- * `cost.totalFromProvider` is not one: pi's `addUsage` never updates it on a running total.
- */
-export const USAGE_COST_COUNTERS = ["total", "input", "output", "cacheRead", "cacheWrite"] as const;
-
-/**
- * One model's or tool's usage as pi-ai counts it. The hub adds up its tokens and cost, and
- * subtracts each counter between ends in SQL, so each is checked as a number: `totalTokens` as an
- * integer for the hub's `bigint` sum, the other token counts as integers so that records hold
- * whole tokens. The shapes name exactly `USAGE_TOKEN_COUNTERS` and `USAGE_COST_COUNTERS`, which
- * `satisfies` checks both ways: a shape built from the lists needs an unsafe type assertion, and
- * Zod Mini types `z.keyof` as a literal schema without the `options` it has. Other fields are kept
- * as they come.
- */
-const usageSchema = z.looseObject({
+const usageTokenCounters = {
   totalTokens: z.int(),
   input: z.optional(z.int()),
   output: z.optional(z.int()),
@@ -285,14 +262,35 @@ const usageSchema = z.looseObject({
   cacheWrite: z.optional(z.int()),
   cacheWrite1h: z.optional(z.int()),
   reasoning: z.optional(z.int()),
-  cost: z.looseObject({
-    total: z.number(),
-    input: z.optional(z.number()),
-    output: z.optional(z.number()),
-    cacheRead: z.optional(z.number()),
-    cacheWrite: z.optional(z.number()),
-  } satisfies Record<(typeof USAGE_COST_COUNTERS)[number], z.ZodMiniType>),
-} satisfies Record<(typeof USAGE_TOKEN_COUNTERS)[number] | "cost", z.ZodMiniType>);
+};
+
+/**
+ * pi's additive cost counters, in US dollars, under `cost`, taken as the token counters are.
+ * `cost.totalFromProvider` is not one: pi's `addUsage` never updates it on a running total.
+ */
+const usageCostCounters = {
+  total: z.number(),
+  input: z.optional(z.number()),
+  output: z.optional(z.number()),
+  cacheRead: z.optional(z.number()),
+  cacheWrite: z.optional(z.number()),
+};
+
+/** The names of pi's additive token counters (`usageTokenCounters`). */
+export const USAGE_TOKEN_COUNTERS = z.keyof(z.object(usageTokenCounters)).options;
+
+/** The names of pi's additive cost counters (`usageCostCounters`). */
+export const USAGE_COST_COUNTERS = z.keyof(z.object(usageCostCounters)).options;
+
+/**
+ * One model's or tool's usage as pi-ai counts it: its additive counters, checked as numbers, and
+ * other fields kept as they come.
+ */
+const usageSchema = z.looseObject({
+  ...usageTokenCounters,
+  cost: z.looseObject(usageCostCounters),
+});
+
 export type JobUsageEntry = z.infer<typeof usageSchema>;
 
 /**

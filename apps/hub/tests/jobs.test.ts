@@ -422,7 +422,14 @@ test("an end leaves out a stored counter that is not a number, or a token count 
   // A Runner of the older protocol could store any counter beside `totalTokens` and `cost.total`.
   const counted = piUsage(1024, 64);
   const stored = {
-    models: { "scripted/small": { ...counted, input: "unknown", cacheRead: 1.5 } },
+    models: {
+      "scripted/small": {
+        ...counted,
+        input: "unknown",
+        cacheRead: 1.5,
+        cost: { ...counted.cost, input: "7" },
+      },
+    },
     tools: {},
   };
   {
@@ -444,7 +451,12 @@ test("an end leaves out a stored counter that is not a number, or a token count 
   expect(await usageRecordsOf(id)).toEqual([
     {
       usage: {
-        models: { "scripted/small": Struct.omit(counted, ["input", "cacheRead"]) },
+        models: {
+          "scripted/small": {
+            ...Struct.omit(counted, ["input", "cacheRead"]),
+            cost: Struct.omit(counted.cost, ["input"]),
+          },
+        },
         tools: {},
       },
       entriesAddUp: true,

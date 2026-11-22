@@ -968,9 +968,10 @@ export type UsageOfEnd = Pick<
  * One model's or tool's use between a job's previous end and now, from a row of its usage now
  * (`now`) beside the same name's row at its previous end (`before`), either absent: whether any of
  * pi's counters changed, and the entry of their differences, under pi's names. The differences
- * are taken in SQL as the totals are, so a record's entries add up exactly to its `totalTokens` and
- * `costUsd`, except at the first end after the migration that added them of a job that had a
- * Usage record and used more since, where they fall short. A name whose counter shrank gets a
+ * are taken in SQL as the totals are, so the entries of a record written after the migration that
+ * added them add up exactly to its `totalTokens` and `costUsd`, except at the first end after it
+ * of a job that had a Usage record, where they fall short by the job's use between its previous
+ * end and the migration. A name whose counter shrank gets a
  * negative difference rather than none, which would break that sum: pi's totals per name only
  * grow, so it would be pi's fault. A name absent on one side counts as 0 there. A counter absent
  * now from a name present now stays absent from the entry, as `reasoning` is from a provider that

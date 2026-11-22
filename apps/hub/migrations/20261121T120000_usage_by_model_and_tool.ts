@@ -3,8 +3,8 @@ import { type Kysely, sql } from "kysely";
 // What each Usage record's use went to, by model (`provider/modelId`) and by tool: pi's additive
 // counters for each name whose counters changed since the job's previous end, as `{ "models": {},
 // "tools": {} }`, their differences adding up exactly to the record's own `totalTokens` and
-// `costUsd`, except at the first end after this migration of a job that had a Usage record and
-// used more since (ADR 0051). Not null with no default, so an end a previous release writes, which
+// `costUsd`, except at the first end after this migration of a job that had a Usage record, where
+// they fall short by the job's use between its previous end and this migration (ADR 0051). Not null with no default, so an end a previous release writes, which
 // gives no split, fails in full: its record and the job's recorded totals are written by one
 // statement or transaction, so neither a record without a split nor a moved baseline without
 // `recordedUsage` is kept. Records written before the column took empty maps: what they used
