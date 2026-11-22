@@ -128,7 +128,7 @@ function RoleChoices(props: {
               {ROLE_LABEL[role]}
               <small class="note">
                 {role === "member"
-                  ? "Submits, reads and controls jobs and Batches. Sees Runners and members."
+                  ? "Submits jobs and Batches, which spend money on models, and reads and controls any of them. Sees Runners and members."
                   : role === "admin"
                     ? "Also manages API keys, reads Usage, removes Runners, invites and removes members and changes their roles, owners excepted."
                     : `Also invites, changes and removes owners${props.own ? "." : ", you included."}`}
