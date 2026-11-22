@@ -512,8 +512,11 @@ test("a confirmed revocation is sent once, however often it is pressed", async (
     await expectBrowser(dialog.getByText("Working…")).toBeVisible();
     await confirm.click({ force: true });
     await confirm.press("Enter");
-    // Nor can the safe choice leave it while the request runs.
-    await dialog.getByRole("button", { name: "Keep it" }).click({ force: true });
+    // Nor can the safe choice leave it while the request runs, and it says so.
+    const keep = dialog.getByRole("button", { name: "Keep it" });
+    await expectBrowser(keep).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(keep).toHaveAttribute("data-disabled", "");
+    await keep.click({ force: true });
     await expectBrowser(dialog).toBeVisible();
   } finally {
     release.resolve();

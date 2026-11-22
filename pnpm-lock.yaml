@@ -285,11 +285,11 @@ catalogs:
       specifier: ^8.18.2
       version: 8.18.2
     '@ui-sdk/core':
-      specifier: 0.1.0-beta.13
-      version: 0.1.0-beta.13
+      specifier: 0.1.0-beta.14
+      version: 0.1.0-beta.14
     '@ui-sdk/solid':
-      specifier: 0.1.0-beta.13
-      version: 0.1.0-beta.13
+      specifier: 0.1.0-beta.14
+      version: 0.1.0-beta.14
     atomically:
       specifier: ^2.1.1
       version: 2.1.1
@@ -518,10 +518,10 @@ importers:
         version: 2.0.0-rc.10(@solidjs/web@2.0.0(solid-js@2.0.0))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.2)(rollup@4.65.0)(solid-js@2.0.0)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
       '@ui-sdk/core':
         specifier: 'catalog:'
-        version: 0.1.0-beta.13
+        version: 0.1.0-beta.14
       '@ui-sdk/solid':
         specifier: 'catalog:'
-        version: 0.1.0-beta.13(@solidjs/web@2.0.0(solid-js@2.0.0))(@ui-sdk/core@0.1.0-beta.13)(solid-js@2.0.0)
+        version: 0.1.0-beta.14(@solidjs/web@2.0.0(solid-js@2.0.0))(@ui-sdk/core@0.1.0-beta.14)(solid-js@2.0.0)
       better-auth:
         specifier: 'catalog:'
         version: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.0(solid-js@2.0.0))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.2)(rollup@4.65.0)(solid-js@2.0.0)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.0)(vitest@5.1.0)
@@ -3282,14 +3282,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@ui-sdk/core@0.1.0-beta.13':
-    resolution: {integrity: sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg==}
+  '@ui-sdk/core@0.1.0-beta.14':
+    resolution: {integrity: sha512-SHm5qLYBqxT5+d3svaBeP5uoBMIQbETKBqcZ/6b+WhhXlz6YoeNqjtMfpmq4yGA329DFwzu+y7+xGJjw4fnTPQ==}
 
-  '@ui-sdk/solid@0.1.0-beta.13':
-    resolution: {integrity: sha512-/YLOk1OGHzRvgVxmMpTXc4OSOCAucTbQ7XElaVAYlvcGqn6F8ALyc39nkcNAroREqyAKzbdxkVtYTLXPOVV13g==}
+  '@ui-sdk/solid@0.1.0-beta.14':
+    resolution: {integrity: sha512-CgxLnKmX4pBIpKkmpPznUl4mg0TY2O/fBwOAxfjUrrubhty4YsPT3mS0mnxc07McEjzCUkuQMfMPbQ2M1urwpQ==}
     peerDependencies:
       '@solidjs/web': ^2.0.0
-      '@ui-sdk/core': ^0.1.0-beta.13
+      '@ui-sdk/core': ^0.1.0-beta.14
       solid-js: ^2.0.0
 
   '@vitest/browser-preview@5.1.0':
@@ -8644,12 +8644,12 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@ui-sdk/core@0.1.0-beta.13': {}
+  '@ui-sdk/core@0.1.0-beta.14': {}
 
-  '@ui-sdk/solid@0.1.0-beta.13(@solidjs/web@2.0.0(solid-js@2.0.0))(@ui-sdk/core@0.1.0-beta.13)(solid-js@2.0.0)':
+  '@ui-sdk/solid@0.1.0-beta.14(@solidjs/web@2.0.0(solid-js@2.0.0))(@ui-sdk/core@0.1.0-beta.14)(solid-js@2.0.0)':
     dependencies:
       '@solidjs/web': 2.0.0(solid-js@2.0.0)
-      '@ui-sdk/core': 0.1.0-beta.13
+      '@ui-sdk/core': 0.1.0-beta.14
       solid-js: 2.0.0
 
   '@vitest/browser-preview@5.1.0(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)':

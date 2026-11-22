@@ -23,9 +23,11 @@ import { Notice } from "./Notice.tsx";
  * a refusal still to show; this one stays when a read drops the record, naming it as the member saw
  * it, so the payload carries the record's words as they were at the press.
  *
- * The page reads the list through `latest`, as `createMemo(() => latest(() => deep(query.data)))`,
- * everywhere it reads it: a pass that reads a list being read again under the same key, by a poll
- * or an invalidation, can hold the dialog's writes until that read lands.
+ * What the dialog's interaction reads from the list, or makes Solid recompute, the page reads
+ * through `latest`, as `createMemo(() => latest(() => deep(query.data)))`: the triggers' payloads and
+ * labels, the conditions that show them, what the dialog renders and what `act` recomputes. While
+ * the list reads again under the same key, its `data` is pending, and a flush that reruns a
+ * derivation of it waits for that read with every write staged in it, the dialog's included.
  *
  * Once confirmed it cannot be left until `act` settles. `act` resolves once the page shows the
  * outcome, which closes the dialog with focus on `notice`, brought into view; it throws to refuse,
