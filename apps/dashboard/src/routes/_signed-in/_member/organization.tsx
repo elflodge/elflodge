@@ -231,6 +231,13 @@ function OrganizationPage(props: { organizationId: string }) {
   // answered before the change it is for; invalidated again, the router publishes its latest load.
   const refreshSession = () => router.invalidate();
   const isOwn = (person: Member) => person.userId === context().user.id;
+  const currentMember = (person: Member) =>
+    roster().members.find((m) => m.id === person.id) ?? person;
+  const canInviteOrRename = createMemo(() => {
+    const reader = roster().members.find(isOwn);
+    // A missing reader leaves the session read to replace the page, as for Remove.
+    return !left() && manages() && (!reader || manager(reader));
+  });
   // A background member read may discover a change in another tab. The session is read again
   // whenever the reader's role in the members differs from what they last showed, the reader absent
   // (null) counting as a role of its own, and on the first roster when it differs from the
@@ -263,12 +270,11 @@ function OrganizationPage(props: { organizationId: string }) {
    * members, while the dialog waits, decides whether `person` is gone, and then writes that alone.
    * Tried once, within the confirmation's deadline, offline too: Query's `fetchQuery` would join a
    * read in flight, with its retries and its pause while offline. A reader who is no member gets a
-   * 403 from it, which starts the session read and ends here as a failed read does.
+   * 403 from it. Any failed check leaves the reader’s membership unresolved and refreshes the session.
    */
   async function memberGone(organizationId: string, person: Member) {
-    const current = await readMembers(organizationId, CONFIRMED).catch((error: unknown) => {
-      // The reader is no longer a member, or no longer signed in: the session read replaces the page.
-      if (isAuthAccessError(error)) void refreshSession();
+    const current = await readMembers(organizationId, CONFIRMED).catch(() => {
+      void refreshSession();
       return undefined;
     });
     if (!current) return undefined;
@@ -370,7 +376,6 @@ function OrganizationPage(props: { organizationId: string }) {
 
   async function changeRole(person: Member, next: MemberRole) {
     const own = isOwn(person);
-    const name = person.user.name;
     const organizationId = orgId();
     // On its own: written beside the request, it would be held until it settles.
     onFlush(() => setNotice(undefined));
@@ -382,7 +387,7 @@ function OrganizationPage(props: { organizationId: string }) {
         hasAuthCode(error, "MEMBER_NOT_FOUND") &&
         (await memberGone(organizationId, person))
       ) {
-        status(`${name} is already gone.`);
+        status(`${person.user.name} is already gone.`);
         // On the page before the dialog closes and focus moves to it.
         flush();
         void refreshInvites();
@@ -393,7 +398,11 @@ function OrganizationPage(props: { organizationId: string }) {
       refusedMembership(error);
       throw error;
     }
-    status(own ? `You are now ${asRole(next)}.` : `${name} is now ${asRole(next)}.`);
+    status(
+      own
+        ? `You are now ${asRole(next)}.`
+        : `${currentMember(person).user.name} is now ${asRole(next)}.`,
+    );
     flush();
     void refreshAfterMembershipChange();
     // One's own role decides what the page offers, from the session: until it is read again, the
@@ -461,7 +470,7 @@ function OrganizationPage(props: { organizationId: string }) {
     const list = roster().members;
     const reader = list.find(isOwn);
     const target = list.find((m) => m.id === person.id);
-    if (!reader) return MANAGERS_ONLY;
+    if (!reader) return undefined;
     if (!target) return `${person.user.name} is no longer a member.`;
     if (canChangeRole(list, reader, target)) return undefined;
     if (reader.id === target.id && soleOwner(list, reader.userId)) return NOW_ONLY_OWNER;
@@ -549,7 +558,7 @@ function OrganizationPage(props: { organizationId: string }) {
     <>
       <div class="head">
         <h1>Organization</h1>
-        <Show when={manages() && !left()}>
+        <Show when={canInviteOrRename()}>
           <div class="controls">
             <DialogTrigger controller={inviteDialog} class="primary">
               Invite a member
@@ -560,7 +569,7 @@ function OrganizationPage(props: { organizationId: string }) {
       <Show when={!left()}>
         <div class="org-name">
           <strong>{org()?.name}</strong>
-          <Show when={manages()}>
+          <Show when={canInviteOrRename()}>
             <DialogTrigger controller={renameDialog}>Rename</DialogTrigger>
           </Show>
         </div>
@@ -762,6 +771,7 @@ function OrganizationPage(props: { organizationId: string }) {
           keeps its dialog, and a refusal or an answer still to come has somewhere to show. */}
       <InviteMember
         controller={inviteDialog}
+        withdrawn={() => (canInviteOrRename() ? undefined : MANAGERS_ONLY)}
         owner={owner()}
         organizationId={orgId()}
         refreshInvites={() => void refreshInvites()}
@@ -769,6 +779,9 @@ function OrganizationPage(props: { organizationId: string }) {
       />
       <RenameOrganization
         controller={renameDialog}
+        withdrawn={() =>
+          canInviteOrRename() ? undefined : "Only owners and admins rename the Organization."
+        }
         name={org()?.name ?? ""}
         rename={rename}
         notice={() => noticeElement}
@@ -777,7 +790,7 @@ function OrganizationPage(props: { organizationId: string }) {
         controller={changeRoleDialog}
         owner={rolesOf(roster().members.find(isOwn)?.role ?? "").includes("owner")}
         own={isOwn}
-        current={(person) => roster().members.find((m) => m.id === person.id)}
+        current={currentMember}
         withdrawn={roleChangeWithdrawn}
         refusal={roleChangeRefusal}
         change={changeRole}

@@ -434,6 +434,38 @@ test("Rename cannot be left while the hub answers, and its notice takes focus be
   session.release();
 }, 30_000);
 
+test("an open Rename stops accepting a name when its reader loses management access", async () => {
+  const email = "renee@example.com";
+  const reader = await addAdmin("Renee", email);
+  const page = await openOrganization({ email, password: PASSWORD });
+  await page.getByRole("button", { name: "Rename" }).click();
+  const dialog = page.getByRole("dialog");
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await name.fill("Another name");
+  const rename = dialog.getByRole("button", { name: "Rename" });
+  await rename.focus();
+
+  // The roster can withdraw the form before the new session reaches the page.
+  const session = await holdReads(page, (url) => url.pathname === "/api/auth/get-session");
+  session.start();
+  await setRole(reader.userId, "member");
+  await readAgain(page);
+  await session.arrived;
+  await expectBrowser(dialog).toContainText("Only owners and admins rename the Organization.");
+  await expectBrowser(rename).toBeDisabled();
+  await expectBrowser(rename).toBeFocused();
+  let writes = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/organization/update") writes++;
+  });
+  await page.keyboard.press("Enter");
+  await name.press("Enter");
+  session.release();
+  await expectBrowser(page.getByText("Invitations", { exact: true })).toHaveCount(0);
+  await expectBrowser(dialog).toBeVisible();
+  expect(writes).toBe(0);
+}, 30_000);
+
 test("a Change role the hub never answers ends by saying it may have been done", async () => {
   const person = await system.addMember({ name: "Quiet Quinn", email: "quiet-quinn@example.com" });
   onTestFinished(async () => {

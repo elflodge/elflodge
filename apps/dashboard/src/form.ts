@@ -8,7 +8,7 @@ import { action, createOptimistic } from "solid-js";
 import { hubFailureMessage } from "./api-client.ts";
 
 /** A refusal as a form shows it: the words at each control, by its name, and the alert's. */
-type FormRefusal = { fields: Map<string, string>; alert: string | undefined };
+export type FormRefusal = { fields: Map<string, string>; alert: string | undefined };
 
 /**
  * The refusal `issues` make, located as the hub locates them, each at the control of `controls` that

@@ -12,6 +12,7 @@ import { Show, createMemo } from "solid-js";
 
 import { hubWriteFailureMessage, isWriteRefusal } from "../api-client.ts";
 import { untilFlushed } from "../query.ts";
+import { dialogAction, withdrawalMessage } from "./dialog-action.ts";
 import { Notice } from "./Notice.tsx";
 
 /**
@@ -66,33 +67,10 @@ export function ConfirmDialog<T>(props: {
   /** The page's notice of the outcome, for focus once `act` has resolved. */
   notice: () => HTMLElement | undefined;
 }) {
-  // Only an outcome the page shows takes focus: a keep or Escape returns it to the trigger, even
-  // with an older notice on the page. A resolved action closes with the reason "action".
-  let acted = false;
+  const { root, finalFocus } = dialogAction(props);
   return (
-    <AlertDialog
-      controller={props.controller}
-      // Beside the page rather than in it: UI SDK makes inert what is beside the dialog when it opens,
-      // which is then the page's root, so what a read renders later is inert too. UI SDK leaves out
-      // live regions showing at that moment and what holds them, so with an earlier notice showing,
-      // what a read renders later beside it stays exposed.
-      container={document.body}
-      pendingAnnouncement="Working…"
-      // The dialog acts on the record it opened for: with an earlier notice showing, a row a read
-      // renders beside it later is not inert, and its trigger would hand the open dialog its own
-      // record, a running request's refusal included.
-      onPayloadChange={(_, details) => {
-        if (props.controller.isOpen()) details.cancel();
-      }}
-      onOpenChange={(open, details) => {
-        acted = !open && details.reason === "action";
-      }}
-      onOpenChangeComplete={(open) => {
-        // UI SDK focuses without scrolling, and the notice can be above a long list scrolled down.
-        if (!open && acted) props.notice()?.scrollIntoView({ block: "nearest" });
-      }}
-    >
-      <AlertDialogContent<T> finalFocus={() => (acted ? props.notice() : undefined)}>
+    <AlertDialog controller={props.controller} pendingAnnouncement="Working…" {...root}>
+      <AlertDialogContent<T> finalFocus={finalFocus}>
         {(state) => (
           <Show when={state.payload} keyed>
             {(record) => (
@@ -112,14 +90,6 @@ export function ConfirmDialog<T>(props: {
                       const words = isWriteRefusal(error) ? props.refusal?.(error) : undefined;
                       return words ?? hubWriteFailureMessage(error);
                     });
-                    // A refusal that says what a read's withdrawal says takes the sentence into its
-                    // alert, so one copy shows at a time and it is said once, by the alert: a
-                    // withdrawal that arrives first, while the request runs, shows it silently. The
-                    // withdrawal still disables the confirming button.
-                    const withdrawal = () => {
-                      const reason = props.withdrawn?.(record);
-                      return reason === failure() ? undefined : reason;
-                    };
                     return (
                       <>
                         <div class="dialog-b">
@@ -133,7 +103,7 @@ export function ConfirmDialog<T>(props: {
                             )}
                           >
                             <Show
-                              when={withdrawal()}
+                              when={withdrawalMessage(props.withdrawn?.(record), failure())}
                               keyed
                               fallback={props.children(record, () => close.pending)}
                             >

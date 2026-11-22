@@ -6,7 +6,7 @@ import { For, Show, createMemo, createSignal, createUniqueId, untrack } from "so
 
 import { HUB_DEADLINE_MS } from "../api-client.ts";
 import { authClient, hasAuthCode, isAuthAccessError } from "../auth-client.ts";
-import { fieldText } from "../form.ts";
+import { fieldText, type FormRefusal } from "../form.ts";
 import { isLoopback } from "../hub-address.ts";
 import {
   ROLE_LABEL,
@@ -81,6 +81,7 @@ export function InvitationAddressNote() {
 
 export function InviteMember(props: {
   controller: DialogController;
+  withdrawn: () => string | undefined;
   organizationId: string;
   owner: boolean;
   refreshInvites: () => void;
@@ -125,9 +126,8 @@ export function InviteMember(props: {
       controller={props.controller}
       heading={() => "Invite a member"}
       confirm="Create invitation"
-      refusal={(error, form) => {
-        const sent = inviting.variables;
-        if (!sent || fieldText(new FormData(form), "email") !== sent.email) return undefined;
+      withdrawn={props.withdrawn}
+      refusal={(error) => {
         let message;
         if (hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION"))
           message = "This address is already a member.";
@@ -136,7 +136,7 @@ export function InviteMember(props: {
           hasAuthCode(error, "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE") &&
           error instanceof BetterFetchError &&
           error.status === 403 &&
-          sent.role !== "owner"
+          inviting.variables?.role !== "owner"
         )
           message = "This address has an invitation only an owner can replace.";
         if (message) return { fields: new Map([["email", message]]), alert: undefined };
@@ -197,6 +197,7 @@ export function InviteMember(props: {
 
 export function RenameOrganization(props: {
   controller: DialogController;
+  withdrawn: () => string | undefined;
   name: string;
   rename: (name: string) => Promise<void>;
   notice: () => HTMLElement | undefined;
@@ -206,6 +207,7 @@ export function RenameOrganization(props: {
       controller={props.controller}
       heading={() => "Rename the Organization"}
       confirm="Rename"
+      withdrawn={props.withdrawn}
       send={(form) => props.rename(fieldText(new FormData(form), "name"))}
       notice={props.notice}
     >
@@ -236,10 +238,10 @@ export function ChangeRole(props: {
   controller: DialogController<Member>;
   owner: boolean;
   own: (member: Member) => boolean;
-  current: (member: Member) => Member | undefined;
+  current: (member: Member) => Member;
   withdrawn: (member: Member) => string | undefined;
   change: (member: Member, role: MemberRole) => Promise<void>;
-  refusal: (error: unknown) => { fields: Map<string, string>; alert: string } | undefined;
+  refusal: (error: unknown) => FormRefusal | undefined;
   consequences: (member: Member, role: MemberRole) => JSX.Element;
   notice: () => HTMLElement | undefined;
 }) {
@@ -247,22 +249,25 @@ export function ChangeRole(props: {
     <FormDialog
       controller={props.controller}
       heading={(member) =>
-        props.own(member) ? "Change your role" : `Change the role of ${member.user.name}`
+        props.own(member)
+          ? "Change your role"
+          : `Change the role of ${props.current(member).user.name}`
       }
       confirm="Change role"
       withdrawn={props.withdrawn}
       refusal={props.refusal}
       send={async (form, member) => {
+        const current = props.current(member);
         const role = chosenRole(new FormData(form));
         // The role the member has now sends nothing.
-        if (!role || role === (props.current(member) ?? member).role) return false;
-        return props.change(member, role);
+        if (!role || role === current.role) return false;
+        return props.change(current, role);
       }}
       notice={props.notice}
     >
       {(_fields, member) => (
         <RoleFields
-          member={props.current(member) ?? member}
+          member={props.current(member)}
           own={props.own(member)}
           owner={props.owner}
           consequences={props.consequences}

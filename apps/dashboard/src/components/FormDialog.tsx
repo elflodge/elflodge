@@ -10,11 +10,10 @@ import {
 import { Show, createSignal, onCleanup, onFlush, onSettled, untrack } from "solid-js";
 
 import { hubWriteFailureMessage, isWriteRefusal } from "../api-client.ts";
-import { createFormAction, formRefusal, withoutRefusals } from "../form.ts";
+import { createFormAction, formRefusal, withoutRefusals, type FormRefusal } from "../form.ts";
 import { untilFlushed } from "../query.ts";
+import { dialogAction, withdrawalMessage } from "./dialog-action.ts";
 import { Notice } from "./Notice.tsx";
-
-type Refusal = ReturnType<typeof formRefusal>;
 
 /** What the fields need from the dialog that holds them. */
 export type FormDialogFields = {
@@ -38,7 +37,7 @@ type FormDialogProps<A, T> = {
   /** As wide as the dialog can be, for a form with groups of choices. */
   wide?: boolean;
   /** Places a 4xx refusal at named controls or in the alert. Defaults to the hub's words. */
-  refusal?: (error: unknown, form: HTMLFormElement) => Refusal | undefined;
+  refusal?: (error: unknown) => FormRefusal | undefined;
   /**
    * Why the form no longer applies, read live: a read can take it away while the dialog is open. The
    * dialog says it above the fields, and the button that sends does nothing.
@@ -89,9 +88,7 @@ export function FormDialog<A, T = undefined>(props: FormDialogProps<A, T>) {
   const { pending, onSubmit } = createFormAction(async (form) => {
     await sendOpen?.(form);
   });
-  // Only an outcome the page shows takes focus: Cancel, Escape or a send that sent nothing returns
-  // it to the trigger, even with an older notice on the page.
-  let acted = false;
+  const { root, finalFocus } = dialogAction(props);
   return (
     <Dialog
       controller={props.controller}
@@ -99,25 +96,9 @@ export function FormDialog<A, T = undefined>(props: FormDialogProps<A, T>) {
       // opened again could send the same write twice. Each awaited request needs its own deadline.
       dismissible={!pending()}
       closeOnOutsidePress={false}
-      // Beside the page rather than in it, as ConfirmDialog is: UI SDK makes inert what is beside the
-      // dialog when it opens, which is then the page's root.
-      container={document.body}
-      // The form sends for the record it opened for, as ConfirmDialog's confirmation acts on its own.
-      onPayloadChange={(_, details) => {
-        if (props.controller.isOpen()) details.cancel();
-      }}
-      onOpenChange={(open, details) => {
-        acted = !open && details.reason === "action";
-      }}
-      onOpenChangeComplete={(open) => {
-        // UI SDK focuses without scrolling, and the notice can be above a long list scrolled down.
-        if (!open && acted) props.notice?.()?.scrollIntoView({ block: "nearest" });
-      }}
+      {...root}
     >
-      <DialogContent<T>
-        class={props.wide ? "is-wide" : undefined}
-        finalFocus={() => (acted ? props.notice?.() : undefined)}
-      >
+      <DialogContent<T> class={props.wide ? "is-wide" : undefined} finalFocus={finalFocus}>
         {(state) => (
           <OpenForm
             {...props}
@@ -154,14 +135,8 @@ function OpenForm<A, T>(
   // UI SDK removes this content when the dialog closes. Reopening starts a fresh form, and a
   // key shown only once stays out of the controller's payload, announcements and the query cache.
   const [answer, setAnswer] = createSignal<{ value: A }>();
-  const [refusal, setRefusal] = createSignal<Refusal>();
+  const [refusal, setRefusal] = createSignal<FormRefusal>();
   const withdrawn = () => props.withdrawn?.(payload);
-  // A refusal that says what a read's withdrawal says takes the sentence into its alert, so one copy
-  // shows at a time and it is said once, as in ConfirmDialog. The withdrawal still stops the send.
-  const withdrawal = () => {
-    const reason = withdrawn();
-    return reason === refusal()?.alert ? undefined : reason;
-  };
 
   props.register(async (form) => {
     // On its own: a write in the action before the request would be held until it settles.
@@ -179,7 +154,7 @@ function OpenForm<A, T>(
     } catch (error) {
       setRefusal(
         isWriteRefusal(error)
-          ? (props.refusal?.(error, form) ?? formRefusal(error, {}))
+          ? (props.refusal?.(error) ?? formRefusal(error, {}))
           : { fields: new Map(), alert: hubWriteFailureMessage(error) },
       );
     }
@@ -218,7 +193,7 @@ function OpenForm<A, T>(
                     region, there from the start, as ConfirmDialog's explanation is. Off while the hub
                     answers: its own answer changes the record. */}
                 <div class="withdrawal" aria-live={props.pending() ? "off" : "polite"}>
-                  <Show when={withdrawal()} keyed>
+                  <Show when={withdrawalMessage(withdrawn(), refusal()?.alert)} keyed>
                     {(reason) => <p>{reason}</p>}
                   </Show>
                 </div>
