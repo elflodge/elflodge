@@ -7,7 +7,6 @@ import type { Role } from "better-auth/plugins/access";
 // vp's recursive build a cycle (dashboard#build -> hub#build -> dashboard#build).
 import { ac, roles } from "../../hub/src/auth/access.ts";
 import type { BetterAuth } from "../../hub/src/auth/auth.ts";
-import { HUB_DEADLINE_MS } from "./api-client.ts";
 
 /**
  * Better Auth's client for the hub that serves the dashboard, at Better Auth's default path on the
@@ -21,11 +20,7 @@ export const authClient = createAuthClient({
     organizationClient<{ ac: typeof ac; roles: Record<string, Role> }>({ ac, roles }),
     customSessionClient<BetterAuth>(),
   ],
-  // better-fetch's timeout covers a call made without a signal of its own, and only until the
-  // answer's headers arrive: the shell's `getSession()` in `beforeLoad`. The session store's read
-  // and renewal, and the members read, pass their own signal, so they have no deadline. No dialog
-  // on Runners or API keys waits on this client.
-  fetchOptions: { throw: true, timeout: HUB_DEADLINE_MS },
+  fetchOptions: { throw: true },
 });
 
 /**
