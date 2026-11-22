@@ -22,7 +22,7 @@ import {
   onSettled,
 } from "solid-js";
 
-import { api, hubFailureDetail, readFromHub } from "../../../api-client.ts";
+import { api, hubFailureDetail, readFromHub, secretAnswerFailure } from "../../../api-client.ts";
 import { ConfirmDialog } from "../../../components/ConfirmDialog.tsx";
 import { CopyButton } from "../../../components/CopyButton.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -281,6 +281,8 @@ function CreateKey(props: { controller: DialogController }) {
         ...(expiresIn === undefined ? {} : { expiresIn }),
       });
       return { name, key };
+    } catch (error) {
+      throw secretAnswerFailure(error);
     } finally {
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
     }

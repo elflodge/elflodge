@@ -1,7 +1,7 @@
 import { BetterFetchError } from "@better-fetch/fetch";
-import { createORPCClient, onError, ORPCError } from "@orpc/client";
+import { createORPCClient, ORPCError, ResponseError } from "@orpc/client";
 import { TimeoutLinkPlugin } from "@orpc/client/plugins";
-import { ValidationError, type ContractRouterClient } from "@orpc/contract";
+import type { ContractRouterClient } from "@orpc/contract";
 import { apiContract, asError, createProblemDetailsLink, problemOf } from "contract";
 
 /**
@@ -25,14 +25,6 @@ const CALLS_CARRYING_CONTENT = new Set(["blobs.upload", "batches.create", "batch
  */
 export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
   createProblemDetailsLink(apiContract, {
-    interceptors: [
-      // An answer that fails the contract check stays on its error as `invalidData`, where logging
-      // the error would show what it carried, such as a new key. The issues say what was wrong.
-      onError((error) => {
-        if (error instanceof ORPCError && error.cause instanceof ValidationError)
-          error.cause.invalidData = undefined;
-      }),
-    ],
     plugins: [
       new TimeoutLinkPlugin({
         timeout: ({ path }) =>
@@ -86,6 +78,21 @@ export function hubWriteFailureMessage(caught: unknown): string {
   // A mistake in the dashboard ends here too, which the console keeps.
   console.error(error);
   return "The dashboard could not confirm this was done. Check before trying again.";
+}
+
+/**
+ * A refusal describes the input. Any other error from a call that returns a secret can carry it
+ * in the message, response body or cause, so give the caller a fresh error it can safely log.
+ */
+export function secretAnswerFailure(caught: unknown): Error {
+  const error = asError(caught);
+  if (isWriteRefusal(error)) return error;
+  const responseError = error instanceof ORPCError ? error.cause : error;
+  const status =
+    responseError instanceof ResponseError
+      ? responseError.response.status
+      : problemOf(error)?.status;
+  return new Error(status === undefined ? error.name : `${error.name}, status ${status}`);
 }
 
 /** Finish a failure notice with the hub's words when it supplied any. */

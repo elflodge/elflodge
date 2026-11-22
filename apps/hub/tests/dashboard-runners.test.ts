@@ -405,18 +405,6 @@ test("Create key cannot be left while the hub answers, and then shows the key wi
 
 test("a key the hub made whose answer failed the contract check is listed, not logged, and the dialog does not say to try again", async () => {
   const page = await signedInAt("api-keys");
-  // What the page logs, kept as values, to look through every property of a logged error.
-  await page.evaluate(() => {
-    const logged: unknown[] = [];
-    Object.assign(globalThis, { logged });
-    for (const level of ["error", "warn", "log", "info", "debug"] as const) {
-      const original = console[level].bind(console);
-      console[level] = (...args: unknown[]) => {
-        logged.push(args);
-        original(...args);
-      };
-    }
-  });
   await page.getByRole("button", { name: "Create key" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Name" }).fill("unconfirmed");
@@ -435,29 +423,32 @@ test("a key the hub made whose answer failed the contract check is listed, not l
       await route.fulfill({ response, json: { key } });
     },
   );
+  await page.clearConsoleMessages();
   await dialog.getByRole("button", { name: "Create key" }).click();
   await expectBrowser(dialog.getByRole("alert")).toHaveText(
     "The dashboard could not confirm this was done. Check before trying again.",
   );
   await expectBrowser(page.locator("tbody tr", { hasText: "unconfirmed" })).toHaveCount(1);
   expect(key).not.toBe("");
-  const logs = await page.evaluate((secret) => {
-    const seen = new Set<unknown>();
-    const holds = (value: unknown): boolean => {
-      if (typeof value === "string") return value.includes(secret);
-      if (typeof value !== "object" || value === null || seen.has(value)) return false;
-      seen.add(value);
-      return Object.getOwnPropertyNames(value).some((name) => {
-        const property: unknown = Reflect.get(value, name);
-        return holds(property);
-      });
-    };
-    const logged: unknown = Reflect.get(globalThis, "logged");
-    if (!Array.isArray(logged)) throw new Error("The page's logs were not kept.");
-    return { count: logged.length, withKey: logged.filter(holds).length };
-  }, key);
-  // The failure is logged, without the key the answer carried.
-  expect(logs).toEqual({ count: 1, withKey: 0 });
+  const messages = await page.consoleMessages();
+  expect(messages.filter((message) => message.type() === "error")).toHaveLength(1);
+  const loggedKey = await page.evaluate(
+    ({ args, secret }) => {
+      const seen = new Set<object>();
+      const holdsKey = (value: unknown): boolean => {
+        if (typeof value === "string") return value.includes(secret);
+        if (typeof value !== "object" || value === null || seen.has(value)) return false;
+        seen.add(value);
+        // Error.message, stack and cause can all be non-enumerable.
+        return Reflect.ownKeys(value).some(
+          (name) => String(name).includes(secret) || holdsKey(Reflect.get(value, name)),
+        );
+      };
+      return args.some(holdsKey);
+    },
+    { args: messages.flatMap((message) => message.args()), secret: key },
+  );
+  expect(loggedKey).toBe(false);
 }, 30_000);
 test("a member can correct a refused key name and keep the permissions they chose", async () => {
   const page = await signedInAt("api-keys");
