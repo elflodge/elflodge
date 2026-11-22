@@ -389,14 +389,17 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
   );
   // The Batch is made while the question is open, which gives way to it at once, while the session
   // read of the Batch's page is held, so this page stays while that one loads.
+  const reached = Promise.withResolvers<void>();
   const record = Promise.withResolvers<void>();
   await page.route("**/api/auth/get-session", async (route) => {
+    reached.resolve();
     await record.promise;
     await route.continue();
   });
   const entries = await page.evaluate("history.length");
   held.resolve();
   try {
+    await reached.promise;
     await expectBrowser(dialog).toBeHidden();
     await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
   } finally {

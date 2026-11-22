@@ -24,9 +24,9 @@ export function preloadJobLimits(context: { member?: unknown; queryClient: Query
  */
 export function useJobLimits() {
   const limits = useQuery(() => orpc.jobs.limits.queryOptions());
-  // Through `latest`, as the pages that use these hold UI SDK parts: `data` is pending while the
-  // limits are read again, when the member returns to the tab, and a pass reading it could hold
-  // the parts' writes until the read lands.
+  // Through `latest`, as a page that holds a UI SDK part reads a query that reads again under the
+  // same key: here when the member returns to the tab. A held read of the limits held neither
+  // dialog of Submit a job and Submit a Batch, but which reads hold depends on the page around them.
   const held = createMemo(() =>
     limits.dataUpdatedAt ? latest(() => deep(limits.data)) : undefined,
   );
