@@ -245,7 +245,7 @@ const jobBaseSchema = z.object({
   /**
    * How many times the job's agent has called each tool, as of the Events the hub holds: `{}` until
    * a call's result is recorded. Absent once the job is deleted, as its Events are; its calls are kept
-   * in its Usage records, which nothing reads yet.
+   * in its Usage records, whose `toolCalls` no report reads yet.
    */
   toolCalls: z.optional(toolCallsSchema),
   /**
@@ -560,8 +560,8 @@ export const batchSchema = z
     usage: usageSchema,
     /**
      * How many times its jobs have called each tool, each job's `toolCalls` added up by tool name;
-     * a deleted job's calls are not included, and are kept in its Usage records, which nothing reads
-     * yet.
+     * a deleted job's calls are not included, and are kept in its Usage records, whose `toolCalls` no
+     * report reads yet.
      */
     toolCalls: toolCallsSchema,
   })
