@@ -2436,7 +2436,7 @@ p mark.placeholder {
   color: var(--c-ink-2);
 }
 
-/* A ledger measures each row against the same total. */
+/* A ledger's last cell, a count or what measures or opens a row, stands at the end on one line. */
 .ledger td:last-child {
   text-align: end;
   white-space: nowrap;
@@ -2492,7 +2492,8 @@ p mark.placeholder {
   min-width: 0;
 }
 .ledger-layout h2,
-.ledger-layout .ledger th {
+.ledger-layout .ledger th,
+details > .ledger th {
   overflow-wrap: anywhere;
 }
 .ledger-layout .bar-cell {

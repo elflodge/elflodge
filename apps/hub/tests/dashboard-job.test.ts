@@ -29,6 +29,15 @@ afterAll(async () => {
   await system.stop();
 });
 
+/** pi's entry of a call of `toolName` that ran. */
+function toolResult(toolName: string) {
+  const ran = { isError: false, durationMs: 5, timestamp: Date.now() };
+  return {
+    kind: "pi.tool-result",
+    model: [{ role: "toolResult", toolCallId: crypto.randomUUID(), toolName, content: [], ...ran }],
+  };
+}
+
 async function openAsMember(name: string, pathname: string) {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
@@ -58,6 +67,35 @@ test("a member opens a listed job, sees its pause requested, and finds the pause
   await expectBrowser(page.getByRole("row").filter({ hasText: "april-invoices" })).toContainText(
     "Paused",
   );
+}, 45_000);
+
+test("a member opens a job's tool calls by name, and they stay open as a count grows", async () => {
+  const client = await system.clientWithNewJobsKey();
+  const job = await submitJob(client, { ...submission, customId: "tool-calls" });
+  const runner = await system.connectReportingRunner();
+  onTestFinished(() => runner.close());
+  const run = await runner.place(job.id);
+  const usage = { models: {}, tools: {} };
+  // The hub's map lists the shorter name first.
+  await runner.start(run, usage, [toolResult("fetch_content"), toolResult("web_search")]);
+
+  const page = await openAsMember("Tool reader", `jobs/${job.id}`);
+  await page.getByText("Show tool calls").click();
+  const table = page.getByRole("table", { name: "Tool calls by tool" });
+  await expectBrowser(table.getByRole("rowheader")).toHaveText(["fetch_content", "web_search"]);
+  await expectBrowser(table.getByRole("cell")).toHaveText(["1", "1"]);
+  // After the started Event and the two results: a new tool, and another call of one.
+  await runner.report(
+    { ...run, position: 3 },
+    [toolResult("read"), toolResult("web_search")],
+    usage,
+  );
+  await expectBrowser(table.getByRole("rowheader")).toHaveText(
+    ["fetch_content", "read", "web_search"],
+    { timeout: 15_000 },
+  );
+  await expectBrowser(table.getByRole("cell")).toHaveText(["1", "1", "2"]);
+  await expectBrowser(table).toBeVisible();
 }, 45_000);
 
 test("a member can finish reading a Cancel confirmation after the job starts", async () => {

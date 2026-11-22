@@ -12,6 +12,7 @@ import { Instant } from "../../../components/Instant.tsx";
 import { JobSubmitter } from "../../../components/JobReferences.tsx";
 import { JobStatus } from "../../../components/JobStatus.tsx";
 import { RecordCrumbs } from "../../../components/RecordCrumbs.tsx";
+import { ToolCallsLedger } from "../../../components/ToolCallsLedger.tsx";
 import {
   DATE_TIME_SECONDS,
   formatCount,
@@ -125,7 +126,7 @@ function BatchPage() {
             <BatchControls batch={batch()} />
           </div>
           <BatchJobs batch={batch()} current={current()} />
-          <Show when={batch().usage.totalTokens > 0}>
+          <Show when={batch().usage.totalTokens > 0 || Object.keys(batch().toolCalls).length > 0}>
             <section aria-labelledby="batch-usage">
               <h2 id="batch-usage">Usage</h2>
               <dl>
@@ -136,6 +137,7 @@ function BatchPage() {
                 <dt>Tokens{batch().status !== "cancelled" && " so far"}</dt>
                 <dd>{formatCount(batch().usage.totalTokens)}</dd>
               </dl>
+              <ToolCallsLedger calls={batch().toolCalls} />
               <p class="note">Counts its present jobs, running included.</p>
             </section>
           </Show>
