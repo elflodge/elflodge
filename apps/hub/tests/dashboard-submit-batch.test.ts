@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import type { Browser, Page, Request } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
@@ -294,7 +298,7 @@ test("Leave confirmed while an upload is held sends no create", async () => {
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Leave without submitting?" });
+  const dialog = page.getByRole("alertdialog", { name: "Leave without submitting?" });
   await dialog.getByRole("button", { name: "Leave the page" }).click();
   // Stopped by Leave itself, while the page is still here.
   await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toBeVisible();
@@ -341,7 +345,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
   // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
   await page.getByRole("button", { name: "Remove all" }).click();
-  const dialog = page.getByRole("dialog", { name: "Remove the job?" });
+  const dialog = page.getByRole("alertdialog", { name: "Remove the job?" });
   await expectBrowser(dialog).toContainText("A Batch the hub may already have keeps its jobs.");
   await expectBrowser(dialog).not.toContainText("not been submitted");
   await dialog.getByRole("button", { name: "Keep it" }).click();
@@ -364,7 +368,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
 }, 30_000);
 
-test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it", async () => {
+test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it until it lands there", async () => {
   const page = await openSubmitBatch("Batch waiter");
   await page.getByLabel("Batch ID").fill("typed-only");
   await page.getByRole("button", { name: "Add a job" }).click();
@@ -383,16 +387,104 @@ test("a Batch of typed jobs says it is being created, and leaving meanwhile says
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Leave this page?" });
+  const dialog = page.getByRole("alertdialog", { name: "Leave this page?" });
   await expectBrowser(dialog).toContainText(
     "The hub may already have a Batch from this page: look for it in Batches before submitting it again.",
   );
-  await dialog.getByRole("button", { name: "Stay" }).click();
+  // The Batch is made while the question is open, which gives way to it at once, while the session
+  // read of the Batch's page is held, so this page stays while that one loads.
+  const reached = Promise.withResolvers<void>();
+  const record = Promise.withResolvers<void>();
+  await page.route("**/api/auth/get-session", async (route) => {
+    reached.resolve();
+    await record.promise;
+    await route.continue();
+  });
+  const entries = await page.evaluate("history.length");
   held.resolve();
+  try {
+    await reached.promise;
+    await expectBrowser(page.getByRole("alertdialog")).toHaveCount(0);
+    await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+    await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
+  } finally {
+    record.resolve();
+  }
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("typed-only");
+  expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
+  await expectBrowser(page.locator("[inert]")).toHaveCount(0);
+  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
 }, 30_000);
 
-test("Remove all asks first: keeping keeps every job, and removing sends nothing and leaves focus on Add files", async () => {
+test("Leave asked while files upload says so once the create is sent, and chosen then, keeps to where the member was going", async () => {
+  const page = await openSubmitBatch("Batch waverer");
+  await page.getByLabel("Batch ID").fill("sent-while-asked");
+  await addFiles(page, [["asked.txt", `Sent while asked, ${crypto.randomUUID()}.`]]);
+  const reached = Promise.withResolvers<void>();
+  const upload = Promise.withResolvers<void>();
+  await page.route("**/blobs/**", async (route) => {
+    if (!isUpload(route.request())) return route.continue();
+    reached.resolve();
+    await upload.promise;
+    await route.continue();
+  });
+  const sent = Promise.withResolvers<void>();
+  const create = Promise.withResolvers<void>();
+  await page.route("**/batches", async (route) => {
+    if (!isCreate(route.request())) return route.continue();
+    sent.resolve();
+    await create.promise;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await reached.promise;
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  const description = page
+    .getByRole("alertdialog")
+    .locator('[data-slot="alert-dialog-description"]');
+  await expectBrowser(description).toContainText("The Batch has not been submitted.");
+  // A polite live region before the words change, so a screen reader hears the change.
+  await expectBrowser(description).toHaveAttribute("aria-live", "polite");
+  const element = await description.elementHandle();
+  // The session read of Batches is held, so this page stays while the create answers.
+  const leaving = Promise.withResolvers<void>();
+  const session = Promise.withResolvers<void>();
+  await page.route("**/api/auth/get-session", async (route) => {
+    leaving.resolve();
+    await session.promise;
+    await route.continue();
+  });
+  try {
+    upload.resolve();
+    await sent.promise;
+    await expect
+      .poll(() => element?.textContent())
+      .toContain("The hub may already have a Batch from this page");
+    const entries = await page.evaluate("history.length");
+    await page.getByRole("alertdialog").getByRole("button", { name: "Leave the page" }).click();
+    await leaving.promise;
+    const answered = page.waitForResponse((response) => isCreate(response.request()));
+    create.resolve();
+    expect((await answered).ok()).toBe(true);
+    // The draft has taken the success, while Batches still loads: chosen to leave, it does not follow
+    // the Batch, and says the hub may have it.
+    await expectBrowser(page.getByRole("alert")).toContainText(
+      "The hub may already have a Batch under this Batch ID: sent-while-asked",
+    );
+    session.resolve();
+    await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Batches");
+    await expectBrowser(page).toHaveURL(/\/batches$/);
+    expect(await page.evaluate("history.length")).toBe(Number(entries) + 1);
+  } finally {
+    create.resolve();
+    session.resolve();
+  }
+}, 30_000);
+
+test("Remove all asks first: keeping keeps every job, and removing sends nothing, says so and leaves focus on Add files", async () => {
   const page = await openSubmitBatch("Batch tidier");
   // A submission of the page's form starts in the click that causes it, so counting them needs no
   // wait. A string, as these tests are typed without the DOM's names.
@@ -404,7 +496,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await page.getByRole("button", { name: "Add a job" }).click();
   await page.getByLabel("Input of job 2").fill("Typed.");
   const removeAll = page.getByRole("button", { name: "Remove all" });
-  const dialog = page.getByRole("dialog", { name: "Remove all 2 jobs?" });
+  const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
   await removeAll.click();
   await dialog.getByRole("button", { name: "Keep them" }).click();
   await expectBrowser(dialog).toBeHidden();
@@ -413,11 +505,77 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await page.keyboard.press("Enter");
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
-  await removeAll.click();
-  await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
-  await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
-  await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  // Pressed without taking focus, as a click does not in Safari.
+  await page.getByLabel("Input of job 2").focus();
+  await removeAll.dispatchEvent("click");
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(removeAll).toBeFocused();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  // The rows go while the limits, from which the draft's figures are recomputed, are read again:
+  // back on the tab, Query reads them again once they are stale.
+  await expectBrowser(page.getByLabel("Model budget")).toHaveAccessibleDescription(/At most/);
+  let reread = false;
+  const release = Promise.withResolvers<void>();
+  await page.route("**/jobs/limits", async (route) => {
+    reread = true;
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await expect
+      .poll(
+        async () => {
+          await page.evaluate(`window.dispatchEvent(new Event("visibilitychange"))`);
+          return reread;
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await removeAll.click();
+    await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
+    await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
+    await expectBrowser(
+      page.getByRole("status").filter({ hasText: "All 2 jobs removed." }),
+    ).toBeVisible();
+    await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+    await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  } finally {
+    release.resolve();
+  }
   expect(await page.evaluate("window.submissions")).toBe(0);
+}, 30_000);
+
+test("a file dropped on the Jobs group adds a job, but not while Remove all asks", async () => {
+  const page = await openSubmitBatch("Batch dropper");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  const folder = await mkdtemp(path.join(tmpdir(), "dropped-"));
+  onTestFinished(() => rm(folder, { recursive: true }));
+  const dropped = path.join(folder, "dropped.txt");
+  await writeFile(dropped, "Dropped.");
+  const group = page.getByRole("group", { name: "Jobs" });
+  const input = await page.context().newCDPSession(page);
+  // Dropped as a person drops it, through the browser's own hit test, at the group's start, beside
+  // where a dialog shows.
+  async function drop() {
+    const box = await group.boundingBox();
+    if (!box) throw new Error("The Jobs group is not shown.");
+    const at = { x: box.x + 10, y: box.y + box.height / 2 };
+    const data = { items: [], files: [dropped], dragOperationsMask: 1 };
+    for (const type of ["dragEnter", "dragOver", "drop"] as const)
+      await input.send("Input.dispatchDragEvent", { type, ...at, data });
+  }
+  await drop();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  await page.getByRole("button", { name: "Remove all" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
+  await expectBrowser(dialog).toBeVisible();
+  await drop();
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(page.getByRole("button", { name: /^Remove job / })).toHaveCount(2);
 }, 30_000);
 
 test("files alike in name, size and time but not in content are each sent as their own", async () => {
