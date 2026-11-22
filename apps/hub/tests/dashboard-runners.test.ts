@@ -238,9 +238,12 @@ test("an already-gone check keeps a Runner that a later read added while it ran"
     await route.continue();
   });
   // The check's answer is read at once and delivered once a later read has shown a new Runner.
+  // Reads after that one are held, so none can restore a Runner the check wrongly discarded.
   let reads = 0;
   const checking = Promise.withResolvers<void>();
   const shown = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
   await page.route(
     (url) => url.pathname.endsWith("/runners"),
     async (route) => {
@@ -256,6 +259,7 @@ test("an already-gone check keeps a Runner that a later read added while it ran"
         await route.fulfill({ response });
         return;
       }
+      if (refused && reads > 2) await release.promise;
       await route.continue();
     },
   );

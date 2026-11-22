@@ -176,7 +176,10 @@ function KeyList() {
       // before the removal could bring the row back; the list is then marked stale but not fetched,
       // since a fetch now would hold the written list back until it answered.
       await queryClient.cancelQueries({ queryKey, exact: true });
-      queryClient.setQueryData(queryKey, (cached) => cached?.filter((item) => item.id !== key.id));
+      // The list keeps the time it was read: what is left of it is no newer.
+      queryClient.setQueryData(queryKey, (cached) => cached?.filter((item) => item.id !== key.id), {
+        updatedAt: queryClient.getQueryState(queryKey)?.dataUpdatedAt,
+      });
       await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" });
       setRevoked({ id: key.id, message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.

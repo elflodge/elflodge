@@ -47,7 +47,6 @@ export function ConfirmDialog<T>(props: {
   // Only an outcome the page shows takes focus: a keep or Escape returns it to the row's button,
   // even with an older notice on the page. A resolved action closes with the reason "action".
   let acted = false;
-  let opened = false;
   return (
     <AlertDialog
       controller={props.controller}
@@ -61,11 +60,10 @@ export function ConfirmDialog<T>(props: {
       // renders beside it later is not inert, and its trigger would hand the open dialog its own
       // record, a running request's refusal included.
       onPayloadChange={(_, details) => {
-        if (opened) details.cancel();
+        if (props.controller.isOpen()) details.cancel();
       }}
-      onOpenChange={(next, details) => {
-        opened = next;
-        acted = !next && details.reason === "action";
+      onOpenChange={(open, details) => {
+        acted = !open && details.reason === "action";
       }}
       onOpenChangeComplete={(open) => {
         // UI SDK focuses without scrolling, and the notice can be above a long list scrolled down.
