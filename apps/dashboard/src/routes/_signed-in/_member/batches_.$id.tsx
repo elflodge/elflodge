@@ -126,7 +126,7 @@ function BatchPage() {
             <BatchControls batch={batch()} />
           </div>
           <BatchJobs batch={batch()} current={current()} />
-          <Show when={batch().usage.totalTokens > 0}>
+          <Show when={batch().usage.totalTokens > 0 || Object.keys(batch().toolCalls).length > 0}>
             <section aria-labelledby="batch-usage">
               <h2 id="batch-usage">Usage</h2>
               <dl>

@@ -2492,7 +2492,8 @@ p mark.placeholder {
   min-width: 0;
 }
 .ledger-layout h2,
-.ledger-layout .ledger th {
+.ledger-layout .ledger th,
+details > .ledger th {
   overflow-wrap: anywhere;
 }
 .ledger-layout .bar-cell {

@@ -629,8 +629,6 @@ Above a record heading, `nav.crumbs` lists its parents in order. The heading nam
 
 A `table.ledger.by-share` compares parts of the same total. Its shaded `--c-ground-2` track shows the whole. A Usage ledger compares costs against the largest row, so its meters show only the filled length. Both ledgers set footer figures in `--weight-mono-strong`. Give each row a header, an end-aligned count and a native `meter` measuring the count against the total. The Share column allows 8rem for the bar plus its cell padding. The last cell holds the way to the records counted by the row when there are any. In the jobs ledger, the Running mark lights when the read is current, at least one job is running and every status is known. A current, known zero has an unlit mark and is announced as “Running” and its count. Each row reserves the height of its link even when its count is zero. The total goes under the double rule in `tfoot`.
 
-Tool calls, under the Cost and Tokens of a job and of a Batch, are a plain `table.ledger` of two columns, Tool and Calls, inside a closed `details` whose `summary` says "Show tool calls" (`ToolCallsLedger`). Each row has the hub's tool name in `code` and its end-aligned count, in name order so rows keep their places as counts grow. A `p.note` under the table says these are calls. Nothing shows before a call, and a read with new counts leaves the disclosure as the member left it.
-
 ```tsx
 <table class="ledger by-share">
   <caption class="vh">Jobs by status</caption>
@@ -681,6 +679,8 @@ Tool calls, under the Cost and Tokens of a job and of a Batch, are a plain `tabl
   </tfoot>
 </table>
 ```
+
+Tool calls, under the Cost and Tokens of a job and of a Batch, are a plain `table.ledger` of two columns, Tool and Calls, inside a closed `details` whose `summary` says "Show tool calls" (`ToolCallsLedger`). Each row has the hub's tool name in `code`, wrapping at any character, and its end-aligned count, in name order so rows keep their places as counts grow. A `p.note` under the table says these are calls. Nothing shows before a call, and a read with new counts leaves the disclosure as the member left it.
 
 ### Usage report
 
@@ -749,7 +749,7 @@ In `table.ledger.by-cost`, the group’s name cell (`th.is-name`) takes the spac
 
 The subject, zone, status, control row and facts use the job page’s parts. When jobs are waiting for the Batch’s Canary, the status shows their count beside the blocked mark. Pause holds jobs still to be sent. A pause’s cause explains what Resume releases. Cancel opens the confirmation dialog with the unfinished count and what happens to the Batch. A running job that ends before its Runner stops it keeps its status and output. If another caller cancels while the confirmation is open, it explains the new state and disables confirmation. If the confirming button had focus, focus returns to Keep it. Closing the dialog returns focus to the status when its trigger has gone. A cancel awaiting its Runners keeps its disabled button and the request time in the status. A cancelled Batch shows the consequence in the status.
 
-Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens. Its cost and tokens come from its present jobs. Facts give the full ID, creation time, creator, Labels and the failure breaker settings.
+Under “Its jobs”, all six ledger rows keep their places when a count reaches zero. Jobs with status unknown are counted under their last recorded status and linked below the ledger. An empty Batch reads “It has no jobs.” Usage appears once the Batch has tokens or tool calls. Its cost, tokens and tool calls come from its present jobs. Facts give the full ID, creation time, creator, Labels and the failure breaker settings.
 
 ### Command to copy, and a secret shown once
 

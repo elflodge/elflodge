@@ -76,16 +76,26 @@ test("a member opens a job's tool calls by name, and they stay open as a count g
   onTestFinished(() => runner.close());
   const run = await runner.place(job.id);
   const usage = { models: {}, tools: {} };
-  await runner.start(run, usage, [toolResult("web_search"), toolResult("bash")]);
+  // The hub's map lists the shorter name first.
+  await runner.start(run, usage, [toolResult("fetch_content"), toolResult("web_search")]);
 
   const page = await openAsMember("Tool reader", `jobs/${job.id}`);
   await page.getByText("Show tool calls").click();
-  const rows = page.getByRole("table", { name: "Tool calls by tool" }).getByRole("row");
-  await expectBrowser(rows).toHaveText([/Tool\s*Calls/, /bash\s*1/, /web_search\s*1/]);
-  // The started Event and the two results.
-  await runner.report({ ...run, position: 3 }, [toolResult("web_search")], usage);
-  await expectBrowser(rows.nth(2)).toHaveText(/web_search\s*2/, { timeout: 15_000 });
-  await expectBrowser(rows.nth(2)).toBeVisible();
+  const table = page.getByRole("table", { name: "Tool calls by tool" });
+  await expectBrowser(table.getByRole("rowheader")).toHaveText(["fetch_content", "web_search"]);
+  await expectBrowser(table.getByRole("cell")).toHaveText(["1", "1"]);
+  // After the started Event and the two results: a new tool, and another call of one.
+  await runner.report(
+    { ...run, position: 3 },
+    [toolResult("read"), toolResult("web_search")],
+    usage,
+  );
+  await expectBrowser(table.getByRole("rowheader")).toHaveText(
+    ["fetch_content", "read", "web_search"],
+    { timeout: 15_000 },
+  );
+  await expectBrowser(table.getByRole("cell")).toHaveText(["1", "1", "2"]);
+  await expectBrowser(table).toBeVisible();
 }, 45_000);
 
 test("a member can finish reading a Cancel confirmation after the job starts", async () => {
