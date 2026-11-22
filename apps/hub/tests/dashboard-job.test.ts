@@ -208,6 +208,8 @@ test("an open Delete shows when a resume or another deletion takes it away, and 
   await expectBrowser(confirm).toBeFocused();
   await page.keyboard.press("Enter");
   await confirm.click({ force: true });
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toHaveCount(0);
   expect(sent.count).toBe(0);
 }, 45_000);
 
@@ -295,6 +297,10 @@ test("a job that ends under an open Cancel changes its polite explanation once, 
   ).toHaveCount(1);
   await expectBrowser(confirm).toBeFocused();
   expect(sent.count).toBe(0);
+  // Cancel is gone, so focus goes to the nearest control that remains.
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("button", { name: "Delete the job" })).toBeFocused();
 }, 45_000);
 
 test("a cancel asked elsewhere while the member's own is sent leaves the hub's answer to decide", async () => {
@@ -557,8 +563,24 @@ test("a member can correct a refused budget and resume the job to its Output", a
   await field.fill("1");
   await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
   await expectBrowser(field).toHaveAccessibleDescription(hint);
-  await submit.click();
-  await expectBrowser(dialog).toHaveCount(0);
+  const release = Promise.withResolvers<void>();
+  await page.route("**/jobs/*/resume", async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await submit.click();
+    await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expectBrowser(dialog).toHaveCount(0);
+    // No part announces this wait once its dialog is closed, so the status says it.
+    await expectBrowser(page.locator("#job-status").getByText("Working…")).not.toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+  } finally {
+    release.resolve();
+  }
   await expectBrowser(page.getByLabel("Output", { exact: true }).locator("code")).toHaveText("17", {
     timeout: 15_000,
   });
