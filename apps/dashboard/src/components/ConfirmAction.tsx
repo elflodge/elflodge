@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { Show, createEffect, createSignal, createUniqueId, flush } from "solid-js";
+import { Show, createEffect, createSignal, createUniqueId, flush, onSettled } from "solid-js";
 
 import { focusIfLost } from "../form.ts";
 import { Notice } from "./Notice.tsx";
@@ -17,6 +17,11 @@ export function ConfirmAction(props: {
   trigger: string;
   /** Disable the trigger while another control is acting on the same record. */
   disabled?: boolean;
+  /**
+   * Whether the caller's request for this action is in flight, as its mutation's `isPending`
+   * says: a signal written beside the request is held until it settles.
+   */
+  pending: boolean;
   /** An open dialog can outlive the record state that allowed the action. */
   canConfirm?: boolean;
   /** The ID of the visible note explaining the trigger’s consequence. */
@@ -42,8 +47,13 @@ export function ConfirmAction(props: {
   let keepButton: HTMLButtonElement | undefined;
   let confirmButton: HTMLButtonElement | undefined;
   const headingId = createUniqueId();
-  const [pending, setPending] = createSignal(false);
+  // Written beside the caller's request, this is held until the request settles, and then covers
+  // what `act` still awaits after the hub's answer, such as a reread that decides a refusal's words.
+  const [acting, setActing] = createSignal(false);
+  const pending = () => props.pending || acting();
   const [failure, setFailure] = createSignal<string>();
+  // An earlier refusal belongs to the last press until the next one ends.
+  const shownFailure = () => (pending() ? undefined : failure());
 
   // A poll can disable the focused confirm button while the dialog is still open.
   createEffect(
@@ -56,8 +66,7 @@ export function ConfirmAction(props: {
   );
 
   async function confirm() {
-    setPending(true);
-    setFailure(undefined);
+    setActing(true);
     let message;
     try {
       message = await props.act(() => {
@@ -66,15 +75,20 @@ export function ConfirmAction(props: {
         return open;
       });
     } finally {
-      setPending(false);
+      // `act` can resolve before Solid has committed what its request changed.
+      onSettled(() => {
+        setActing(false);
+      });
     }
-    if (!message) dialog?.close();
-    else if (dialog?.open && dialog.isConnected) {
-      setFailure(message);
-      // Re-enable the confirming button before restoring focus if disabling it lost focus.
-      flush();
-      focusIfLost(confirmButton);
-    } else props.reportPageFailure(message);
+    onSettled(() => {
+      if (!message) dialog?.close();
+      else if (dialog?.open && dialog.isConnected) {
+        setFailure(message);
+        // Re-enable the confirming button before restoring focus if disabling it lost focus.
+        flush();
+        focusIfLost(confirmButton);
+      } else props.reportPageFailure(message);
+    });
   }
 
   return (
@@ -112,7 +126,7 @@ export function ConfirmAction(props: {
             <p role="status" class={pending() ? "note" : "vh"}>
               {pending() ? "Working…" : ""}
             </p>
-            <Show when={failure()} keyed>
+            <Show when={shownFailure()} keyed>
               {(message) => <Notice role="alert">{message}</Notice>}
             </Show>
           </div>

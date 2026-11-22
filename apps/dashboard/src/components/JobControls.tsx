@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
-import { Show, createSignal, flush } from "solid-js";
+import { Show, createSignal, flush, onSettled } from "solid-js";
 
-import { api, hubFailureMessage } from "../api-client.ts";
+import { hubFailureMessage } from "../api-client.ts";
 import { focusIfLost, focusRefusedField, formRefusal } from "../form.ts";
 import { USD_THRESHOLD } from "../format.ts";
 import { orpc } from "../query.ts";
@@ -38,9 +38,43 @@ export function JobControls(props: {
   onDeleted: () => void;
 }) {
   const client = useQueryClient();
+  // The hub answers a control with the job as it now stands. The job read and any Events read that
+  // can reach the newest end can replace the record, so they are cancelled first.
+  async function writeJob(job: Job) {
+    const { id } = job;
+    const queryKey = orpc.jobs.get.queryKey({ input: { id } });
+    await Promise.all([
+      client.cancelQueries({ queryKey, exact: true }),
+      client.cancelQueries({
+        queryKey: orpc.jobs.events.key({ type: "infinite", input: { id, order: "desc" } }),
+        predicate: (query) => !query.state.fetchMeta?.fetchMore,
+      }),
+      client.cancelQueries({
+        queryKey: orpc.jobs.events.key({ input: { id, order: "asc" } }),
+      }),
+    ]);
+    client.setQueryData(queryKey, job);
+  }
+  const controls = {
+    pause: useMutation(() => orpc.jobs.pause.mutationOptions({ onSuccess: writeJob })),
+    resume: useMutation(() => orpc.jobs.resume.mutationOptions({ onSuccess: writeJob })),
+    cancel: useMutation(() => orpc.jobs.cancel.mutationOptions({ onSuccess: writeJob })),
+    delete: useMutation(() =>
+      orpc.jobs.delete.mutationOptions({
+        // With the record, so the deletion notice is there to take focus.
+        onSuccess: async (job) => {
+          await writeJob(job);
+          props.onDeleted();
+        },
+      }),
+    ),
+  };
+  const pending = () => Object.values(controls).some((control) => control.isPending);
   const [pageFailure, setPageFailure] = createSignal<string>();
   const [budgetFailure, setBudgetFailure] = createSignal<ReturnType<typeof formRefusal>>();
-  const [pending, setPending] = createSignal(false);
+  // An earlier failure belongs to the last press until the next one ends.
+  const shownPageFailure = () => (pending() ? undefined : pageFailure());
+  const shownBudgetFailure = () => (pending() ? undefined : budgetFailure());
   let budgetDialog: HTMLDialogElement | undefined;
   let budgetField: HTMLInputElement | undefined;
   let status: HTMLDivElement | undefined;
@@ -48,50 +82,37 @@ export function JobControls(props: {
   let failureNotice: HTMLDivElement | undefined;
 
   function showPageFailure(control: Control, message: string) {
-    setPageFailure(`${control[0].toUpperCase()}${control.slice(1)}: ${message}`);
-    flush();
-    focusIfLost(failureNotice);
+    // Once the failed request has settled, which also ends "Working…".
+    onSettled(() => {
+      setPageFailure(`${control[0].toUpperCase()}${control.slice(1)}: ${message}`);
+      flush();
+      focusIfLost(failureNotice);
+    });
   }
 
   async function act(control: Control, modelBudgetUsd?: number) {
-    setPending(true);
-    setPageFailure(undefined);
-    setBudgetFailure(undefined);
     const id = props.job.id;
-    const queryKey = orpc.jobs.get.queryKey({ input: { id } });
     try {
-      const job =
-        control === "resume"
-          ? await api.jobs.resume({ id, modelBudgetUsd })
-          : await api.jobs[control]({ id });
-      // The job read and any Events read that can reach the newest end can replace the record.
-      await Promise.all([
-        client.cancelQueries({ queryKey, exact: true }),
-        client.cancelQueries({
-          queryKey: orpc.jobs.events.key({ type: "infinite", input: { id, order: "desc" } }),
-          predicate: (query) => !query.state.fetchMeta?.fetchMore,
-        }),
-        client.cancelQueries({
-          queryKey: orpc.jobs.events.key({ input: { id, order: "asc" } }),
-        }),
-      ]);
-      client.setQueryData(queryKey, job);
-      if (control === "delete") props.onDeleted();
-      budgetDialog?.close();
-      flush();
-      (deletionNotice ?? status)?.focus();
-      void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
-      void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
-      return undefined;
+      if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });
+      else await controls[control].mutate({ id });
     } catch (error) {
       if (modelBudgetUsd !== undefined && budgetDialog?.open && budgetDialog.isConnected) {
         setBudgetFailure(formRefusal(error, { budget: ["modelBudgetUsd"] }));
         return undefined;
       }
       return hubFailureMessage(error);
-    } finally {
-      setPending(false);
     }
+    // Once the job the hub answered is on screen. Lists reread inside the mutation would hold it,
+    // and "Working…", until each had loaded, through its retries.
+    onSettled(() => {
+      setPageFailure(undefined);
+      setBudgetFailure(undefined);
+      budgetDialog?.close();
+      (deletionNotice ?? status)?.focus();
+      void client.invalidateQueries({ queryKey: orpc.jobs.list.key() });
+      void client.invalidateQueries({ queryKey: orpc.jobs.counts.key() });
+    });
+    return undefined;
   }
 
   async function press(control: Control, modelBudgetUsd?: number) {
@@ -99,18 +120,20 @@ export function JobControls(props: {
     if (message) showPageFailure(control, message);
   }
 
-  // createFormAction holds shared signal writes until its action settles. The budget field and
-  // every job control must reflect this request while the hub is still answering it.
+  // Not createFormAction: the budget field and every job control read this request's pending state
+  // from the resume mutation, which a pending flag of the form's own would only repeat.
   async function submitBudget(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
     if (!props.resumeOffered || !budgetField || pending()) return;
     const { currentTarget, submitter } = event;
     const focused = document.activeElement;
     await press("resume", budgetField.valueAsNumber);
-    if (budgetDialog?.open) {
+    onSettled(() => {
+      if (!budgetDialog?.open) return;
+      // The refusal has rendered with aria-invalid, so a screen reader can announce it on focus.
       flush();
       if (!focusRefusedField(currentTarget, focused)) focusIfLost(submitter);
-    }
+    });
   }
 
   const active = () =>
@@ -182,7 +205,7 @@ export function JobControls(props: {
           Deleted. Its Usage record stays.
         </Notice>
       </Show>
-      <Show when={pageFailure()} keyed>
+      <Show when={shownPageFailure()} keyed>
         {(message) => (
           <Notice
             role="alert"
@@ -239,7 +262,7 @@ export function JobControls(props: {
                 label="New model budget"
                 unit="USD"
                 hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
-                error={budgetFailure()?.fields.get("budget")}
+                error={shownBudgetFailure()?.fields.get("budget")}
               >
                 {(control) => (
                   <input
@@ -266,7 +289,7 @@ export function JobControls(props: {
                   Working…
                 </p>
               </Show>
-              <Show when={budgetFailure()?.alert} keyed>
+              <Show when={shownBudgetFailure()?.alert} keyed>
                 {(message) => <Notice role="alert">{message}</Notice>}
               </Show>
             </div>
@@ -302,6 +325,7 @@ export function JobControls(props: {
           confirm="Cancel the job"
           heading="Cancel this job?"
           disabled={pending()}
+          pending={controls.cancel.isPending}
           act={() => act("cancel")}
           reportPageFailure={(message) => showPageFailure("cancel", message)}
         >
@@ -323,6 +347,7 @@ export function JobControls(props: {
           confirm="Delete the job"
           heading="Delete this job?"
           disabled={pending()}
+          pending={controls.delete.isPending}
           act={() => act("delete")}
           reportPageFailure={(message) => showPageFailure("delete", message)}
         >

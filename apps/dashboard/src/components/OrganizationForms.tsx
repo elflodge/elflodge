@@ -1,5 +1,6 @@
 import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
+import { useMutation } from "@tanstack/solid-query";
 import { For, Show, createSignal, createUniqueId, onSettled, untrack } from "solid-js";
 
 import { hubFailureMessage } from "../api-client.ts";
@@ -171,12 +172,16 @@ export function InviteMember(
     expires: Date;
   }>();
   let emailField!: HTMLInputElement;
+  const inviting = useMutation(() => ({
+    mutationFn: (input: { email: string; role: MemberRole; organizationId: string }) =>
+      authClient.organization.inviteMember(input),
+  }));
   async function invite(form: FormData) {
     const email = fieldText(form, "email");
     const grant = role();
     setEmailError(undefined);
     try {
-      const answer = await authClient.organization.inviteMember({
+      const answer = await inviting.mutate({
         email,
         role: grant,
         organizationId: props.organizationId,

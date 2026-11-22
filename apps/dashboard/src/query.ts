@@ -31,6 +31,11 @@ export function createQueryClient() {
         staleTime: 1000,
         retry: (failureCount, error) => !refused(error) && failureCount < 3,
       },
+      mutations: {
+        // Sent at once, or failed at once while offline: by default Query would hold a control the
+        // member confirmed offline and send it on reconnect, after the page had moved on.
+        networkMode: "always",
+      },
     },
   });
 }

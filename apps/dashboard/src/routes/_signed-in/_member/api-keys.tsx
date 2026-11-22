@@ -1,9 +1,9 @@
 import { parseFormData } from "@orpc/openapi/helpers";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
-import { For, Show, createSignal, flush, onSettled } from "solid-js";
+import { For, Show, createSignal, onSettled } from "solid-js";
 
 import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
@@ -115,15 +115,19 @@ function KeyList() {
   const [actionFailure, setActionFailure] = createSignal<string>();
   const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
+  const revoking = useMutation(() => orpc.apiKeys.revoke.mutationOptions());
+  // An earlier outcome belongs to the last revocation until the next one ends.
+  const shownRevoked = () => (revoking.isPending ? undefined : revoked());
+  const shownFailure = () => (revoking.isPending ? undefined : actionFailure());
 
   async function revoke(key: ApiKey, label: string) {
-    setActionFailure(undefined);
-    setRevoked(undefined);
     const queryKey = orpc.apiKeys.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     try {
-      await api.apiKeys.revoke({ id: key.id });
+      await revoking.mutate({ id: key.id });
     } catch (error) {
+      setActionFailure(undefined);
+      setRevoked(undefined);
       // Even a refused revocation can mean the key is gone since the list was read.
       const refreshed = reread();
       if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
@@ -134,10 +138,12 @@ function KeyList() {
       setRevoked({ id: key.id, message: `${label} is already gone.` });
       return undefined;
     }
-    setRevoked({ id: key.id, message: `${label} is revoked.` });
-    // Render the outcome before starting a background read that may need to retry.
-    flush();
-    void reread();
+    // Once the revocation has settled, so a reread that may need to retry holds nothing.
+    onSettled(() => {
+      setActionFailure(undefined);
+      setRevoked({ id: key.id, message: `${label} is revoked.` });
+      void reread();
+    });
     return undefined;
   }
 
@@ -146,7 +152,7 @@ function KeyList() {
       <Show when={keys.isError || keys.data.length}>
         <p class="note">{timeZoneNote()}</p>
       </Show>
-      <Show when={revoked()} keyed>
+      <Show when={shownRevoked()} keyed>
         {(revocation) => (
           <Notice
             role="status"
@@ -158,7 +164,7 @@ function KeyList() {
           </Notice>
         )}
       </Show>
-      <Show when={actionFailure()} keyed>
+      <Show when={shownFailure()} keyed>
         {(message) => <Notice role="alert">{message}</Notice>}
       </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
@@ -181,7 +187,12 @@ function KeyList() {
           </div>
         }
       >
-        <KeyTable keys={keys.data} revoke={revoke} reportPageFailure={setActionFailure} />
+        <KeyTable
+          keys={keys.data}
+          revoke={revoke}
+          isRevoking={(key) => revoking.isPending && revoking.variables?.id === key.id}
+          reportPageFailure={setActionFailure}
+        />
       </Show>
     </>
   );
@@ -364,6 +375,8 @@ function KeyTable(props: {
   reportPageFailure: (message: string) => void;
   keys: ApiKey[];
   revoke: (key: ApiKey, label: string) => Promise<string | undefined>;
+  /** Whether the hub is answering this key's revocation, which is not another row's. */
+  isRevoking: (key: ApiKey) => boolean;
 }) {
   return (
     <table class="records is-narrow" role="table">
@@ -441,6 +454,7 @@ function KeyTable(props: {
                       </>
                     }
                     confirm={`Revoke ${label()}`}
+                    pending={props.isRevoking(key())}
                     act={() => props.revoke(key(), label())}
                   >
                     <p>

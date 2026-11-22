@@ -1,9 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import { type Runner, type RunnerCapabilities, problemOf } from "contract";
-import { For, Show, createMemo, createSignal, flush } from "solid-js";
+import { For, Show, createMemo, createSignal, onSettled } from "solid-js";
 
-import { api, hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
+import { hubFailureDetail, hubFailureMessage, readFromHub } from "../../../api-client.ts";
 import { AddRunner } from "../../../components/AddRunner.tsx";
 import { ConfirmAction } from "../../../components/ConfirmAction.tsx";
 import { FailedReadNotice, ReadErrorPage } from "../../../components/FailedReadNotice.tsx";
@@ -48,14 +48,19 @@ function Runners() {
     setRunnersAtOpen(new Set(ids().keys()));
   }
 
+  const removing = useMutation(() => orpc.runners.delete.mutationOptions());
+  // An earlier outcome belongs to the last removal until the next one ends.
+  const shownRemoved = () => (removing.isPending ? undefined : removed());
+  const shownFailure = () => (removing.isPending ? undefined : actionFailure());
+
   async function remove(runner: Runner, label: string) {
-    setActionFailure(undefined);
     const queryKey = orpc.runners.list.queryKey();
     const reread = () => queryClient.invalidateQueries({ queryKey, exact: true });
     let removal;
     try {
-      removal = await api.runners.delete({ id: runner.id });
+      removal = await removing.mutate({ id: runner.id });
     } catch (error) {
+      setActionFailure(undefined);
       // Even a refused removal can mean the Runner is gone since the list was read.
       const refreshed = reread();
       if (problemOf(error)?.status !== 404) return hubFailureMessage(error);
@@ -66,15 +71,18 @@ function Runners() {
       setRemoved({ id: runner.id, message: `${label} is already gone.` });
       return undefined;
     }
-    setRemoved({
-      id: runner.id,
-      message: removalSummary(label, removal.endedJobs.length, removal.jobsWithFilesLeft.length),
+    const { endedJobs, jobsWithFilesLeft } = removal;
+    // Once the removal has settled, so rereads that may need to retry hold nothing.
+    onSettled(() => {
+      setActionFailure(undefined);
+      setRemoved({
+        id: runner.id,
+        message: removalSummary(label, endedJobs.length, jobsWithFilesLeft.length),
+      });
+      void reread();
+      // Jobs ended by the removal are stale wherever they are shown.
+      void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
     });
-    // Render the outcome before starting a background read that may need to retry.
-    flush();
-    void reread();
-    // Jobs ended by the removal are stale wherever they are shown.
-    void queryClient.invalidateQueries({ queryKey: orpc.jobs.key() });
     return undefined;
   }
 
@@ -93,7 +101,7 @@ function Runners() {
           {timeZoneNote()} {CONNECTION_NOTE}
         </p>
       </Show>
-      <Show when={removed()} keyed>
+      <Show when={shownRemoved()} keyed>
         {(removal) => (
           <Notice
             role="status"
@@ -103,7 +111,7 @@ function Runners() {
           </Notice>
         )}
       </Show>
-      <Show when={actionFailure()} keyed>
+      <Show when={shownFailure()} keyed>
         {(message) => <Notice role="alert">{message}</Notice>}
       </Show>
       {/* A read after the first that failed: what is shown is from an earlier one. */}
@@ -131,6 +139,7 @@ function Runners() {
           runners={runners.data}
           managesKeys={context().managesKeys}
           remove={remove}
+          isRemoving={(runner) => removing.isPending && removing.variables?.id === runner.id}
           reportPageFailure={setActionFailure}
           readAt={runners.dataUpdatedAt}
           shortId={shortId}
@@ -172,6 +181,8 @@ function RunnerList(props: {
   managesKeys: boolean;
   reportPageFailure: (message: string) => void;
   remove: (runner: Runner, label: string) => Promise<string | undefined>;
+  /** Whether the hub is answering this Runner's removal, which is not another record's. */
+  isRemoving: (runner: Runner) => boolean;
 }) {
   return (
     <ul class="runners">
@@ -233,6 +244,7 @@ function RunnerList(props: {
                       </>
                     }
                     confirm={`Remove ${label()}`}
+                    pending={props.isRemoving(runner())}
                     act={() => props.remove(runner(), label())}
                   >
                     <p>Its key stops working and its connection is dropped at once.</p>

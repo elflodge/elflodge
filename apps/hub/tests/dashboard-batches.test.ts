@@ -1,6 +1,6 @@
 import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
-import { afterAll, beforeAll, onTestFinished, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
 import { startSystem } from "./harness.ts";
@@ -120,6 +120,49 @@ test("cancelling a Batch asks first and removes its controls once final", async 
       .getByRole("main")
       .getByRole("button", { name: /^(Pause|Resume|Cancel(?: the Batch .+)?)$/ }),
   ).toHaveCount(0);
+}, 30_000);
+
+test("a second press while the hub answers a cancel sends it once", async () => {
+  const { id } = await system.owner().batches.create({ id: "pressed-twice", agent });
+  const page = await open("Twice presser", `batches/${id}`);
+  let sent = 0;
+  const release = Promise.withResolvers<void>();
+  await page.route(`**/batches/${id}/cancel`, async (route) => {
+    sent += 1;
+    await release.promise;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
+  const dialog = page.getByRole("dialog");
+  const confirm = dialog.getByRole("button", { name: "Cancel the Batch", exact: true });
+  try {
+    await confirm.click();
+    await expectBrowser(dialog.getByRole("status")).toHaveText("Working…");
+    // As a member's second click lands, whether or not the button takes it.
+    await confirm.click({ force: true });
+  } finally {
+    release.resolve();
+  }
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
+  expect(sent).toBe(1);
+}, 30_000);
+
+test("a cancel confirmed offline fails at once and is not sent once back online", async () => {
+  const client = system.owner();
+  const { id } = await client.batches.create({ id: "offline-cancel", agent });
+  const page = await open("Offline operator", `batches/${id}`);
+  await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
+  const dialog = page.getByRole("dialog");
+  await page.context().setOffline(true);
+  await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(
+    "The connection to the hub failed. Please try again.",
+  );
+  // Back online, Query sends what it held before it reads the shown Batch again.
+  const reread = page.waitForResponse((response) => response.url().endsWith(`/batches/${id}`));
+  await page.context().setOffline(false);
+  await reread;
+  expect((await client.batches.get({ id })).status).toBe("active");
 }, 30_000);
 
 test("a Batch ledger opens the jobs it counts and a job links back to the Batch", async () => {

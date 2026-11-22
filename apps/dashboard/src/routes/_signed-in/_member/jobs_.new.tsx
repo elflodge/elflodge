@@ -1,9 +1,8 @@
-import { useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { BATCH_ID_PATTERN, MAX_BATCH_ID_LENGTH, batchCreationSchema } from "contract";
 import { Show, createSignal } from "solid-js";
 
-import { api } from "../../../api-client.ts";
 import {
   AgentFields,
   agentControls,
@@ -54,6 +53,7 @@ function SubmitJob() {
   const [failure, setFailure] = createSignal<ReturnType<typeof formRefusal>>();
   let formElement: HTMLFormElement | undefined;
   const submission = createDraftSubmission(() => formElement);
+  const create = useMutation(() => orpc.batches.create.mutationOptions());
 
   const { pending, onSubmit } = createFormAction(async (form) => {
     submission.sending();
@@ -87,7 +87,7 @@ function SubmitJob() {
     }
     submission.creating();
     try {
-      const result = await api.batches.create(checked.data);
+      const result = await create.mutate(checked.data);
       const first = result.jobs[0];
       if (!first) throw new Error("The hub answered without the submitted job.");
       // The answer names the job by its IDs; the job's page reads the job itself.
