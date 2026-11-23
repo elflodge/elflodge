@@ -21,8 +21,8 @@ declare module "vite-plus/test" {
  * Builds the dashboard as the hubs serve it and serves the build with Vite's preview server, which
  * reads the files as they are on each request. It builds again before each rerun in watch mode,
  * which a change to the dashboard's source starts (`forceRerunTriggers` in its Vite config), as the
- * tests import none of it. Vite Task replays the build when nothing it reads has changed, so each
- * run tests the source as it is, at little cost when it is unchanged.
+ * browser tests import none of it. Vite Task replays the build when nothing it reads has changed, so
+ * each run tests the source as it is, at little cost when it is unchanged.
  */
 export default async function setup(project: TestProject) {
   const root = path.resolve(import.meta.dirname, "..");

@@ -14,8 +14,9 @@ export default defineConfig({
     },
   },
   test: {
-    // The tests import none of the dashboard's source, so Vitest's module graph cannot tell when an
-    // edit concerns them: any change to it reruns them all, and the global setup builds it again.
+    // The browser tests import none of the dashboard's source, so Vitest's module graph cannot tell
+    // when an edit concerns them: any change to it reruns every test, and the global setup builds it
+    // again.
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
       `${import.meta.dirname}/src/**`,
