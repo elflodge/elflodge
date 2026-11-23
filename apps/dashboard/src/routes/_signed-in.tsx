@@ -1,4 +1,11 @@
 import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  createPopoverController,
+} from "@ui-sdk/solid/popover";
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { hubFailureMessage, readFromHub } from "../api-client.ts";
@@ -8,7 +15,6 @@ import { CurrentDestination, Destinations } from "../components/Destinations.tsx
 import { InShell } from "../components/FallbackPage.tsx";
 import { HubStrip } from "../components/HubStrip.tsx";
 import { Notice } from "../components/Notice.tsx";
-import { createFormAction } from "../form.ts";
 import {
   reloadAndWaitIfMemberChanged,
   signOutTo,
@@ -46,46 +52,22 @@ function SignedIn() {
   const router = useRouter();
   onSettled(() => watchDocumentMember(session().user.id));
   const [error, setError] = createSignal<string>();
-  let account: HTMLDivElement | undefined;
-  let opener: HTMLButtonElement | undefined;
-
-  function closeMenu() {
-    if (account?.matches(":popover-open")) account.hidePopover();
-  }
+  const menu = createPopoverController();
+  const [barEnd, setBarEnd] = createSignal<HTMLDivElement>();
 
   // Following the current link also resolves a navigation. Opening another tab leaves this menu open.
-  onSettled(() => router.subscribe("onResolved", closeMenu));
+  onSettled(() => router.subscribe("onResolved", () => menu.close()));
 
-  /** Whether `node` is the menu or the button that opens it, or is inside one of them. */
-  function inMenuGroup(node: EventTarget | null) {
-    return node instanceof Node && Boolean(opener?.contains(node) || account?.contains(node));
-  }
-
-  // The browser closes the menu on Escape or a press elsewhere, but not when the keyboard goes
-  // elsewhere, and the menu would then cover the page the keyboard is in. So it closes when the
-  // focus arrives outside the menu and its button. Where the focus arrives is watched, not where
-  // it leaves from, so that the menu stays open while the focus is nowhere in the page: after a
-  // press on the menu's own text, or after Tab from the page's last control.
-  function closeWhenFocusArrivesElsewhere(event: FocusEvent) {
-    if (!inMenuGroup(event.target)) closeMenu();
-  }
-  onSettled(() => {
-    document.addEventListener("focusin", closeWhenFocusArrivesElsewhere);
-    return () => document.removeEventListener("focusin", closeWhenFocusArrivesElsewhere);
-  });
-
-  const { pending, onSubmit: signOut } = createFormAction(async () => {
+  async function signOut() {
     try {
       await signOutTo(router.buildLocation({ to: "/sign-in" }).publicHref);
     } catch (failure) {
-      // Close the menu to reveal the notice. Return focus to its button if the member is
-      // still in the menu group when the refusal arrives.
-      const menuHadFocus = inMenuGroup(document.activeElement);
-      closeMenu();
-      if (menuHadFocus) opener?.focus();
+      // Close the menu to reveal the notice. The menu returns focus to the member's name if it
+      // still holds it; a member who moved on has already closed it.
+      menu.close();
       setError(hubFailureMessage(failure));
     }
-  });
+  }
 
   return (
     <>
@@ -111,64 +93,57 @@ function SignedIn() {
           <Destinations class="nav" />
         </nav>
         <CurrentDestination />
-        <div class="topbar-end">
-          <button
-            type="button"
-            class="quiet"
-            popovertarget="account"
-            ref={(element) => {
-              opener = element;
-            }}
-          >
-            <span class="member-name" title={session().user.name}>
-              {session().user.name}
-            </span>
-            <span class="mark mark-opens" aria-hidden="true" />
-          </button>
-          {/* A native popover: the browser opens it, and closes it on Escape or a press elsewhere. */}
-          <div
-            id="account"
-            class="menu-pop"
-            popover
-            ref={(element) => {
-              account = element;
-            }}
-          >
-            <nav class="pop-nav" aria-label="Destinations">
-              <Destinations class="nav-stack" />
-            </nav>
-            <p class="pop-who">
-              <strong>{session().user.name}</strong>
-              <br />
-              {/* In the mono, as what a person may copy. The sans also draws a full stop close into
-                  a round letter beside it, which closes up an address such as "pine.example". */}
-              <span class="mono">{session().user.email}</span>
-              <Show when={memberOrganization()} keyed>
-                {(organization) => (
-                  <>
-                    <br />
-                    {organization.name}
-                  </>
-                )}
-              </Show>
-            </p>
-            <ul class="pop-list">
-              <li>
-                <Link to="/change-password">Change password</Link>
-              </li>
-              <li>
-                <form onSubmit={signOut}>
-                  <button
-                    type="submit"
-                    class="quiet"
-                    aria-disabled={pending() ? "true" : undefined}
-                  >
+        <div class="topbar-end" ref={setBarEnd}>
+          <Popover controller={menu}>
+            <PopoverTrigger class="quiet">
+              <span class="member-name" title={session().user.name}>
+                {session().user.name}
+              </span>
+              <span class="mark mark-opens" aria-hidden="true" />
+            </PopoverTrigger>
+            {/* Placed under the bar's end rather than the bar, which spans the window: the end stops at
+                the page's gutter, which grows with the window, and a pixel offset along the bar could
+                not follow it. The end stretches to the bar's height, so 6px is the bar's 2px rule and
+                --space-1 below it. Opening leaves focus on the member's name, so Tab goes on to the
+                first link. Having no title, the menu is named by the member's name. */}
+            <PopoverContent
+              class="menu-pop"
+              anchor={barEnd()}
+              align="end"
+              sideOffset={6}
+              collisionPadding={8}
+              initialFocus="none"
+            >
+              <nav class="pop-nav" aria-label="Destinations">
+                <Destinations class="nav-stack" />
+              </nav>
+              <p class="pop-who">
+                <strong>{session().user.name}</strong>
+                <br />
+                {/* In the mono, as what a person may copy. The sans also draws a full stop close into
+                    a round letter beside it, which closes up an address such as "pine.example". */}
+                <span class="mono">{session().user.email}</span>
+                <Show when={memberOrganization()} keyed>
+                  {(organization) => (
+                    <>
+                      <br />
+                      {organization.name}
+                    </>
+                  )}
+                </Show>
+              </p>
+              <ul class="pop-list">
+                <li>
+                  <Link to="/change-password">Change password</Link>
+                </li>
+                <li>
+                  <Button class="quiet" onClick={signOut} pendingAnnouncement="Working…">
                     Sign out
-                  </button>
-                </form>
-              </li>
-            </ul>
-          </div>
+                  </Button>
+                </li>
+              </ul>
+            </PopoverContent>
+          </Popover>
         </div>
       </header>
       {/* What the hub says now of the Organization's jobs, which are not a removed member's. */}

@@ -189,7 +189,9 @@ a:where(.button) {
   border-left: var(--rule) solid var(--c-rule);
   white-space: nowrap;
 }
+/* As tall as the bar, so that the account menu, placed under it, hangs from the bar's rule. */
 .topbar-end {
+  align-self: stretch;
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -206,17 +208,13 @@ a:where(.button) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The account menu, opened by the member's name: who is signed in, then the account's links. */
+/* The account menu, opened by the member's name: who is signed in, then the account's links. UI SDK
+   places it under the bar's end and gives it the room left below, less its 8px from the window's edge. */
 .menu-pop {
-  margin: 0;
-  inset: auto;
-  position: fixed;
-  top: calc(var(--topbar) + var(--space-1));
-  right: var(--gutter);
   min-width: 15rem;
   /* A name or an address longer than this wraps. */
   max-width: min(20rem, calc(100vw - 2 * var(--gutter)));
-  max-height: calc(100dvh - var(--topbar) - var(--space-3));
+  max-height: var(--available-height);
   overflow: auto;
 }
 /* Folded into the menu at narrow widths, the destinations come first, the current one marked by a rule at its start. */
