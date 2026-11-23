@@ -1,6 +1,6 @@
 import { lookup } from "node:dns";
 import { get } from "node:http";
-import { BlockList, type LookupFunction } from "node:net";
+import { BlockList, type LookupFunction, setDefaultAutoSelectFamily } from "node:net";
 import { networkInterfaces } from "node:os";
 
 // The image copies this script alone, so it uses only Node's builtins.
@@ -13,9 +13,11 @@ function fail(reason: unknown) {
 
 const host = process.env.HOST;
 const port = process.env.PORT ?? 8787;
-// Node binds `::` to IPv4 too, so a wildcard bind is probed on IPv4 loopback, which a container
-// keeps without IPv6.
-const target = !host || host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+// Without HOST the hub listens on every interface.
+const target = host || "::";
+// Node binds `::` to IPv4 too, so a wildcard bind, given as an address or a name for one, is probed
+// on IPv4 loopback, which a container keeps without IPv6.
+const wildcards = new Set(["0.0.0.0", "::"]);
 
 // This container's addresses. The kernel answers all of 127.0.0.0/8 locally, though interfaces
 // list only 127.0.0.1.
@@ -33,16 +35,20 @@ for (const { address, family } of Object.values(networkInterfaces()).flatMap(
 const findOwnAddresses: LookupFunction = (_hostname, options, callback) =>
   lookup(target, { ...options, hints: 0, all: true }, (error, addresses) => {
     if (error) return callback(error, []);
-    const mine = addresses.filter(({ address, family }) =>
-      own.check(address, family === 6 ? "ipv6" : "ipv4"),
-    );
-    const [first] = mine;
-    if (!first) {
+    const mine = addresses
+      .map((resolved) =>
+        wildcards.has(resolved.address) ? { address: "127.0.0.1", family: 4 } : resolved,
+      )
+      .filter(({ address, family }) => own.check(address, family === 6 ? "ipv6" : "ipv4"));
+    if (mine.length === 0) {
       return callback(new Error(`${target} resolves to no address of this container`), []);
     }
-    if (options.all) callback(null, mine);
-    else callback(null, first.address, first.family);
+    callback(null, mine);
   });
+
+// The client tries each address in turn, as the listener may have bound any of them, even where
+// NODE_OPTIONS turns that off; the lookup above then always answers with every address.
+setDefaultAutoSelectFamily(true);
 
 // Node's HTTP client rather than fetch, which refuses ports browsers block, such as 6000, and IPv6
 // addresses with a zone. Requesting localhost sends a valid Host header and invokes the lookup
@@ -52,7 +58,6 @@ get(
     hostname: "localhost",
     port,
     path: "/healthz",
-    // The client tries each address in turn, as the listener may have bound any of them.
     lookup: findOwnAddresses,
   },
   (response) => {
