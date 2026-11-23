@@ -72,8 +72,6 @@ test("a pending revocation cannot be left, and its refusal shows in the dialog",
     permissions: { job: ["read"] },
   });
   const page = await signedInAt("api-keys");
-  // The slow request must announce its own wait in a document clear of the sign-in announcement.
-  await page.reload();
   const release = Promise.withResolvers<void>();
   await page.route(`**/api-keys/${id}`, async (route) => {
     await release.promise;
@@ -125,8 +123,6 @@ test("in a browser, the Runners page lists a registered Runner by its name and s
 test("in a browser, Add Runner gives a command for another machine, and creates a key only when asked", async () => {
   const before = await system.owner().apiKeys.list();
   const page = await signedInAt("runners");
-  // The slow request must announce its own wait in a document clear of the sign-in announcement.
-  await page.reload();
   // If a disabled link navigates, it leaves the dialog for this local stand-in.
   await page.route("https://github.com/elflodge/elflodge/**", (route) =>
     route.fulfill({ contentType: "text/plain", body: "Runner documentation" }),

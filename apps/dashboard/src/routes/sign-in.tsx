@@ -1,5 +1,4 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
-import { announce } from "@ui-sdk/core";
 import { Button } from "@ui-sdk/solid/button";
 import { Show, createSignal } from "solid-js";
 import * as z from "zod/mini";
@@ -46,7 +45,6 @@ function SignIn() {
   const [error, setError] = createSignal<string>();
   const { pending, onSubmit } = createFormAction(async (element) => {
     const form = new FormData(element);
-    announce("Working…");
     try {
       await authClient.signIn.email({
         email: fieldText(form, "email"),

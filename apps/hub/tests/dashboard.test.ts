@@ -506,11 +506,10 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
       response.url().includes("/api/auth/get-session") && response.request().method() === "GET",
   );
   await page.getByRole("button", { name: "Change password" }).click();
-  const result = page.getByRole("main").getByRole("status");
-  await result.waitFor();
+  await page.getByRole("status").waitFor();
   await sessionRead;
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(signedInDocument);
-  await expectBrowser(result).toHaveText(/^Your password is changed/);
+  await expectBrowser(page.getByRole("status")).toHaveText(/^Your password is changed/);
 
   await account.click();
   await page.getByRole("button", { name: "Sign out" }).click();

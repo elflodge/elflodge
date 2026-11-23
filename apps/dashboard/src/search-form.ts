@@ -1,7 +1,6 @@
 import { parseFormData } from "@orpc/openapi/helpers";
 import { useQueryClient, type QueryKey } from "@tanstack/solid-query";
 import { deepEqual, linkOptions, trimPathRight, useRouter } from "@tanstack/solid-router";
-import { announce } from "@ui-sdk/core";
 import * as z from "zod/mini";
 
 import { createFormAction } from "./form.ts";
@@ -37,7 +36,6 @@ export function createSearchForm<T extends Record<string, unknown>>(options: {
       return navigation;
     }
     // An unchanged navigation inside the Solid action can wait on its own commit.
-    announce("Working…");
     return client.invalidateQueries({ queryKey: options.queryKey(search), exact: true });
   });
 
