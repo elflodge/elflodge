@@ -5,8 +5,8 @@ import { setUpOrganization } from "../src/setup.ts";
 import { clearDatabase, startSystem } from "./harness.ts";
 import { NEW_OWNER, SETUP, newSetupLink, setupLink } from "./setup-link.ts";
 
-// Setting up a new hub: the link it prints, and creating its owner in the dashboard with it. Each
-// test starts from a hub without an Organization.
+// Setting up a new hub: the link it prints, and creating its owner with it. Each test starts from a
+// hub without an Organization.
 
 const system = startSystem();
 beforeAll(() => system.start());
