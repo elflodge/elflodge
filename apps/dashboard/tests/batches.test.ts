@@ -1,6 +1,6 @@
 import { expect } from "vite-plus/test";
 
-import { expectBrowser, test, UNCERTAIN } from "./dashboard.ts";
+import { expectBrowser, setOffline, test, UNCERTAIN } from "./dashboard.ts";
 import { aBatch, aJob, aListedJob, jobsCounted, NOW } from "./records.ts";
 
 // The Batches list and a Batch's page: its filters and pages, its controls, and the ledger of its
@@ -176,18 +176,14 @@ test("a cancel confirmed offline fails at once and is not sent once back online"
   const page = await open(`batches/${id}`);
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const dialog = page.getByRole("alertdialog");
-  // The stand-in answers inside the browser, ahead of its network, so going offline does not stop
-  // a request reaching it: the route fails every request, as the network does offline.
-  await page.context().setOffline(true);
-  await page.route("**/*", (route) => route.abort("internetdisconnected"));
+  await setOffline(page, true);
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
   await expectBrowser(dialog.getByRole("alert")).toHaveText(UNCERTAIN);
 
   // Back online, Query would send a cancel it held before it reads the shown Batch again, at the
   // next poll.
   const reads = hub.batches.get.calls.length;
-  await page.unrouteAll();
-  await page.context().setOffline(false);
+  await setOffline(page, false);
   await page.clock.runFor(5_000);
   await expect.poll(() => hub.batches.get.calls.length).toBeGreaterThan(reads);
   expect(hub.batches.cancel.calls).toEqual([]);

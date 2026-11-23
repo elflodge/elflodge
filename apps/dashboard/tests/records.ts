@@ -19,7 +19,7 @@ import { v5 as uuidv5 } from "uuid";
 import type * as z from "zod/mini";
 
 import { OrganizationId, UserId } from "../../hub/src/db/types.ts";
-import type { Member } from "../src/organization.ts";
+import type { Member, MemberRole } from "../src/organization.ts";
 import type { Session } from "./hub.ts";
 
 // Records as the hub's answers carry them, complete, for tests to arrange. Each takes the fields a
@@ -36,10 +36,8 @@ const DAY = 86_400_000;
 const NAMESPACE = "0b5b2d8e-6c2e-4f7a-9a4d-5f1e8c3b7a61";
 const idFor = (kind: string, name: string) => uuidv5(`${kind}:${name}`, NAMESPACE);
 
-export type Role = "owner" | "admin" | "member";
-
 /** The session of a member of the Organization with `role`. */
-export function signedIn(role: Role = "owner"): NonNullable<Session> {
+export function signedIn(role: MemberRole = "owner"): NonNullable<Session> {
   const userId = UserId(idFor("user", role));
   const organizationId = OrganizationId(idFor("organization", "Lodge"));
   const at = ago(30 * DAY);
@@ -67,7 +65,7 @@ export function signedIn(role: Role = "owner"): NonNullable<Session> {
 }
 
 /** `session` with its member's role in the Organization changed to `role`. */
-export function withRole(session: NonNullable<Session>, role: Role): NonNullable<Session> {
+export function withRole(session: NonNullable<Session>, role: MemberRole): NonNullable<Session> {
   if (session.membership.status !== "member") throw new Error("The session has no membership");
   return { ...session, membership: { ...session.membership, role } };
 }
@@ -131,6 +129,12 @@ export function anInvitation(email: string, fields: Partial<Invitation> = {}): I
 export const NO_JOBS: JobCounts = {
   jobCounts: { queued: 0, running: 0, paused: 0 },
   statusUnknownJobCounts: { queued: 0, running: 0 },
+};
+
+/** The first page of the jobs list, with no jobs. */
+export const NO_JOBS_LISTED: InferContractRouterOutputs<typeof apiContract>["jobs"]["list"] = {
+  jobs: [],
+  hasMore: false,
 };
 
 /** A Runner named `name`, connected and with nothing reported. */

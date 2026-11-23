@@ -2,15 +2,12 @@ import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
 import { DASHBOARD_BASE } from "../../hub/src/dashboard.ts";
-import { expectBrowser, runClockUntil, test } from "./dashboard.ts";
+import { expectBrowser, runClockUntil, setOffline, test } from "./dashboard.ts";
 import type { Hub, Session } from "./hub.ts";
-import { NO_JOBS, NOW, signedIn } from "./records.ts";
+import { NO_JOBS, NO_JOBS_LISTED, NOW, signedIn } from "./records.ts";
 
 // The dashboard's signed-in shell and what leads into it: signing in, the bar, page titles, the hub
 // strip and the member's account.
-
-/** The first page of the jobs list, with no jobs. */
-const NO_JOBS_LISTED = { jobs: [], hasMore: false };
 
 /** Arranges a hub whose sign-in accepts `session`'s member. */
 function acceptSignIn(hub: Hub, session: NonNullable<Session>) {
@@ -261,7 +258,7 @@ test("going offline immediately replaces all the strip's figures with one untime
   const page = await open("change-password");
   const strip = page.getByRole("region", { name: "The hub now" });
   await expectBrowser(strip.getByText(/ queued$/)).toBeVisible();
-  await page.context().setOffline(true);
+  await setOffline(page, true);
   await expectBrowser(strip.getByRole("listitem")).toHaveText([
     "The hub cannot be read: this browser is offline.",
   ]);

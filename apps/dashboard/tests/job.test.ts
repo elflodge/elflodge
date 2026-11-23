@@ -2,11 +2,11 @@ import { openFailureSchema, type Job, type JobEvent, type JobEventsPage } from "
 import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
-import { InvalidInput } from "../../hub/src/invalid-input.ts";
 import { expectBrowser, test, type BrowserOptions, type Open, UNCERTAIN } from "./dashboard.ts";
 import type { Hub } from "./hub.ts";
 import {
   NOW,
+  NO_JOBS_LISTED,
   aBatch,
   ago,
   aConversation,
@@ -288,7 +288,7 @@ test("a job read that answers 404 under an open Cancel leaves its not-found page
   open,
 }) => {
   const job = aJob("gone-under-cancel");
-  hub.jobs.list.answers({ jobs: [], hasMore: false });
+  hub.jobs.list.answers(NO_JOBS_LISTED);
   // Short enough that the not-found page scrolls.
   const page = await openJob(
     hub,
@@ -430,19 +430,13 @@ test("a member can correct a refused budget and resume the job, which the jobs l
   );
   await expectBrowser(submit).toBeFocused();
   // So does one about input the form does not hold.
-  hub.jobs.resume.refuses("BAD_REQUEST", {
-    message: "Input validation failed",
-    cause: new InvalidInput({ problems: [{ message: "Invalid ID", path: ["id"] }] }),
-  });
+  hub.jobs.resume.refusesInput([{ message: "Invalid ID", path: ["id"] }]);
   await submit.click();
   await expectBrowser(dialog.getByRole("alert")).toHaveText("Invalid ID");
   await expectBrowser(field).not.toHaveAttribute("aria-invalid", "true");
   // One about the budget shows at the field, which keeps what was sent.
   const tooHigh = "Must be at most 5, the hub's maximum";
-  hub.jobs.resume.refuses("BAD_REQUEST", {
-    message: "Input validation failed",
-    cause: new InvalidInput({ problems: [{ message: tooHigh, path: ["modelBudgetUsd"] }] }),
-  });
+  hub.jobs.resume.refusesInput([{ message: tooHigh, path: ["modelBudgetUsd"] }]);
   await field.fill("6");
   await submit.click();
   await expectBrowser(field).toBeFocused();

@@ -2,7 +2,7 @@ import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
 import { expectBrowser, test } from "./dashboard.ts";
-import { NOW, aListedJob, aRunner } from "./records.ts";
+import { NOW, NO_JOBS_LISTED, aListedJob, aRunner } from "./records.ts";
 
 // The jobs list, which the dashboard opens on: what an empty hub says to do, the filters and pages
 // it reads, held in the address, and the hub strip's counts that lead to it.
@@ -19,7 +19,7 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
   hub,
   open,
 }) => {
-  hub.jobs.list.answers({ jobs: [], hasMore: false });
+  hub.jobs.list.answers(NO_JOBS_LISTED);
   const page = await open("");
   await page.waitForURL("**/dashboard/jobs");
   await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();

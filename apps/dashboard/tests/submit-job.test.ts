@@ -1,8 +1,7 @@
 import { expect } from "vite-plus/test";
 
-import { InvalidInput } from "../../hub/src/invalid-input.ts";
 import { descriptionOnFocus, expectBrowser, liveRegions, test } from "./dashboard.ts";
-import { aBatch, aJob, JOB_LIMITS, jobsCounted } from "./records.ts";
+import { aBatch, aJob, JOB_LIMITS, jobsCounted, NO_JOBS_LISTED } from "./records.ts";
 
 // Submit a job: the hub's refusals at their fields, and leaving a draft. What the hub does with the
 // job is in tests/journeys.
@@ -16,10 +15,7 @@ test("a member can correct the limits the hub refused without retyping the job",
     { message: "Must be at most 5, the hub's maximum", path: ["agent", "modelBudgetUsd"] },
     { message: "Must be at most 86400, the hub's maximum", path: ["agent", "runTimeoutSeconds"] },
   ];
-  hub.batches.create.refuses("BAD_REQUEST", {
-    message: "Input validation failed",
-    cause: new InvalidInput({ problems: maxima }),
-  });
+  hub.batches.create.refusesInput(maxima);
   const page = await open("jobs/new");
   const values = [
     ["Instructions", "Read each invoice."],
@@ -81,7 +77,7 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   hub,
   open,
 }) => {
-  hub.jobs.list.answers({ jobs: [], hasMore: false });
+  hub.jobs.list.answers(NO_JOBS_LISTED);
   hub.jobs.limits.answers(JOB_LIMITS);
   // From the Jobs list, so Back has somewhere to go.
   const page = await open("jobs");

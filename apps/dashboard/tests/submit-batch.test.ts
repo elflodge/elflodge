@@ -234,20 +234,13 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
   // The create is sent and no answer comes back, so the page cannot tell whether the hub made the
   // Batch.
-  await page.route(
-    "**/batches",
-    (route) =>
-      route.request().method() === "POST" ? route.abort("connectionreset") : route.fallback(),
-    { times: 1 },
-  );
+  hub.batches.create.drops();
   const submit = page.getByRole("button", { name: "Submit Batch" });
   const batchId = page.getByLabel("Batch ID");
   const alert = pageAlert(page);
-  const create = page.waitForRequest(
-    (request) => request.method() === "POST" && new URL(request.url()).pathname === "/batches",
-  );
   await submit.click();
-  const sentId: string = (await create).postDataJSON().id;
+  await expect.poll(() => hub.batches.create.calls).toHaveLength(1);
+  const sentId = hub.batches.create.calls[0]?.id ?? "";
   await expectBrowser(alert).toContainText(
     `The hub may already have a Batch under this Batch ID: ${sentId} (opens in a new tab). Submit again to find out: the same values return that Batch.`,
   );
@@ -290,8 +283,8 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   await submit.click();
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(sentId);
   await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
-  // Every try after the first went under the ID sent.
-  expect(hub.batches.create.calls.map(({ id }) => id)).toEqual([sentId, sentId]);
+  // Every try went under the ID sent first.
+  expect(hub.batches.create.calls.map(({ id }) => id)).toEqual([sentId, sentId, sentId]);
 });
 
 test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it until it lands there", async ({

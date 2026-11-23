@@ -1,6 +1,5 @@
 import { expect } from "vite-plus/test";
 
-import { InvalidInput } from "../../hub/src/invalid-input.ts";
 import { expectBrowser, test } from "./dashboard.ts";
 import { aUsageReport, signedIn, TODAY, usageCount } from "./records.ts";
 
@@ -188,12 +187,7 @@ test("a member can correct a refused range and leave the end open through today"
   // A start after today, which the hub refuses. The member edits From while it answers, and the
   // edit stays.
   const afterToday = () =>
-    hub.usage.get.refuses("BAD_REQUEST", {
-      message: "Must not be after today",
-      cause: new InvalidInput({
-        problems: [{ message: "Must not be after today", path: ["from"] }],
-      }),
-    });
+    hub.usage.get.refusesInput([{ message: "Must not be after today", path: ["from"] }]);
   afterToday();
   await from.fill("2099-01-01");
   const refusal = hub.usage.get.hold();
