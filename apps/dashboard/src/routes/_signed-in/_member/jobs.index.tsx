@@ -23,7 +23,7 @@ import {
   timeZoneNote,
 } from "../../../format.ts";
 import { listPages } from "../../../list-pages.ts";
-import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
+import { PAGE_LOAD, REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 import { filterCount, jobsSearchSchema } from "./jobs.tsx";
 
@@ -33,7 +33,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs/")({
   loader: async ({ context, deps }) => {
     if (!context.member) return;
     await readFromHub("The jobs", () =>
-      context.queryClient.query(orpc.jobs.list.queryOptions({ input: deps, staleTime: "static" })),
+      context.queryClient.query(orpc.jobs.list.queryOptions({ input: deps, ...PAGE_LOAD })),
     );
   },
   pendingComponent: LoadingList,
@@ -167,7 +167,7 @@ function JobsTable(props: { jobs: ListedJob[]; runners: Runner[]; readAt: number
     ]),
   );
   const days = createMemo(() =>
-    Array.from(Map.groupBy(props.jobs, (job) => new Date(job.createdAt).setHours(0, 0, 0, 0))),
+    Array.from(Map.groupBy(props.jobs, (job) => LOCAL_ISO_DATE.format(job.createdAt))),
   );
   const readDay = () => new Date(props.readAt);
   return (
@@ -177,16 +177,17 @@ function JobsTable(props: { jobs: ListedJob[]; runners: Runner[]; readAt: number
         <ListHead />
         <For each={days()} keyed={([day]) => day}>
           {(group) => {
-            const day = () => new Date(group()[0]);
+            const createdAt = () => group()[1][0].createdAt;
             return (
               <tbody role="rowgroup">
                 <tr class="day-line" role="row">
                   <th colspan={COLUMNS.length} scope="rowgroup" role="rowheader">
-                    Created {day().toDateString() === readDay().toDateString() && "today, "}
-                    <time datetime={LOCAL_ISO_DATE.format(day())}>
-                      {(day().getFullYear() === readDay().getFullYear() ? DAY : DAY_YEAR).format(
-                        day(),
-                      )}
+                    Created {group()[0] === LOCAL_ISO_DATE.format(props.readAt) && "today, "}
+                    <time datetime={group()[0]}>
+                      {(createdAt().getFullYear() === readDay().getFullYear()
+                        ? DAY
+                        : DAY_YEAR
+                      ).format(createdAt())}
                     </time>
                   </th>
                 </tr>
@@ -311,7 +312,8 @@ function JobTime(props: { job: ListedJob; readAt: number }) {
     if (startedAt) return ["started", startedAt];
     return ["created", createdAt];
   };
-  const sameDay = () => moment()[1].toDateString() === props.job.createdAt.toDateString();
+  const sameDay = () =>
+    LOCAL_ISO_DATE.format(moment()[1]) === LOCAL_ISO_DATE.format(props.job.createdAt);
   return (
     <>
       {moment()[0]} <Instant value={moment()[1]} format={sameDay() ? TIME : DAY_TIME} />

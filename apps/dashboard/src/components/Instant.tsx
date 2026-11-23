@@ -1,4 +1,11 @@
-import { DATE_TIME, DATE_TIME_SECONDS, FULL, TIME_SECONDS, elapsedSince } from "../format.ts";
+import {
+  DATE_TIME,
+  DATE_TIME_SECONDS,
+  FULL,
+  TIME_SECONDS,
+  elapsedSince,
+  LOCAL_ISO_DATE,
+} from "../format.ts";
 
 /**
  * An instant, written in the reader's time zone by `format` (by default its day and time), in a
@@ -22,7 +29,7 @@ export function LastContact(props: { at: Date | undefined; readAt: number }) {
   return (
     <>
       {props.at && elapsedSince(props.at, props.readAt)},{" "}
-      {props.at?.toDateString() === new Date(props.readAt).toDateString() ? (
+      {props.at && LOCAL_ISO_DATE.format(props.at) === LOCAL_ISO_DATE.format(props.readAt) ? (
         <>
           at <Instant value={props.at} format={TIME_SECONDS} />
         </>

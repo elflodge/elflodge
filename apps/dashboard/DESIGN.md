@@ -313,7 +313,7 @@ A plain `button` is the default. `.primary` is the one action a page or form exi
 
 A button that waits for the hub uses UI SDK's `Button` (`@ui-sdk/solid/button`). While a Button's click promise is pending and the pressed button stays mounted, it keeps focus, ignores another press and announces the wait after a second. A pending Events button or retry takes the dashboard’s disabled colours at full opacity and its `not-allowed` cursor, as Pause and Resume do. A keyboard press keeps its focus ring while the button is on screen. A route can replace a retry button during the read. A form’s submit uses `type="submit"` and takes `disabled` from the form’s pending state, as do its draft-editing buttons. Disabled with `focusableWhenDisabled`, it keeps its place in the tab order with `aria-disabled`, which takes the disabled look. Submit a job, the invitation form and form dialogs show “Working…” in a status paragraph. Batch submission reports its current step. A changed filter shows its loading view when its read is slow. Setup, sign-in and change password mark their submit button unavailable without a wait announcement. Apply and Show do the same when the query is unchanged.
 
-A page's one action that leads to another page is a link drawn as a button, `a.button`, so it can be opened in a new tab and is preloaded as a link is. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
+A page's one action that leads to another page is a link drawn as a button, `a.button`, so it can be opened in a new tab and follows the same loading policy as other links. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
 
 ### Dialogs
 
@@ -788,6 +788,12 @@ A mark is a small drawn shape that stands beside words and takes their colour: `
 4. **Colour is never the only sign:** a mark and words go with it.
 5. **A name that may not fit** is cut at its end only where the whole name is one step away, as the bar's names are in the menu, and carries the whole name in its `title`. In the Jobs list the name links to the full job heading. A cut Batch ID has its full value in its title.
 6. **No inline styles in a page.** In the stylesheets, every colour and type size is a token.
+
+## Loading a page
+
+Links load their destination when activated. For a frequently opened page, measure whether starting on hover or keyboard focus makes it open noticeably faster. A link can opt in with `<Link preload="intent">`; include the signed-in session check and the destination’s reads when weighing the cost of a hover that never becomes a visit. The Usage report alone took 93 ms for a warm 30-day read by Batch over 100,000 job ends.
+
+A route loader uses `PAGE_LOAD` for a read the page needs before it opens. A failed first read gives the member a retry action. On success, the page reuses the loader’s answer for one second. Live screens choose their own polling interval.
 
 ## Adding a part
 

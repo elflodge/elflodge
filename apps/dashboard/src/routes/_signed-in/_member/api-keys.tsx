@@ -35,14 +35,14 @@ import { Notice } from "../../../components/Notice.tsx";
 import { fieldText, formRefusal } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { orpc, writeAbsence } from "../../../query.ts";
+import { PAGE_LOAD, orpc, writeAbsence } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/api-keys")({
   head: ({ match }) => memberPageHead(match.context, "API keys"),
   loader: async ({ context }) => {
     if (!context.managesKeys) return;
     await readFromHub("The API keys", () =>
-      context.queryClient.query(orpc.apiKeys.list.queryOptions({ staleTime: "static" })),
+      context.queryClient.query(orpc.apiKeys.list.queryOptions(PAGE_LOAD)),
     );
   },
   errorComponent: (props) => (

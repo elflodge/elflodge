@@ -46,7 +46,7 @@ import {
   type MemberRole,
 } from "../../../organization.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { orpc, writeAbsence } from "../../../query.ts";
+import { PAGE_LOAD, orpc, writeAbsence } from "../../../query.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/organization")({
   head: ({ match }) => memberPageHead(match.context, "Organization"),
@@ -54,15 +54,14 @@ export const Route = createFileRoute("/_signed-in/_member/organization")({
     if (!member) return;
     await Promise.all([
       readFromHub("The members", () =>
-        queryClient.query({ ...membersOptions(member.organization.id), staleTime: "static" }),
+        queryClient.query({ ...membersOptions(member.organization.id), ...PAGE_LOAD }),
       ),
       managesKeys &&
         readFromHub("The invitations", () =>
-          queryClient.query({ ...invitationsOptions(member.role), staleTime: "static" }),
+          queryClient.query({ ...invitationsOptions(member.role), ...PAGE_LOAD }),
         ),
       // Wait for counts, but let the page show a failed keys read alongside the roster.
-      managesKeys &&
-        queryClient.query(orpc.apiKeys.list.queryOptions({ staleTime: "static" })).catch(noop),
+      managesKeys && queryClient.query(orpc.apiKeys.list.queryOptions(PAGE_LOAD)).catch(noop),
     ]);
   },
   errorComponent: (props) => <ReadErrorPage {...props} heading="Organization" />,

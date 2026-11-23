@@ -29,6 +29,14 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
     "/dashboard/runners",
   );
 
+  const batches = page
+    .getByRole("navigation", { name: "Destinations" })
+    .getByRole("link", { name: "Batches" });
+  await batches.focus();
+  await batches.hover();
+  await page.clock.runFor(100);
+  expect(hub.batches.list.calls).toHaveLength(0);
+
   // A Runner connects. The hub strip reads the Runners every five seconds, and the advice follows.
   hub.runners.list.answers([aRunner("host-1")]);
   await page.clock.runFor(5_000);
