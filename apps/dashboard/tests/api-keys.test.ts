@@ -11,10 +11,13 @@ import { anApiKey } from "./records.ts";
 /** A new key's answer, which carries the key itself. */
 const created = (name: string) => ({ id: anApiKey(name).id, key: `elf_secret_${name.length}` });
 
-/** Has the page read the keys again, as returning to its tab does once they are stale. */
+/**
+ * Has the page read the keys again, as returning to its tab does once they are stale: past Query's
+ * `staleTime` of a second, with no timer fired meanwhile, such as one that announces a pending
+ * action.
+ */
 async function readAgain(page: Page) {
-  // Past Query's `staleTime` of a second.
-  await page.clock.runFor(2_000);
+  await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 2_000);
   await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
 }
 
@@ -136,7 +139,7 @@ test("a second revocation while the first one's reread is unanswered shows its p
   expect(hub.apiKeys.revoke.calls).toEqual([{ id: first.id }, { id: second.id }]);
 });
 
-test("a key listed while another's revocation is asked about cannot take over its dialog", async ({
+test("a key listed while another's revocation is pending cannot take over its dialog", async ({
   hub,
   open,
 }) => {
@@ -159,7 +162,12 @@ test("a key listed while another's revocation is asked about cannot take over it
   const revoke = { name: /^Revoke original revocation / };
   await page.getByRole("button", revoke).click();
   const heading = await dialog.getByRole("heading").innerText();
-  // Two reads while it is open, as on returning to the tab: first no keys, then a key created
+  const revocation = hub.apiKeys.revoke.hold();
+  await dialog.getByRole("button", revoke).click();
+  await revocation.arrived;
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+
+  // Two reads while it is pending, as on returning to the tab: first no keys, then a key created
   // meanwhile, whose row is new beside the notice, and so not made inert by the dialog.
   hub.apiKeys.list.answers([]);
   await readAgain(page);
@@ -168,11 +176,14 @@ test("a key listed while another's revocation is asked about cannot take over it
   await readAgain(page);
   await page.getByRole("button", { name: /^Revoke arriving key / }).click();
   await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
 
-  await dialog.getByRole("button", revoke).click();
+  // Its notice shows, and focus stays on the Revoke the member pressed beside the dialog.
+  revocation.release();
   await expectBrowser(
     page.getByRole("status").filter({ hasText: /^original revocation .* is revoked\.$/ }),
-  ).toBeFocused();
+  ).toBeVisible();
+  await expectBrowser(page.getByRole("button", { name: /^Revoke arriving key / })).toBeFocused();
   expect(hub.apiKeys.revoke.calls).toEqual([{ id: earlier.id }, { id: original.id }]);
 });
 
