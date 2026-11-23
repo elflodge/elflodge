@@ -1368,7 +1368,7 @@ export function deleteJob(jobId: JobId) {
         };
       }),
     );
-    if ("refused" in deleted)
+    if (deleted.refused !== undefined)
       return yield* Effect.fail(new ControlRefused({ message: deleted.refused }));
     if (!deleted.deleted) return yield* Effect.fail(new NotFound());
     return { job: deleted.deleted, hint: deleted.hint };

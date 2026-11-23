@@ -130,11 +130,13 @@ function batchStatus(
     .end();
 }
 
+type BatchKey = readonly [column: "id", value: string] | readonly [column: "uid", value: BatchUid];
+
 /**
- * The Batch `which`, by its `uid` or by the ID the API shows, as the API reports it, with its
+ * The Batch identified by its `uid` or by the ID the API shows, as the API reports it, with its
  * jobs' counts and usage read from them; or nothing when there is no such Batch.
  */
-function selectBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: string }, now: Date) {
+function selectBatch(db: Kysely<Database>, [column, value]: BatchKey, now: Date) {
   return (
     db
       // Materializing the Batch runs its Canary check once for the whole Batch, outside the per-job scan.
@@ -146,12 +148,8 @@ function selectBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: stri
             .select(BATCH_COLUMNS)
             .select("uid")
             .select((eb) => hasUnfinishedCanary(eb.ref("batch.uid")).as("unfinishedCanary"))
-            .$call((q) =>
-              "uid" in which
-                ? q.where("uid", "=", which.uid)
-                : // A deployment serves one Organization, so the ID alone finds the Batch (ADR 0007).
-                  q.where("id", "=", which.id),
-            ),
+            // A deployment serves one Organization, so the public ID alone finds the Batch (ADR 0007).
+            .where(column, "=", value),
       )
       .selectFrom("b")
       .innerJoinLateral(
@@ -237,8 +235,8 @@ function batchOf(
   };
 }
 
-export async function readBatch(db: Kysely<Database>, which: { uid: BatchUid } | { id: string }) {
-  const row = await selectBatch(db, which, new Date()).executeTakeFirst();
+export async function readBatch(db: Kysely<Database>, key: BatchKey) {
+  const row = await selectBatch(db, key, new Date()).executeTakeFirst();
   return row && batchOf(row);
 }
 
@@ -439,7 +437,7 @@ export function listBatches(query: BatchListQuery) {
 export function getBatch(id: string) {
   return Effect.gen(function* () {
     const database = yield* Db;
-    const batch = yield* database.query((db) => readBatch(db, { id }));
+    const batch = yield* database.query((db) => readBatch(db, ["id", id]));
     if (!batch) return yield* Effect.fail(new NotFound());
     return batch;
   });
@@ -639,7 +637,7 @@ async function addJobsAndReadBatch(
   const entries = jobs.length ? await addJobsInTransaction(trx, uid, jobs, submitter) : [];
   // The answer's `jobs` follow the request, a job's IDs for each, and the Batch beside them is one
   // record (ADR 0050).
-  const row = await selectBatch(trx, { uid }, new Date()).executeTakeFirstOrThrow();
+  const row = await selectBatch(trx, ["uid", uid], new Date()).executeTakeFirstOrThrow();
   return {
     batch: batchOf(row),
     jobs: entries.map(({ id, created, job }) => ({ created, job: { id, customId: job.customId } })),
@@ -967,7 +965,7 @@ export function controlBatch(id: string, control: "pause" | "resume") {
             }
           }
         }
-        return { decision, batch: await readBatch(trx, { uid }) };
+        return { decision, batch: await readBatch(trx, ["uid", uid]) };
       }),
     );
     return yield* settle(controlled);
@@ -1001,7 +999,7 @@ export function cancelBatch(id: string) {
         if (batch.cancelledAt !== null) {
           return {
             decision: { kind: "unchanged" } as const,
-            batch: await readBatch(trx, { uid }),
+            batch: await readBatch(trx, ["uid", uid]),
           };
         }
         // Its unfinished jobs, locked in the order of their IDs, as a report and a Runner's removal
@@ -1090,7 +1088,7 @@ export function cancelBatch(id: string) {
         const hints = Array.dedupe(waiting.map(({ runnerId }) => runnerId));
         return {
           decision: { kind: "changed", hints } as const,
-          batch: await readBatch(trx, { uid }),
+          batch: await readBatch(trx, ["uid", uid]),
         };
       }),
     );

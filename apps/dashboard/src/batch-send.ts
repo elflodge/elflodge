@@ -229,7 +229,7 @@ export type Prepared =
   | { readonly kind: "ready"; readonly creation: Creation };
 
 /** A report of how far the steps before the create are, or how they ended. */
-type PrepareStep = { readonly progress: SendProgress } | { readonly prepared: Prepared };
+type PrepareStep = IteratorResult<SendProgress, Prepared>;
 
 /**
  * Everything before `draft`'s create, which the hub commits whole or not at all: checks the request
@@ -255,8 +255,10 @@ export async function* prepareBatch(
   // The program's reports, then its outcome, read one at a time. Every failure the hub or a file can
   // cause is an outcome, so a stream that fails is a mistake in the page, and its read throws.
   const steps = Stream.callback<PrepareStep>((queue) =>
-    prepare(draft, files, (progress) => Queue.offerUnsafe(queue, { progress })).pipe(
-      Effect.flatMap((prepared) => Queue.offer(queue, { prepared })),
+    prepare(draft, files, (progress) =>
+      Queue.offerUnsafe(queue, { done: false, value: progress }),
+    ).pipe(
+      Effect.flatMap((prepared) => Queue.offer(queue, { done: true, value: prepared })),
       Effect.andThen(Queue.end(queue)),
     ),
   );
@@ -264,8 +266,9 @@ export async function* prepareBatch(
   const reader = Stream.toReadableStreamWith(steps, Context.empty(), { signal }).getReader();
   try {
     for (let step = await reader.read(); !step.done; step = await reader.read()) {
-      if ("prepared" in step.value) return step.value.prepared;
-      yield step.value.progress;
+      const report = step.value;
+      if (report.done) return report.value;
+      yield report.value;
     }
     // `signal` closed the stream before its outcome.
     return { kind: "stopped" };

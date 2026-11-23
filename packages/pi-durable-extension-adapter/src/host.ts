@@ -1266,15 +1266,13 @@ class AttachedConversation {
   ) {
     await awaitWithContext(this.#ready, context);
     if (!this.#running) return undefined;
-    const decision = await this.#rpc.beforeCompact(this.#route, {
+    return this.#rpc.beforeCompact(this.#route, {
       reason: compaction.reason,
       instructions: compaction.instructions,
       firstKept: `${compaction.firstKept}`,
       messages: compaction.messages.filter((message) => message.role !== "system"),
       entries: await this.#entries(),
     });
-    if (!decision) return undefined;
-    return "cancel" in decision ? { decline: true as const } : { summary: decision.summary };
   }
 
   async beforeProviderRequest(request: { readonly payload: unknown }, context: Context) {

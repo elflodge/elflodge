@@ -55,7 +55,8 @@ const PreparedExtensions = Type.Object({
 });
 
 /** What the child process replies. */
-const PrepareReply = Type.Union([PreparedExtensions, Type.Object({ error: Type.String() })]);
+const PrepareFailure = Type.Object({ error: Type.String() });
+export type PrepareReply = PreparedExtensions | Static<typeof PrepareFailure>;
 
 /**
  * Installs the extension packages `sources` with Pi's own package manager, as `pi install` does, and
@@ -89,7 +90,8 @@ export async function prepareExtensions(options: PrepareOptions): Promise<Prepar
     ...(options.npmCommand && { npmCommand: [...options.npmCommand] }),
   });
   const [message] = await Promise.race([once(child, "message"), exited]);
-  Value.Assert(PrepareReply, message);
-  if ("error" in message) throw new Error(`Preparing extensions failed: ${message.error}`);
+  if (Value.Check(PrepareFailure, message))
+    throw new Error(`Preparing extensions failed: ${message.error}`);
+  Value.Assert(PreparedExtensions, message);
   return message;
 }

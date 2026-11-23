@@ -23,7 +23,7 @@ import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
-import { Data, Effect, Equal, FileSystem, Layer, Record, Stream } from "effect";
+import { Data, Effect, Equal, FileSystem, Layer, Predicate, Record, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import ensureError from "ensure-error";
 
@@ -627,11 +627,12 @@ function abortedResult(name: PropertyKey) {
 }
 
 /** Whether an opener's `result` is a handle it opened, rather than its failure or an aborted result. */
-function isOpenedHandle(
-  result: unknown,
-): result is { ok: true; value: { close(context: Context): Promise<void> } } {
-  return typeof result === "object" && result !== null && "ok" in result && result.ok === true;
-}
+const isOpenedHandle = Schema.is(
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    value: Schema.Struct({ close: Schema.declare(Predicate.isFunction) }),
+  }),
+);
 
 /**
  * `target`, an environment or a handle it opened, whose every operation ends as soon as the context

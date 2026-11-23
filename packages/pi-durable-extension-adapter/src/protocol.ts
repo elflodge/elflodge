@@ -13,6 +13,7 @@ import type {
   ToolInfo,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
+import type { CompactionHooks } from "@earendil-works/pi-durable";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
 // worker behind names, and the host keeps the pi-durable APIs the worker's calls act on.
@@ -110,7 +111,10 @@ export interface DispatchFunctions {
     event: Omit<TurnEndEvent, "entries" | "continue" | "context">,
   ): Promise<void>;
   /** `session_before_compact`: whether a handler cancels it, or the summary one wrote. */
-  beforeCompact(key: string, compaction: Compaction): Promise<CompactDecision | undefined>;
+  beforeCompact(
+    key: string,
+    compaction: Compaction,
+  ): Promise<Awaited<ReturnType<CompactionHooks["beforeCompact"]>>>;
 }
 
 /** What starts a run, as Pi's `before_agent_start` gets it. */
@@ -139,8 +143,6 @@ export interface Compaction {
   readonly messages: readonly unknown[];
   readonly entries: readonly SessionEntry[];
 }
-
-export type CompactDecision = { readonly cancel: true } | { readonly summary: string };
 
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;

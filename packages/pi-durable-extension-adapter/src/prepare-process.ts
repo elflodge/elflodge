@@ -10,7 +10,7 @@ import isPathInside from "is-path-inside";
 import { build, type OutputChunk, type Plugin } from "rolldown";
 import { exactRegex } from "rolldown/filter";
 
-import type { PreparedExtension, PreparedExtensions } from "./prepare.ts";
+import type { PreparedExtension, PreparedExtensions, PrepareReply } from "./prepare.ts";
 
 // Runs in the child process `prepareExtensions` starts. Installing goes through Pi's package manager, so
 // sources, pinning, peer handling and resource discovery behave as `pi install` does; bundling goes
@@ -384,7 +384,7 @@ process.once("message", (input: Input) => {
   prepare(input).then(reply, (error: unknown) => reply({ error: ensureError(error).message }));
 });
 
-function reply(value: unknown) {
+function reply(value: PrepareReply) {
   // The process exits once the reply is sent and the channel closes.
   process.send?.(value, () => process.disconnect());
 }
