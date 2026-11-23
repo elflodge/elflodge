@@ -288,19 +288,20 @@ function submitOutputTool(schema: Record<string, unknown>) {
       },
       { open: true },
     ),
-    execute: async (args, api, context) => {
+    execute: async ({ value: submittedValue, path: outputPath }, api, context) => {
       // Presence, not truthiness: `false`, `0` and `null` are outputs.
-      const given = ["value" in args, "path" in args].filter(Boolean).length;
-      if (given !== 1) throw new Error("Give exactly one of `value` and `path`");
-      let input: unknown = args.value;
-      if (args.path !== undefined) {
+      const hasValue = submittedValue !== undefined;
+      const hasPath = outputPath !== undefined;
+      if (hasValue === hasPath) throw new Error("Give exactly one of `value` and `path`");
+      let input: unknown = submittedValue;
+      if (hasPath) {
         if (!api.env) throw new Error("The Workspace is not available");
-        const text = await api.env.readTextFile(args.path, context);
-        if (!text.ok) throw new Error(`Cannot read ${args.path}: ${text.error.message}`);
+        const text = await api.env.readTextFile(outputPath, context);
+        if (!text.ok) throw new Error(`Cannot read ${outputPath}: ${text.error.message}`);
         try {
           input = JSON.parse(text.value);
         } catch (error) {
-          throw new Error(`${args.path} is not JSON: ${ensureError(error).message}`, {
+          throw new Error(`${outputPath} is not JSON: ${ensureError(error).message}`, {
             cause: error,
           });
         }
@@ -318,7 +319,7 @@ function submitOutputTool(schema: Record<string, unknown>) {
       // The first accepted output is the job's, as when the model submits twice in one round.
       const first = await api.commit(async (tx) => {
         const accepted = await tx.doc(AcceptedOutput, api.conversationId);
-        if ("output" in accepted) return false;
+        if (accepted.output !== undefined) return false;
         accepted.output = value;
         return true;
       }, context);
@@ -384,7 +385,7 @@ export function openJob(
           // saved. Using the accepted output for every round covers both cases.
           afterTools: async (_assistant, _results, api) => {
             const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
-            return accepted && "output" in accepted
+            return accepted?.output !== undefined
               ? { tasks: [hookTask(finishOutput, null)] }
               : undefined;
           },

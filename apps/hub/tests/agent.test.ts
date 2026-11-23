@@ -122,7 +122,7 @@ test("a refused tool and an unavailable tool leave the job’s call count unchan
 
 test("accepting output beside another tool lets both finish without another model call", async () => {
   const before = system.model.state.callCount;
-  const output = { summary: "Revenue grew 4%." };
+  const output = null;
   system.model.setResponses([
     fauxAssistantMessage(
       [
@@ -134,7 +134,10 @@ test("accepting output beside another tool lets both finish without another mode
   ]);
 
   const client = await system.clientWithNewJobsKey();
-  const { id } = await submitJob(client, SUBMISSION);
+  const { id } = await submitJob(client, {
+    input: "Submit null.",
+    outputContract: { schema: { type: "null" } },
+  });
   await untilStatus(client, id, "succeeded");
   const { job, events } = await client.jobs.events({ id });
   expect(job).toMatchObject({ output, toolCalls: { submit_output: 1, bash: 1 } });

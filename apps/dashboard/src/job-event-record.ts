@@ -91,8 +91,7 @@ export function readJobEvent(event: JobEvent) {
     event.type === "conversation" ? z.safeParse(conversation, event.record).data : undefined;
   const message = record && "model" in record ? record.model?.[0] : undefined;
   const data = record && "data" in record ? record.data : undefined;
-  const runId =
-    record && "data" in record && "runId" in record.data ? record.data.runId : undefined;
+  const runId = data && "runId" in data ? data.runId : undefined;
   const at = data && "timestamp" in data ? data.timestamp : message?.timestamp;
   const conversationId = event.type === "conversation" ? event.id : event.record["conversationId"];
   return {
