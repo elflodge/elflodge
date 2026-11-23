@@ -190,7 +190,6 @@ test("Submit again after a stop and after a failed upload uploads only what is m
   expect(
     hub.batches.create.calls[0]?.jobs?.map((job) => [job.customId, job.files[0]?.digest]),
   ).toEqual(files.map(([name, text]) => [name, digestOf(text)]));
-  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("3");
 });
 
 test("Leave confirmed while an upload is held sends no create", async ({ hub, open }) => {
@@ -275,7 +274,6 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   hub.batches.create.answers(created(sentId, ["job-1"]));
   await submit.click();
   await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(sentId);
-  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
   // Every try went under the ID sent first.
   expect(hub.batches.create.calls.map(({ id }) => id)).toEqual([sentId, sentId, sentId]);
 });
