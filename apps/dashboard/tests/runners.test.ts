@@ -116,7 +116,7 @@ test("a Runner a read drops while its dialog is open is still named there, and i
   expect(hub.runners.delete.calls).toEqual([{ id: former.id }]);
 });
 
-test("Add Runner cannot be left while its key is created, then shows the key in the command and copies it unannounced", async ({
+test("Add Runner cannot be left while its key is created, then shows the key in the command and announces a copy without it", async ({
   hub,
   open,
 }) => {
@@ -134,6 +134,9 @@ test("Add Runner cannot be left while its key is created, then shows the key in 
   await expectBrowser(command).toContainText("<a registration key>");
   await expectBrowser(command).not.toContainText(new URL(page.url()).origin);
   expect(hub.apiKeys.create.calls).toEqual([]);
+  await expectBrowser(
+    dialog.getByRole("status").filter({ hasText: /^Waiting for a Runner to register\./ }),
+  ).toBeVisible();
 
   const create = dialog.getByRole("button", { name: "Create a registration key" });
   const close = dialog.getByRole("button", { name: "Close" });
