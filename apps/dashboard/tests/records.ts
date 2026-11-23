@@ -233,7 +233,7 @@ export function aBatch(id: string, fields: Partial<Batch> = {}): Batch {
     labels: {},
     breaker: false,
     jobCounts: none,
-    blockedJobCounts: { batchPausedByCaller: 0, batchPausedByBreaker: 0, batchCanary: 0 },
+    jobsWaitingForCanary: 0,
     statusUnknownJobs: 0,
     usage: { totalTokens: 0, cost: { totalUsd: 0 } },
     toolCalls: {},

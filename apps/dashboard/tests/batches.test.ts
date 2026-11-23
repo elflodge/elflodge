@@ -244,7 +244,7 @@ test("a Batch ledger opens the jobs it counts and a job links back to the Batch"
     aBatch(id, {
       breaker: { canary: 1, maxFailurePercent: 100 },
       jobCounts: jobsCounted({ queued: 2, cancelled: 1 }),
-      blockedJobCounts: { batchPausedByCaller: 0, batchPausedByBreaker: 0, batchCanary: 1 },
+      jobsWaitingForCanary: 1,
     }),
   );
   hub.jobs.list.answers({ jobs, hasMore: false });
