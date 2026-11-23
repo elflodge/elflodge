@@ -54,8 +54,7 @@ export default defineConfig({
     // `vp test --tags-filter=container` runs only them (ADR 0003).
     tags: [{ name: "container", timeout: 600_000 }],
     tagsFilter: ["!container"],
-    // The hub runs on Workers and in Docker alike, so the suite runs against each (ADR 0003), each
-    // project with a Postgres of its own.
+    // The hub runs on Workers and in Docker alike, so the suite runs against each (ADR 0003).
     projects: [
       {
         test: {
