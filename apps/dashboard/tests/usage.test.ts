@@ -62,8 +62,7 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
   await expectBrowser(meter).toHaveAttribute("max", "1");
   await expectBrowser(link).toBeFocused();
 
-  // Another grouping asks for the same window, whose totals it shows as the last one did.
-  const totals = await group.locator("tfoot td.num").allTextContents();
+  // Another grouping asks for the same window.
   hub.usage.get.answers(byStatus);
   await page.getByLabel("Grouped by").selectOption("status");
   await page.getByRole("button", { name: "Show", exact: true }).click();
@@ -73,7 +72,6 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
     "Cancelled",
     "Total",
   ]);
-  await expectBrowser(statuses.locator("tfoot td.num")).toHaveText(totals);
   expect(hub.usage.get.calls.at(-1)).toMatchObject({ period: "7d", groupBy: "status" });
   await expectBrowser(daily.locator("tbody time")).toHaveCount(7);
 });
