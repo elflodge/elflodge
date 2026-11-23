@@ -1,6 +1,11 @@
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+  setShouldSkipSessionRefresh,
+} from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
@@ -12,7 +17,11 @@ import * as z from "zod/mini";
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import { findInvitationBlockingRepeat, mayGrantRole } from "./invitation-grants.ts";
+import {
+  findInvitationInviterCannotGrantByEmail,
+  findLiveInvitationCallerCannotGrantByEmail,
+  mayGrantRole,
+} from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -159,9 +168,15 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/delete",
     ],
     hooks: {
-      // Better Auth may cancel the old invitation before beforeCreateInvitation runs, and a
-      // resend keeps the original inviter. Check both paths before Better Auth changes the row.
       before: createAuthMiddleware(async (ctx) => {
+        // Only the hub calls this route, with the member's request headers, and it cannot forward
+        // the renewal cookie Better Auth would set. The dashboard renews through get-session.
+        if (ctx.path === "/api-key/delete") {
+          await setShouldSkipSessionRefresh(true);
+          return;
+        }
+        // Better Auth may cancel the old invitation before beforeCreateInvitation runs, and a
+        // resend keeps the original inviter. Check both paths before Better Auth changes the row.
         if (ctx.path !== "/organization/invite-member") return;
         const resend = ctx.body?.resend === true;
         // Match the invite request's lowercased address and its explicit or active Organization.
@@ -171,25 +186,24 @@ export function authOptions(settings: AuthSettings) {
         if (!invitationEmail.safeParse(email).success) return;
         const session = await getSessionFromCtx(ctx);
         if (!session) return;
-        const organizationId = ctx.body.organizationId || session.session.activeOrganizationId;
-        if (typeof organizationId !== "string") return;
-        const invitation = await findInvitationBlockingRepeat(
-          db,
-          OrganizationId(organizationId),
-          UserId(session.user.id),
-          email,
-          resend,
-        );
-        if (invitation && resend) {
-          throw APIError.fromStatus("CONFLICT", {
-            message: "This invitation can no longer be renewed. Create a new invitation.",
-          });
-        }
-        if (invitation)
+        const requested = ctx.body.organizationId || session.session.activeOrganizationId;
+        if (typeof requested !== "string") return;
+        const organizationId = OrganizationId(requested);
+        const caller = UserId(session.user.id);
+        if (resend) {
+          if (await findInvitationInviterCannotGrantByEmail(db, organizationId, caller, email)) {
+            throw APIError.fromStatus("CONFLICT", {
+              message: "This invitation can no longer be renewed. Create a new invitation.",
+            });
+          }
+        } else if (
+          await findLiveInvitationCallerCannotGrantByEmail(db, organizationId, caller, email)
+        ) {
           throw APIError.from(
             "FORBIDDEN",
             ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE,
           );
+        }
       }),
     },
     logger: {
@@ -237,7 +251,8 @@ export function authOptions(settings: AuthSettings) {
           configId: API_KEY_CONFIG,
           maximumNameLength: MAX_API_KEY_NAME_LENGTH,
           references: "organization",
-          // Better Auth still records each key's use with per-key rate limits disabled.
+          // API rate limits are a separate concern. Better Auth still records each key's use with
+          // per-key rate limits disabled.
           rateLimit: { enabled: false },
           // Better Auth keeps an Organization's key without the member who created it, so the hub
           // records them in the key's metadata. Only the hub writes it: Better Auth's routes that
