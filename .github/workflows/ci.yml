@@ -43,7 +43,8 @@ jobs:
           # Ubuntu 24.04 strips the capabilities from the user namespaces the sandbox creates (ADR 0027).
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # `vp run ready`, with the hub's tests on the Node hub only: `node-22` runs them on the Workers
-      # hub, with its Runners on Node 22, so each hub runs the suite once.
+      # hub, with its Runners on Node 22, so each hub runs the suite once, and `dashboard` runs the
+      # dashboard's pages.
       - run: vp check
       # Every package's tests but the hub's, so a new package is tested without being listed here.
       - run: vp run --filter '!hub' test
@@ -87,6 +88,21 @@ jobs:
       # The hub in workerd, with the tests and the Runners they start on Node 22. The `node` project
       # would run the hub itself on the tests' Node.
       - run: vp test --project workers
+        working-directory: apps/hub
+
+  # The dashboard's pages in a browser, beside the hub's suite rather than inside it and against one
+  # hub: the suite checks on each hub what a page takes from it (ADR 0003).
+  dashboard:
+    if: github.event_name == 'merge_group'
+    runs-on: *ubuntu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          cache: true
+      - *job-sandbox
+      - *playwright
+      - run: vp test --project dashboard
         working-directory: apps/hub
 
   # The Runner's job sandbox on macOS, where it is Seatbelt rather than bubblewrap (ADR 0027).

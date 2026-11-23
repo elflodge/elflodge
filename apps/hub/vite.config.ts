@@ -3,6 +3,12 @@ import { configDefaults, defaultServerConditions, defineConfig } from "vite-plus
 
 import { DASHBOARD_ASSETS } from "./src/dashboard.ts";
 
+/**
+ * The files of tests that drive the dashboard's pages in a browser, which the `dashboard` project
+ * runs. A test of what a hub itself answers goes in another file, which both hubs run.
+ */
+const DASHBOARD_PAGES = "tests/dashboard-*.test.ts";
+
 export default defineConfig({
   // The tests start a Runner in this process, which loads the extension adapter's source under the
   // condition its exports give it in the workspace (ADR 0006).
@@ -48,24 +54,32 @@ export default defineConfig({
     // `vp test --tags-filter=container` runs only them (ADR 0003).
     tags: [{ name: "container", timeout: 600_000 }],
     tagsFilter: ["!container"],
-    // The hub runs on Workers and in Docker alike, so the suite runs against each (ADR 0003), each
-    // project with a Postgres of its own.
+    // The hub runs on Workers and in Docker alike, so the suite runs against each (ADR 0003).
     projects: [
       {
-        extends: true,
         test: {
           name: "workers",
           provide: { hub: "workers" },
-          // These run a Runner against a server of their own, never the hub, so the Node project
-          // alone runs them.
           exclude: [
             ...configDefaults.exclude,
+            DASHBOARD_PAGES,
+            // These run a Runner against a server of their own, never the hub, so the Node project
+            // alone runs them.
             "tests/runner-reports.test.ts",
             "tests/runner-stop.test.ts",
           ],
         },
       },
-      { extends: true, test: { name: "node", provide: { hub: "node" } } },
+      {
+        test: {
+          name: "node",
+          provide: { hub: "node" },
+          exclude: [...configDefaults.exclude, DASHBOARD_PAGES],
+        },
+      },
+      // The dashboard's pages, against one hub: a page shows the build both hubs serve and the API's
+      // answers, and the projects above check on each hub how it serves the one and gives the other.
+      { test: { name: "dashboard", provide: { hub: "node" }, include: [DASHBOARD_PAGES] } },
     ],
   },
 });

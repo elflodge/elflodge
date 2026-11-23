@@ -78,6 +78,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - Assert through the interface under test. Read the database only for a persistence invariant that no public interface exposes.
 - Set up state through typed APIs where one exists, and through SQL only when none does or the scenario needs internal state.
 - Choose failure and recovery cases by likelihood and impact; no elaborate tests for speculative edges.
+- A test that drives the dashboard's pages in a browser goes in a file named `apps/hub/tests/dashboard-*.test.ts`. In `apps/hub`, `vp test --project dashboard` runs those files, against the Node hub only.
 
 ## Review
 
