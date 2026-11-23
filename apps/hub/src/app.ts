@@ -1,7 +1,7 @@
 import { catchORPCErrorCode, middlewareGen, type WithEffectContext } from "@orpc/effect";
 import "@orpc/effect/extensions/effect";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
-import { implement, ValidationError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { matchesHttpPath } from "@orpc/shared";
 import {
   type AddedJobs,
@@ -56,7 +56,7 @@ import {
   UploadChunkIndex,
 } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
-import { InvalidInput } from "./invalid-input.ts";
+import { InvalidInput, invalidInput } from "./invalid-input.ts";
 import { acceptInvitation, listInvitations, previewInvitation } from "./invitations.ts";
 import {
   type Control,
@@ -139,24 +139,6 @@ function controlJobAndHint(jobId: JobId, control: Control, given?: GivenLimits) 
     yield* hintRunners(hint);
     return job;
   });
-}
-
-/**
- * `problems` with an input, raised as oRPC raises invalid input, so the answer lists them as it lists
- * the contract's own: for what the contract's schemas cannot check, such as an Output contract's
- * schema or the hub's maximums for limits.
- */
-function invalidInput<E>(
-  errors: { BAD_REQUEST: (options: { cause: ValidationError }) => E },
-  input: unknown,
-  problems: readonly { message: string; path: readonly (string | number)[] }[],
-) {
-  const cause = new ValidationError({
-    message: "Input validation failed",
-    issues: problems,
-    invalidData: input,
-  });
-  return errors.BAD_REQUEST({ cause });
 }
 
 // The access check is the router's alone, as oRPC's docs extend a router: applied to the handlers
