@@ -770,7 +770,7 @@ export const rankedUsageSchema = z.union([
   // The latest record in the window supplies the submitter's name, by recordedAt then write order.
   rankedUsage(z.literal("submitter"), { submitter: submitterSchema }),
   // A removed Runner keeps its ID. An end has none when its job was on no Runner as it was recorded:
-  // never placed, or cancelled before its Runner started it, which frees the job.
+  // never placed, or freed when its Runner reported a cancel or pause before starting it.
   rankedUsage(z.literal("runner"), {
     runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
   }),

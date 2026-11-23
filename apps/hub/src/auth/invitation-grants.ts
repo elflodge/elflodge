@@ -48,9 +48,9 @@ export function liveInvitations(db: Kysely<Database>) {
 }
 
 /**
- * The caller's pending invitations to `email`, with the caller's and the original inviter's
- * membership. Members who cannot invite anyone find none, so they get the same permission error
- * for every address.
+ * Pending invitations to `email` in the Organization, from any inviter, with the caller's and the
+ * original inviter's membership. Members who cannot invite anyone find none, so they get the same
+ * permission error for every address.
  */
 function pendingInvitationsByEmailForCaller(
   db: Kysely<Database>,
