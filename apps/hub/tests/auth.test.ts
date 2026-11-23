@@ -136,15 +136,7 @@ test("a member who revokes a key still gets the renewed session cookie from get-
   const cookie = await system.signIn(OWNER);
   const owner = system.client({ cookie, origin: system.origin });
   const { id } = await owner.apiKeys.create({ name: "CI", permissions: { runner: ["register"] } });
-  // The hub has no call to age a session. Better Auth renews one a day after its last renewal.
-  const token = decodeURIComponent(cookie.slice(cookie.indexOf("=") + 1)).split(".")[0] ?? "";
-  await using database = openDatabase(inject("databaseUrl"));
-  await database
-    .withSchema(DB_SCHEMA)
-    .updateTable("session")
-    .set({ expiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000) })
-    .where("token", "=", token)
-    .execute();
+  await system.makeSessionDueForRenewal(cookie);
 
   await owner.apiKeys.revoke({ id });
   const response = await system.hub.fetch("/api/auth/get-session", { headers: { cookie } });

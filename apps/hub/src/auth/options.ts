@@ -169,8 +169,9 @@ export function authOptions(settings: AuthSettings) {
     ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        // Only the hub calls this route, with the member's request headers, and it cannot forward
-        // the renewal cookie Better Auth would set. The dashboard renews through get-session.
+        // Only the hub calls this route, to revoke a key or remove a Runner, with the member's
+        // request headers, and it cannot forward the renewal cookie Better Auth would set. The
+        // dashboard renews through get-session.
         if (ctx.path === "/api-key/delete") {
           await setShouldSkipSessionRefresh(true);
           return;
@@ -184,7 +185,8 @@ export function authOptions(settings: AuthSettings) {
         if (typeof address !== "string") return;
         const email = address.toLowerCase();
         if (!invitationEmail.safeParse(email).success) return;
-        const session = await getSessionFromCtx(ctx);
+        // A refusal below drops the headers this read would set, so it must not renew.
+        const session = await getSessionFromCtx(ctx, { disableRefresh: true });
         if (!session) return;
         const requested = ctx.body.organizationId || session.session.activeOrganizationId;
         if (typeof requested !== "string") return;

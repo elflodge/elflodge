@@ -366,6 +366,22 @@ export function startSystem(
   }
 
   /**
+   * Makes the session `cookie` carries due for renewal, as it is a day after its last one, so the
+   * next session read that may renew does. The hub has no call that ages a session.
+   */
+  async function makeSessionDueForRenewal(cookie: string) {
+    const current = await authClient(cookie).getSession();
+    if (!current) throw new Error("The cookie carries no session");
+    await using db = openDatabase(inject("databaseUrl"));
+    await db
+      .withSchema(DB_SCHEMA)
+      .updateTable("session")
+      .set({ expiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000) })
+      .where("token", "=", current.session.token)
+      .execute();
+  }
+
+  /**
    * Creates the account for `email`, adds it to the Organization with the plain `member` role, and
    * returns its signed-in client, session cookie and user ID.
    */
@@ -475,6 +491,7 @@ export function startSystem(
     ownerCookie: () => ownerCookie,
     ownerAuth: () => authClient(ownerCookie),
     authClient,
+    makeSessionDueForRenewal,
     addMember,
     async start({ keepDatabase = false } = {}) {
       const databaseUrl = inject("databaseUrl");

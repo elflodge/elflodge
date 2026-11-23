@@ -193,11 +193,17 @@ test("renewal works while the inviter can grant the role and replacement works a
     organizationId,
   });
 
+  await system.makeSessionDueForRenewal(system.ownerCookie());
   const refused = await resend();
   expect(refused.status).toBe(409);
   expect(await refused.json()).toMatchObject({
     message: "This invitation can no longer be renewed. Create a new invitation.",
   });
+  // The refusal leaves the renewal to get-session, which sends the cookie.
+  const session = await system.hub.fetch("/api/auth/get-session", {
+    headers: { cookie: system.ownerCookie() },
+  });
+  expect(session.headers.get("set-cookie")).toContain("session_token=");
 
   const replacement = await invite(email, "member", admin);
   await system.ownerAuth().organization.updateMemberRole({
