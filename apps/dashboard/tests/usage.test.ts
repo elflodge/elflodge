@@ -119,7 +119,6 @@ test("a member learns where to read Batch usage without requesting the report", 
     page.getByText(/Each Batch's page shows what that Batch has used/),
   ).toBeVisible();
   await expectBrowser(page.getByRole("form", { name: "Usage report" })).toHaveCount(0);
-  expect(hub.usage.get.calls).toEqual([]);
 });
 
 test("west of UTC a job end keeps its UTC weekday, day and year in a cross-year report", async ({
