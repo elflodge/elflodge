@@ -146,6 +146,15 @@ test("a member sees a Batch control in flight and its result on the record and l
   await page.getByRole("button", { name: "Resume" }).click();
   await expectBrowser(page.getByRole("status").filter({ hasText: "Active" })).toBeFocused();
   expect(hub.batches.resume.calls).toEqual([{ id }]);
+
+  // The list was read just before, with no time passed since, so only the answer makes it stale.
+  hub.batches.list.answers({ batches: [active], hasMore: false });
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  await expectBrowser(row).not.toContainText("by a caller");
+  await expectBrowser(row).toContainText("Active");
 });
 
 test("cancelling a Batch asks first and removes its controls once final", async ({ hub, open }) => {
