@@ -236,7 +236,7 @@ Only the extensions in this table are tested. An extension outside it has what t
 - Extensions can do anything your process can, as in Pi: they run in its worker threads with its permissions. Only `pi.exec` goes through the `env` you give `attach`, so a sandboxed `env` does not contain an extension that reads files or starts programs itself. Install only extensions you trust.
 - An extension's module-level state is shared by the conversations on its worker, where in Pi one session has the process to itself. State kept in its factory is per conversation.
 - A crash inside a native add-on ends your whole process; worker threads share it.
-- `billion-context` does not work in its default mode, nor do other extensions that route model requests through a proxy by patching `fetch`: a patch in a worker sees only that worker's requests, and built-in model APIs make theirs in your app. Pointing a provider at a proxy with `registerProvider` needs a `ModelRuntime`, as [Model providers](#model-providers) says, and is not tested with `billion-context`.
+- `billion-context` does not work when it routes model requests by patching `fetch`, nor do other extensions that do so: a patch in a worker sees only that worker's requests, and built-in model APIs make theirs in your app. Its routing through a provider's base URL with `registerProvider` needs a `ModelRuntime`, as [Model providers](#model-providers) says, and is not tested.
 - Extensions that run work in Pi processes of their own, as `pi-subagents` does for its subagents, are not supported.
 - After a crash of your process, pi-durable does not run an interrupted extension tool again.
 
