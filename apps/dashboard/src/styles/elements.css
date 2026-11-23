@@ -325,8 +325,7 @@ progress {
   vertical-align: middle;
 }
 
-/* A native dialog, and UI SDK's, which is a popover in the top layer rather than a `dialog`. */
-dialog,
+/* UI SDK opens its dialog content as a popover in the top layer. */
 [data-slot="alert-dialog-content"],
 [data-slot="dialog-content"] {
   text-align: start;
@@ -341,10 +340,6 @@ dialog,
   min-width: min(24rem, calc(100vw - 2 * var(--gutter)));
   max-width: min(44rem, calc(100vw - 2 * var(--gutter)));
   box-shadow: var(--shadow-dialog);
-}
-/* What the browser gives a modal `dialog`, and UI SDK's reset takes off its popover. */
-[data-slot="alert-dialog-content"],
-[data-slot="dialog-content"] {
   inset: 0;
   margin: auto;
   width: fit-content;
@@ -352,7 +347,6 @@ dialog,
   max-height: calc(100% - 6px - 2em);
   overflow: auto;
 }
-dialog::backdrop,
 [data-slot="alert-dialog-content"]::backdrop,
 [data-slot="dialog-content"]::backdrop {
   background: var(--c-scrim);

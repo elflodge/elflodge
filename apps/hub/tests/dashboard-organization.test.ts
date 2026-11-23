@@ -894,9 +894,9 @@ test("an invitation's Copy link says it copied", async () => {
     .context()
     .grantPermissions(["clipboard-read", "clipboard-write"], { origin: system.origin });
   await page.getByRole("button", { name: `Copy link for ${email}` }).click();
-  await expectBrowser(
-    page.locator('[aria-live="polite"]').filter({ hasText: "Copied." }),
-  ).toHaveCount(1);
+  const result = page.getByRole("status").filter({ hasText: /^Copied\.$/ });
+  await expectBrowser(result).toHaveCount(1);
+  await expectBrowser(result).toHaveAttribute("aria-live", "polite");
 }, 30_000);
 
 test("a Remove whose reader has lost their membership reads the session again", async () => {

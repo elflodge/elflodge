@@ -192,7 +192,8 @@ test("in a browser, Add Runner gives a command for another machine, and creates 
     .context()
     .grantPermissions(["clipboard-read", "clipboard-write"], { origin: system.origin });
   await copy.click();
-  await expectBrowser(dialog.getByRole("status").filter({ hasText: /^Copied\.$/ })).toHaveCount(1);
+  await expectBrowser(dialog.getByText("Copied.", { exact: true })).toBeVisible();
+  await expectBrowser(page.getByRole("status").filter({ hasText: /^Copied\.$/ })).toHaveCount(1);
   const copied = await page.evaluate<string>("navigator.clipboard.readText()");
   expect(copied === (await command.textContent())).toBe(true);
   const live = page.locator(

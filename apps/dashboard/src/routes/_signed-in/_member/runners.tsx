@@ -49,7 +49,8 @@ function Runners() {
   // confirmation's writes with a render pass here that reads it until the read lands: read directly
   // by the rows, its opening waited; by the rest of the page alone, its "Working…" did.
   const list = createMemo(() => latest(() => deep(runners.data)));
-  const [removed, setRemoved] = createSignal<{ id: string; message: string }>();
+  // Each removal mounts a fresh status, even when its message repeats.
+  const [removed, setRemoved] = createSignal<{ message: string }>();
   const ids = createMemo(() => shortIds(list().map((runner) => runner.id)));
   const shortId = (runner: Runner) => ids().get(runner.id) ?? runner.id;
 
@@ -84,13 +85,12 @@ function Runners() {
       await writeAbsence(queryClient, queryKey, (cached) =>
         cached.filter((item) => item.id !== runner.id),
       );
-      setRemoved({ id: runner.id, message: `${label} is already gone.` });
+      setRemoved({ message: `${label} is already gone.` });
       // On the page before the dialog closes and focus moves to it.
       flush();
       return;
     }
     setRemoved({
-      id: runner.id,
       message: removalSummary(label, removal.endedJobs.length, removal.jobsWithFilesLeft.length),
     });
     // Render the outcome before starting a background read that may need to retry. The reads start

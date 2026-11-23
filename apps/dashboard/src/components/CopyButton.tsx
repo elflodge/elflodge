@@ -13,12 +13,6 @@ export function CopyButton(props: {
   accessibleLabel?: string;
   /** A table button has no adjacent copyable text unless a clipboard write fails. */
   showTextOnFailure?: boolean;
-  /**
-   * A row's Copy uses UI SDK's shared announcer so a live region in the row cannot leave new
-   * controls pressable behind an open confirmation. Copy buttons in dialogs and Copy Output on
-   * a job's page use an adjacent status.
-   */
-  sharedAnnouncer?: boolean;
   /** The ID of what the button's purpose depends on, such as a note that the text is shown once. */
   describedBy?: string;
   buttonRef?: (button: HTMLButtonElement) => void;
@@ -43,7 +37,7 @@ export function CopyButton(props: {
 
   function show(next: { text: string; message: string; manual?: boolean }) {
     setResult(next);
-    if (props.sharedAnnouncer) announce(next.message);
+    announce(next.message);
   }
 
   return (
@@ -54,20 +48,18 @@ export function CopyButton(props: {
         aria-describedby={props.describedBy}
         ref={(element) => {
           // Some screen readers announce only into a live region that was there before.
-          if (props.sharedAnnouncer) prepareAnnouncements(element.ownerDocument);
+          prepareAnnouncements(element.ownerDocument);
           props.buttonRef?.(element);
         }}
         onClick={() => void copy()}
       >
         {props.label}
       </button>
-      {/* In the page from the start, so that a screen reader says what is written into it, unless
-          the announcer says it instead. */}
-      <span class="copy-result" role={props.sharedAnnouncer ? undefined : "status"}>
-        {result()?.text === props.text ? result()?.message : ""}
-      </span>
-      {result()?.text === props.text && result()?.manual && (
-        <code class="command">{props.text}</code>
+      {result()?.text === props.text && (
+        <>
+          <span class="copy-result">{result()?.message}</span>
+          {result()?.manual && <code class="command">{props.text}</code>}
+        </>
       )}
     </p>
   );
