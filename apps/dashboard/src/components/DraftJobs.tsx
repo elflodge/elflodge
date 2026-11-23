@@ -1,4 +1,5 @@
 import type { JSX } from "@solidjs/web";
+import { announce, prepareAnnouncements } from "@ui-sdk/core";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -9,7 +10,8 @@ import {
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
-import { For, Show, createSignal, flush } from "solid-js";
+import { FileInput, FileInputDropzone, FileInputTrigger } from "@ui-sdk/solid/file-input";
+import { For, Show, flush } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
 import { focusNextRemove } from "../form.ts";
@@ -55,10 +57,8 @@ function wordsOf(...words: readonly (string | undefined)[]) {
   return [...lines].join("\n") || undefined;
 }
 
-/** Whether what is dragged holds files, rather than text or a link. */
-function holdsFiles(event: DragEvent) {
-  return event.dataTransfer?.types.includes("Files") ?? false;
-}
+/** What the file input holds: nothing, as each file it takes becomes a row at once. */
+const NO_FILES: File[] = [];
 
 /** Why a send stopped at a row, at the part of it concerned. */
 export interface RowRefusal {
@@ -76,9 +76,9 @@ export function rowControlId(key: number, part: keyof RowRefusal = "customId") {
 }
 
 /**
- * The Jobs of a Batch draft: Add files (the chooser, or files dropped on the group), Add a job,
- * Remove all, then a draft Records table of every job, each with its Custom ID, its typed input or
- * its file, and Remove. What a row cannot send is told at it.
+ * The Jobs of a Batch draft: Add files (the chooser, or files dropped on or pasted into the
+ * group), Add a job, Remove all, then a draft Records table of every job, each with its Custom ID,
+ * its typed input or its file, and Remove. What a row cannot send is told at it.
  */
 export function DraftJobs(props: {
   rows: readonly DraftRow[];
@@ -102,10 +102,7 @@ export function DraftJobs(props: {
   /** A send got no answer, so the hub may have a Batch with these jobs, which Remove all says. */
   mayHaveBatch: boolean;
 }) {
-  const [said, setSaid] = createSignal("");
   const confirmRemoveAll = createConfirm<undefined>();
-  const [receiving, setReceiving] = createSignal(false);
-  let chooser: HTMLInputElement | undefined;
   let addFilesButton: HTMLButtonElement | undefined;
   let addJobButton: HTMLButtonElement | undefined;
   let removeAllButton: HTMLButtonElement | undefined;
@@ -117,7 +114,7 @@ export function DraftJobs(props: {
     flush();
     const added = props.rows.slice(first - 1);
     const refused = added.filter((row) => row.problems.length || props.repeated.has(row.key));
-    setSaid(
+    announce(
       [
         words(first, first + jobs.length - 1),
         refused.length &&
@@ -127,8 +124,8 @@ export function DraftJobs(props: {
         .join(" "),
     );
   }
-  function addFiles(files: FileList | null) {
-    const jobs = fileJobs(files ?? []);
+  function addFiles(files: readonly File[]) {
+    const jobs = fileJobs(files);
     add(jobs, (first, last) =>
       jobs.length === 1
         ? `1 file added as job ${formatCount(first)}.`
@@ -144,7 +141,7 @@ export function DraftJobs(props: {
   function remove(row: DraftRow, number: number, button: HTMLElement) {
     focusNextRemove(button, addJobButton);
     props.onRemove(row.key);
-    setSaid(`Job ${formatCount(number)} removed.`);
+    announce(`Job ${formatCount(number)} removed.`);
   }
   async function removeAll() {
     if (!(await confirmRemoveAll())) return;
@@ -152,244 +149,217 @@ export function DraftJobs(props: {
     // it, as it goes with the rows.
     const count = props.rows.length;
     props.onRemove("all");
-    setSaid(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
+    announce(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
     flush();
     addFilesButton?.focus();
   }
 
   return (
     <>
-      <FieldGroup
-        label="Jobs"
-        hint={props.hint}
-        error={props.error}
-        class={{ "is-receiving": receiving() }}
-        onDragEnter={(event) => {
-          if (!holdsFiles(event)) return;
-          event.preventDefault();
-          setReceiving(!props.pending);
-        }}
-        onDragOver={(event) => {
-          if (!holdsFiles(event) || !event.dataTransfer) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = props.pending ? "none" : "copy";
-        }}
-        // Moving between the group's own elements fires dragleave too.
-        onDragLeave={(event) => {
-          if (
-            !(
-              event.relatedTarget instanceof Node &&
-              event.currentTarget.contains(event.relatedTarget)
-            )
-          )
-            setReceiving(false);
-        }}
-        onDrop={(event) => {
-          if (!holdsFiles(event)) return;
-          event.preventDefault();
-          setReceiving(false);
-          addFiles(event.dataTransfer?.files ?? null);
+      {/* Held empty: each choice, drop or paste is taken from `added` and the change canceled, so the
+          part keeps no files and the same file chosen again is added again. Canceling also leaves
+          unsaid the part's own "1 file accepted.", which the words about the rows replace. */}
+      <FileInput
+        multiple
+        value={NO_FILES}
+        disabled={props.pending}
+        onValueChange={(_, details) => {
+          details.cancel();
+          addFiles(details.added);
         }}
       >
-        <div class="controls">
-          <input
-            type="file"
-            multiple
-            hidden
-            ref={(element) => {
-              chooser = element;
-            }}
-            onChange={(event) => {
-              addFiles(event.currentTarget.files);
-              // Choosing the same files again adds them again.
-              event.currentTarget.value = "";
-            }}
-          />
-          <Button
-            ref={(element) => {
-              addFilesButton = element;
-            }}
-            disabled={props.pending}
-            focusableWhenDisabled
-            onClick={() => chooser?.click()}
-          >
-            Add files
-          </Button>
-          <Button
-            ref={(element) => {
-              addJobButton = element;
-            }}
-            disabled={props.pending}
-            focusableWhenDisabled
-            onClick={addTyped}
-          >
-            Add a job
-          </Button>
-          <Show when={props.rows.length}>
-            <Button
-              ref={(element) => {
-                removeAllButton = element;
-              }}
-              disabled={props.pending}
-              focusableWhenDisabled
-              onClick={() => void removeAll()}
-            >
-              Remove all
-            </Button>
-          </Show>
-        </div>
-        <Show when={receiving()}>
-          <p class="note drop-note">Drop the files to add a job for each.</p>
-        </Show>
-        <Show when={!props.rows.length && !receiving()}>
-          <p class="note">No jobs yet. Files can also be dropped here.</p>
-        </Show>
-        <Show when={props.rows.length}>
-          <a class="vh skip-list" href={`#${props.after}`}>
-            Skip the jobs
-          </a>
-          <table class="records is-draft" role="table">
-            <caption class="vh">The Batch’s jobs</caption>
-            <thead role="rowgroup">
-              <tr role="row">
-                <th scope="col" role="columnheader" class="num">
-                  Job
-                </th>
-                <th scope="col" role="columnheader" class="is-id">
-                  Custom ID
-                </th>
-                <th scope="col" role="columnheader">
-                  Input or file
-                </th>
-                <th scope="col" role="columnheader" class="is-act">
-                  <span class="vh">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody role="rowgroup">
-              <For each={props.rows} keyed={(row) => row.key}>
-                {(row, index) => {
-                  // Read once: the fields hold what the member types, which the rows follow.
-                  const first = row();
-                  const id = `draft-job-${first.key}`;
-                  const number = () => index() + 1;
-                  // What the row tells since it was added, and the last send's refusals, which
-                  // the page's own check can repeat.
-                  const idError = () =>
-                    wordsOf(props.repeated.get(first.key), props.refusals.get(first.key)?.customId);
-                  const holdsError = () => {
-                    const current = row();
-                    const refusal = props.refusals.get(first.key);
-                    return current.kind === "file"
-                      ? wordsOf(...current.problems, refusal?.file)
-                      : wordsOf(refusal?.input);
-                  };
-                  // Rows already need their own names and focus IDs. With UI SDK field parts,
-                  // adding 1,000 typed rows took 1,925 ms versus 431 ms with native controls.
-                  return (
-                    <tr role="row" id={id}>
-                      <td role="cell" class="num" data-l="Job">
-                        {formatCount(number())}
-                      </td>
-                      <td role="cell" class="is-id" data-l="Custom ID">
-                        <input
-                          id={rowControlId(first.key, "customId")}
-                          name={`jobs[${index()}][customId]`}
-                          aria-label={`Custom ID of job ${number()}`}
-                          aria-invalid={idError() ? "true" : undefined}
-                          aria-describedby={idError() ? `${id}-id-error` : undefined}
-                          defaultValue={first.customId}
-                          required
-                          spellcheck={false}
-                          autocapitalize="off"
-                          readonly={props.pending}
-                          onInput={() => props.onEdited(first.key, "customId")}
-                        />
-                        <Show when={idError()} keyed>
-                          {(words) => (
-                            <p class="field-error" id={`${id}-id-error`}>
-                              <FieldError>{words}</FieldError>
-                            </p>
-                          )}
-                        </Show>
-                      </td>
-                      <Show
-                        when={first.kind === "file" && first}
-                        fallback={
-                          <td role="cell" data-l="Input">
-                            <textarea
-                              id={rowControlId(first.key, "input")}
-                              name={`jobs[${index()}][input]`}
-                              aria-label={`Input of job ${number()}`}
-                              aria-invalid={holdsError() ? "true" : undefined}
-                              aria-describedby={holdsError() ? `${id}-input-error` : undefined}
-                              // Three rows: a short input shows whole, a longer one scrolls.
-                              rows={3}
-                              required
-                              readonly={props.pending}
-                              onInput={() => props.onEdited(first.key, "input")}
-                            />
-                            <Show when={holdsError()} keyed>
-                              {(words) => (
-                                <p class="field-error" id={`${id}-input-error`}>
-                                  <FieldError>{words}</FieldError>
-                                </p>
-                              )}
-                            </Show>
-                          </td>
-                        }
-                      >
-                        {(job) => (
-                          // A refused file's cell holds the focus a refusal moves to it.
-                          <td
-                            id={rowControlId(first.key, "file")}
-                            role="cell"
-                            class="is-file"
-                            data-l="File"
-                            aria-invalid={holdsError() ? "true" : undefined}
-                            aria-describedby={holdsError() ? `${id}-file-error` : undefined}
-                            tabindex={holdsError() ? -1 : undefined}
-                          >
-                            <span class="file">
-                              <span class="cut mono" title={job().file.name}>
-                                {job().file.name}
-                              </span>{" "}
-                              <span class="num">{formatBytes(job().file.size)}</span>
-                            </span>
-                            <Show when={holdsError()} keyed>
-                              {(words) => (
-                                <p class="field-error" id={`${id}-file-error`}>
-                                  <FieldError>{words}</FieldError>
-                                </p>
-                              )}
-                            </Show>
-                          </td>
-                        )}
-                      </Show>
-                      <td role="cell" class="is-act">
-                        <Button
-                          aria-label={`Remove job ${number()}`}
-                          disabled={props.pending}
-                          focusableWhenDisabled
-                          onClick={(event) => remove(row(), number(), event.currentTarget)}
-                        >
-                          Remove
-                        </Button>
-                      </td>
-                    </tr>
-                  );
+        <FileInputDropzone>
+          <FieldGroup label="Jobs" hint={props.hint} error={props.error}>
+            <div class="controls">
+              <FileInputTrigger
+                ref={(element) => {
+                  // Some screen readers announce only into a live region that was there before.
+                  prepareAnnouncements(element.ownerDocument);
+                  addFilesButton = element;
                 }}
-              </For>
-            </tbody>
-          </table>
-        </Show>
-      </FieldGroup>
-      {/* Beside the group rather than in it: either question leaves out of what it makes inert a
-          live region and what holds it, and the group, then inert whole, takes no file dropped
-          while it is open. */}
-      <p role="status" class="vh">
-        {said()}
-      </p>
+                // UI SDK's Button, so that, disabled while the form is pending, it keeps the focus it
+                // has, as the group's other buttons do; the part's own trigger would lose it.
+                render={(trigger, state) => (
+                  <Button {...trigger} disabled={state.disabled} focusableWhenDisabled />
+                )}
+              >
+                Add files
+              </FileInputTrigger>
+              <Button
+                ref={(element) => {
+                  addJobButton = element;
+                }}
+                disabled={props.pending}
+                focusableWhenDisabled
+                onClick={addTyped}
+              >
+                Add a job
+              </Button>
+              <Show when={props.rows.length}>
+                <Button
+                  ref={(element) => {
+                    removeAllButton = element;
+                  }}
+                  disabled={props.pending}
+                  focusableWhenDisabled
+                  onClick={() => void removeAll()}
+                >
+                  Remove all
+                </Button>
+              </Show>
+            </div>
+            {/* Shown in place of the note on no jobs while files are held over the group, by the
+                stylesheet: a note taken out under the pointer as the drop ends the drag would leave
+                the drop to no zone. */}
+            <p class="note drop-note">Drop the files to add a job for each.</p>
+            <Show when={!props.rows.length}>
+              <p class="note">No jobs yet. Files can also be dropped here.</p>
+            </Show>
+            <Show when={props.rows.length}>
+              <a class="vh skip-list" href={`#${props.after}`}>
+                Skip the jobs
+              </a>
+              <table class="records is-draft" role="table">
+                <caption class="vh">The Batch’s jobs</caption>
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th scope="col" role="columnheader" class="num">
+                      Job
+                    </th>
+                    <th scope="col" role="columnheader" class="is-id">
+                      Custom ID
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Input or file
+                    </th>
+                    <th scope="col" role="columnheader" class="is-act">
+                      <span class="vh">Remove</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody role="rowgroup">
+                  <For each={props.rows} keyed={(row) => row.key}>
+                    {(row, index) => {
+                      // Read once: the fields hold what the member types, which the rows follow.
+                      const first = row();
+                      const id = `draft-job-${first.key}`;
+                      const number = () => index() + 1;
+                      // What the row tells since it was added, and the last send's refusals, which
+                      // the page's own check can repeat.
+                      const idError = () =>
+                        wordsOf(
+                          props.repeated.get(first.key),
+                          props.refusals.get(first.key)?.customId,
+                        );
+                      const holdsError = () => {
+                        const current = row();
+                        const refusal = props.refusals.get(first.key);
+                        return current.kind === "file"
+                          ? wordsOf(...current.problems, refusal?.file)
+                          : wordsOf(refusal?.input);
+                      };
+                      // Rows already need their own names and focus IDs. With UI SDK field parts,
+                      // adding 1,000 typed rows took 1,925 ms versus 431 ms with native controls.
+                      return (
+                        <tr role="row" id={id}>
+                          <td role="cell" class="num" data-l="Job">
+                            {formatCount(number())}
+                          </td>
+                          <td role="cell" class="is-id" data-l="Custom ID">
+                            <input
+                              id={rowControlId(first.key, "customId")}
+                              name={`jobs[${index()}][customId]`}
+                              aria-label={`Custom ID of job ${number()}`}
+                              aria-invalid={idError() ? "true" : undefined}
+                              aria-describedby={idError() ? `${id}-id-error` : undefined}
+                              defaultValue={first.customId}
+                              required
+                              spellcheck={false}
+                              autocapitalize="off"
+                              readonly={props.pending}
+                              onInput={() => props.onEdited(first.key, "customId")}
+                            />
+                            <Show when={idError()} keyed>
+                              {(words) => (
+                                <p class="field-error" id={`${id}-id-error`}>
+                                  <FieldError>{words}</FieldError>
+                                </p>
+                              )}
+                            </Show>
+                          </td>
+                          <Show
+                            when={first.kind === "file" && first}
+                            fallback={
+                              <td role="cell" data-l="Input">
+                                <textarea
+                                  id={rowControlId(first.key, "input")}
+                                  name={`jobs[${index()}][input]`}
+                                  aria-label={`Input of job ${number()}`}
+                                  aria-invalid={holdsError() ? "true" : undefined}
+                                  aria-describedby={holdsError() ? `${id}-input-error` : undefined}
+                                  // Three rows: a short input shows whole, a longer one scrolls.
+                                  rows={3}
+                                  required
+                                  readonly={props.pending}
+                                  onInput={() => props.onEdited(first.key, "input")}
+                                />
+                                <Show when={holdsError()} keyed>
+                                  {(words) => (
+                                    <p class="field-error" id={`${id}-input-error`}>
+                                      <FieldError>{words}</FieldError>
+                                    </p>
+                                  )}
+                                </Show>
+                              </td>
+                            }
+                          >
+                            {(job) => (
+                              // A refused file's cell holds the focus a refusal moves to it.
+                              <td
+                                id={rowControlId(first.key, "file")}
+                                role="cell"
+                                class="is-file"
+                                data-l="File"
+                                aria-invalid={holdsError() ? "true" : undefined}
+                                aria-describedby={holdsError() ? `${id}-file-error` : undefined}
+                                tabindex={holdsError() ? -1 : undefined}
+                              >
+                                <span class="file">
+                                  <span class="cut mono" title={job().file.name}>
+                                    {job().file.name}
+                                  </span>{" "}
+                                  <span class="num">{formatBytes(job().file.size)}</span>
+                                </span>
+                                <Show when={holdsError()} keyed>
+                                  {(words) => (
+                                    <p class="field-error" id={`${id}-file-error`}>
+                                      <FieldError>{words}</FieldError>
+                                    </p>
+                                  )}
+                                </Show>
+                              </td>
+                            )}
+                          </Show>
+                          <td role="cell" class="is-act">
+                            <Button
+                              aria-label={`Remove job ${number()}`}
+                              disabled={props.pending}
+                              focusableWhenDisabled
+                              onClick={(event) => remove(row(), number(), event.currentTarget)}
+                            >
+                              Remove
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    }}
+                  </For>
+                </tbody>
+              </table>
+            </Show>
+          </FieldGroup>
+        </FileInputDropzone>
+      </FileInput>
       <RemoveAllDialog
         controller={confirmRemoveAll.controller}
         opener={() => removeAllButton}

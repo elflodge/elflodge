@@ -48,6 +48,9 @@ async function addFiles(page: Page, files: readonly (readonly [string, string])[
   );
 }
 
+/** The page's alert. UI SDK keeps its shared live regions, one an alert, beside the page's main. */
+const pageAlert = (page: Page) => page.getByRole("main").getByRole("alert");
+
 const isUpload = (request: Request) =>
   request.method() === "PUT" && new URL(request.url()).pathname.includes("/blobs/");
 const isCreate = (request: Request) =>
@@ -119,9 +122,7 @@ test("the hub's refusals stand at the field or row concerned, with every value k
   await expectBrowser(customId).toHaveAccessibleDescription(
     /Already used in the Batch for a job with other content/,
   );
-  await expectBrowser(page.getByRole("alert")).toHaveText(
-    "1 job was refused. It says why at its row: 1",
-  );
+  await expectBrowser(pageAlert(page)).toHaveText("1 job was refused. It says why at its row: 1");
   await expectBrowser(page.getByLabel("Input of job 1")).toHaveValue("Receipt 1: 21.00 EUR.");
   await expectBrowser(page.getByLabel("Batch ID")).toHaveValue("receipts-2026-11");
 }, 30_000);
@@ -151,7 +152,7 @@ test("what a row cannot send is told when it is added and stops Submit before an
   );
 
   await page.getByRole("button", { name: "Submit Batch" }).click();
-  const alert = page.getByRole("alert");
+  const alert = pageAlert(page);
   await expectBrowser(alert).toHaveText("3 jobs cannot be sent. Each says why at its row: 1, 2, 3");
 
   // Fixing one use of the Custom ID ends the repeat at both rows.
@@ -223,7 +224,7 @@ test("Submit again after a stop and after a failed upload uploads only what is m
     });
   });
   await submit.click();
-  await expectBrowser(page.getByRole("alert")).toHaveText(
+  await expectBrowser(pageAlert(page)).toHaveText(
     "1 file was not uploaded. No Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
   );
   await expectBrowser(page.getByRole("cell", { name: /^b\.txt \d/ })).toHaveAccessibleDescription(
@@ -325,7 +326,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   });
   const submit = page.getByRole("button", { name: "Submit Batch" });
   const batchId = page.getByLabel("Batch ID");
-  const alert = page.getByRole("alert");
+  const alert = pageAlert(page);
   const create = page.waitForRequest(isCreate);
   await submit.click();
   const sentId: string = (await create).postDataJSON().id;
@@ -471,7 +472,7 @@ test("Leave asked while files upload says so once the create is sent, and chosen
     expect((await answered).ok()).toBe(true);
     // The draft has taken the success, while Batches still loads: chosen to leave, it does not follow
     // the Batch, and says the hub may have it.
-    await expectBrowser(page.getByRole("alert")).toContainText(
+    await expectBrowser(pageAlert(page)).toContainText(
       "The hub may already have a Batch under this Batch ID: sent-while-asked",
     );
     session.resolve();
