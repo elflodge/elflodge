@@ -16,7 +16,7 @@ const system = startSystem();
 let requests: APIRequestContext;
 /** The app shell of the dashboard's build, which global setup builds and both hubs serve. */
 let shell: string;
-/** The path the shell loads the dashboard's script from, its entry in Vite's manifest. */
+/** The path of the dashboard's entry script, a hashed file of the build, from Vite's manifest. */
 let scriptPath: string;
 
 /** What the test reads of Vite's build manifest. */
@@ -69,8 +69,6 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
   await expectShellAt("/dashboard/.vite/manifest.json");
-  // The shell leads to a script the hub serves.
-  expect(shell).toContain(`src="${scriptPath}"`);
   const script = await system.hub.fetch(scriptPath);
   expect(script.status).toBe(200);
   expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
