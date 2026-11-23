@@ -11,6 +11,7 @@ import {
   type Harness,
   LiveDoc,
   type Session,
+  type TableCommitChange,
   ToolResultEntry,
   ToolTask,
   type Tx,
@@ -162,26 +163,23 @@ export interface ConversationHead {
  * disappears before it wakes. The result's writer keeps the outcome that distinguishes them.
  * Reading it alongside the entry requires no extra journal write.
  */
-async function reportEntry(tx: Tx, entry: EntryRecord): Promise<JobEvent> {
-  const event = { id: entry.id, type: "entry", record: entry } as const;
+async function toolTaskOutcome(tx: Tx, entry: EntryRecord) {
   if (
     !ToolResultEntry.is(entry) ||
     !Array.isArray(entry.data?.diagnostics) ||
     !entry.data.diagnostics.length ||
     entry.byTaskId === undefined
   )
-    return event;
+    return undefined;
 
   const writer = await tx.task(entry.byTaskId);
-  if (writer?.kind === GenerationTask.definition.name)
-    return { ...event, toolTaskOutcome: "unstarted" };
-  if (writer?.kind !== ToolTask.definition.name || writer.state.status !== "terminal") return event;
+  if (writer?.kind === GenerationTask.definition.name) return "unstarted";
+  if (writer?.kind !== ToolTask.definition.name || writer.state.status !== "terminal")
+    return undefined;
   const outcome = writer.state.outcome.status;
   // Pi's tool task writes its result in the same commit as one of these three endings.
-  if (outcome === "completed" || outcome === "aborted" || outcome === "failed") {
-    return { ...event, toolTaskOutcome: outcome };
-  }
-  return event;
+  if (outcome === "completed" || outcome === "aborted" || outcome === "failed") return outcome;
+  return undefined;
 }
 
 /** How many records one scan reads at a time. */
@@ -217,7 +215,7 @@ export function readEvents(
       cursor = page.next;
     } while (cursor !== undefined);
 
-    const records: (ConversationRecord | EntryRecord)[] = [];
+    const records: Extract<TableCommitChange, { type: JobEvent["type"] }>[] = [];
     const heads: ConversationHead[] = [];
     // Reading stops at the lowest ID a conversation has left unread, so the merge has no gap.
     let horizon = Number.POSITIVE_INFINITY;
@@ -228,7 +226,7 @@ export function readEvents(
       );
       heads.push({ id: conversation.id, lastEntryId: latest.items[0]?.id });
       if (conversation.id > after) {
-        records.push(conversation);
+        records.push({ type: "conversation", value: conversation });
       }
       const minEntryId = Math.max(after, conversation.id) + 1;
       if (!isEntryId(minEntryId)) throw new RangeError(`${minEntryId} is not a journal ID`);
@@ -236,20 +234,24 @@ export function readEvents(
         { conversationId: conversation.id, minEntryId, order: "ascending" },
         PAGE_SIZE,
       );
-      records.push(...page.items);
+      for (const entry of page.items) records.push({ type: "entry", value: entry });
       const last = page.items.at(-1);
       if (page.next !== undefined && last) horizon = Math.min(horizon, last.id);
     }
 
-    const sorted = Array.sortWith(records, ({ id }) => id, Order.Number);
+    const sorted = Array.sortWith(records, ({ value }) => value.id, Order.Number);
     const read: JobEvent[] = [];
     let bytes = 0;
-    for (const record of sorted) {
+    for (const { type, value: record } of sorted) {
       if (record.id > horizon) break;
-      const event: JobEvent =
-        "conversationId" in record
-          ? await reportEntry(tx, record)
-          : { type: "conversation", id: record.id, record };
+      let event: JobEvent;
+      if (type === "entry") {
+        event = { id: record.id, type, record };
+        const outcome = await toolTaskOutcome(tx, record);
+        if (outcome !== undefined) event.toolTaskOutcome = outcome;
+      } else {
+        event = { type, id: record.id, record };
+      }
       const size = Buffer.byteLength(JSON.stringify(event)) + 1;
       if (bytes + size > maxBytes && read.length > 0) break;
       read.push(event);
