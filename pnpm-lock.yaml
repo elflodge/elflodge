@@ -255,8 +255,8 @@ catalogs:
       specifier: 6.0.0-rc.6
       version: 6.0.0-rc.6
     '@tanstack/solid-router':
-      specifier: 2.0.0-rc.10
-      version: 2.0.0-rc.10
+      specifier: 2.0.0-rc.11
+      version: 2.0.0-rc.11
     '@tanstack/solid-start':
       specifier: 2.0.0-rc.10
       version: 2.0.0-rc.10
@@ -509,7 +509,7 @@ importers:
         version: 6.0.0-rc.6(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
       '@tanstack/solid-router':
         specifier: 'catalog:'
-        version: 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
+        version: 2.0.0-rc.11(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
       '@tanstack/solid-start':
         specifier: 'catalog:'
         version: 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
@@ -2956,11 +2956,19 @@ packages:
     resolution: {integrity: sha512-DR9t6lfLVdrjgCwpglrR9DR7Ok8/HlXjcOE+goWXF3zyuLUO/ug7vMbSFxTqrQTtbRghJfyhmIZ0S6LhPIy44w==}
     engines: {node: '>=20.19'}
 
+  '@tanstack/history@1.162.5':
+    resolution: {integrity: sha512-w1+YvwmTkwt5n8yUqEH3IWZ9DsmorCZW/EQ3KYHnqEgIkOZpH54NvW6/Epq3Dzb8H0ifIeYX8PExvrNLIH5FIA==}
+    engines: {node: '>=20.19'}
+
   '@tanstack/query-core@5.107.1':
     resolution: {integrity: sha512-PSyAik11oQBEVOiVy5hjZWHmoUqOXqK1WYy4v55mcxozEfKaQgpUMsgnXhWjuESzSht8JfzqMS1m6M/9CpNgvg==}
 
   '@tanstack/router-core@1.171.22':
     resolution: {integrity: sha512-sitsuRkz4qpTjIAV97S5zFCoeGv0OFd6+VWg3ZcIlQbi5R4NIXfz6ogg51n5w6rvTwSODz/lKWb5dl5tvh2bQw==}
+    engines: {node: '>=20.19'}
+
+  '@tanstack/router-core@1.171.39':
+    resolution: {integrity: sha512-qUhoJ0meuSUqGYQbHbcJYdASr06YtK+bulbj6vtrhKYFkLgkSsZ6tXmMyym7sFxiSJSPYgasgozrL01LyyR/6A==}
     engines: {node: '>=20.19'}
 
   '@tanstack/router-generator@1.167.28':
@@ -3004,6 +3012,13 @@ packages:
     peerDependencies:
       '@solidjs/web': '>=2.0.0-rc.20 <3.0.0'
       solid-js: '>=2.0.0-rc.20 <3.0.0'
+
+  '@tanstack/solid-router@2.0.0-rc.11':
+    resolution: {integrity: sha512-PDngmJoFmIyWok4C7yb7lxI90ndF1bJ4eXHRktfUiImy1a/6XHqcCEuvrMR2o5Q5kM7vXtn/wjIKg6i/ojn38Q==}
+    engines: {node: '>=20.19'}
+    peerDependencies:
+      '@solidjs/web': '>=2.0.1 <3.0.0'
+      solid-js: '>=2.0.1 <3.0.0'
 
   '@tanstack/solid-start-client@2.0.0-rc.10':
     resolution: {integrity: sha512-+VYtvvxw6sHRc/gO4txdBBbGn0iNTkefCzL/zpmfPwnbdhgT0GTgv5qmUb6l8M701J2QsKXa4aJsvZlZ6naMAw==}
@@ -6258,10 +6273,12 @@ packages:
   yuku-core@0.19.0:
     resolution: {integrity: sha512-kYK9e1XdfirNhkipzW0wmMcSWcVF/CWnuugodfVYRCUwvoBefweL9HzB96OiKEhsx78V5WbUxbJqlizMX869Qg==}
     engines: {node: '>=14.18.0'}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   yuku-parser@0.19.0:
     resolution: {integrity: sha512-XrBh9ZiQK5mJVRxZBAvD6LwRyAYrK3MFtH3+onyuxFL5hFD44EC3QOmIC1FjTj6H2MMwq46/NAI+NZxLZPZgxg==}
     engines: {node: '>=14.18.0'}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   zip-stream@6.0.1:
     resolution: {integrity: sha512-zK7YHHz4ZXpW89AHXUPbQVGKI7uvkd3hzusTdotCg1UxyaVtg0zFJSTfW/Dq5f7OBBVnq6cZIaC8Ti4hb6dtCA==}
@@ -8304,11 +8321,20 @@ snapshots:
 
   '@tanstack/history@1.162.1': {}
 
+  '@tanstack/history@1.162.5': {}
+
   '@tanstack/query-core@5.107.1': {}
 
   '@tanstack/router-core@1.171.22':
     dependencies:
       '@tanstack/history': 1.162.1
+      cookie-es: 3.1.1
+      seroval: 1.8.1
+      seroval-plugins: 1.8.0(seroval@1.8.1)
+
+  '@tanstack/router-core@1.171.39':
+    dependencies:
+      '@tanstack/history': 1.162.5
       cookie-es: 3.1.1
       seroval: 1.8.1
       seroval-plugins: 1.8.0(seroval@1.8.1)
@@ -8376,6 +8402,17 @@ snapshots:
       '@solidjs/web': 2.0.1(solid-js@2.0.1)
       '@tanstack/history': 1.162.1
       '@tanstack/router-core': 1.171.22
+      isbot: 5.2.3
+      solid-js: 2.0.1
+
+  '@tanstack/solid-router@2.0.0-rc.11(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)':
+    dependencies:
+      '@solid-devtools/logger': 0.9.11(solid-js@2.0.1)
+      '@solid-primitives/refs': 1.1.4(solid-js@2.0.1)
+      '@solidjs/meta': 0.29.8(solid-js@2.0.1)
+      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@tanstack/history': 1.162.5
+      '@tanstack/router-core': 1.171.39
       isbot: 5.2.3
       solid-js: 2.0.1
 
