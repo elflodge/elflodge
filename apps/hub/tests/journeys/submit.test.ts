@@ -107,7 +107,8 @@ test("the hub's refusals stand at the field or row concerned, with every value k
   await expectBrowser(customId).toHaveAccessibleDescription(
     /Already used in the Batch for a job with other content/,
   );
-  await expectBrowser(page.getByRole("alert")).toHaveText(
+  // In the page's main: UI SDK keeps its shared live regions, one an alert, beside it.
+  await expectBrowser(page.getByRole("main").getByRole("alert")).toHaveText(
     "1 job was refused. It says why at its row: 1",
   );
   await expectBrowser(page.getByLabel("Input of job 1")).toHaveValue("Receipt 1: 21.00 EUR.");

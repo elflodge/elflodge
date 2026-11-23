@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -35,6 +35,18 @@ async function addFiles(page: Page, files: readonly (readonly [string, string])[
   ).setFiles(
     files.map(([name, text]) => ({ name, mimeType: "text/plain", buffer: Buffer.from(text) })),
   );
+}
+
+/** The page's alert. UI SDK keeps its shared live regions, one an alert, beside the page's main. */
+const pageAlert = (page: Page) => page.getByRole("main").getByRole("alert");
+
+/**
+ * The status UI SDK's `announce` gives `words` in, which it writes to its shared region 100 ms
+ * after the page asks.
+ */
+async function announced(page: Page, words: string) {
+  await page.clock.runFor(100);
+  return page.getByRole("status").filter({ hasText: words });
 }
 
 /**
@@ -90,12 +102,12 @@ test("what a row cannot send is told when it is added and stops Submit before an
     await expectBrowser(page.getByLabel(`Custom ID of job ${job}`)).toHaveAccessibleDescription(
       'Must be unique in the request: "scan.pdf" is given more than once',
     );
-  await expectBrowser(page.getByRole("status").filter({ hasText: "added" })).toHaveText(
+  await expectBrowser(await announced(page, "added")).toHaveText(
     "3 files added as jobs 1 to 3. 3 cannot be sent: each says why at its row.",
   );
 
   await page.getByRole("button", { name: "Submit Batch" }).click();
-  const alert = page.getByRole("alert");
+  const alert = pageAlert(page);
   await expectBrowser(alert).toHaveText("3 jobs cannot be sent. Each says why at its row: 1, 2, 3");
 
   // Fixing one use of the Custom ID ends the repeat at both rows.
@@ -162,8 +174,8 @@ test("Submit again after a stop and after a failed upload uploads only what is m
     return { digest: params.digest, sizeBytes: headers["content-length"] };
   });
   await submit.click();
-  await runClockUntil(page, 1, () => page.getByRole("alert").isVisible());
-  await expectBrowser(page.getByRole("alert")).toHaveText(
+  await runClockUntil(page, 1, () => pageAlert(page).isVisible());
+  await expectBrowser(pageAlert(page)).toHaveText(
     "1 file was not uploaded. No Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
   );
   await expectBrowser(page.getByRole("cell", { name: /^b\.txt \d/ })).toHaveAccessibleDescription(
@@ -230,7 +242,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
   );
   const submit = page.getByRole("button", { name: "Submit Batch" });
   const batchId = page.getByLabel("Batch ID");
-  const alert = page.getByRole("alert");
+  const alert = pageAlert(page);
   const create = page.waitForRequest(
     (request) => request.method() === "POST" && new URL(request.url()).pathname === "/batches",
   );
@@ -367,9 +379,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await removeAll.click();
   await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
   await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
-  await expectBrowser(
-    page.getByRole("status").filter({ hasText: "All 2 jobs removed." }),
-  ).toBeVisible();
+  await expectBrowser(await announced(page, "All 2 jobs removed.")).toBeVisible();
   await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
   await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
   limits.release();
@@ -419,4 +429,39 @@ test("a file dropped on the Jobs group adds a job, but not while Remove all asks
   await page.keyboard.press("Escape");
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(page.getByRole("button", { name: /^Remove job / })).toHaveCount(2);
+});
+
+test("a dropped folder past what is read says some of its files may not have been added", async ({
+  hub,
+  open,
+}) => {
+  const page = await openSubmitBatch(hub, open);
+  const root = await mkdtemp(path.join(tmpdir(), "dropped-folder-"));
+  onTestFinished(() => rm(root, { recursive: true }));
+  const folder = path.join(root, "scans");
+  await mkdir(folder);
+  await Promise.all(
+    Array.from({ length: 1_001 }, (_, at) => writeFile(path.join(folder, `${at}.txt`), `${at}`)),
+  );
+  const loose = path.join(root, "loose.txt");
+  await writeFile(loose, "Loose.");
+  const group = page.getByRole("group", { name: "Jobs" });
+  await group.scrollIntoViewIfNeeded();
+  const box = await group.boundingBox();
+  if (!box) throw new Error("The Jobs group is not shown.");
+  // Dropped as a person drops a folder and a file beside it, through the browser's own hit test.
+  const input = await page.context().newCDPSession(page);
+  const at = { x: box.x + 10, y: box.y + box.height / 2 };
+  const data = { items: [], files: [folder, loose], dragOperationsMask: 1 };
+  for (const type of ["dragEnter", "dragOver", "drop"] as const)
+    await input.send("Input.dispatchDragEvent", { type, ...at, data });
+  const words =
+    "A dropped folder is read up to 1,000 files, so some of its files may not have been added.";
+  await expectBrowser(page.getByLabel("Custom ID of job 1000")).toBeAttached();
+  await expectBrowser(page.getByLabel("Custom ID of job 1001")).toHaveCount(0);
+  await expectBrowser(group.getByText(words)).toBeVisible();
+  await expectBrowser(await announced(page, "added")).toContainText(words);
+  // The words go with the next change of the rows.
+  await page.getByRole("button", { name: "Remove job 1", exact: true }).click();
+  await expectBrowser(group.getByText(words)).toHaveCount(0);
 });
