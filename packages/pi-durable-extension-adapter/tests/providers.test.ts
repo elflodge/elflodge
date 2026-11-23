@@ -218,6 +218,7 @@ test.each(["alone", "beside a conversation on another worker"])(
     expect(models.getModel("anthropic", anthropic.id)?.baseUrl).toBe("https://proxy.example");
     expect(await (await alice.ask("again")).wait(context)).toMatchObject({ status: "done" });
     expect(await alice.answer()).toMatchObject({ content: [{ text: "alice: again" }] });
+    expect(models.getModel("anthropic", anthropic.id)?.baseUrl).toBe("https://proxy.example");
     if (bob) {
       expect(await (await bob.ask("hello")).wait(context)).toMatchObject({ status: "done" });
       expect(await bob.answer()).toMatchObject({ content: [{ text: "bob: hello" }] });
