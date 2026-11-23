@@ -33,7 +33,7 @@
   "devDependencies": {
     "@better-auth/core": "catalog:",
     "@msw/playwright": "catalog:",
-    "@orpc/msw": "catalog:",
+    "@orpc/server": "catalog:",
     "@solidjs/vite-plugin": "catalog:",
     "msw": "catalog:",
     "playwright": "catalog:",

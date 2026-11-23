@@ -230,9 +230,6 @@ catalogs:
     '@orpc/json-schema':
       specifier: 2.0.0-beta.52
       version: 2.0.0-beta.52
-    '@orpc/msw':
-      specifier: 2.0.0-beta.52
-      version: 2.0.0-beta.52
     '@orpc/openapi':
       specifier: 2.0.0-beta.52
       version: 2.0.0-beta.52
@@ -559,9 +556,9 @@ importers:
       '@msw/playwright':
         specifier: 'catalog:'
         version: 0.7.0(msw@3.0.7(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)
-      '@orpc/msw':
+      '@orpc/server':
         specifier: 'catalog:'
-        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(msw@3.0.7(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(supports-color@10.2.2)(typescript@7.0.2))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@solidjs/vite-plugin':
         specifier: 'catalog:'
         version: 3.0.1(@babel/core@7.29.7(supports-color@10.2.2))(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(solid-js@2.0.3)(typescript@7.0.2)(yaml@2.9.1)
@@ -2197,11 +2194,6 @@ packages:
 
   '@orpc/json-schema@2.0.0-beta.52':
     resolution: {integrity: sha512-QTQcDGvb/8d4RIdXDWHUUHYBOeHCJ27v7EOBjW/YveGIlXrJP1QuIw/FG5YLzpM1PurJoTUR++nsYP1HLIUEvg==}
-
-  '@orpc/msw@2.0.0-beta.52':
-    resolution: {integrity: sha512-c0MBNEQqo2NmUBwG+XDGI6dMjioagte/Im2ONU1rVuiOXOL5wthl3sOTLpKo330LItcmVG8cx19wBA5GcTDVrg==}
-    peerDependencies:
-      msw: '>=2.12.3'
 
   '@orpc/openapi@2.0.0-beta.52':
     resolution: {integrity: sha512-2E5rzQogxClPHQnxGxuSLPKScX2c7DmBh5mb76SVQxNSDMYIWNTtl+EskJnC5l2joZsBwr3SGkd/HWZui2lqJw==}
@@ -7835,17 +7827,6 @@ snapshots:
       '@orpc/server': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/shared': 2.0.0-beta.52
       '@standard-schema/spec': 1.1.0
-    transitivePeerDependencies:
-      - crossws
-      - fastify
-
-  '@orpc/msw@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(msw@3.0.7(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(supports-color@10.2.2)(typescript@7.0.2))':
-    dependencies:
-      '@orpc/client': 2.0.0-beta.52
-      '@orpc/contract': 2.0.0-beta.52
-      '@orpc/server': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/shared': 2.0.0-beta.52
-      msw: 3.0.7(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(supports-color@10.2.2)(typescript@7.0.2)
     transitivePeerDependencies:
       - crossws
       - fastify

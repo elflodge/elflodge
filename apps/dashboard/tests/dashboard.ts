@@ -10,7 +10,7 @@ import {
 import { expect, inject, test as base } from "vite-plus/test";
 
 import { DASHBOARD_BASE } from "../../hub/src/dashboard.ts";
-import { createHub, type Hub, type HubNetwork } from "./hub.ts";
+import { createHub } from "./hub.ts";
 import { NO_JOBS, NOW, signedIn } from "./records.ts";
 
 export { expect as expectBrowser } from "playwright/test";
@@ -27,21 +27,15 @@ export type BrowserOptions = Pick<
  */
 export type Open = (path: string, options?: BrowserOptions) => Promise<Page>;
 
-const networks = new WeakMap<Hub, HubNetwork>();
-
-function networkOf(hub: Hub): HubNetwork {
-  const network = networks.get(hub);
-  if (!network) throw new Error("The hub fixture made no network");
-  return network;
-}
-
 /**
  * The test for a dashboard page, driven in Chromium against the stand-in for the hub. `hub` is
  * arranged before or between steps. It answers the shell's own reads until a test arranges them: a
  * session of an owner of the Organization, no Runners and no unfinished jobs. Any other call it has
- * no answer for, and any request outside the contract and the build, fails the test, which names
- * them. `open` opens a page. Its clock stands still at `NOW` until a test moves it, so no poll or
- * deadline passes unless the test makes it.
+ * no answer for, and any request outside the contract, Better Auth's routes and the build, fails the
+ * test, which names them; a call whose input the contract refuses needs no answer, as the hub's
+ * refusal answers it. A call whose answer is lost is arranged with `drops`, and a browser gone
+ * offline with `setOffline`. `open` opens a page. Its clock stands still at `NOW` until a test
+ * moves it, so no poll or deadline passes unless the test makes it.
  */
 export const test = base
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern; this one has none.
@@ -50,16 +44,17 @@ export const test = base
     onCleanup(() => browser.close());
     return browser;
   })
-  .extend("hub", async () => {
-    const { hub, network } = createHub(inject("dashboardOrigin"));
-    hub.session.answers(signedIn("owner"));
-    hub.runners.list.answers([]);
-    hub.jobs.counts.answers(NO_JOBS);
-    networks.set(hub, network);
-    return hub;
+  // The stand-in and the network serving it, which the `open` fixture serves the page through.
+  .extend("standIn", async () => {
+    const standIn = createHub(inject("dashboardOrigin"));
+    standIn.hub.session.answers(signedIn("owner"));
+    standIn.hub.runners.list.answers([]);
+    standIn.hub.jobs.counts.answers(NO_JOBS);
+    return standIn;
   })
-  .extend("open", async ({ browser, hub }, { onCleanup }): Promise<Open> => {
-    const network = networkOf(hub);
+  .extend("hub", async ({ standIn }) => standIn.hub)
+  .extend("open", async ({ browser, standIn }, { onCleanup }): Promise<Open> => {
+    const { network } = standIn;
     const origin = inject("dashboardOrigin");
     const files = new Set(inject("dashboardFiles"));
     const strays: string[] = [];
@@ -111,12 +106,7 @@ export const test = base
       started.setDefaultTimeout(5_000);
       // Before MSW's, which Playwright then asks first.
       await started.route("**/*", serveBuild);
-      const fixture = defineNetworkFixture({
-        context: started,
-        handlers: network.handlers({
-          resetHandlers: (...handlers) => fixture.resetHandlers(...handlers),
-        }),
-      });
+      const fixture = defineNetworkFixture({ context: started, handlers: [...network.handlers] });
       msw = fixture;
       await fixture.enable();
       // MSW builds the request its handlers read from Playwright's `allHeaders()`. For a routed request
@@ -146,6 +136,24 @@ export const test = base
 /** What a page says when it could not confirm a write the hub may have made. */
 export const UNCERTAIN =
   "The dashboard could not confirm this was done. Check before trying again.";
+
+/**
+ * Takes the browser of `page` offline, or back online with `offline` false. The stand-in answers
+ * inside the browser, ahead of its network, so going offline alone would not stop a request reaching
+ * it: while offline, every request fails here, as the network fails it.
+ */
+export async function setOffline(page: Page, offline: boolean) {
+  const context = page.context();
+  if (offline) {
+    await context.route("**/*", disconnected);
+    await context.setOffline(true);
+  } else {
+    await context.unroute("**/*", disconnected);
+    await context.setOffline(false);
+  }
+}
+
+const disconnected = (route: Route) => route.abort("internetdisconnected");
 
 /**
  * Moves the page's clock `step` milliseconds at a time until `reached` holds. One jump does not do
