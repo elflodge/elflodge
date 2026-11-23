@@ -49,8 +49,8 @@ updates:
       # Kept apart from the catch-all because its PR needs work on its branch: Dependabot moves vite-plus
       # but not the `vite` core alias or the Vitest pin. Set both from the new version's published
       # dependencies (`npm view vite-plus@<version> dependencies`); vite-plus refuses to run until the
-      # alias matches. `vp migrate` would also add release-age exceptions and pack settings this
-      # workspace does not use.
+      # alias matches. `vp migrate` would also add release-age exceptions, which the workspace's
+      # cooldown rules out, and pack settings it does not use.
       vite-plus:
         patterns:
           - "vite-plus"
