@@ -3,6 +3,9 @@ import { configDefaults, defaultServerConditions, defineConfig } from "vite-plus
 
 import { DASHBOARD_ASSETS } from "./src/dashboard.ts";
 
+/** The tests that drive the dashboard's pages in a browser, which the `dashboard` project runs. */
+const DASHBOARD_PAGES = "tests/dashboard-*.test.ts";
+
 export default defineConfig({
   // The tests start a Runner in this process, which loads the extension adapter's source under the
   // condition its exports give it in the workspace (ADR 0006).
@@ -60,12 +63,26 @@ export default defineConfig({
           // alone runs them.
           exclude: [
             ...configDefaults.exclude,
+            DASHBOARD_PAGES,
             "tests/runner-reports.test.ts",
             "tests/runner-stop.test.ts",
           ],
         },
       },
-      { extends: true, test: { name: "node", provide: { hub: "node" } } },
+      {
+        extends: true,
+        test: {
+          name: "node",
+          provide: { hub: "node" },
+          exclude: [...configDefaults.exclude, DASHBOARD_PAGES],
+        },
+      },
+      // The dashboard's pages in a browser, against one hub: both hubs serve the same build, and
+      // `tests/dashboard.test.ts`, in the projects above, covers how each serves it.
+      {
+        extends: true,
+        test: { name: "dashboard", provide: { hub: "node" }, include: [DASHBOARD_PAGES] },
+      },
     ],
   },
 });
