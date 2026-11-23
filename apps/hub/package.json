@@ -53,10 +53,12 @@
     "kanel": "catalog:",
     "kanel-kysely": "catalog:",
     "nf3": "catalog:",
+    "node-html-parser": "catalog:",
     "playwright": "catalog:",
     "runner": "workspace:*",
     "testcontainers": "catalog:",
     "typescript": "catalog:",
+    "undici": "catalog:",
     "vite-plus": "catalog:",
     "wrangler": "catalog:",
     "ws": "catalog:"
