@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -578,6 +578,38 @@ test("a file dropped on the Jobs group adds a job, but not while Remove all asks
   await expectBrowser(dialog).toBeHidden();
   await expectBrowser(page.getByRole("button", { name: /^Remove job / })).toHaveCount(2);
 }, 30_000);
+
+test("a dropped folder past what is read says some of its files may not have been added", async () => {
+  const page = await openSubmitBatch("Batch folder dropper");
+  const root = await mkdtemp(path.join(tmpdir(), "dropped-folder-"));
+  onTestFinished(() => rm(root, { recursive: true }));
+  const folder = path.join(root, "scans");
+  await mkdir(folder);
+  await Promise.all(
+    Array.from({ length: 1_001 }, (_, at) => writeFile(path.join(folder, `${at}.txt`), `${at}`)),
+  );
+  const loose = path.join(root, "loose.txt");
+  await writeFile(loose, "Loose.");
+  const group = page.getByRole("group", { name: "Jobs" });
+  await group.scrollIntoViewIfNeeded();
+  const box = await group.boundingBox();
+  if (!box) throw new Error("The Jobs group is not shown.");
+  // Dropped as a person drops a folder and a file beside it, through the browser's own hit test.
+  const input = await page.context().newCDPSession(page);
+  const at = { x: box.x + 10, y: box.y + box.height / 2 };
+  const data = { items: [], files: [folder, loose], dragOperationsMask: 1 };
+  for (const type of ["dragEnter", "dragOver", "drop"] as const)
+    await input.send("Input.dispatchDragEvent", { type, ...at, data });
+  const words =
+    "A dropped folder is read up to 1,000 files, so some of its files may not have been added.";
+  await expectBrowser(page.getByLabel("Custom ID of job 1000")).toBeAttached({ timeout: 15_000 });
+  await expectBrowser(page.getByLabel("Custom ID of job 1001")).toHaveCount(0);
+  await expectBrowser(group.getByText(words)).toBeVisible();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "added" })).toContainText(words);
+  // The words go with the next change of the rows.
+  await page.getByRole("button", { name: "Remove job 1", exact: true }).click();
+  await expectBrowser(group.getByText(words)).toHaveCount(0);
+}, 60_000);
 
 test("files alike in name, size and time but not in content are each sent as their own", async () => {
   const page = await openSubmitBatch("Batch scanner");

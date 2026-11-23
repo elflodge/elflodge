@@ -11,9 +11,15 @@ import {
 } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
 import { FileInput, FileInputDropzone, FileInputTrigger } from "@ui-sdk/solid/file-input";
-import { For, Show, flush } from "solid-js";
+import { For, Show, createSignal, flush } from "solid-js";
 
-import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
+import {
+  type DraftJob,
+  FOLDER_READ_LIMIT,
+  fileJobs,
+  mayLackFolderFiles,
+  typedJob,
+} from "../batch-draft.ts";
 import { focusNextRemove } from "../form.ts";
 import { formatBytes } from "../format-bytes.ts";
 import { formatCount, plural } from "../format.ts";
@@ -100,14 +106,18 @@ export function DraftJobs(props: {
   mayHaveBatch: boolean;
 }) {
   const confirmRemoveAll = createConfirm<undefined>();
+  // Told from the add that may have missed a dropped folder's files until the rows next change.
+  const [lacking, setLacking] = createSignal(false);
+  const lackingWords = `A dropped folder is read up to ${formatCount(FOLDER_READ_LIMIT)} files, so some of its files may not have been added.`;
   let addFilesButton: HTMLButtonElement | undefined;
   let addJobButton: HTMLButtonElement | undefined;
   let removeAllButton: HTMLButtonElement | undefined;
 
-  function add(jobs: DraftJob[], words: (first: number, last: number) => string) {
+  function add(jobs: DraftJob[], words: (first: number, last: number) => string, mayLack = false) {
     if (props.pending || !jobs.length) return;
     const first = props.rows.length + 1;
     props.onAdd(jobs);
+    setLacking(mayLack);
     flush();
     const added = props.rows.slice(first - 1);
     const refused = added.filter((row) => row.problems.length || props.repeated.has(row.key));
@@ -116,6 +126,7 @@ export function DraftJobs(props: {
         words(first, first + jobs.length - 1),
         refused.length &&
           `${formatCount(refused.length)} ${plural(refused.length, "cannot be sent: it says why at its row.", "cannot be sent: each says why at its row.")}`,
+        mayLack && lackingWords,
       ]
         .filter(Boolean)
         .join(" "),
@@ -123,10 +134,13 @@ export function DraftJobs(props: {
   }
   function addFiles(files: readonly File[]) {
     const jobs = fileJobs(files);
-    add(jobs, (first, last) =>
-      jobs.length === 1
-        ? `1 file added as job ${formatCount(first)}.`
-        : `${formatCount(jobs.length)} files added as jobs ${formatCount(first)} to ${formatCount(last)}.`,
+    add(
+      jobs,
+      (first, last) =>
+        jobs.length === 1
+          ? `1 file added as job ${formatCount(first)}.`
+          : `${formatCount(jobs.length)} files added as jobs ${formatCount(first)} to ${formatCount(last)}.`,
+      mayLackFolderFiles(files),
     );
   }
   function addTyped() {
@@ -138,6 +152,7 @@ export function DraftJobs(props: {
   function remove(row: DraftRow, number: number, button: HTMLElement) {
     focusNextRemove(button, addJobButton);
     props.onRemove(row.key);
+    setLacking(false);
     announce(`Job ${formatCount(number)} removed.`);
   }
   async function removeAll() {
@@ -146,6 +161,7 @@ export function DraftJobs(props: {
     // it, as it goes with the rows.
     const count = props.rows.length;
     props.onRemove("all");
+    setLacking(false);
     announce(plural(count, "Job 1 removed.", `All ${formatCount(count)} jobs removed.`));
     flush();
     addFilesButton?.focus();
@@ -204,6 +220,9 @@ export function DraftJobs(props: {
                 </Button>
               </Show>
             </div>
+            <Show when={lacking()}>
+              <p class="note">{lackingWords}</p>
+            </Show>
             {/* Shown in place of the note on no jobs while files are held over the group, by the
                 stylesheet: a note taken out under the pointer as the drop ends the drag would leave
                 the drop to no zone. */}
