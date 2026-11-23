@@ -4,7 +4,7 @@ import {
   MAX_USAGE_DAYS,
   parseUsagePeriod,
   USAGE_PERIOD_ERROR,
-  usageGroupsSchema,
+  rankedUsageSchema,
   type UsageGroupBy,
   type UsageReport,
 } from "contract";
@@ -332,7 +332,7 @@ async function selectUsage(
     ...window,
     ...row,
     // SQL widens the status to text and the submitter name to nullable for both kinds.
-    groups: z.parse(usageGroupsSchema, row.groups),
+    ...z.parse(rankedUsageSchema, { groupBy: query.groupBy, groups: row.groups }),
   };
 }
 

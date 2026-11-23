@@ -746,16 +746,15 @@ export const usagePeriodSchema = z.string().check(
 /** A calendar day, as `YYYY-MM-DD`. */
 const dateSchema = z.iso.date();
 
+const usageLabelGroupingSchema = z.templateLiteral(["label:", labelKeySchema]);
+
 /**
  * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner
  * they last ran on, the status they ended in, or the value of one of their labels, as
  * `label:customer`.
  */
 export const usageGroupBySchema = z.union(
-  [
-    z.enum(["batch", "submitter", "runner", "status"]),
-    z.templateLiteral(["label:", labelKeySchema]),
-  ],
+  [z.enum(["batch", "submitter", "runner", "status"]), usageLabelGroupingSchema],
   { error: "Must be `batch`, `submitter`, `runner`, `status` or `label:` and a label key" },
 );
 export type UsageGroupBy = z.infer<typeof usageGroupBySchema>;
@@ -767,26 +766,26 @@ const usageCountSchema = z.object({
   usage: usageSchema,
 });
 
-/**
- * One group of usage, named by the one field of what the read groups by: `batchId`, the Batch's
- * ID; `submitter`, who submitted the jobs, with the name its latest record in the window holds,
- * the one recorded last, by `recordedAt` and then by order of writing; `runner`, the Runner the jobs last ran on, with its name while the Runner
- * exists, as a job shows it, or null for jobs that ended before a Runner started them; `status`, the
- * status the jobs ended in; or `labelValue`, the label's value, null for jobs without that label.
- */
-export const usageGroupSchema = z
-  .union([
-    z.extend(usageCountSchema, { batchId: batchIdSchema }),
-    z.extend(usageCountSchema, { submitter: submitterSchema }),
-    z.extend(usageCountSchema, {
-      runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
-    }),
-    z.extend(usageCountSchema, { status: finalJobStatusSchema }),
-    z.extend(usageCountSchema, { labelValue: z.nullable(z.string()) }),
-  ])
-  .register(z.globalRegistry, { id: "UsageGroup" });
-export type UsageGroup = z.infer<typeof usageGroupSchema>;
-export const usageGroupsSchema = z.array(usageGroupSchema);
+/** One grouping applies to the whole ranking, including a ranking with no rows. */
+function rankedUsage<By extends z.ZodMiniType<UsageGroupBy>, Fields extends z.core.$ZodShape>(
+  groupBy: By,
+  fields: Fields,
+) {
+  return z.object({ groupBy, groups: z.array(z.extend(usageCountSchema, fields)) });
+}
+
+export const rankedUsageSchema = z.union([
+  rankedUsage(z.literal("batch"), { batchId: batchIdSchema }),
+  // The latest record in the window supplies the submitter's name, by recordedAt then write order.
+  rankedUsage(z.literal("submitter"), { submitter: submitterSchema }),
+  // A removed Runner keeps its ID. A job that ended before a Runner started it has none.
+  rankedUsage(z.literal("runner"), {
+    runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
+  }),
+  rankedUsage(z.literal("status"), { status: finalJobStatusSchema }),
+  // Jobs without the requested label share the null group.
+  rankedUsage(usageLabelGroupingSchema, { labelValue: z.nullable(z.string()) }),
+]);
 
 const usageWindowSchema = z.extend(usageCountSchema, {
   /** The window's first day, a UTC day. */
@@ -803,18 +802,23 @@ const usageWindowSchema = z.extend(usageCountSchema, {
 
 export const usageReportSchema = z.union([
   z
-    .extend(usageWindowSchema, { groups: z.optional(z.never()), other: z.optional(z.never()) })
+    .extend(usageWindowSchema, {
+      groupBy: z.optional(z.never()),
+      groups: z.optional(z.never()),
+      other: z.optional(z.never()),
+    })
     .register(z.globalRegistry, {
       id: "UngroupedUsageReport",
       description: "Without `groupBy`, job ends and model usage for the window and each day.",
     }),
   z
-    .extend(usageWindowSchema, {
-      /** At most `limit` groups, highest cost first, then most tokens, then in a fixed order. */
-      groups: usageGroupsSchema,
-      /** The remaining groups counted and summed, all zeros when none remain. */
-      other: z.extend(usageCountSchema, { groups: z.int() }),
-    })
+    .intersection(
+      z.extend(usageWindowSchema, {
+        /** The remaining groups counted and summed, all zeros when none remain. */
+        other: z.extend(usageCountSchema, { groups: z.int() }),
+      }),
+      rankedUsageSchema,
+    )
     .register(z.globalRegistry, {
       id: "GroupedUsageReport",
       description:
@@ -1496,7 +1500,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
         openapi({
           method: "GET",
           path: "/usage",
-          description: `Reads the Organization's job ends and model usage over a window of UTC days. The answer gives the total and every day's counts, oldest first, including empty days. With \`groupBy\`, it also gives up to \`limit\` groups ranked by cost over the whole window, then by tokens, then in a fixed order. The remaining groups are counted and summed in \`other\`. Only owners and admins may read it. Other members are refused with 403. Each job end counts on the day the hub recorded it. A job resumed after it ended counts once for each end, with what it used since its previous end. Deleted jobs still count. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
+          description: `Reads the Organization's job ends and model usage over a window of UTC days. The answer gives the total and every day's counts, oldest first, including empty days. With \`groupBy\`, it names the grouping and gives up to \`limit\` groups ranked by cost over the whole window, then by tokens, then in a fixed order. The remaining groups are counted and summed in \`other\`. Only owners and admins may read it. Other members are refused with 403. Each job end counts on the day the hub recorded it. A job resumed after it ended counts once for each end, with what it used since its previous end. Deleted jobs still count. A Batch's own \`usage\` counts its jobs not deleted, unfinished ones included, while this counts ended work, deleted jobs included, so the two can differ. Filters combine as when listing jobs: a job's end counts when the job ended in one of the \`status\` values given, with every label in \`labels\`, and has the \`batchId\`, \`submitter\` and \`runnerId\` given. A window whose \`from\` is after its \`to\`, that is longer than ${MAX_USAGE_DAYS} days or that starts before 0001-01-01 is refused.`,
           // Repeated `status=…` parameters, a single one included, read as a list.
           queryStyles: { status: "array" },
         }),

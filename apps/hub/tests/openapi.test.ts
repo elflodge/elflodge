@@ -193,6 +193,27 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       ...added,
     }).errors,
   ).toEqual([]);
+  // A report has one grouping, even when it has no rows. A status row cannot appear in a Batch report.
+  const groupedUsage = compileSchema({
+    $ref: "#/components/schemas/GroupedUsageReport",
+    components: document.components,
+  });
+  const figures = { jobEnds: 0, usage: { totalTokens: 0, cost: { totalUsd: 0 } } };
+  const byBatch = {
+    ...figures,
+    groupBy: "batch",
+    groups: [],
+    other: { ...figures, groups: 0 },
+    from: "2026-01-01",
+    to: "2026-01-01",
+    today: "2026-01-01",
+    readAt: "2026-01-01T00:00:00.000Z",
+    days: [],
+  };
+  expect(groupedUsage.validate(byBatch).errors).toEqual([]);
+  expect(
+    groupedUsage.validate({ ...byBatch, groups: [{ ...figures, status: "failed" }] }).valid,
+  ).toBe(false);
   // The TypeScript client link shares the document's converter. Check every response object,
   // including shared schemas and error responses.
   const schemas = new Map<JsonSchema, string>();

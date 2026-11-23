@@ -100,6 +100,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   const owner = system.owner();
 
   const report = await owner.usage.get({});
+  expect(report).not.toHaveProperty("groupBy");
   expect(report).not.toHaveProperty("groups");
   expect(report).not.toHaveProperty("other");
   expect(report.jobEnds).toBe(4);
@@ -114,7 +115,8 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   // Each end counts what the job used since the previous one.
   const byStatus = await owner.usage.get({ groupBy: "status", batchId: batch.id });
   expectAddsUp(byStatus);
-  expect(byStatus.groups?.map((group) => "status" in group && group.status).toSorted()).toEqual([
+  assert(byStatus.groupBy === "status");
+  expect(byStatus.groups.map((group) => group.status).toSorted()).toEqual([
     "cancelled",
     "succeeded",
   ]);
@@ -132,6 +134,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
     deletedUsage,
   );
   const bySubmitter = await owner.usage.get({ groupBy: "submitter" });
+  expect(bySubmitter.groupBy).toBe("submitter");
   expectAddsUp(bySubmitter);
   expect(bySubmitter.groups).toEqual(
     expect.arrayContaining([
@@ -149,6 +152,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   );
 
   const byLabel = await owner.usage.get({ groupBy: "label:customer" });
+  expect(byLabel.groupBy).toBe("label:customer");
   expectAddsUp(byLabel);
   expect(byLabel.groups).toHaveLength(3);
   expect(byLabel.groups).toEqual(
@@ -161,6 +165,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   expectUsage((await owner.usage.get({ labels: { customer: "acme" } })).usage, resumedUsage);
 
   const byRunner = await owner.usage.get({ groupBy: "runner", runnerId });
+  expect(byRunner.groupBy).toBe("runner");
   expectAddsUp(byRunner);
   expect(byRunner.groups).toEqual([
     { runner: { id: runnerId, name: expect.any(String) }, jobEnds: 3, usage: report.usage },
@@ -192,6 +197,7 @@ test("usage adds up by day and by group, counting each end of a resumed job once
   // The top Batch is ranked over the window. The deleted job still counts on its own day.
   expect(resumedUsage.cost.totalUsd).toBeGreaterThan(deletedUsage.cost.totalUsd);
   const topBatch = await owner.usage.get({ groupBy: "batch", limit: 1 });
+  expect(topBatch.groupBy).toBe("batch");
   expectAddsUp(topBatch);
   expect(topBatch.groups).toEqual([{ batchId: batch.id, jobEnds: 3, usage: resumedUsage }]);
   expect(topBatch.other).toEqual({ groups: 1, jobEnds: 1, usage: deletedUsage });
