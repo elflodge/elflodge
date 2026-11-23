@@ -1,3 +1,4 @@
+import { Button } from "@ui-sdk/solid/button";
 import { LABEL_KEY_PATTERN, MAX_LABELS, MAX_LABEL_NAME_LENGTH } from "contract";
 import { For, Show, createSignal, flush } from "solid-js";
 
@@ -69,7 +70,7 @@ export function LabelFields(props: {
     props.onChange(rows().length);
     document.getElementById(`label-${row}-key`)?.focus();
   }
-  function remove(row: number, button: HTMLButtonElement) {
+  function remove(row: number, button: HTMLElement) {
     focusNextRemove(button, addButton);
     setRows((previous) => previous.filter((other) => other !== row));
     flush();
@@ -135,16 +136,14 @@ export function LabelFields(props: {
                       </Show>
                     </td>
                     <td role="cell" class="is-act">
-                      <button
-                        type="button"
+                      <Button
                         aria-label={`Remove Label ${index() + 1}`}
-                        aria-disabled={props.pending ? "true" : undefined}
-                        onClick={(event) => {
-                          if (!props.pending) remove(row, event.currentTarget);
-                        }}
+                        disabled={props.pending}
+                        focusableWhenDisabled
+                        onClick={(event) => remove(row, event.currentTarget)}
                       >
                         Remove
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -154,18 +153,16 @@ export function LabelFields(props: {
         </table>
       </Show>
       <div class="controls">
-        <button
-          type="button"
+        <Button
           ref={(element) => {
             addButton = element;
           }}
-          aria-disabled={props.pending ? "true" : undefined}
-          onClick={() => {
-            if (!props.pending) add();
-          }}
+          disabled={props.pending}
+          focusableWhenDisabled
+          onClick={add}
         >
           Add a Label
-        </button>
+        </Button>
       </div>
     </FieldGroup>
   );

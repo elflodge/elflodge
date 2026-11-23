@@ -1,6 +1,7 @@
 import type { JSX } from "@solidjs/web";
 import type { QueryKey } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { For, Show, createEffect, createSignal, onFlush } from "solid-js";
 import * as z from "zod/mini";
 
@@ -154,9 +155,9 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
         <div class="filters-row">
           {props.children}
           <span class="filter-act">
-            <button type="submit" aria-disabled={pending() ? "true" : undefined}>
+            <Button type="submit" disabled={pending()} focusableWhenDisabled>
               Apply
-            </button>
+            </Button>
             <Show when={props.applied > 0}>
               <ClearFiltersLink to={props.to} closePanel={closePanel}>
                 Clear

@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { JOB_PAUSED, JOB_RECOVERED, JOB_RESUMED, JOB_SUCCEEDED, type Job } from "contract";
 import { For, Show, createEffect, createMemo, createSignal, flush } from "solid-js";
 
@@ -73,7 +74,7 @@ function PageEdge(props: {
   direction: PagingDirection;
   events: JobEvents;
   read: (direction: PagingDirection) => Promise<HTMLElement | null>;
-  jump: (button: HTMLButtonElement) => Promise<void>;
+  jump: (button: HTMLElement) => Promise<void>;
   timeline: () => HTMLOListElement | undefined;
 }) {
   const earlier = () => props.direction === "earlier";
@@ -87,7 +88,7 @@ function PageEdge(props: {
   const jumpLabel = () => (earlier() ? "Start" : "Latest");
   const usedUp = () => props.events.usedUp(props.direction) && !retryJump();
   let box: HTMLDivElement | undefined;
-  async function read(button: HTMLButtonElement) {
+  async function read(button: HTMLElement) {
     const hadFocus = document.activeElement === button;
     const firstAdded = await props.read(props.direction);
     const active = document.activeElement;
@@ -96,7 +97,7 @@ function PageEdge(props: {
       box?.isConnected &&
       (active === button || !active || active === document.body)
     ) {
-      const target = firstAdded ?? (usedUp() ? (earlier() ? box : props.timeline()) : button);
+      const target = firstAdded ?? (usedUp() ? (earlier() ? box : props.timeline()) : null);
       target?.focus({ preventScroll: true });
     }
   }
@@ -124,16 +125,14 @@ function PageEdge(props: {
               {errorDetail()}
             </Notice>
           </Show>
-          <button
-            type="button"
+          <Button
             id={`events-${props.direction}-button`}
             disabled={props.events.isReadingPage()}
-            onClick={(e) =>
-              void (retryJump() ? props.jump(e.currentTarget) : read(e.currentTarget))
-            }
+            focusableWhenDisabled
+            onClick={(e) => (retryJump() ? props.jump(e.currentTarget) : read(e.currentTarget))}
           >
             {retryJump() ? jumpLabel() : `Show ${props.direction} Events`}
-          </button>
+          </Button>
         </div>
         <Show when={earlier() && usedUp()}>
           <p>There are no earlier Events.</p>
@@ -193,7 +192,7 @@ export function JobTimeline(props: {
   function goToEnd() {
     reveal(document.getElementById("latest") ?? endMarker ?? null);
   }
-  async function jump(toStart: boolean, button: HTMLButtonElement) {
+  async function jump(toStart: boolean, button: HTMLElement) {
     const focused = document.activeElement;
     const side = toStart ? "earlier" : "later";
     const needsRead =
@@ -203,7 +202,7 @@ export function JobTimeline(props: {
     flush();
     if (!timeline?.isConnected) return;
     if (!reached) {
-      focusIfLost(button.isConnected ? button : document.getElementById(`events-${side}-button`));
+      if (!button.isConnected) focusIfLost(document.getElementById(`events-${side}-button`));
       return;
     }
     setAddition(undefined);
@@ -219,7 +218,6 @@ export function JobTimeline(props: {
   }
 
   async function extend(direction: PagingDirection) {
-    if (events.isReadingPage()) return null;
     const previous = last()?.id;
     const page = await events.readPage(direction);
     flush();
@@ -299,13 +297,13 @@ export function JobTimeline(props: {
           readAt={events.failure()?.readAt}
         />
         <Show when={!rows().length && events.failure()?.follower}>
-          <button
-            type="button"
+          <Button
             disabled={events.isReadingPage()}
-            onClick={(e) => void jump(false, e.currentTarget)}
+            focusableWhenDisabled
+            onClick={(e) => jump(false, e.currentTarget)}
           >
             Latest
-          </button>
+          </Button>
         </Show>
       </Show>
       <Show when={events.isLoading()}>
@@ -350,13 +348,13 @@ export function JobTimeline(props: {
       <Show when={rows().length}>
         <nav class="jump-row" aria-label="Go to a moment of the job">
           <span>Go to</span>
-          <button
-            type="button"
+          <Button
             disabled={events.isReadingPage()}
-            onClick={(e) => void jump(true, e.currentTarget)}
+            focusableWhenDisabled
+            onClick={(e) => jump(true, e.currentTarget)}
           >
             Start
-          </button>
+          </Button>
           <For each={moments()} keyed={(row) => row.id}>
             {(row) => (
               <a class="stands-alone" href={`#event-${row().id}`}>
@@ -370,13 +368,13 @@ export function JobTimeline(props: {
           <JumpGroup name="sub-agent" multiple="sub-agents" rows={subAgents()} content />
           <JumpGroup name="compaction" multiple="compactions" rows={compactions()} content />
           <JumpGroup name="error" multiple="errors" rows={errors()} />
-          <button
-            type="button"
+          <Button
             disabled={events.isReadingPage()}
-            onClick={(e) => void jump(false, e.currentTarget)}
+            focusableWhenDisabled
+            onClick={(e) => jump(false, e.currentTarget)}
           >
             Latest
-          </button>
+          </Button>
         </nav>
       </Show>
       <ol

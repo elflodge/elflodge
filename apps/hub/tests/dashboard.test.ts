@@ -237,7 +237,9 @@ test.each([
     await page.unroute(list);
 
     const release = Promise.withResolvers<void>();
+    let sessionReads = 0;
     await page.route("**/api/auth/get-session", async (route) => {
+      sessionReads++;
       await release.promise;
       await route.continue();
     });
@@ -248,12 +250,19 @@ test.each([
     try {
       await retry.click();
       await reading;
+      // Jobs and Runners replace the error page with their loading rows during the read.
+      if (path === "api-keys") {
+        await expectBrowser(retry).toBeFocused();
+        await expectBrowser(retry).toHaveAttribute("aria-busy", "true");
+        await page.keyboard.press("Enter");
+      }
       await expectBrowser(page.getByRole("banner")).toBeVisible();
       await expectBrowser(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     } finally {
       release.resolve();
     }
     await recovered;
+    expect(sessionReads).toBe(1);
     await expectBrowser(retry).toBeHidden();
     await expectBrowser(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
   },
