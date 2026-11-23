@@ -261,6 +261,8 @@ test("Pause keeps the focus while the hub answers, the other controls wait, and 
   hub.jobs.pause.answers(asked);
   const journal = { job, events: [aConversation(1), aStart(2)] };
   const page = await openJob(hub, open, journal);
+  // The tab is named by the job's Custom ID.
+  await expectBrowser(page).toHaveTitle("Job pause-presser · Elflodge");
   const pause = page.getByRole("button", { name: "Pause", exact: true });
   const sending = hub.jobs.pause.hold();
   await pause.click();
