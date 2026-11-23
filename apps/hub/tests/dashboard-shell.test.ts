@@ -90,11 +90,13 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   await expectBrowser(jobs).toHaveAttribute("aria-current", "page");
   await jobs.click({ modifiers: ["ControlOrMeta"] });
   await expectBrowser(jobs).toBeVisible();
+  const menu = page.getByRole("dialog", { name: member.name });
+  await expectBrowser(menu).toBeVisible();
   // Following a link from the menu closes it, so it does not cover the page it leads to.
   await destinations.getByRole("link", { name: "Runners" }).click();
   await page.waitForURL(`${system.origin}/dashboard/runners`);
   await page.getByRole("heading", { name: "Runners", level: 1 }).waitFor();
-  await expectBrowser(page.getByRole("dialog", { name: member.name })).toBeHidden();
+  await expectBrowser(menu).toBeHidden();
 }, 30_000);
 
 test("in a browser, a refused sign-out keeps the member signed in and says why", async () => {
@@ -112,6 +114,8 @@ test("in a browser, a refused sign-out keeps the member signed in and says why",
 
   const account = page.getByRole("button", { name: member.name, exact: true });
   await account.click();
+  const menu = page.getByRole("dialog", { name: member.name });
+  await expectBrowser(menu).toBeVisible();
   const signOut = page.getByRole("button", { name: "Sign out" });
   try {
     await signOut.click();
@@ -129,7 +133,7 @@ test("in a browser, a refused sign-out keeps the member signed in and says why",
   }
   // The menu closes to show the notice under it, and focus returns to the member's name.
   await expectBrowser(page.getByRole("alert")).toBeVisible();
-  await expectBrowser(page.getByRole("dialog", { name: member.name })).toBeHidden();
+  await expectBrowser(menu).toBeHidden();
   await expectBrowser(account).toBeFocused();
   expect(signOuts).toBe(1);
 }, 30_000);

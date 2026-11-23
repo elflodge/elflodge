@@ -77,13 +77,14 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
     <Destinations class="nav" />
   </nav>
   <CurrentDestination />
-  <div class="topbar-end" ref={setBarEnd}>
+  <div class="topbar-end">
+    <span class="menu-anchor" ref={setMenuAnchor} />
     <Popover controller={menu}>
       <PopoverTrigger class="quiet">
         <span class="member-name" title="Robin Hale">Robin Hale</span>
         <span class="mark mark-opens" aria-hidden="true" />
       </PopoverTrigger>
-      <PopoverContent class="menu-pop" anchor={barEnd()} align="end" sideOffset={6} collisionPadding={8} initialFocus="none" keepMounted>
+      <PopoverContent class="menu-pop" anchor={menuAnchor()} align="end" sideOffset={0} initialFocus="none" keepMounted>
         <nav class="pop-nav" aria-label="Destinations">
           <Destinations class="nav-stack" />
         </nav>
@@ -104,10 +105,10 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 - The bar holds the brand, the Organization's name, the destinations and, at its end, the member's name. Its links are not underlined: the bar is a known place.
 - The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise. A search string does not change the current destination.
 - The member's name opens the account menu, UI SDK's popover (`@ui-sdk/solid/popover`): who is signed in, then the account's links. It has the role `dialog` and, having no title, is named by the member's name. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are. The menu is paper with an edge and a shadow, as every UI SDK popover is (`[data-slot="popover-content"]`).
-- The menu hangs from the bar's rule, `--space-1` below it, its end at the page's gutter: UI SDK places it under `.topbar-end`, which stretches to the bar's height and ends at the gutter. Its height is at most the room left below, less 8px from the window's edge (`--available-height`), and it scrolls past that. It moves with the bar when the page scrolls. Opening it leaves focus on the member's name, as the bar's controls keep theirs; Tab then reaches the menu's first link.
+- The menu sits `--space-1` below the bar's height and ends at the page's gutter, fixed in the window, so it stays there when the page scrolls. UI SDK places it against `span.menu-anchor`, which CSS fixes at that point. Its height is at most the window's less the bar's height and `--space-3`, and it scrolls past that. In a window narrower than the menu's 15rem, UI SDK shifts it to stay in the window. Opened by keyboard or pointer, it leaves focus on the member's name, as the bar's controls keep theirs, and Tab then reaches the menu's first link. Opened by touch, UI SDK focuses the menu itself, so that no on-screen keyboard appears, and a tap on blank space in the page then returns focus to the member's name.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
 - The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
-- UI SDK closes the menu on Escape, a press elsewhere and focus leaving it, and Escape returns focus to the member's name. The shell closes it, through the popover's controller, in two cases a popover leaves open:
+- UI SDK closes the menu on Escape, a press elsewhere and focus leaving it, and Escape returns focus to the member's name. A press elsewhere has been checked in Chromium, with a mouse and with touch, and not in Safari on iOS. The shell closes it, through the popover's controller, in two cases a popover leaves open:
   - the router resolves a navigation in this tab, including one to the current page;
   - signing out fails, when the notice is in the page under the menu. The focus then goes back to the member's name if it was in the menu; a member who moved on has already closed it.
 - Sign out is UI SDK's `Button` with the sign-out as its action: while the hub answers it keeps the focus, takes no second press and announces "Working…" after a second. The menu stays mounted while closed, so a pending Sign out still refuses a press after the menu is closed and opened again.

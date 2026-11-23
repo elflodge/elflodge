@@ -53,7 +53,7 @@ function SignedIn() {
   onSettled(() => watchDocumentMember(session().user.id));
   const [error, setError] = createSignal<string>();
   const menu = createPopoverController();
-  const [barEnd, setBarEnd] = createSignal<HTMLDivElement>();
+  const [menuAnchor, setMenuAnchor] = createSignal<HTMLSpanElement>();
 
   // Following the current link also resolves a navigation. Opening another tab leaves this menu open.
   onSettled(() => router.subscribe("onResolved", () => menu.close()));
@@ -93,7 +93,8 @@ function SignedIn() {
           <Destinations class="nav" />
         </nav>
         <CurrentDestination />
-        <div class="topbar-end" ref={setBarEnd}>
+        <div class="topbar-end">
+          <span class="menu-anchor" ref={setMenuAnchor} />
           <Popover controller={menu}>
             <PopoverTrigger class="quiet">
               <span class="member-name" title={session().user.name}>
@@ -101,19 +102,18 @@ function SignedIn() {
               </span>
               <span class="mark mark-opens" aria-hidden="true" />
             </PopoverTrigger>
-            {/* Placed under the bar's end rather than the bar, which spans the window: the end stops at
-                the page's gutter, which grows with the window, and a pixel offset along the bar could
-                not follow it. The end stretches to the bar's height, so 6px is the bar's 2px rule and
-                --space-1 below it. Opening leaves focus on the member's name, so Tab goes on to the
-                first link. Having no title, the menu is named by the member's name. Kept mounted while
-                closed, so that a pending Sign out stays pending, and refuses another press, when the
-                menu is closed and opened again. */}
+            {/* The menu hangs from `.menu-anchor`, which CSS fixes in the window under the bar at the
+                page's gutter, so the menu keeps that place at any font size and when the page
+                scrolls. Opened by keyboard or pointer, it leaves focus on the member's name, so Tab
+                goes on to the first link; opened by touch, UI SDK focuses the menu itself. Having no
+                title, the menu is named by the member's name. Kept mounted while closed, so that a
+                pending Sign out stays pending, and refuses another press, when the menu is closed
+                and opened again. */}
             <PopoverContent
               class="menu-pop"
-              anchor={barEnd()}
+              anchor={menuAnchor()}
               align="end"
-              sideOffset={6}
-              collisionPadding={8}
+              sideOffset={0}
               initialFocus="none"
               keepMounted
             >
