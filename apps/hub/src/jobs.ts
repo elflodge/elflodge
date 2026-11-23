@@ -218,8 +218,8 @@ export function isOutsideUnfinishedCanary(
  * pause and whether its Canary is unfinished. Only a queued job not yet sent is blocked, by its
  * Batch's pause, a caller's or the breaker's, or, outside its Batch's Canary, by the Canary while
  * any of its jobs is unfinished. Derived whenever it is read, from the Batch, so pausing or resuming
- * a Batch is one write; placement sends only the jobs this finds nothing for. Batch reads count
- * jobs waiting for a Canary by the same rule.
+ * a Batch is one write. Placement and the Batch list's Canary count restate the rule in forms their
+ * indexes serve; a Batch read counts jobs waiting for a Canary with this expression.
  */
 export function blockedByFrom(job: JobForBlock, batch: BatchForBlock) {
   const eb = expressionBuilder();
@@ -317,6 +317,7 @@ function statusUnknownRule(job: StatusUnknownInput, now: Date) {
   const jobLastHeard = greatest(job.lastReportedAt, job.placedAt);
   return {
     jobLastHeard,
+    // The partial index job_placed_queued_running_id_idx has this predicate; change both together.
     waits: eb.and([eb(job.status, "in", QUEUED_OR_RUNNING), eb(job.placedAt, "is not", null)]),
     unheard: eb(jobLastHeard, "<=", eb.val(new Date(now.getTime() - GONE_AFTER_MS))),
     runnerDisconnected: eb.not(connectedOf(runnerLastSeen, now)),
@@ -1636,28 +1637,27 @@ export function listJobs(query: JobListQuery) {
       if (customId !== undefined) selection = selection.where("j.customId", "=", customId);
       if (runnerId !== undefined) selection = selection.where("j.runnerId", "=", runnerId);
       if (after !== undefined) selection = selection.where("j.id", "<", after);
+      if (statusUnknown !== undefined) {
+        selection = selection.where((eb) => {
+          const unknown = isStatusUnknown(
+            {
+              status: eb.ref("j.status"),
+              placedAt: eb.ref("j.placedAt"),
+              runnerId: eb.ref("j.runnerId"),
+              // Keep the ordered scan of placed jobs from reading unrelated progress rows.
+              lastReportedAt: lastReportedAtOf(eb.ref("j.id")),
+            },
+            now,
+          );
+          return statusUnknown ? unknown : eb.not(unknown);
+        });
+      }
       // Read just IDs for the page so e.g. the index on (runnerId, id) can supply it without
       // visiting a job's row. Load the displayed fields and progress for that page afterwards.
-      const pageIds = selection
+      const page = selection
         .orderBy("j.id", "desc")
         // One more than the page, to learn whether more follow.
         .limit(limit + 1);
-      const page =
-        statusUnknown === undefined
-          ? pageIds
-          : pageIds.where((eb) => {
-              const unknown = isStatusUnknown(
-                {
-                  status: eb.ref("j.status"),
-                  placedAt: eb.ref("j.placedAt"),
-                  runnerId: eb.ref("j.runnerId"),
-                  // Keep the ordered scan of placed jobs from reading unrelated progress rows.
-                  lastReportedAt: lastReportedAtOf(eb.ref("j.id")),
-                },
-                now,
-              );
-              return statusUnknown ? unknown : eb.not(unknown);
-            });
       const rows = await db
         .with("page", () => page)
         .selectFrom("page")
