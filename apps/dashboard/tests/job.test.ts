@@ -669,6 +669,31 @@ test("a member can read from the start and page forward in order, to a success s
   await expectBrowser(output(page)).toHaveText("17");
 });
 
+test("a member paging forward to Events the chosen filter hides keeps the filter, with focus on the timeline", async ({
+  hub,
+  open,
+}) => {
+  const journal = { job: runningJob("hidden-events"), events: history(102) };
+  const page = await openJob(hub, open, journal);
+  await page.locator("#event-1020").waitFor();
+  await page.getByRole("navigation", { name: "Go to" }).getByText("Start", { exact: true }).click();
+  const numbers = page.locator("ol.timeline .ev-id");
+  await expectBrowser(numbers.last()).toHaveText("980");
+
+  // The last page adds only messages, which the Runner's records leave out.
+  journal.events.push(aMessage(1030));
+  const recordsAndErrors = page.getByRole("radio", { name: "Runner’s records and errors" });
+  await page.getByText("Runner’s records and errors", { exact: true }).click();
+  await page.getByRole("button", { name: "Show later Events" }).click();
+  await expectBrowser(recordsAndErrors).toBeChecked();
+  await expectBrowser(page.locator("ol.timeline")).toBeFocused();
+  await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText(
+    "5 later Events added. All 105 read.",
+  );
+  await expectBrowser(numbers.last()).toHaveText("1030");
+  await expectBrowser(numbers).toHaveCount(105);
+});
+
 test("a member reading earlier Events can jump to new ones, and sees the Output when the job succeeds", async ({
   hub,
   open,
