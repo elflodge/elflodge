@@ -1,10 +1,17 @@
 import { useQueryClient } from "@tanstack/solid-query";
+import { Button } from "@ui-sdk/solid/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@ui-sdk/solid/dialog";
 import type { Runner } from "contract";
-import { Show, createEffect, createSignal, onSettled } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
 
 import { version } from "../../package.json";
-import { api, hubFailureMessage } from "../api-client.ts";
-import { createFormAction } from "../form.ts";
+import { api, hubWriteFailureMessage, secretAnswerFailure } from "../api-client.ts";
 import { isLoopback } from "../hub-address.ts";
 import { orpc } from "../query.ts";
 import { CopyButton } from "./CopyButton.tsx";
@@ -70,24 +77,47 @@ EOF
   ];
 }
 
+type AddRunnerProps = {
+  organizationName: string | undefined;
+  managesKeys: boolean;
+  runners: Runner[];
+  shortId: (runner: Runner) => string;
+  readFailed: boolean;
+};
+
 /**
  * The dialog that adds a Runner: the command to run on the machine that will run jobs, naming this
  * hub. Opening it creates nothing. A member who may manage keys creates a registration key from it
  * when they ask, an ordinary key that the API keys page lists; another member puts in a key they
  * hold. Closing it forgets the key, which is shown only this once.
  */
-export function AddRunner(props: {
-  organizationName: string | undefined;
-  managesKeys: boolean;
-  registered?: Runner;
-  shortId: (runner: Runner) => string;
-  readFailed: boolean;
-  onClose: () => void;
-}) {
+export function AddRunner(props: AddRunnerProps) {
+  const [pending, setPending] = createSignal(false);
+  return (
+    <Dialog dismissible={!pending()} closeOnOutsidePress={false} container={document.body}>
+      <DialogTrigger class="primary">Add Runner</DialogTrigger>
+      <DialogContent class="is-wide" initialFocus="content">
+        {() => <Instructions {...props} pending={pending()} onPendingChange={setPending} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Instructions(
+  props: AddRunnerProps & { pending: boolean; onPendingChange: (pending: boolean) => void },
+) {
+  // Each opening takes its own baseline and holds its own key until the content unmounts.
+  const atOpen = new Set(untrack(() => props.runners).map((runner) => runner.id));
+  const registered = createMemo(() => props.runners.find((runner) => !atOpen.has(runner.id)));
+  // A heartbeat changes the record. Only the name and short ID belong in the announcement.
+  const registeredName = createMemo(() => registered()?.name);
+  const registeredId = createMemo(() => {
+    const runner = registered();
+    return runner && props.shortId(runner);
+  });
   const queryClient = useQueryClient();
   const [key, setKey] = createSignal<string>();
-  const { pending, onSubmit } = createFormAction(createKey);
-  const [failure, setFailure] = createSignal<string>();
+  const noteId = createUniqueId();
 
   const { hostname, origin } = window.location;
   // The browser normalizes the URL host first: 127.1 becomes 127.0.0.1 and [0:0::1] becomes [::1].
@@ -101,65 +131,69 @@ export function AddRunner(props: {
   });
 
   async function createKey() {
-    setFailure(undefined);
+    props.onPendingChange(true);
     try {
       const created = await api.apiKeys.create({
         name: "Runner registration",
         permissions: { runner: ["register"] },
         expiresIn: REGISTRATION_KEY_LIFE_SECONDS,
       });
-      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
       setKey(created.key);
     } catch (error) {
-      setFailure(hubFailureMessage(error));
+      throw secretAnswerFailure(error);
+    } finally {
+      props.onPendingChange(false);
+      void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
     }
   }
 
   return (
-    <dialog
-      class="is-wide"
-      aria-labelledby="add-runner-heading"
-      ref={(element) => {
-        onSettled(() => element.showModal());
-      }}
-      onClose={props.onClose}
-    >
-      <h2 class="dialog-h" id="add-runner-heading">
-        Add Runner
-      </h2>
+    <>
+      <DialogTitle class="dialog-h">Add Runner</DialogTitle>
       <div class="dialog-b">
         <p>Run this on the machine that will run jobs. It needs Docker.</p>
         <Show
           when={key()}
           fallback={
-            <Show
-              when={props.managesKeys}
-              fallback={
-                <p>
-                  Put a registration key you hold in place of{" "}
-                  <mark class="placeholder">{"<a registration key>"}</mark>. Owners and admins
-                  create them.
-                </p>
-              }
-            >
-              <div>
-                <p>
-                  The Runner registers with a registration key. Create one that expires in a day, or
-                  put in one you hold.
-                </p>
-                <Show when={failure()} keyed>
-                  {(message) => <Notice role="alert">{message}</Notice>}
-                </Show>
-                <form onSubmit={onSubmit}>
-                  <button type="submit" aria-disabled={pending() ? "true" : undefined}>
-                    Create a registration key
-                  </button>
-                </form>
-              </div>
-            </Show>
+            <Button
+              onClick={createKey}
+              pendingAnnouncement="Working…"
+              disabled={!props.managesKeys}
+              focusableWhenDisabled
+              render={(button, state) => (
+                <div>
+                  <Show
+                    when={props.managesKeys || state.pending}
+                    fallback={
+                      <p>
+                        Put a registration key you hold in place of{" "}
+                        <mark class="placeholder">{"<a registration key>"}</mark>. Owners and admins
+                        create them.
+                      </p>
+                    }
+                  >
+                    <p>
+                      The Runner registers with a registration key. Create one that expires in a
+                      day, or put in one you hold.
+                    </p>
+                  </Show>
+                  <Show when={state.error} keyed>
+                    {(error) => <Notice role="alert">{hubWriteFailureMessage(error)}</Notice>}
+                  </Show>
+                  {/* A session read can withdraw permission mid-press. Keep the focused control
+                      with its request and answer. A reader who lost permission cannot retry. */}
+                  <Show when={props.managesKeys || state.pending || !!state.error}>
+                    <button {...button}>Create a registration key</button>
+                  </Show>
+                  <Show when={state.pending}>
+                    <p class="note">Working…</p>
+                  </Show>
+                </div>
+              )}
+            />
           }
         >
-          <p class="shown-once" role="note">
+          <p id={noteId} class="shown-once" role="note">
             <b>Shown this once:</b> the registration key in the command. Until it expires, in a day,
             anyone with it can register a Runner for {props.organizationName ?? "the Organization"}.
             API keys lists it, where it can be revoked.
@@ -185,6 +219,7 @@ export function AddRunner(props: {
               .map((piece) => piece.text)
               .join("")}
             label="Copy the command"
+            describedBy={key() ? noteId : undefined}
             buttonRef={(button) => {
               copyCommand = button;
             }}
@@ -204,28 +239,42 @@ export function AddRunner(props: {
             place of <mark class="placeholder">{HUB_PLACEHOLDER}</mark>, put the address the
             Runner's machine reaches it at;{" "}
           </Show>
-          <a
-            href={`https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`}
+          <Button
+            disabled={props.pending}
+            render={(link) => (
+              <a
+                {...link}
+                href={`https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`}
+              />
+            )}
           >
             Runners on other machines
-          </a>{" "}
+          </Button>{" "}
           says how to open the hub to one.
         </p>
         <p>
           Its jobs run on OpenRouter's free models. To use another model, follow{" "}
-          <a href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}>
+          <Button
+            disabled={props.pending}
+            render={(link) => (
+              <a
+                {...link}
+                href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}
+              />
+            )}
+          >
             the Runner's README
-          </a>
+          </Button>
           .
         </p>
         <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>
             <span
-              class={props.registered ? "mark mark-succeeded" : "mark mark-pending"}
+              class={registeredId() ? "mark mark-succeeded" : "mark mark-pending"}
               aria-hidden="true"
             />
             <Show
-              when={props.registered}
+              when={registeredId()}
               keyed
               fallback={
                 <span>
@@ -233,19 +282,25 @@ export function AddRunner(props: {
                 </span>
               }
             >
-              {(runner) => (
+              {(sid) => (
                 <span>
-                  <span class="mono">{runner.name}</span>{" "}
-                  <span class="sid">{props.shortId(runner)}</span> has registered.
+                  <span class="mono">{registeredName()}</span> <span class="sid">{sid}</span> has
+                  registered.
                 </span>
               )}
             </Show>
           </Show>
         </p>
       </div>
-      <form class="dialog-f" method="dialog">
-        <button value="close">Close</button>
-      </form>
-    </dialog>
+      <div class="dialog-f">
+        <DialogClose
+          render={(close) => (
+            <Button {...close} disabled={props.pending} focusableWhenDisabled>
+              Close
+            </Button>
+          )}
+        />
+      </div>
+    </>
   );
 }
