@@ -1,3 +1,4 @@
+import ensureError from "ensure-error";
 import {
   chromium,
   type BrowserContext,
@@ -31,11 +32,12 @@ export type Open = (path: string, options?: BrowserOptions) => Promise<Page>;
  * The test for a dashboard page, driven in Chromium against the stand-in for the hub. `hub` is
  * arranged before or between steps. It answers the shell's own reads until a test arranges them: a
  * session of an owner of the Organization, no Runners and no unfinished jobs. Any other call it has
- * no answer for, and any request outside the contract, Better Auth's routes and the build, fails the
- * test, which names them; a request the hub's API handler refuses before the procedure runs, such as
- * one whose input the contract refuses, needs no answer, as the hub's refusal answers it. A call whose answer is lost is arranged with `drops`, and a browser gone
- * offline with `setOffline`. `open` opens a page. Its clock stands still at `NOW` until a test
- * moves it, so no poll or deadline passes unless the test makes it.
+ * no answer for, any request outside the contract, Better Auth's routes and the build, and any
+ * request whose arranged answer throws, fails the test, which names them; a request the hub's API
+ * handler refuses before the procedure runs, such as one whose input the contract refuses, needs
+ * no answer, as the hub's refusal answers it. A call whose answer is lost is arranged with
+ * `drops`, and a browser gone offline with `setOffline`. `open` opens a page. Its clock stands
+ * still at `NOW` until a test moves it, so no poll or deadline passes unless the test makes it.
  */
 export const test = base
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern; this one has none.
@@ -58,6 +60,7 @@ export const test = base
     const origin = inject("dashboardOrigin");
     const files = new Set(inject("dashboardFiles"));
     const strays: string[] = [];
+    const failures: string[] = [];
     let context: BrowserContext | undefined;
     let over = false;
 
@@ -71,13 +74,20 @@ export const test = base
         await context.close();
       }
       const unarranged = [...network.unarranged, ...strays];
-      if (unarranged.length > 0) {
-        throw new Error(`Requests the test arranged no answer for:\n${unarranged.join("\n")}`);
-      }
+      const problems = [
+        ...(unarranged.length > 0
+          ? [`Requests the test arranged no answer for:\n${unarranged.join("\n")}`]
+          : []),
+        ...(failures.length > 0
+          ? [`Requests the stand-in failed to answer:\n${failures.join("\n")}`]
+          : []),
+      ];
+      if (problems.length > 0) throw new Error(problems.join("\n"));
     });
 
-    // The build's navigations and files go on to the preview server; every other request goes to the
-    // stand-in, and one it does not answer fails the test as a stray.
+    // The build's navigations and files go on to the preview server; every other request goes to
+    // the stand-in. One it does not answer fails the test as a stray, and one whose answer throws,
+    // such as an arranged answer or a body the stand-in cannot decode, fails it with the error.
     async function serve(route: Route, request: PlaywrightRequest) {
       const url = new URL(request.url());
       const isNavigation = request.isNavigationRequest() && url.pathname.startsWith(DASHBOARD_BASE);
@@ -88,7 +98,13 @@ export const test = base
       ) {
         return route.continue();
       }
-      const response = await network.handle(await toFetchRequest(request));
+      let response: Response | undefined;
+      try {
+        response = await network.handle(await toFetchRequest(request));
+      } catch (error) {
+        if (!over) failures.push(`${request.method()} ${url.href}: ${ensureError(error).message}`);
+        return route.abort();
+      }
       if (response) return fulfillWith(route, response);
       if (!over) strays.push(`${request.method()} ${url.href}`);
       return route.abort();

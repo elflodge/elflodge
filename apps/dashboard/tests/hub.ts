@@ -9,6 +9,7 @@ import {
   type ORPCErrorConstructorMap,
 } from "@orpc/contract";
 import { implement, ProcedureImplementer, type Router } from "@orpc/server";
+import { get } from "@orpc/shared";
 import { getEndpoints } from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { organization } from "better-auth/plugins";
@@ -332,10 +333,7 @@ function arrange(
   unarranged: string[],
 ): { hub: unknown; router: unknown } {
   if (contract instanceof ProcedureContract) {
-    const procedureImplementer = path.reduce<unknown>(
-      (node, key) => Reflect.get(Object(node), key),
-      implementer,
-    );
+    const procedureImplementer = get(implementer, path);
     if (!(procedureImplementer instanceof ProcedureImplementer)) {
       throw new Error(`The implementer has no procedure at ${path.join(".")}`);
     }
@@ -425,6 +423,12 @@ async function authInput(request: Request) {
   return body === "" ? undefined : JSON.parse(body);
 }
 
+/** What a call to one of Better Auth's routes sends, as text: a read's query, else its body. */
+async function sentInput(request: Request) {
+  if (request.method === "GET") return new URL(request.url).search || "no query";
+  return (await request.text()) || "no body";
+}
+
 /**
  * A stand-in for the hub that serves the dashboard at `origin`. Nothing is arranged: a call without
  * an answer fails, and is recorded in `network.unarranged`.
@@ -452,8 +456,6 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
   }
 
   async function serveAuth(request: Request, address: string) {
-    const route = auth.get(address);
-    const input: unknown = await authInput(request);
     const methods = AUTH_METHODS.get(address);
     if (!methods?.includes(request.method)) {
       unarranged.push(
@@ -461,10 +463,16 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
       );
       return Response.json(null, { status: 404 });
     }
+    const route = auth.get(address);
+    // Recorded as sent, before its body is decoded as JSON, which fails for a body of another type,
+    // such as a form-encoded sign-in.
     if (!route?.answer) {
-      unarranged.push(`Better Auth's ${request.method} ${address} with ${JSON.stringify(input)}`);
+      unarranged.push(
+        `Better Auth's ${request.method} ${address} with ${await sentInput(request)}`,
+      );
       return Response.json(null, { status: 500 });
     }
+    const input: unknown = await authInput(request);
     const answer = await route.receive(input);
     switch (answer?.kind) {
       case "output":
