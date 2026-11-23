@@ -8,7 +8,7 @@ import { anApiKey, aRunner, signedIn } from "./records.ts";
 /** A removal that ended no jobs and left no files. */
 const NOTHING_ENDED = { endedJobs: [], jobsWithFilesLeft: [] };
 
-test("a removal confirmed while the list is being read shows its progress and ends on its notice", async ({
+test("a removal confirmed while the list is being read shows its progress, cannot be sent again or left until the hub answers, and ends on its notice", async ({
   hub,
   open,
 }) => {
@@ -44,6 +44,12 @@ test("a removal confirmed while the list is being read shows its progress and en
   expect(await removal.arrived).toEqual({ id: retired.id });
   await expectBrowser(dialog.getByText("Working…")).toBeVisible();
   await expectBrowser(dialog.getByRole("button", remove)).toBeFocused();
+  // Until the hub answers, a second press sends nothing more, and the dialog cannot be left.
+  await page.keyboard.press("Enter");
+  await dialog.getByRole("button", remove).click({ force: true });
+  await page.keyboard.press("Escape");
+  await page.mouse.click(1, 1);
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
 
   removal.release();
   const notice = page.getByRole("status").filter({ hasText: /^retired-host .* is removed\./ });
