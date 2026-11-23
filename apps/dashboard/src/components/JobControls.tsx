@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { createFocusRecovery } from "@ui-sdk/core";
 import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
 import { DialogTrigger, createDialogController } from "@ui-sdk/solid/dialog";
 import { FieldControl } from "@ui-sdk/solid/field";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
-import { Show, createSignal, flush, onFlush } from "solid-js";
+import { Show, createSignal, flush, onCleanup, onFlush } from "solid-js";
 
 import { hubWriteFailureMessage } from "../api-client.ts";
 import { fieldText, focusIfLost, formRefusal } from "../form.ts";
@@ -140,6 +141,20 @@ export function JobControls(props: {
   // A poll may change which Resume is offered. Keep the part that sent the request until it ends.
   const resumeNeedsBudget = () =>
     controls.resume.isPending ? controls.resume.variables?.modelBudgetUsd !== undefined : spent();
+  // A poll can also swap Resume's Button for its dialog trigger, or back, while nothing runs. If
+  // the one going holds focus, focus moves to the one replacing it. Bound through a ref, since
+  // UI SDK's parts take no slot binding of ours: keepResumeFocus() runs as its part is built, so
+  // the binding ends when that part goes.
+  let resumeElement: HTMLElement | undefined;
+  const resumeFocus = createFocusRecovery({ fallback: () => resumeElement });
+  function keepResumeFocus() {
+    let unbind: (() => void) | undefined;
+    onCleanup(() => unbind?.());
+    return (element: HTMLElement) => {
+      resumeElement = element;
+      unbind = resumeFocus.bind(element, { key: "resume", props: undefined });
+    };
+  }
   function budgetWithdrawn() {
     if (!props.resumeOffered) return props.cannotResume ?? "This job can no longer be resumed.";
     if (!spent()) return "Its model budget was raised, so it resumes without a new one.";
@@ -249,6 +264,7 @@ export function JobControls(props: {
             when={resumeNeedsBudget()}
             fallback={
               <Button
+                ref={keepResumeFocus()}
                 disabled={pending()}
                 focusableWhenDisabled
                 pendingAnnouncement="Working…"
@@ -260,6 +276,7 @@ export function JobControls(props: {
             }
           >
             <DialogTrigger
+              ref={keepResumeFocus()}
               controller={budget}
               disabled={pending()}
               focusableWhenDisabled

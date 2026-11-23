@@ -711,6 +711,51 @@ test("a raised budget prevents resubmitting an older amount after a refusal", as
   expect(sent.count).toBe(1);
 }, 45_000);
 
+test("Resume keeps the focus when a poll changes whether it asks for a budget", async () => {
+  const { id, batchId } = await jobWithSpentBudget();
+  const client = system.owner();
+  // A resume queues while its Batch is paused, so the job runs only when the test lets it.
+  await client.batches.pause({ id: batchId });
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  // The page polls only when the test moves its clock, so no poll sees the job between states.
+  const now = Date.now();
+  await page.clock.install({ time: new Date(now) });
+  await page.clock.pauseAt(new Date(now + 1_000));
+  await signInAt(system, page, `jobs/${id}`, await newMember(system, "Resume focus"));
+  const resume = page.getByRole("button", { name: "Resume", exact: true });
+  const poll = () => page.clock.runFor(5_000);
+  // Just above the cost so far, so one more model call spends it.
+  async function raiseBudget() {
+    const { usage } = await client.jobs.get({ id });
+    await client.jobs.resume({ id, modelBudgetUsd: usage.cost.totalUsd + 0.000001 });
+    await client.jobs.pause({ id });
+  }
+
+  await expectBrowser(resume).toHaveAttribute("aria-haspopup", "dialog");
+  const status = page.locator("#job-status");
+  await status.focus();
+  await raiseBudget();
+  await poll();
+  await expectBrowser(resume).not.toHaveAttribute("aria-haspopup");
+  await expectBrowser(status).toBeFocused();
+
+  await resume.focus();
+  system.model.setResponses([callTool("bash", { command: "true" })]);
+  await client.jobs.resume({ id });
+  await client.batches.resume({ id: batchId });
+  await untilStatus(client, id, "failed");
+  await poll();
+  await expectBrowser(resume).toHaveAttribute("aria-haspopup", "dialog");
+  await expectBrowser(resume).toBeFocused();
+
+  await client.batches.pause({ id: batchId });
+  await raiseBudget();
+  await poll();
+  await expectBrowser(resume).not.toHaveAttribute("aria-haspopup");
+  await expectBrowser(resume).toBeFocused();
+}, 45_000);
+
 function message(id: number): JobEvent {
   return {
     id,
