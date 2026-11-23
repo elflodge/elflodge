@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/tes
 import * as z from "zod/mini";
 
 import { launchDashboardBrowser, signInAt } from "./dashboard-browser.ts";
-import { OWNER, startSystem } from "./harness.ts";
+import { OWNER, protocolClient, startSystem } from "./harness.ts";
 
 // The dashboard's Runners and API keys pages, as browsers reach them through the hub, on both
 // runtimes.
@@ -123,6 +123,10 @@ test("in a browser, the Runners page lists a registered Runner by its name and s
 test("in a browser, Add Runner gives a command for another machine, and creates a key only when asked", async () => {
   const before = await system.owner().apiKeys.list();
   const page = await signedInAt("runners");
+  // If a disabled link navigates, it leaves the dialog for this local stand-in.
+  await page.route("https://github.com/elflodge/elflodge/**", (route) =>
+    route.fulfill({ contentType: "text/plain", body: "Runner documentation" }),
+  );
   const trigger = page.getByRole("button", { name: "Add Runner" });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Add Runner" });
@@ -157,11 +161,21 @@ test("in a browser, Add Runner gives a command for another machine, and creates 
     await expectBrowser(create).toBeFocused();
     await expectBrowser(create).toHaveAttribute("aria-busy", "true");
     await expectBrowser(close).toBeDisabled();
-    await expectBrowser(dialog.getByRole("link")).toHaveCount(0);
+    for (const name of ["Runners on other machines", "the Runner's README"]) {
+      const link = dialog.getByRole("link", { name });
+      await expectBrowser(link).toHaveAttribute("aria-disabled", "true");
+      await expectBrowser(link).toHaveJSProperty("tabIndex", -1);
+      await link.click({ force: true });
+      await link.press("Enter");
+      await expectBrowser(dialog).toBeVisible();
+    }
+    await create.focus();
     await expectBrowser(page.getByRole("status").filter({ hasText: /^Working…$/ })).toHaveCount(1);
     await page.keyboard.press("Enter");
     await page.keyboard.press("Escape");
-    await close.press("Enter");
+    await close.focus();
+    await expectBrowser(close).toBeFocused();
+    await page.keyboard.press("Enter");
     await page.mouse.click(1, 1);
     await expectBrowser(dialog).toBeVisible();
   } finally {
@@ -206,6 +220,103 @@ test("in a browser, Add Runner gives a command for another machine, and creates 
   await expectBrowser(
     dialog.getByRole("status").filter({ hasText: "Waiting for a Runner" }),
   ).toBeVisible();
+}, 30_000);
+
+test("Add Runner keeps one key request and its refusal across changes of role", async () => {
+  await registerRunner("role-check-host");
+  const reader = {
+    name: "Key manager",
+    email: "key-manager@example.com",
+    password: "a long enough password",
+  };
+  const { userId } = await system.addMember(reader);
+  const org = system.ownerAuth().organization;
+  const [organization] = await org.list();
+  if (!organization) throw new Error("The hub has no Organization");
+  const { members } = await org.listMembers({ query: { organizationId: organization.id } });
+  const member = members.find((item) => item.userId === userId);
+  if (!member) throw new Error("The reader has no membership");
+  const setRole = (role: "admin" | "member") =>
+    org.updateMemberRole({
+      organizationId: organization.id,
+      memberId: member.id,
+      role,
+    });
+  await setRole("admin");
+  const page = await signedInAt("runners", reader);
+  const remove = page.getByRole("button", {
+    name: /^Remove role-check-host /,
+    includeHidden: true,
+  });
+  async function readRole(role: "admin" | "member") {
+    await setRole(role);
+    // Navigating within this page reads the session again and keeps the dialog mounted.
+    await page.evaluate('history.replaceState(history.state, "", location.href)');
+    await expectBrowser(remove).toHaveCount(role === "admin" ? 1 : 0);
+  }
+
+  await page.getByRole("button", { name: "Add Runner" }).click();
+  const dialog = page.getByRole("dialog");
+  const create = dialog.getByRole("button", { name: "Create a registration key" });
+  const close = dialog.getByRole("button", { name: "Close" });
+  let writes = 0;
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    async (route) => {
+      if (route.request().method() === "POST") {
+        writes++;
+        await release.promise;
+      }
+      await route.continue();
+    },
+  );
+  await create.click();
+  await readRole("member");
+  await expectBrowser(create).toBeFocused();
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  await readRole("admin");
+  await create.press("Enter");
+  await readRole("member");
+  await page.keyboard.press("Escape");
+  await expectBrowser(close).toBeDisabled();
+  const answer = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === "/api-keys" && r.request().method() === "POST",
+  );
+  release.resolve();
+  const refusal = await answer;
+  expect(refusal.status()).toBe(403);
+  const { detail } = z.object({ detail: z.string() }).parse(await refusal.json());
+  await expectBrowser(dialog.getByRole("alert")).toHaveText(detail);
+  await expectBrowser(create).toBeFocused();
+  await expectBrowser(create).toBeDisabled();
+  await expectBrowser(close).toBeEnabled();
+  expect(writes).toBe(1);
+
+  // On retry the hub creates a key before the demotion, but delivers it afterwards.
+  await readRole("admin");
+  const created = Promise.withResolvers<void>();
+  const deliver = Promise.withResolvers<void>();
+  onTestFinished(() => deliver.resolve());
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const response = await route.fetch({ url: new URL("/api-keys", system.url()).href });
+      created.resolve();
+      await deliver.promise;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await create.click();
+  await created.promise;
+  await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
+  await readRole("member");
+  deliver.resolve();
+  await expectBrowser(dialog.getByRole("button", { name: "Copy the command" })).toBeFocused();
+  await expectBrowser(dialog.locator("mark.key")).toHaveText(/\S+/);
 }, 30_000);
 
 test("in a browser, removing a Runner takes it off the list", async () => {
@@ -955,6 +1066,55 @@ test("a Runner a read drops while its dialog is open is still named there, and i
   ).toBeFocused();
 }, 30_000);
 
+test("a newly listed key cannot take over a pending revocation", async () => {
+  await system.owner().apiKeys.create({ name: "earlier key", permissions: { job: ["read"] } });
+  const first = await system
+    .owner()
+    .apiKeys.create({ name: "original revocation", permissions: { job: ["read"] } });
+  const page = await signedInAt("api-keys");
+  const dialog = page.getByRole("alertdialog");
+  const earlierRevoke = { name: /^Revoke earlier key / };
+  await page.getByRole("button", earlierRevoke).click();
+  await dialog.getByRole("button", earlierRevoke).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is revoked" })).toBeFocused();
+  const revoke = { name: /^Revoke original revocation / };
+  await page.getByRole("button", revoke).click();
+  const heading = await dialog.getByRole("heading").innerText();
+  const release = Promise.withResolvers<void>();
+  onTestFinished(() => release.resolve());
+  await page.route(`**/api-keys/${first.id}`, async (route) => {
+    await release.promise;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      json: { type: "about:blank", title: "Conflict", status: 409, detail: "The key is in use." },
+    });
+  });
+  await dialog.getByRole("button", revoke).click();
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+
+  // Two reads after returning to the tab, first an empty list, then the newly created key.
+  async function readAgain() {
+    await page.clock.setFixedTime(new Date((await page.evaluate(() => Date.now())) + 5_000));
+    await page.evaluate('window.dispatchEvent(new Event("visibilitychange"))');
+  }
+  await page.route(
+    (url) => url.pathname === "/api-keys",
+    (route) => route.fulfill({ json: [] }),
+    { times: 1 },
+  );
+  await readAgain();
+  await page.getByRole("heading", { name: "No API keys yet" }).waitFor();
+  await system.owner().apiKeys.create({ name: "arriving key", permissions: { job: ["read"] } });
+  await readAgain();
+  await page.getByRole("button", { name: /^Revoke arriving key / }).click();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  release.resolve();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("The key is in use.");
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+}, 30_000);
+
 test("a Runner that registers beside an earlier notice stays behind Add Runner", async () => {
   const first = await registerRunner("retired");
   const page = await signedInAt("runners");
@@ -972,12 +1132,24 @@ test("a Runner that registers beside an earlier notice stays behind Add Runner",
   await page.getByRole("heading", { name: "No Runners yet" }).waitFor({ timeout: 15_000 });
   await page.getByRole("button", { name: "Add Runner" }).click();
   const dialog = page.getByRole("dialog");
-  const id = await registerRunner("arriving-host");
+  const { runnerId: id, socket } = await system.connectRunner();
+  onTestFinished(() => socket.close(1000));
   await expectBrowser(dialog.getByRole("status").filter({ hasText: "has registered." })).toHaveText(
-    `arriving-host ${id.slice(0, 8)} has registered.`,
+    `test runner ${id.slice(0, 8)} has registered.`,
     { timeout: 15_000 },
   );
-  const remove = page.getByRole("button", { name: /^Remove arriving-host /, includeHidden: true });
+  const note = page.getByText(/Connected means the hub has heard/);
+  expect(await note.evaluate((p) => p.closest("[inert]") !== null)).toBe(true);
+  const sentence = await dialog
+    .getByText(`test runner ${id.slice(0, 8)} has registered.`)
+    .elementHandle();
+  const contact = page.locator(`li[id="${id}"] time`).first();
+  const before = await contact.getAttribute("datetime");
+  if (!before) throw new Error("The Runner has no last contact");
+  await protocolClient(socket).request("sync", { held: [], free: 0 }, 10_000);
+  await expectBrowser(contact).not.toHaveAttribute("datetime", before, { timeout: 15_000 });
+  expect(await sentence.evaluate((el) => el.isConnected)).toBe(true);
+  const remove = page.getByRole("button", { name: /^Remove test runner /, includeHidden: true });
   expect(await remove.evaluate((button) => button.closest("[inert]") !== null)).toBe(true);
   await page.keyboard.press("Escape");
   await expectBrowser(dialog).toBeHidden();

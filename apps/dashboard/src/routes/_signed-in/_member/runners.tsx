@@ -116,11 +116,12 @@ function Runners() {
           />
         </div>
       </div>
-      <Show when={runners.isError || list().length}>
+      {/* Keep the note before notices and mounted so it stays inert if a Runner arrives. */}
+      <div hidden={!runners.isError && list().length === 0}>
         <p class="note">
           {timeZoneNote()} {CONNECTION_NOTE}
         </p>
-      </Show>
+      </div>
       <Show when={removed()} keyed>
         {(removal) => (
           <Notice

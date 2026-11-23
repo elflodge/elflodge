@@ -625,7 +625,7 @@ a:where(.button) {
   gap: var(--space-3);
   max-width: 24rem;
 }
-/* A form for multiline editing, such as a JSON Schema, as wide as dialog.is-wide. */
+/* A form for multiline editing, such as a JSON Schema, as wide as the Runner command dialog. */
 .fields.is-wide {
   max-width: 44rem;
 }
@@ -1074,7 +1074,6 @@ p:has(> button) + .prose {
 
 /* ---------- Dialog parts: a heading under a heavy rule, the body, the actions ----------
    A long name in the heading or a button, such as a host name, wraps, so it stays inside the dialog. */
-dialog.is-wide,
 [data-slot="dialog-content"].is-wide {
   width: 44rem;
 }

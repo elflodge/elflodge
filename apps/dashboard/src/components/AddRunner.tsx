@@ -8,7 +8,7 @@ import {
   DialogTrigger,
 } from "@ui-sdk/solid/dialog";
 import type { Runner } from "contract";
-import { Show, createEffect, createSignal, createUniqueId, untrack } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
 
 import { version } from "../../package.json";
 import { api, hubWriteFailureMessage, secretAnswerFailure } from "../api-client.ts";
@@ -108,11 +108,16 @@ function Instructions(
 ) {
   // Each opening takes its own baseline and holds its own key until the content unmounts.
   const atOpen = new Set(untrack(() => props.runners).map((runner) => runner.id));
-  const registered = () => props.runners.find((runner) => !atOpen.has(runner.id));
+  const registered = createMemo(() => props.runners.find((runner) => !atOpen.has(runner.id)));
+  // A heartbeat changes the record. Only the name and short ID belong in the announcement.
+  const registeredName = createMemo(() => registered()?.name);
+  const registeredId = createMemo(() => {
+    const runner = registered();
+    return runner && props.shortId(runner);
+  });
   const queryClient = useQueryClient();
   const [key, setKey] = createSignal<string>();
   const noteId = createUniqueId();
-  const [failure, setFailure] = createSignal<string>();
 
   const { hostname, origin } = window.location;
   // The browser normalizes the URL host first: 127.1 becomes 127.0.0.1 and [0:0::1] becomes [::1].
@@ -127,7 +132,6 @@ function Instructions(
 
   async function createKey() {
     props.onPendingChange(true);
-    setFailure(undefined);
     try {
       const created = await api.apiKeys.create({
         name: "Runner registration",
@@ -136,7 +140,7 @@ function Instructions(
       });
       setKey(created.key);
     } catch (error) {
-      setFailure(hubWriteFailureMessage(secretAnswerFailure(error)));
+      throw secretAnswerFailure(error);
     } finally {
       props.onPendingChange(false);
       void queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
@@ -151,32 +155,42 @@ function Instructions(
         <Show
           when={key()}
           fallback={
-            <Show
-              when={props.managesKeys}
-              fallback={
-                <p>
-                  Put a registration key you hold in place of{" "}
-                  <mark class="placeholder">{"<a registration key>"}</mark>. Owners and admins
-                  create them.
-                </p>
-              }
-            >
-              <div>
-                <p>
-                  The Runner registers with a registration key. Create one that expires in a day, or
-                  put in one you hold.
-                </p>
-                <Show when={failure()} keyed>
-                  {(message) => <Notice role="alert">{message}</Notice>}
-                </Show>
-                <Button onClick={createKey} pendingAnnouncement="Working…">
-                  Create a registration key
-                </Button>
-                <Show when={props.pending}>
-                  <p class="note">Working…</p>
-                </Show>
-              </div>
-            </Show>
+            <Button
+              onClick={createKey}
+              pendingAnnouncement="Working…"
+              disabled={!props.managesKeys}
+              focusableWhenDisabled
+              render={(button, state) => (
+                <div>
+                  <Show
+                    when={props.managesKeys || state.pending}
+                    fallback={
+                      <p>
+                        Put a registration key you hold in place of{" "}
+                        <mark class="placeholder">{"<a registration key>"}</mark>. Owners and admins
+                        create them.
+                      </p>
+                    }
+                  >
+                    <p>
+                      The Runner registers with a registration key. Create one that expires in a
+                      day, or put in one you hold.
+                    </p>
+                  </Show>
+                  <Show when={state.error} keyed>
+                    {(error) => <Notice role="alert">{hubWriteFailureMessage(error)}</Notice>}
+                  </Show>
+                  {/* A session read can withdraw permission mid-press. Keep the focused control
+                      with its request and answer. A reader who lost permission cannot retry. */}
+                  <Show when={props.managesKeys || state.pending || !!state.error}>
+                    <button {...button}>Create a registration key</button>
+                  </Show>
+                  <Show when={state.pending}>
+                    <p class="note">Working…</p>
+                  </Show>
+                </div>
+              )}
+            />
           }
         >
           <p id={noteId} class="shown-once" role="note">
@@ -225,38 +239,42 @@ function Instructions(
             place of <mark class="placeholder">{HUB_PLACEHOLDER}</mark>, put the address the
             Runner's machine reaches it at;{" "}
           </Show>
-          <a
-            href={
-              props.pending
-                ? undefined
-                : `https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`
-            }
+          <Button
+            disabled={props.pending}
+            render={(link) => (
+              <a
+                {...link}
+                href={`https://github.com/elflodge/elflodge/blob/v${version}/docs/deploy.md#runners-on-other-machines`}
+              />
+            )}
           >
             Runners on other machines
-          </a>{" "}
+          </Button>{" "}
           says how to open the hub to one.
         </p>
         <p>
           Its jobs run on OpenRouter's free models. To use another model, follow{" "}
-          <a
-            href={
-              props.pending
-                ? undefined
-                : `https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`
-            }
+          <Button
+            disabled={props.pending}
+            render={(link) => (
+              <a
+                {...link}
+                href={`https://github.com/elflodge/elflodge/blob/v${version}/apps/runner/README.md`}
+              />
+            )}
           >
             the Runner's README
-          </a>
+          </Button>
           .
         </p>
         <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>
             <span
-              class={registered() ? "mark mark-succeeded" : "mark mark-pending"}
+              class={registeredId() ? "mark mark-succeeded" : "mark mark-pending"}
               aria-hidden="true"
             />
             <Show
-              when={registered()}
+              when={registeredId()}
               keyed
               fallback={
                 <span>
@@ -264,10 +282,10 @@ function Instructions(
                 </span>
               }
             >
-              {(runner) => (
+              {(sid) => (
                 <span>
-                  <span class="mono">{runner.name}</span>{" "}
-                  <span class="sid">{props.shortId(runner)}</span> has registered.
+                  <span class="mono">{registeredName()}</span> <span class="sid">{sid}</span> has
+                  registered.
                 </span>
               )}
             </Show>
