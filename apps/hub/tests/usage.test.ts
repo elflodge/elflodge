@@ -336,6 +336,9 @@ test("the hub dates rolling days and calendar months by the UTC day of its read"
   expect(capped.from).toBe(week.today);
   expect(capped.to).toBe(capped.today);
   expect(capped.days.at(-1)?.date).toBe(capped.today);
+  // A window given a start and no end runs through the day of the read.
+  const open = await get({ from: week.from });
+  expect([open.from, open.to, open.days.at(-1)?.date]).toEqual([week.from, open.today, open.today]);
 });
 
 test("refused periods and future starts name the conflicting field", async () => {
