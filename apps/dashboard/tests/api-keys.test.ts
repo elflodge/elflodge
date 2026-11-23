@@ -261,9 +261,16 @@ test.for(["Create key", "Add Runner"] as const)(
       hub.apiKeys.list.answers([anApiKey("unconfirmed")]);
     }
     await page.clearConsoleMessages();
+    const answered = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === "/api-keys",
+    );
     await dialog
       .getByRole("button", { name: task === "Create key" ? task : "Create a registration key" })
       .click();
+    // The test's precondition: the answer the page received carried the key, without which finding
+    // no key in the console would prove nothing.
+    expect(await (await answered).json()).toEqual({ key });
     await expectBrowser(dialog.getByRole("alert")).toHaveText(UNCERTAIN);
     if (task === "Create key") {
       // The key it may have made shows behind the dialog, to check.
