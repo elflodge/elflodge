@@ -206,30 +206,36 @@ test("a direct caller's abort stops a provider query that asked for tools", asyn
   await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
 });
 
-test("closing a conversation ends its direct caller's provider query while a shutdown handler hangs", async () => {
-  const { attach, models, dir } = await setup();
-  const alice = await attach("alice");
-  const bob = await attach("bob");
-  const model = models.getModel("fixture", "echo");
-  if (!model) throw new Error("The fixture's model is missing");
-  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
-  const stream = models.streamSimple(
-    model,
-    { messages: [{ role: "user", content: "call tool", timestamp: Date.now() }] },
-    { sessionId: provider?.sessionId, signal: new AbortController().signal },
-  );
-  expect(await stream.result()).toMatchObject({ stopReason: "toolUse" });
-  const status = () => bob.extensions.input("status of alice");
-  expect(await status()).toMatchObject({ action: "transform", text: "open" });
+test.each(["with", "without"])(
+  "closing a conversation ends the provider query of a direct caller %s a signal while a shutdown handler hangs",
+  async (given) => {
+    const { attach, models, dir } = await setup();
+    const alice = await attach("alice");
+    const bob = await attach("bob");
+    const model = models.getModel("fixture", "echo");
+    if (!model) throw new Error("The fixture's model is missing");
+    const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
+    const stream = models.streamSimple(
+      model,
+      { messages: [{ role: "user", content: "call tool", timestamp: Date.now() }] },
+      {
+        sessionId: provider?.sessionId,
+        ...(given === "with" && { signal: new AbortController().signal }),
+      },
+    );
+    expect(await stream.result()).toMatchObject({ stopReason: "toolUse" });
+    const status = () => bob.extensions.input("status of alice");
+    expect(await status()).toMatchObject({ action: "transform", text: "open" });
 
-  const hold = path.join(dir, "alice.shutdown");
-  await writeFile(hold, "");
-  onTestFinished(() => rm(hold, { force: true }));
-  const closing = alice.extensions.close();
-  await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
-  await rm(hold);
-  await closing;
-});
+    const hold = path.join(dir, "alice.shutdown");
+    await writeFile(hold, "");
+    onTestFinished(() => rm(hold, { force: true }));
+    const closing = alice.extensions.close();
+    await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
+    await rm(hold);
+    await closing;
+  },
+);
 
 test.each(["alone", "beside a conversation on another worker"])(
   "a conversation %s has its extensions' models again once their worker's replacement registers them",

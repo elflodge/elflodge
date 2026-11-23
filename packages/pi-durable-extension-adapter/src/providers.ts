@@ -137,10 +137,10 @@ export class ProviderSession {
   #gone: Error | undefined;
   readonly #parked = new Map<SubmissionId, Parking>();
   /**
-   * Requests of callers other than pi-durable that asked for tools, each by what stops listening to
-   * its caller's signal, with what also cancels it: a close cancels them, an exit ended them.
+   * Requests of callers other than pi-durable that asked for tools, open until their caller aborts
+   * its signal, if it gave one, or the conversation closes; a worker's exit ended them already.
    */
-  readonly #held = new Map<() => void, () => void>();
+  readonly #held = new Set<{ end(reason?: unknown): void; stop(): void }>();
 
   constructor(models: Models, sessionId: string, harness: Harness, conversation: ConversationId) {
     this.#models = models;
@@ -164,7 +164,7 @@ export class ProviderSession {
     this.#worker = undefined;
     this.#gone = error;
     for (const parking of this.#parked.values()) parking.drop();
-    for (const stop of this.#held.keys()) stop();
+    for (const held of this.#held) held.stop();
     for (const name of this.#catalog.keys()) this.unregister(name);
   }
 
@@ -279,7 +279,7 @@ export class ProviderSession {
     if (this.#life.signal.aborted) return;
     this.#life.abort(reason);
     for (const parking of this.#parked.values()) parking.release();
-    for (const end of this.#held.values()) end();
+    for (const held of this.#held) held.end();
     for (const name of this.#catalog.keys()) this.unregister(name);
     this.#worker = undefined;
   }
@@ -322,9 +322,10 @@ export class ProviderSession {
       signal?.removeEventListener("abort", aborted);
       if (message.stopReason !== "toolUse") return;
       if (submission !== undefined) this.#park(submission, cancel);
-      // A caller other than pi-durable runs the tools itself and ends the query by its signal.
-      // pi-durable aborts each step's signal, so a run without inputs keeps its request until close.
-      else if (run === undefined && signal && !signal.aborted) this.#hold(signal, cancel);
+      // A caller other than pi-durable runs the tools itself and ends the query by its signal, or
+      // by closing the conversation. pi-durable aborts each step's signal, so a run without inputs
+      // keeps its request until close.
+      else if (run === undefined && !signal?.aborted) this.#hold(signal, cancel);
     };
     const id = worker.requests.add({
       options,
@@ -422,17 +423,20 @@ export class ProviderSession {
       .catch(() => {});
   }
 
-  #hold(signal: AbortSignal, cancel: (reason?: unknown) => void) {
-    const aborted = () => {
-      stop();
-      cancel(signal.reason);
+  #hold(signal: AbortSignal | undefined, cancel: (reason?: unknown) => void) {
+    const aborted = () => held.end(signal?.reason);
+    const held = {
+      end: (reason?: unknown) => {
+        held.stop();
+        cancel(reason);
+      },
+      stop: () => {
+        this.#held.delete(held);
+        signal?.removeEventListener("abort", aborted);
+      },
     };
-    const stop = () => {
-      this.#held.delete(stop);
-      signal.removeEventListener("abort", aborted);
-    };
-    this.#held.set(stop, aborted);
-    signal.addEventListener("abort", aborted, { once: true });
+    this.#held.add(held);
+    signal?.addEventListener("abort", aborted, { once: true });
   }
 }
 
