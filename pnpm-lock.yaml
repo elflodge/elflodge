@@ -243,8 +243,8 @@ catalogs:
       specifier: ^3.0.1
       version: 3.0.1
     '@solidjs/web':
-      specifier: ^2.0.1
-      version: 2.0.1
+      specifier: ^2.0.3
+      version: 2.0.3
     '@standard-schema/utils':
       specifier: ^0.3.0
       version: 0.3.0
@@ -261,8 +261,8 @@ catalogs:
       specifier: 2.0.0-rc.10
       version: 2.0.0-rc.10
     '@testcontainers/postgresql':
-      specifier: ^12.2.1
-      version: 12.2.1
+      specifier: ^12.2.2
+      version: 12.2.2
     '@types/folder-hash':
       specifier: ^4.0.4
       version: 4.0.4
@@ -387,8 +387,8 @@ catalogs:
       specifier: ^3.7.2
       version: 3.7.2
     solid-js:
-      specifier: ^2.0.1
-      version: 2.0.1
+      specifier: ^2.0.3
+      version: 2.0.3
     statuses:
       specifier: ^2.0.2
       version: 2.0.2
@@ -396,8 +396,8 @@ catalogs:
       specifier: ^1.2.0
       version: 1.2.0
     testcontainers:
-      specifier: ^12.2.1
-      version: 12.2.1
+      specifier: ^12.2.2
+      version: 12.2.2
     tiny-merge-patch:
       specifier: ^1.0.0
       version: 1.0.0
@@ -503,25 +503,25 @@ importers:
         version: 2.0.0-beta.52(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))
       '@solidjs/web':
         specifier: 'catalog:'
-        version: 2.0.1(solid-js@2.0.1)
+        version: 2.0.3(solid-js@2.0.3)
       '@tanstack/solid-query':
         specifier: 'catalog:'
-        version: 6.0.0-rc.6(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
+        version: 6.0.0-rc.6(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)
       '@tanstack/solid-router':
         specifier: 'catalog:'
-        version: 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
+        version: 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)
       '@tanstack/solid-start':
         specifier: 'catalog:'
-        version: 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
+        version: 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
       '@ui-sdk/core':
         specifier: 'catalog:'
         version: 0.1.0-beta.14
       '@ui-sdk/solid':
         specifier: 'catalog:'
-        version: 0.1.0-beta.14(@solidjs/web@2.0.1(solid-js@2.0.1))(@ui-sdk/core@0.1.0-beta.14)(solid-js@2.0.1)
+        version: 0.1.0-beta.14(@solidjs/web@2.0.3(solid-js@2.0.3))(@ui-sdk/core@0.1.0-beta.14)(solid-js@2.0.3)
       better-auth:
         specifier: 'catalog:'
-        version: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0)
+        version: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0)
       contract:
         specifier: workspace:*
         version: link:../../packages/contract
@@ -530,7 +530,7 @@ importers:
         version: 4.1.4
       solid-js:
         specifier: 'catalog:'
-        version: 2.0.1
+        version: 2.0.3
       ufo:
         specifier: 'catalog:'
         version: 1.6.4
@@ -543,7 +543,7 @@ importers:
     devDependencies:
       '@solidjs/vite-plugin':
         specifier: 'catalog:'
-        version: 3.0.1(@babel/core@7.29.7(supports-color@10.2.2))(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(solid-js@2.0.1)(typescript@7.0.2)(yaml@2.9.1)
+        version: 3.0.1(@babel/core@7.29.7(supports-color@10.2.2))(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(solid-js@2.0.3)(typescript@7.0.2)(yaml@2.9.1)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -555,7 +555,7 @@ importers:
     dependencies:
       '@better-auth/api-key':
         specifier: 'catalog:'
-        version: 1.7.26(@better-auth/core@1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(better-auth@1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0))(better-call@1.4.6(zod@4.6.7))
+        version: 1.7.26(@better-auth/core@1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(better-auth@1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0))(better-call@1.4.6(zod@4.6.7))
       '@effect/platform-node-shared':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)
@@ -588,7 +588,7 @@ importers:
         version: 0.16.0
       better-auth:
         specifier: 'catalog:'
-        version: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0)
+        version: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0)
       canonicalize:
         specifier: 'catalog:'
         version: 5.1.0
@@ -640,7 +640,7 @@ importers:
         version: 2.0.0-beta.52
       '@testcontainers/postgresql':
         specifier: 'catalog:'
-        version: 12.2.1(supports-color@10.2.2)
+        version: 12.2.2(supports-color@10.2.2)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.5
@@ -676,7 +676,7 @@ importers:
         version: link:../runner
       testcontainers:
         specifier: 'catalog:'
-        version: 12.2.1(supports-color@10.2.2)
+        version: 12.2.2(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -2883,8 +2883,8 @@ packages:
     peerDependencies:
       solid-js: ^1.8.4
 
-  '@solidjs/signals@2.0.1':
-    resolution: {integrity: sha512-nTdIk7UgGLwATg0wCT/wH/G62aWYjGol2AnqdrN4qVyV7snYTnYoesgJ/G7xRkO34mAr3tayt0cu1+k/dt0lmA==}
+  '@solidjs/signals@2.0.3':
+    resolution: {integrity: sha512-M6+kiJflqSvJRHRcmdsdIXpPLPkQrY817zWKKfxZ3z3ZRE5eEtddtWPrDXY4IM1Wz3zAqG+3Fx/HQIkAtpRwnA==}
     engines: {node: '>=22.12.0'}
 
   '@solidjs/vite-plugin@3.0.1':
@@ -2908,11 +2908,11 @@ packages:
       '@testing-library/jest-dom':
         optional: true
 
-  '@solidjs/web@2.0.1':
-    resolution: {integrity: sha512-o7spK20IEMk0bA+lVeULfTQPD9Oyb/VLS9gv5BNQdHIxFWBRFNlHf1ofF0z9b2uA3pLlRtYh+5/USk3fSTdsjQ==}
+  '@solidjs/web@2.0.3':
+    resolution: {integrity: sha512-XYl9JGOtQ8yJSZRnd6uC+5gYXsYvnIRNxhn89m+F1v6D4d4ZFdTJY2Lq/8XJ3YcjckkCrK/mNfd3kIiqqgnG7w==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
-      solid-js: ^2.0.1
+      solid-js: ^2.0.3
 
   '@speed-highlight/core@1.2.24':
     resolution: {integrity: sha512-qeW2e1l78afw8VhRPfPQ1Gjj+KU5XFQ/OFV5ti6eTa9bruO7mJyZtA4vw0ofqmA3tKCkROE9xLk3VZoeRc98nw==}
@@ -3059,8 +3059,8 @@ packages:
     resolution: {integrity: sha512-uhOeFyxLcU41HzvrxsGpiWdcMbScY1EDgbZ5K7DVRMYInbLYWAC0EA/kx9wXAoSM8q82bUG2hRl8+EAjE6XAbA==}
     engines: {node: '>=20.19'}
 
-  '@testcontainers/postgresql@12.2.1':
-    resolution: {integrity: sha512-MIbI5KjZ9M4SY4+xzxg/w4ZLBeV+Jd6ognXoWn7dh/mhIhBbn7ss0MiZHNg2XbCbu03BW9YQ9+H9xW8PFkJWaA==}
+  '@testcontainers/postgresql@12.2.2':
+    resolution: {integrity: sha512-ePhFeUswU6aHJ1HETznfnVKuR0KYtGkMfqE1DTltgSt21WokXFby/I+c7g/fPXSE9sfxfE+GtyoUeohejpVcSA==}
 
   '@testing-library/dom@10.4.2':
     resolution: {integrity: sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q==}
@@ -3176,12 +3176,6 @@ packages:
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
-
-  '@types/ssh2-streams@0.1.13':
-    resolution: {integrity: sha512-faHyY3brO9oLEA0QlcO8N2wT7R0+1sHWZvQ+y3rMLwdY1ZyS1z0W3t65j9PqT4HmQ6ALzNe7RZlNuCNE0wBSWA==}
-
-  '@types/ssh2@0.5.52':
-    resolution: {integrity: sha512-lbLLlXxdCZOSJMCInKH2+9V/77ET2J6NPQHpFI0kda61Dd1KglJs+fPQBchizmzYSOJBgdTajhPqBO1xxLywvg==}
 
   '@types/ssh2@1.15.6':
     resolution: {integrity: sha512-oGdxhBqcRTwSTKFm+9EiKzkNVYRLEFkcW44lhguvBalGJbWfGnDt/ezwSUZc+SF9m9bMc3VyklNAtp7zICjS5w==}
@@ -3640,8 +3634,8 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
-  async-lock@1.4.1:
-    resolution: {integrity: sha512-Az2ZTpuytrtqENulXwO3GGv1Bztugx6TT37NIo7imr/Qo0gsYiGtSdBa2B6fsXhTpVZDNfu1Qn3pk531e3q+nQ==}
+  async-lock@1.5.0:
+    resolution: {integrity: sha512-JgULma1mWaHlyJ67lvicyel5Cq+k55bXafE0gyvJBdHkH0vdE/IGGDF1glNyRInisNS6pZL2oho96S6Hw68kfQ==}
 
   async@3.2.6:
     resolution: {integrity: sha512-htCUDlxyyCLMgaM3xXg0C0LW2xqfuQ6p05pCEIsXuyQ+a1koYKTuBMzRNwmybfLgvJDMd0r1LTn4+E0Ti6C2AA==}
@@ -5682,8 +5676,8 @@ packages:
     resolution: {integrity: sha512-e0VyvkVTwVYViNovRkZ9aodhxVlyoMn7eJhVUPxZ+eK9P/7CBkxvvsBOHqFPEH416726W8tLXXXjKwqgTErrCQ==}
     engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
 
-  solid-js@2.0.1:
-    resolution: {integrity: sha512-5bBwRCblIZ672y2H2aB5KIOfeP/N+acx1YoCjNCWYFc4ZI/Y7y7n/6N1kei8AgWmcJJQ1m5SV90rs3V8CPAnYQ==}
+  solid-js@2.0.3:
+    resolution: {integrity: sha512-XOHstv+GAJjfcSGZU9xfX5q6Mbqmv72IcdWh2JuMx3KvBbfpQPdy/Yl00A1ouk7A0etjqhNe799CPdr6i7koWg==}
     engines: {node: '>=22.12.0'}
 
   source-map-js@1.2.2:
@@ -5733,9 +5727,6 @@ packages:
     resolution: {integrity: sha512-LqZxxBDMKuMAZzFzJnDCkFOrs9MZQZr0LvHiO/SuSZVdQaXD7xQ5UWTUxheJrQPve1qk9MG2B/yttUvJxw8egQ==}
     engines: {node: '>=20.16.0'}
     hasBin: true
-
-  ssh-remote-port-forward@1.0.4:
-    resolution: {integrity: sha512-x0LV1eVDwjf1gmG7TTnfqIzf+3VPRz7vrNIjX6oYLbeCrf/PeVY6hkT68Mg+q02qXxQhrLjB0jfgvhevoCRmLQ==}
 
   ssh2@1.17.0:
     resolution: {integrity: sha512-wPldCk3asibAjQ/kziWQQt1Wh3PgDFpC0XpwclzKcdT1vql6KeYxf5LIt4nlFkUeR8WuphYMKqUA56X4rjbfgQ==}
@@ -5833,8 +5824,8 @@ packages:
   teex@1.0.1:
     resolution: {integrity: sha512-eYE6iEI62Ni1H8oIa7KlDU6uQBtqr4Eajni3wX7rpfXD8ysFx8z0+dri+KWEPWpBsxXfxu58x/0jvTVT1ekOSg==}
 
-  testcontainers@12.2.1:
-    resolution: {integrity: sha512-JfbCyOvLdzatwgqUI3AvYCwRW0P5mCkKQVBPO8U5qSH1efC2kHvnfWmi9VHloy1rAFG2MEqWZObRH4bq0gU1kQ==}
+  testcontainers@12.2.2:
+    resolution: {integrity: sha512-ndmRB+wQnCd7YkelXoUtLVUFUQ3CrbIPmldSWzY8p1pXy09lBC/Hm99RYRCL2brHve/xNWCJX35173peMj5LUg==}
     engines: {node: '>= 22.22'}
 
   text-decoder@1.2.7:
@@ -6715,11 +6706,11 @@ snapshots:
 
   '@balena/dockerignore@1.0.2': {}
 
-  '@better-auth/api-key@1.7.26(@better-auth/core@1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(better-auth@1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0))(better-call@1.4.6(zod@4.6.7))':
+  '@better-auth/api-key@1.7.26(@better-auth/core@1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(better-auth@1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0))(better-call@1.4.6(zod@4.6.7))':
     dependencies:
       '@better-auth/core': 1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5)
       '@better-auth/utils': 0.5.1
-      better-auth: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0)
+      better-auth: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0)
       better-call: 1.4.6(zod@4.6.7)
       zod: 4.6.7
 
@@ -8084,104 +8075,104 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@solid-devtools/debugger@0.28.1(solid-js@2.0.1)':
+  '@solid-devtools/debugger@0.28.1(solid-js@2.0.3)':
     dependencies:
       '@nothing-but/utils': 0.17.0
-      '@solid-devtools/shared': 0.20.0(solid-js@2.0.1)
-      '@solid-primitives/bounds': 0.1.7(solid-js@2.0.1)
-      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.1)
-      '@solid-primitives/keyboard': 1.3.7(solid-js@2.0.1)
-      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.1)
-      '@solid-primitives/scheduled': 1.5.3(solid-js@2.0.1)
-      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-devtools/shared': 0.20.0(solid-js@2.0.3)
+      '@solid-primitives/bounds': 0.1.7(solid-js@2.0.3)
+      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.3)
+      '@solid-primitives/keyboard': 1.3.7(solid-js@2.0.3)
+      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.3)
+      '@solid-primitives/scheduled': 1.5.3(solid-js@2.0.3)
+      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-devtools/logger@0.9.11(solid-js@2.0.1)':
+  '@solid-devtools/logger@0.9.11(solid-js@2.0.3)':
     dependencies:
       '@nothing-but/utils': 0.17.0
-      '@solid-devtools/debugger': 0.28.1(solid-js@2.0.1)
-      '@solid-devtools/shared': 0.20.0(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-devtools/debugger': 0.28.1(solid-js@2.0.3)
+      '@solid-devtools/shared': 0.20.0(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-devtools/shared@0.20.0(solid-js@2.0.1)':
+  '@solid-devtools/shared@0.20.0(solid-js@2.0.3)':
     dependencies:
       '@nothing-but/utils': 0.17.0
-      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.1)
-      '@solid-primitives/media': 2.3.6(solid-js@2.0.1)
-      '@solid-primitives/refs': 1.1.4(solid-js@2.0.1)
-      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.1)
-      '@solid-primitives/scheduled': 1.5.3(solid-js@2.0.1)
-      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.1)
-      '@solid-primitives/styles': 0.1.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.3)
+      '@solid-primitives/media': 2.3.6(solid-js@2.0.3)
+      '@solid-primitives/refs': 1.1.4(solid-js@2.0.3)
+      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.3)
+      '@solid-primitives/scheduled': 1.5.3(solid-js@2.0.3)
+      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.3)
+      '@solid-primitives/styles': 0.1.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/bounds@0.1.7(solid-js@2.0.1)':
+  '@solid-primitives/bounds@0.1.7(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.1)
-      '@solid-primitives/resize-observer': 2.2.0(solid-js@2.0.1)
-      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.3)
+      '@solid-primitives/resize-observer': 2.2.0(solid-js@2.0.3)
+      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/event-listener@2.4.6(solid-js@2.0.1)':
+  '@solid-primitives/event-listener@2.4.6(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/keyboard@1.3.7(solid-js@2.0.1)':
+  '@solid-primitives/keyboard@1.3.7(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.1)
-      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.3)
+      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/media@2.3.6(solid-js@2.0.1)':
+  '@solid-primitives/media@2.3.6(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.1)
-      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.1)
-      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.3)
+      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.3)
+      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/refs@1.1.4(solid-js@2.0.1)':
+  '@solid-primitives/refs@1.1.4(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/resize-observer@2.2.0(solid-js@2.0.1)':
+  '@solid-primitives/resize-observer@2.2.0(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.1)
-      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.1)
-      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/event-listener': 2.4.6(solid-js@2.0.3)
+      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.3)
+      '@solid-primitives/static-store': 0.1.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/rootless@1.5.4(solid-js@2.0.1)':
+  '@solid-primitives/rootless@1.5.4(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/scheduled@1.5.3(solid-js@2.0.1)':
+  '@solid-primitives/scheduled@1.5.3(solid-js@2.0.3)':
     dependencies:
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
-  '@solid-primitives/static-store@0.1.4(solid-js@2.0.1)':
+  '@solid-primitives/static-store@0.1.4(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/styles@0.1.4(solid-js@2.0.1)':
+  '@solid-primitives/styles@0.1.4(solid-js@2.0.3)':
     dependencies:
-      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.1)
-      '@solid-primitives/utils': 6.4.1(solid-js@2.0.1)
-      solid-js: 2.0.1
+      '@solid-primitives/rootless': 1.5.4(solid-js@2.0.3)
+      '@solid-primitives/utils': 6.4.1(solid-js@2.0.3)
+      solid-js: 2.0.3
 
-  '@solid-primitives/utils@6.4.1(solid-js@2.0.1)':
+  '@solid-primitives/utils@6.4.1(solid-js@2.0.3)':
     dependencies:
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
   '@solidjs/compiler-darwin-arm64@2.0.0':
     optional: true
@@ -8214,20 +8205,20 @@ snapshots:
       '@solidjs/compiler-wasm32-wasi': 2.0.0
       '@solidjs/compiler-win32-x64-msvc': 2.0.0
 
-  '@solidjs/meta@0.29.8(solid-js@2.0.1)':
+  '@solidjs/meta@0.29.8(solid-js@2.0.3)':
     dependencies:
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
-  '@solidjs/signals@2.0.1': {}
+  '@solidjs/signals@2.0.3': {}
 
-  '@solidjs/vite-plugin@3.0.1(@babel/core@7.29.7(supports-color@10.2.2))(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(solid-js@2.0.1)(typescript@7.0.2)(yaml@2.9.1)':
+  '@solidjs/vite-plugin@3.0.1(@babel/core@7.29.7(supports-color@10.2.2))(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(solid-js@2.0.3)(typescript@7.0.2)(yaml@2.9.1)':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@solidjs/compiler': 2.0.0
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
       magic-string: 0.30.21
       merge-anything: 5.1.7
-      solid-js: 2.0.1
+      solid-js: 2.0.3
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1)'
       vitefu: 1.1.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1)
     optionalDependencies:
@@ -8255,12 +8246,12 @@ snapshots:
       - vue-tsc
       - yaml
 
-  '@solidjs/web@2.0.1(solid-js@2.0.1)':
+  '@solidjs/web@2.0.3(solid-js@2.0.3)':
     dependencies:
       csstype: 3.2.4
       seroval: 1.8.1
       seroval-plugins: 1.8.0(seroval@1.8.1)
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
   '@speed-highlight/core@1.2.24': {}
 
@@ -8364,53 +8355,53 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@tanstack/solid-query@6.0.0-rc.6(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)':
+  '@tanstack/solid-query@6.0.0-rc.6(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)':
     dependencies:
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
       '@tanstack/query-core': 5.107.1
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
-  '@tanstack/solid-router@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)':
+  '@tanstack/solid-router@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)':
     dependencies:
-      '@solid-devtools/logger': 0.9.11(solid-js@2.0.1)
-      '@solid-primitives/refs': 1.1.4(solid-js@2.0.1)
-      '@solidjs/meta': 0.29.8(solid-js@2.0.1)
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@solid-devtools/logger': 0.9.11(solid-js@2.0.3)
+      '@solid-primitives/refs': 1.1.4(solid-js@2.0.3)
+      '@solidjs/meta': 0.29.8(solid-js@2.0.3)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
       '@tanstack/history': 1.162.1
       '@tanstack/router-core': 1.171.22
       isbot: 5.2.3
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
-  '@tanstack/solid-start-client@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)':
+  '@tanstack/solid-start-client@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)':
     dependencies:
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
       '@tanstack/router-core': 1.171.22
-      '@tanstack/solid-router': 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
+      '@tanstack/solid-router': 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)
       '@tanstack/start-client-core': 1.170.22
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
-  '@tanstack/solid-start-server@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(crossws@0.4.17(srvx@0.11.22))(solid-js@2.0.1)':
+  '@tanstack/solid-start-server@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(crossws@0.4.17(srvx@0.11.22))(solid-js@2.0.3)':
     dependencies:
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
       '@tanstack/router-core': 1.171.22
-      '@tanstack/solid-router': 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
+      '@tanstack/solid-router': 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)
       '@tanstack/start-server-core': 1.169.26(crossws@0.4.17(srvx@0.11.22))
-      solid-js: 2.0.1
+      solid-js: 2.0.3
     transitivePeerDependencies:
       - crossws
 
-  '@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)':
+  '@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)':
     dependencies:
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
-      '@tanstack/solid-router': 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
-      '@tanstack/solid-start-client': 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(solid-js@2.0.1)
-      '@tanstack/solid-start-server': 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(crossws@0.4.17(srvx@0.11.22))(solid-js@2.0.1)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
+      '@tanstack/solid-router': 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)
+      '@tanstack/solid-start-client': 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)
+      '@tanstack/solid-start-server': 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(crossws@0.4.17(srvx@0.11.22))(solid-js@2.0.3)
       '@tanstack/start-client-core': 1.170.22
       '@tanstack/start-plugin-core': 1.171.34(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
       '@tanstack/start-server-core': 1.169.26(crossws@0.4.17(srvx@0.11.22))
       '@tanstack/start-storage-context': 1.167.24
       pathe: 2.0.3
-      solid-js: 2.0.1
+      solid-js: 2.0.3
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1)'
     transitivePeerDependencies:
       - '@arethetypeswrong/core'
@@ -8530,9 +8521,9 @@ snapshots:
 
   '@tanstack/virtual-file-routes@1.162.0': {}
 
-  '@testcontainers/postgresql@12.2.1(supports-color@10.2.2)':
+  '@testcontainers/postgresql@12.2.2(supports-color@10.2.2)':
     dependencies:
-      testcontainers: 12.2.1(supports-color@10.2.2)
+      testcontainers: 12.2.2(supports-color@10.2.2)
     transitivePeerDependencies:
       - bare-abort-controller
       - bare-buffer
@@ -8641,15 +8632,6 @@ snapshots:
 
   '@types/retry@0.12.0': {}
 
-  '@types/ssh2-streams@0.1.13':
-    dependencies:
-      '@types/node': 22.20.5
-
-  '@types/ssh2@0.5.52':
-    dependencies:
-      '@types/node': 22.20.5
-      '@types/ssh2-streams': 0.1.13
-
   '@types/ssh2@1.15.6':
     dependencies:
       '@types/node': 18.19.130
@@ -8728,11 +8710,11 @@ snapshots:
 
   '@ui-sdk/core@0.1.0-beta.14': {}
 
-  '@ui-sdk/solid@0.1.0-beta.14(@solidjs/web@2.0.1(solid-js@2.0.1))(@ui-sdk/core@0.1.0-beta.14)(solid-js@2.0.1)':
+  '@ui-sdk/solid@0.1.0-beta.14(@solidjs/web@2.0.3(solid-js@2.0.3))(@ui-sdk/core@0.1.0-beta.14)(solid-js@2.0.3)':
     dependencies:
-      '@solidjs/web': 2.0.1(solid-js@2.0.1)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
       '@ui-sdk/core': 0.1.0-beta.14
-      solid-js: 2.0.1
+      solid-js: 2.0.3
 
   '@vitest/browser-preview@5.1.0(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)':
     dependencies:
@@ -9031,7 +9013,7 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
-  async-lock@1.4.1: {}
+  async-lock@1.5.0: {}
 
   async@3.2.6: {}
 
@@ -9052,7 +9034,7 @@ snapshots:
       '@better-auth/utils': 0.5.1
       '@clack/prompts': 1.8.1
       '@mrleebo/prisma-ast': 0.16.0
-      better-auth: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0)
+      better-auth: 1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0)
       c12: 4.0.0-rc.2(dotenv@17.4.2)(jiti@2.7.0)
       chalk: 5.6.2
       commander: 15.0.0
@@ -9146,7 +9128,7 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
 
-  better-auth@1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.1)(vitest@5.1.0):
+  better-auth@1.7.26(@tanstack/solid-start@2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1))(pg@8.23.1)(solid-js@2.0.3)(vitest@5.1.0):
     dependencies:
       '@better-auth/core': 1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5)
       '@better-auth/drizzle-adapter': 1.7.26(@better-auth/core@1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5))(@better-auth/utils@0.5.1)
@@ -9166,9 +9148,9 @@ snapshots:
       nanostores: 1.5.5
       zod: 4.6.7
     optionalDependencies:
-      '@tanstack/solid-start': 2.0.0-rc.10(@solidjs/web@2.0.1(solid-js@2.0.1))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.1)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
+      '@tanstack/solid-start': 2.0.0-rc.10(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(crossws@0.4.17(srvx@0.11.22))(esbuild@0.28.2)(jiti@2.7.0)(rolldown@1.3.3)(rollup@4.65.0)(solid-js@2.0.3)(supports-color@10.2.2)(typescript@7.0.2)(yaml@2.9.1)
       pg: 8.23.1
-      solid-js: 2.0.1
+      solid-js: 2.0.3
       vitest: 5.1.0(@types/node@22.20.5)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@opentelemetry/api'
@@ -10931,9 +10913,9 @@ snapshots:
       ip-address: 10.7.4
       smart-buffer: 4.2.0
 
-  solid-js@2.0.1:
+  solid-js@2.0.3:
     dependencies:
-      '@solidjs/signals': 2.0.1
+      '@solidjs/signals': 2.0.3
       seroval: 1.8.1
       seroval-plugins: 1.8.0(seroval@1.8.1)
 
@@ -10980,11 +10962,6 @@ snapshots:
   split2@4.2.0: {}
 
   srvx@0.11.22: {}
-
-  ssh-remote-port-forward@1.0.4:
-    dependencies:
-      '@types/ssh2': 0.5.52
-      ssh2: 1.17.0
 
   ssh2@1.17.0:
     dependencies:
@@ -11126,12 +11103,12 @@ snapshots:
       - bare-abort-controller
       - react-native-b4a
 
-  testcontainers@12.2.1(supports-color@10.2.2):
+  testcontainers@12.2.2(supports-color@10.2.2):
     dependencies:
       '@balena/dockerignore': 1.0.2
       '@types/dockerode': 4.0.2
       archiver: 7.0.1
-      async-lock: 1.4.1
+      async-lock: 1.5.0
       byline: 5.0.0
       debug: 4.4.3(supports-color@10.2.2)
       docker-compose: 1.5.0
@@ -11139,7 +11116,7 @@ snapshots:
       get-port: 5.1.1
       proper-lockfile: 4.1.2
       properties-reader: 3.0.1(supports-color@10.2.2)
-      ssh-remote-port-forward: 1.0.4
+      ssh2: 1.17.0
       tar-fs: 3.1.3
       tmp: 0.2.7
       undici: 8.12.4
