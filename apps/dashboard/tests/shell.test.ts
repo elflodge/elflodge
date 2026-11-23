@@ -85,6 +85,20 @@ test("the bar leads to the dashboard's pages, and on a phone names the current o
   hub.jobs.list.answers(NO_JOBS_LISTED);
   const page = await open("change-password");
   const destinations = page.getByRole("navigation", { name: "Destinations" });
+  // Every page a member works in.
+  const pages = {
+    Jobs: "jobs",
+    Batches: "batches",
+    Runners: "runners",
+    Usage: "usage",
+    "API keys": "api-keys",
+    Organization: "organization",
+  };
+  const links = destinations.getByRole("link");
+  await expectBrowser(links).toHaveText(Object.keys(pages));
+  expect(await links.evaluateAll((all) => all.map((link) => link.getAttribute("href")))).toEqual(
+    Object.values(pages).map((path) => DASHBOARD_BASE + path),
+  );
   await destinations.getByRole("link", { name: "Jobs" }).click();
   await page.waitForURL(`${DASHBOARD_BASE}jobs`);
   const jobs = destinations.getByRole("link", { name: "Jobs" });
