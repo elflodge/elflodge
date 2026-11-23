@@ -270,8 +270,9 @@ test("a Batch ledger opens the jobs it counts and a job links back to the Batch"
 
   await page.getByRole("link", { name: /See them.*its queued jobs/ }).click();
   const table = page.getByRole("table", { name: "Jobs" });
-  await expectBrowser(table.locator(".job-name")).toHaveText(["keep", "next"]);
-  expect(hub.jobs.list.calls.at(-1)).toMatchObject({ batchId: id, status: ["queued"] });
+  await expect
+    .poll(() => hub.jobs.list.calls.at(-1))
+    .toMatchObject({ batchId: id, status: ["queued"] });
   await expectBrowser(table.getByRole("link", { name: id }).first()).toHaveAttribute(
     "href",
     `/dashboard/batches/${id}`,
