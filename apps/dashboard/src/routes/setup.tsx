@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
+import { announce } from "@ui-sdk/core";
 import { Button } from "@ui-sdk/solid/button";
 import { Show, createSignal, onSettled } from "solid-js";
 
@@ -44,6 +45,7 @@ function Setup() {
     const organizationName = fieldText(form, "organizationName");
     const owner = { email: fieldText(form, "email"), password: fieldText(form, "password") };
     const name = fieldText(form, "name");
+    announce("Working…");
     try {
       await api.setup.complete({ token: token(), organizationName, name, ...owner });
     } catch (failure) {

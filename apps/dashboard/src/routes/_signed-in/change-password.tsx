@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/solid-router";
+import { announce } from "@ui-sdk/core";
 import { Button } from "@ui-sdk/solid/button";
 import { Show, createSignal } from "solid-js";
 
@@ -32,6 +33,7 @@ function ChangePassword() {
     }
     const submittedPassword = fieldText(form, "current-password");
     const revokeOtherSessions = form.has("revoke-other-sessions");
+    announce("Working…");
     try {
       await authClient.changePassword({
         currentPassword: submittedPassword,

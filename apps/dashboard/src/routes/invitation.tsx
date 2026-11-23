@@ -3,7 +3,17 @@ import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
 import { problemOf } from "contract";
-import { Match, Show, Switch, createEffect, createSignal, deep, latest, onSettled } from "solid-js";
+import {
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  deep,
+  latest,
+  onSettled,
+} from "solid-js";
 
 import {
   api,
@@ -98,6 +108,7 @@ function ReadInvitation(props: { invitationId: string }) {
       refetchOnWindowFocus: "always",
     });
   const preview = useQuery(previewOptions);
+  const invitation = createMemo(() => latest(() => deep(preview.data)));
   const onFocus = () => {
     void router.invalidate();
     void preview.refetch({ cancelRefetch: false });
@@ -158,7 +169,7 @@ function ReadInvitation(props: { invitationId: string }) {
       <Match when={preview.dataUpdatedAt}>
         <AcceptInvitation
           invitationId={props.invitationId}
-          invitation={latest(() => deep(preview.data))}
+          invitation={invitation()}
           consumed={forgetPreview}
           unavailable={() => {
             forgetPreview();

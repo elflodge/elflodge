@@ -92,12 +92,10 @@ test("a member sees a Batch control in flight and its result on the record and l
     await expectBrowser(
       page.getByRole("button", { name: `Cancel the Batch ${id}` }),
     ).toBeDisabled();
-    await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toBeVisible();
+    const working = page.locator("#batch-status").getByText("Working…");
+    await expectBrowser(working).toBeVisible();
     // Kept out of the status region's text: the pressed button tells a screen reader it waits.
-    await expectBrowser(page.locator("#batch-status").getByText("Working…")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
+    await expectBrowser(working).toHaveAttribute("aria-hidden", "true");
     // A pause from elsewhere lands first: the next read withdraws Pause and its note.
     await system.owner().batches.pause({ id });
     await expectBrowser(page.getByRole("button", { name: "Resume" })).toBeVisible({
@@ -331,7 +329,7 @@ test("a paused Batch shows as paused, with its controls free and focus on its st
     await page.getByRole("button", { name: "Pause", exact: true }).click();
     await reread.promise;
     await expectBrowser(page.getByRole("status").filter({ hasText: "By a caller" })).toBeFocused();
-    await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toHaveCount(0);
+    await expectBrowser(page.locator("#batch-status").getByText("Working…")).toHaveCount(0);
     await expectBrowser(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
     await expectBrowser(page.getByRole("button", { name: `Cancel the Batch ${id}` })).toBeEnabled();
   } finally {
