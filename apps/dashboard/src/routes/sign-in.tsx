@@ -82,13 +82,7 @@ function SignIn() {
           <Input name="email" type="email" autocomplete="username" required />
         </Field>
         <Field label="Password">
-          <FieldControl
-            render={(part) => <input {...part} />}
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            required
-          />
+          <FieldControl name="password" type="password" autocomplete="current-password" required />
         </Field>
         <Show when={error()} keyed>
           {(message) => <Notice role="alert">{message}</Notice>}

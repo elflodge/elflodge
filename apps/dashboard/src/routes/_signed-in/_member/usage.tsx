@@ -308,7 +308,6 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
                 error={field(name)}
               >
                 <FieldControl
-                  render={(part) => <input {...part} />}
                   type="date"
                   name={name}
                   required={name === "from"}

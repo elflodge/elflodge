@@ -406,7 +406,6 @@ function AcceptInvitation(props: {
               </Field>
               <Field label="Password" error={passwordError()}>
                 <FieldControl
-                  render={(part) => <input {...part} />}
                   name="password"
                   type="password"
                   autocomplete="new-password"

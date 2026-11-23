@@ -341,7 +341,6 @@ export function JobControls(props: {
             error={fields.refused("modelBudgetUsd")}
           >
             <FieldControl
-              render={(part) => <input {...part} />}
               name="modelBudgetUsd"
               type="number"
               required
