@@ -82,8 +82,9 @@ test("a member sees a Batch control in flight and its result on the record and l
   open,
 }) => {
   const id = "november-control";
-  const active = aBatch(id);
-  const paused = aBatch(id, { status: "paused", pausedBy: "caller" });
+  const jobCounts = jobsCounted({ queued: 2 });
+  const active = aBatch(id, { jobCounts });
+  const paused = aBatch(id, { status: "paused", pausedBy: "caller", jobCounts });
   hub.batches.list.answers({ batches: [active], hasMore: false });
   hub.batches.get.answers(active);
   const page = await open("batches");
@@ -92,7 +93,9 @@ test("a member sees a Batch control in flight and its result on the record and l
   const pause = page.getByRole("button", { name: "Pause", exact: true });
   const cancel = page.getByRole("button", { name: `Cancel the Batch ${id}` });
   const pausing = hub.batches.pause.hold();
-  hub.batches.pause.answers(paused);
+  // The hub answers with the Batch as it stands then, one of its jobs succeeded since the page's
+  // last read.
+  hub.batches.pause.answers({ ...paused, jobCounts: jobsCounted({ queued: 1, succeeded: 1 }) });
   await pause.click();
   expect(await pausing.arrived).toEqual({ id });
   await expectBrowser(pause).toBeDisabled();
@@ -114,11 +117,17 @@ test("a member sees a Batch control in flight and its result on the record and l
   await expectBrowser(pause).toHaveAttribute("aria-busy", "true");
   await expectBrowser(pause).toHaveAccessibleDescription(/By a caller/);
 
-  // The hub answers while the counts the pause changes are read again: the status takes the focus
-  // and the controls are free without waiting for them.
+  // The hub answers while the counts the pause changes are read again: the page shows the answer,
+  // the status takes the focus and the controls are free without waiting for them.
   const counts = hub.jobs.counts.hold();
+  const reads = hub.batches.get.calls.length;
   pausing.release();
   await counts.arrived;
+  const ledger = page.getByRole("table", { name: "Jobs by status" });
+  await expectBrowser(
+    ledger.getByRole("row").filter({ hasText: "Succeeded" }).locator("td.num"),
+  ).toHaveText("1");
+  expect(hub.batches.get.calls).toHaveLength(reads);
   await expectBrowser(page.getByRole("status").filter({ hasText: "By a caller" })).toBeFocused();
   await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toHaveCount(0);
   await expectBrowser(pause).toHaveCount(0);
