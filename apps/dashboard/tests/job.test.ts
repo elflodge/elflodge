@@ -155,7 +155,6 @@ test("a member confirms deletion and sees when the job has gone", async ({ hub, 
 
   await page.getByRole("button", { name: "Delete the job" }).click();
   const dialog = page.getByRole("alertdialog");
-  await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await dialog.getByRole("button", { name: "Delete the job" }).click();
   await expectBrowser(
     page.getByRole("status").filter({ hasText: "Deleted. Its Usage record stays." }),

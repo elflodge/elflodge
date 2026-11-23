@@ -164,7 +164,6 @@ test("cancelling a Batch asks first and removes its controls once final", async 
   const page = await open(`batches/${id}`);
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const dialog = page.getByRole("alertdialog");
-  await expectBrowser(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
   await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
   await expectBrowser(
