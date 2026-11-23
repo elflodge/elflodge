@@ -535,8 +535,19 @@ test("a member can correct a refused budget and resume the job to its Output", a
     / of 0\.000001 USD, estimated$/,
   );
   await page.getByText("Resume asks for a larger model budget.").waitFor();
-  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  const resume = page.getByRole("button", { name: "Resume", exact: true });
   const dialog = page.getByRole("dialog");
+  // As on a browser that leaves focus in place on a mouse press. dispatchEvent("click") would
+  // send an untrusted event, which UI SDK handles as a programmatic open.
+  await page.getByRole("button", { name: "Delete the job" }).focus();
+  await resume.evaluate((button) =>
+    button.addEventListener("mousedown", (event: Event) => event.preventDefault(), { once: true }),
+  );
+  await resume.click();
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(resume).toBeFocused();
+  await resume.click();
   const field = dialog.getByLabel("New model budget USD");
   const submit = dialog.getByRole("button", { name: "Resume the job" });
   const hint = await dialog.getByText(/^Cost so far /).innerText();
@@ -633,10 +644,13 @@ test("a member can correct a refused budget and resume the job to its Output", a
 
 test("a cancelled Batch withdraws Resume while the member is editing the budget", async () => {
   const job = await jobWithSpentBudget();
-  const page = await openAsMember("Budget withdrawn", `jobs/${job.id}`);
+  const page = await browser.newPage({ hasTouch: true });
+  onTestFinished(() => page.close());
+  await signInAt(system, page, `jobs/${job.id}`, await newMember(system, "Budget withdrawn"));
   const sent = countRequests(page, `/jobs/${job.id}/resume`);
-  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await page.getByRole("button", { name: "Resume", exact: true }).tap();
   const dialog = page.getByRole("dialog", { name: "Resume the job" });
+  await expectBrowser(dialog).toBeFocused();
   const field = dialog.getByLabel("New model budget USD");
   await field.fill("2.50");
   const submit = dialog.getByRole("button", { name: "Resume the job" });
@@ -656,6 +670,46 @@ test("a cancelled Batch withdraws Resume while the member is editing the budget"
   await expectBrowser(page.getByRole("button", { name: "Delete the job" })).toBeFocused();
   expect(sent.count).toBe(0);
 }, 30_000);
+
+test("a raised budget prevents resubmitting an older amount after a refusal", async () => {
+  const { id, batchId } = await jobWithSpentBudget();
+  const client = system.owner();
+  // A resume can queue while its Batch is paused, so the Runner cannot spend the raised budget.
+  await client.batches.pause({ id: batchId });
+  const page = await openAsMember("Budget raised", `jobs/${id}`);
+  const sent = countRequests(page, `/jobs/${id}/resume`);
+  const answer = Promise.withResolvers<Route>();
+  await page.route(`**/jobs/${id}/resume`, answer.resolve, { times: 1 });
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Resume the job" });
+  const field = dialog.getByLabel("New model budget USD");
+  await field.fill("1.50");
+  const submit = dialog.getByRole("button", { name: "Resume the job" });
+  await submit.click();
+  const request = await answer.promise;
+  await client.jobs.resume({ id, modelBudgetUsd: 4 });
+  await client.jobs.pause({ id });
+  const reason = dialog.getByText("Its model budget was raised, so it resumes without a new one.");
+  await expectBrowser(reason).toBeVisible({ timeout: 15_000 });
+  // The trigger that opened the running form stays mounted until its own request settles.
+  const trigger = page
+    .locator('.job-controls [aria-haspopup="dialog"]')
+    .filter({ hasText: "Resume" });
+  await expectBrowser(trigger).toBeAttached();
+  await request.fulfill(problemAnswer(409, "Conflict", "The job is changing; try again."));
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("The job is changing; try again.");
+  await expectBrowser(reason).toBeVisible();
+  await expectBrowser(trigger).toHaveCount(0);
+  await expectBrowser(field).toHaveValue("1.50");
+  await expectBrowser(submit).toBeDisabled();
+  await expectBrowser(submit).toBeFocused();
+  await page.keyboard.press("Enter");
+  await field.press("Enter");
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+  expect(sent.count).toBe(1);
+}, 45_000);
 
 function message(id: number): JobEvent {
   return {

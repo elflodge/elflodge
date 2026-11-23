@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
-import { createDialogController } from "@ui-sdk/solid/dialog";
+import { DialogTrigger, createDialogController } from "@ui-sdk/solid/dialog";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
 import { Show, createSignal, flush, onFlush } from "solid-js";
 
@@ -136,6 +136,14 @@ export function JobControls(props: {
   const spent = () =>
     props.job.modelBudgetUsd !== undefined &&
     props.job.usage.cost.totalUsd >= props.job.modelBudgetUsd;
+  // A poll may change which Resume is offered. Keep the part that sent the request until it ends.
+  const resumeNeedsBudget = () =>
+    controls.resume.isPending ? controls.resume.variables?.modelBudgetUsd !== undefined : spent();
+  function budgetWithdrawn() {
+    if (!props.resumeOffered) return props.cannotResume ?? "This job can no longer be resumed.";
+    if (!spent()) return "Its model budget was raised, so it resumes without a new one.";
+    return undefined;
+  }
   const canCancel = () => !FINAL_JOB_STATUSES.includes(props.job.status);
   const waiting = () => props.job.pendingControl?.type;
 
@@ -236,17 +244,29 @@ export function JobControls(props: {
           </Button>
         </Show>
         <Show when={props.resumeOffered || controls.resume.isPending}>
-          <Button
-            disabled={pending()}
-            focusableWhenDisabled
-            pendingAnnouncement="Working…"
-            aria-haspopup={spent() ? "dialog" : undefined}
-            aria-describedby={resumeNote() ? "resume-note" : undefined}
-            // open() resolves on dismissal. Only a direct resume keeps this button pending.
-            onClick={(event) => (spent() ? void budget.open({ event }) : press("resume"))}
+          <Show
+            when={resumeNeedsBudget()}
+            fallback={
+              <Button
+                disabled={pending()}
+                focusableWhenDisabled
+                pendingAnnouncement="Working…"
+                aria-describedby={resumeNote() ? "resume-note" : undefined}
+                onClick={() => press("resume")}
+              >
+                Resume
+              </Button>
+            }
           >
-            Resume
-          </Button>
+            <DialogTrigger
+              controller={budget}
+              disabled={pending()}
+              focusableWhenDisabled
+              aria-describedby={resumeNote() ? "resume-note" : undefined}
+            >
+              Resume
+            </DialogTrigger>
+          </Show>
         </Show>
         <Show when={!props.job.deletedAt && canCancel()}>
           <AlertDialogTrigger
@@ -304,11 +324,7 @@ export function JobControls(props: {
         confirm="Resume the job"
         // On this page Cancel cancels the job.
         dismissLabel="Close"
-        withdrawn={() =>
-          props.resumeOffered
-            ? undefined
-            : (props.cannotResume ?? "This job can no longer be resumed.")
-        }
+        withdrawn={budgetWithdrawn}
         refusal={(error) => formRefusal(error, { modelBudgetUsd: ["modelBudgetUsd"] })}
         send={async (form) => {
           await run("resume", Number(fieldText(new FormData(form), "modelBudgetUsd")));
