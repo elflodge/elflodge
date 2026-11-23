@@ -140,24 +140,17 @@ function reportRow(report: JobReport, now: Date): ReportRow {
 
 /**
  * A tool call's result, as pi records it: a `pi.tool-result` entry, its message's `toolName` (the
- * name pi keys a tool's usage by) and `durationMs`, and its diagnostics. Only what the count reads;
+ * name pi keys a tool's usage by), and its diagnostics. Only what the count reads;
  * the rest is kept as it comes. A name Postgres cannot hold as a `jsonb` key (`textSchema`) makes
  * a result of another shape, so it cannot fail the report's statement.
  */
 const toolResultSchema = z.object({
   kind: z.literal("pi.tool-result"),
-  model: z.tuple([z.object({ toolName: textSchema, durationMs: z.optional(z.unknown()) })]),
+  model: z.tuple([z.object({ toolName: textSchema })]),
   data: z.optional(
     z.object({ diagnostics: z.optional(z.array(z.object({ code: z.optional(z.string()) }))) }),
   ),
 });
-
-/**
- * Pi before 1.6 timed only execute(). A tool that ran and returned `blocked` could have a
- * duration of 0 ms. When Pi blocked the call before execution, it omitted the duration.
- * These codes therefore exclude a legacy call only when its duration is absent.
- */
-const LEGACY_REFUSALS = new Set(["blocked", "invalid_arguments", "tool_unavailable", "abandoned"]);
 
 /** Finished calls by tool name. An ambiguous interruption counts because work may have run. */
 function toolCallsOf(events: JobReport["events"]): ToolCalls {
@@ -167,22 +160,19 @@ function toolCallsOf(events: JobReport["events"]): ToolCalls {
     if (event.type !== "entry") continue;
     const result = z.safeParse(toolResultSchema, event.record).data;
     if (!result) continue;
-    const [{ toolName, durationMs }] = result.model;
+    const [{ toolName }] = result.model;
     const diagnostics = result.data?.diagnostics ?? [];
     const outcome = event.toolTaskOutcome;
     // In Pi 1.6 duration includes waiting for permission. A missing tool normally never ran,
     // but if it disappeared while waiting to resume, Pi marks the task failed and it counts.
     const ran =
-      outcome === undefined
-        ? typeof durationMs === "number" ||
-          !diagnostics.some(({ code }) => code !== undefined && LEGACY_REFUSALS.has(code))
-        : outcome !== "unstarted" &&
-          !diagnostics.some(
-            ({ code }) =>
-              code === "blocked" ||
-              code === "invalid_arguments" ||
-              (code === "tool_unavailable" && outcome !== "failed"),
-          );
+      outcome !== "unstarted" &&
+      !diagnostics.some(
+        ({ code }) =>
+          code === "blocked" ||
+          code === "invalid_arguments" ||
+          (code === "tool_unavailable" && outcome !== "failed"),
+      );
     if (ran) counts.set(toolName, (counts.get(toolName) ?? 0) + 1);
   }
   return Object.fromEntries(counts);

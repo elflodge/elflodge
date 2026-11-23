@@ -173,16 +173,9 @@ async function reportEntry(tx: Tx, entry: EntryRecord): Promise<JobEvent> {
     return event;
 
   const writer = await tx.task(entry.byTaskId);
-  // Pi 1.6 changed the duration semantics in tool task v4 and generation v3. Terminal tasks
-  // retain their writer version when a new Runner opens an older journal.
-  if (writer?.kind === GenerationTask.definition.name && writer.version >= 3)
+  if (writer?.kind === GenerationTask.definition.name)
     return { ...event, toolTaskOutcome: "unstarted" };
-  if (
-    writer?.kind !== ToolTask.definition.name ||
-    writer.version < 4 ||
-    writer.state.status !== "terminal"
-  )
-    return event;
+  if (writer?.kind !== ToolTask.definition.name || writer.state.status !== "terminal") return event;
   const outcome = writer.state.outcome.status;
   // Pi's tool task writes its result in the same commit as one of these three endings.
   if (outcome === "completed" || outcome === "aborted" || outcome === "failed") {
