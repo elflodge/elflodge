@@ -122,7 +122,7 @@ catalog:
   # Vite+ pins both this core alias and Vitest in its published dependencies.
   vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
   vite-plus: 1.7.0
-  vitest: 5.1.0
+  vitest: 5.1.1
   wrangler: ^4.165.0
   # A different ws version resolves pi-ai twice through its optional peers and makes pnpm deploy
   # reject the Runner graph. Verify a production deploy before moving the pin.
