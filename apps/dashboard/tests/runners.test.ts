@@ -1,9 +1,9 @@
 import { expect } from "vite-plus/test";
 
-import { expectBrowser, test } from "./dashboard.ts";
-import { aRunner, signedIn } from "./records.ts";
+import { expectBrowser, liveRegions, runClockUntil, test } from "./dashboard.ts";
+import { anApiKey, aRunner, signedIn } from "./records.ts";
 
-// The Runners page: removing a Runner, and what a member who may not do that sees.
+// The Runners page: removing a Runner, adding one, and what a member who may not remove one sees.
 
 /** A removal that ended no jobs and left no files. */
 const NOTHING_ENDED = { endedJobs: [], jobsWithFilesLeft: [] };
@@ -114,6 +114,94 @@ test("a Runner a read drops while its dialog is open is still named there, and i
     page.getByRole("status").filter({ hasText: `${label} is already gone.` }),
   ).toBeFocused();
   expect(hub.runners.delete.calls).toEqual([{ id: former.id }]);
+});
+
+test("Add Runner cannot be left while its key is created, then shows the key in the command and copies it unannounced", async ({
+  hub,
+  open,
+}) => {
+  const answer = { id: anApiKey("Runner registration").id, key: "elf_registration_secret" };
+  hub.apiKeys.create.answers(answer);
+  const page = await open("runners", { permissions: ["clipboard-read", "clipboard-write"] });
+  const trigger = page.getByRole("button", { name: "Add Runner" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Add Runner" });
+  await expectBrowser(dialog).toBeFocused();
+  // On this machine's address the hub is named by what the member puts in, and the key too, until
+  // they ask for one: opening it created nothing.
+  const command = dialog.getByLabel("The command to run on the machine");
+  await expectBrowser(command).toContainText("HUB_URL=<the hub's URL from that machine>");
+  await expectBrowser(command).toContainText("<a registration key>");
+  await expectBrowser(command).not.toContainText(new URL(page.url()).origin);
+  expect(hub.apiKeys.create.calls).toEqual([]);
+
+  const create = dialog.getByRole("button", { name: "Create a registration key" });
+  const close = dialog.getByRole("button", { name: "Close" });
+  const creation = hub.apiKeys.create.hold();
+  await create.press("Enter");
+  expect(await creation.arrived).toEqual({
+    name: "Runner registration",
+    permissions: { runner: ["register"] },
+    expiresIn: 86_400,
+  });
+  await expectBrowser(create).toBeFocused();
+  await expectBrowser(create).toHaveAttribute("aria-busy", "true");
+  await expectBrowser(close).toBeDisabled();
+  // Followed now, a link would leave the dialog before the key arrives in it.
+  for (const name of ["Runners on other machines", "the Runner's README"]) {
+    const link = dialog.getByRole("link", { name });
+    await expectBrowser(link).toHaveAttribute("aria-disabled", "true");
+    await expectBrowser(link).toHaveJSProperty("tabIndex", -1);
+    await link.click({ force: true });
+    await link.press("Enter");
+    await expectBrowser(dialog).toBeVisible();
+  }
+  await create.focus();
+  // Screen readers hear it once the request has run for a second.
+  const working = page.getByRole("status").filter({ hasText: /^Working…$/ });
+  await runClockUntil(page, 500, async () => (await working.count()) === 1);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  await close.focus();
+  await expectBrowser(close).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.mouse.click(1, 1);
+  await expectBrowser(dialog).toBeVisible();
+
+  creation.release();
+  const copyLine = dialog.locator("p.copy");
+  const copy = copyLine.getByRole("button", { name: "Copy the command" });
+  await expectBrowser(copy).toBeFocused();
+  await expectBrowser(copy).toHaveAccessibleDescription(/^Shown this once: the registration key/);
+  await expectBrowser(command.locator("mark.key")).toHaveText(answer.key);
+  expect(hub.apiKeys.create.calls).toHaveLength(1);
+
+  // Copying says so through UI SDK's live region, outside the dialog and never inert, which writes
+  // it 100 ms after the press; no announcement carries the key.
+  await copy.click();
+  await page.clock.runFor(100);
+  await expectBrowser(copyLine.getByText("Copied.", { exact: true })).toBeVisible();
+  const live = liveRegions(page);
+  const result = live.filter({ hasText: "Copied." });
+  await expectBrowser(result).toHaveCount(1);
+  await expectBrowser(result).toHaveText("Copied.");
+  await expectBrowser(result.and(dialog.locator("*"))).toHaveCount(0);
+  await expectBrowser(result).toHaveRole("status");
+  await expectBrowser(result).toHaveAttribute("aria-live", "polite");
+  expect(await result.evaluate((element) => element.closest("[inert]") === null)).toBe(true);
+  const copied = await page.evaluate<string>("navigator.clipboard.readText()");
+  expect(copied === (await command.textContent())).toBe(true);
+  expect((await live.allTextContents()).some((message) => message.includes(answer.key))).toBe(
+    false,
+  );
+
+  // Closing it forgets the key: opened again, it asks afresh.
+  await close.click();
+  await expectBrowser(trigger).toBeFocused();
+  expect(await page.content()).not.toContain(answer.key);
+  await trigger.click();
+  await expectBrowser(command).toContainText("<a registration key>");
+  expect(await page.content()).not.toContain(answer.key);
 });
 
 test("a plain member gets no owner's actions on Runners and API keys", async ({ hub, open }) => {
