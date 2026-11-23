@@ -14,10 +14,10 @@ updates:
       - dependency-name: "ws"
       # The exact version Pi pins, which installs then share (pnpm-workspace.yaml); it moves with Pi.
       - dependency-name: "typebox"
-      # vite-plus pins Vitest and its @vitest/* packages exactly, and the workspace overrides Vitest to
-      # that version so the project and `vp test` share one copy. They move with vite-plus; Dependabot
-      # would bump them past its pin. This also suppresses their security-update PRs: a Vitest fix
-      # arrives in a vite-plus release, so review Vitest advisories against vite-plus's releases.
+      # vite-plus pins Vitest and @vitest/* exactly and the workspace overrides Vitest to its pin,
+      # so a bump of these alone splits Vitest; they move with vite-plus
+      # (voidzero-dev/vite-plus#2356). This also stops their security-update PRs: a Vitest fix comes
+      # in a vite-plus release.
       - dependency-name: "vitest"
       - dependency-name: "@vitest/*"
     # A dependency joins the first group it matches, so the families come before the catch-all.
@@ -46,11 +46,8 @@ updates:
         patterns:
           - "effect"
           - "@effect/*"
-      # Kept apart from the catch-all because its PR needs work on its branch: Dependabot moves vite-plus
-      # but not the `vite` core alias or the Vitest pin. Set both from the new version's published
-      # dependencies (`npm view vite-plus@<version> dependencies`); vite-plus refuses to run until the
-      # alias matches. `vp migrate` would also add release-age exceptions, which the workspace's
-      # cooldown rules out, and pack settings it does not use.
+      # Apart from the catch-all because its PR needs the `vite` alias and the Vitest pin set on its
+      # branch, which Dependabot leaves behind (pnpm-workspace.yaml says how).
       vite-plus:
         patterns:
           - "vite-plus"
