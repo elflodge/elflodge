@@ -2,6 +2,7 @@ import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { useMutation } from "@tanstack/solid-query";
 import type { DialogController } from "@ui-sdk/solid/dialog";
+import { Input } from "@ui-sdk/solid/input";
 import { For, Show, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
 
 import { HUB_DEADLINE_MS } from "../api-client.ts";
@@ -184,9 +185,7 @@ export function InviteMember(props: {
             grants owner.
           </p>
           <Field label="Email" error={fields.refused("email")}>
-            {(control) => (
-              <input {...control} name="email" type="email" required readonly={fields.pending()} />
-            )}
+            <Input name="email" type="email" required readonly={fields.pending()} />
           </Field>
           <RoleChoices owner={props.owner} value="member" />
         </>
@@ -213,16 +212,13 @@ export function RenameOrganization(props: {
     >
       {(fields) => (
         <Field label="Name">
-          {(control) => (
-            <input
-              {...control}
-              name="name"
-              // The name as the dialog opens; a session read while it is open leaves the draft.
-              defaultValue={untrack(() => props.name)}
-              required
-              readonly={fields.pending()}
-            />
-          )}
+          <Input
+            name="name"
+            // The name as the dialog opens; a session read while it is open leaves the draft.
+            defaultValue={untrack(() => props.name)}
+            required
+            readonly={fields.pending()}
+          />
         </Field>
       )}
     </FormDialog>

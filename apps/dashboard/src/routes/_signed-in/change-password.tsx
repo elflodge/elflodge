@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
 import { Show, createSignal } from "solid-js";
 
 import { hubFailureMessage } from "../../api-client.ts";
@@ -69,42 +70,36 @@ function ChangePassword() {
           label="Current password"
           error={currentRefused() ? WRONG_CURRENT_PASSWORD : undefined}
         >
-          {(control) => (
-            <input
-              {...control}
-              name="current-password"
-              type="password"
-              autocomplete="current-password"
-              required
-              onInput={() => setCurrentRefused(false)}
-              ref={(element) => {
-                currentPassword = element;
-              }}
-            />
-          )}
+          <FieldControl
+            render={(part) => <input {...part} />}
+            name="current-password"
+            type="password"
+            autocomplete="current-password"
+            required
+            onInput={() => setCurrentRefused(false)}
+            ref={(element) => {
+              currentPassword = element;
+            }}
+          />
         </Field>
         <Field label="New password">
-          {(control) => (
-            <input
-              {...control}
-              name="new-password"
-              type="password"
-              autocomplete="new-password"
-              required
-              {...NEW_PASSWORD}
-            />
-          )}
+          <FieldControl
+            render={(part) => <input {...part} />}
+            name="new-password"
+            type="password"
+            autocomplete="new-password"
+            required
+            {...NEW_PASSWORD}
+          />
         </Field>
         <Field label="Confirm new password">
-          {(control) => (
-            <input
-              {...control}
-              name="confirm-password"
-              type="password"
-              autocomplete="new-password"
-              required
-            />
-          )}
+          <FieldControl
+            render={(part) => <input {...part} />}
+            name="confirm-password"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
         </Field>
         <label class="check">
           {/* Checked by default: a changed password may mean the old one leaked, and the other

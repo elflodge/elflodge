@@ -6,8 +6,10 @@ import {
   useChildMatches,
   useLocation,
 } from "@tanstack/solid-router";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import { BATCH_ID_PATTERN, jobIdSchema, jobStatusSchema, type Runner } from "contract";
-import { For, createMemo, createSignal } from "solid-js";
+import { For, createMemo, createSignal, deep, latest } from "solid-js";
 import * as z from "zod/mini";
 
 import { Field } from "../../../components/Field.tsx";
@@ -64,6 +66,7 @@ function Jobs() {
     select: (matches) => matches.some((match) => match.status === "error"),
   });
   const runners = useQuery(() => orpc.runners.list.queryOptions());
+  const roster = createMemo(() => latest(() => deep(availableRunners(runners))));
   return (
     <>
       <div hidden={listFailed()}>
@@ -75,7 +78,7 @@ function Jobs() {
             </Link>
           </div>
         </div>
-        <Filters filters={filters()} runners={availableRunners(runners) ?? []} />
+        <Filters filters={filters()} runners={roster() ?? []} />
       </div>
       <Outlet />
     </>
@@ -118,56 +121,46 @@ function Filters(props: { filters: z.infer<typeof jobsFiltersSchema>; runners: R
             selected={props.filters.status}
           />
           <Field class="filter-field" label="Status unknown">
-            {(control) => (
-              <select {...control} name="statusUnknown">
-                <option value="" defaultSelected={props.filters.statusUnknown === undefined}>
-                  Any
-                </option>
-                <option value="true" defaultSelected={props.filters.statusUnknown === true}>
-                  Only status unknown
-                </option>
-                <option value="false" defaultSelected={props.filters.statusUnknown === false}>
-                  Only status known
-                </option>
-              </select>
-            )}
+            <FieldControl render={(part) => <select {...part} />} name="statusUnknown">
+              <option value="" defaultSelected={props.filters.statusUnknown === undefined}>
+                Any
+              </option>
+              <option value="true" defaultSelected={props.filters.statusUnknown === true}>
+                Only status unknown
+              </option>
+              <option value="false" defaultSelected={props.filters.statusUnknown === false}>
+                Only status known
+              </option>
+            </FieldControl>
           </Field>
         </>
       }
     >
       <Field class="filter-field" label="Batch">
-        {(control) => (
-          <input
-            {...control}
-            name="batchId"
-            pattern={BATCH_ID_PATTERN.source}
-            title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
-            defaultValue={props.filters.batchId ?? ""}
-          />
-        )}
+        <Input
+          name="batchId"
+          pattern={BATCH_ID_PATTERN.source}
+          title="Use letters, digits, underscores or hyphens. Start with a letter, digit or underscore."
+          defaultValue={props.filters.batchId ?? ""}
+        />
       </Field>
       <Field class="filter-field" label="Runner">
-        {(control) => (
-          <select
-            {...control}
-            name="runnerId"
-            onChange={(event) => setDraftRunner(event.currentTarget.value)}
-          >
-            <option value="" defaultSelected={props.filters.runnerId === undefined}>
-              Any
-            </option>
-            <For each={runnerOptions()} keyed={(option) => option.id}>
-              {(option) => (
-                <option
-                  value={option().id}
-                  defaultSelected={props.filters.runnerId === option().id}
-                >
-                  {option().label}
-                </option>
-              )}
-            </For>
-          </select>
-        )}
+        <FieldControl
+          render={(part) => <select {...part} />}
+          name="runnerId"
+          onChange={(event) => setDraftRunner(event.currentTarget.value)}
+        >
+          <option value="" defaultSelected={props.filters.runnerId === undefined}>
+            Any
+          </option>
+          <For each={runnerOptions()} keyed={(option) => option.id}>
+            {(option) => (
+              <option value={option().id} defaultSelected={props.filters.runnerId === option().id}>
+                {option().label}
+              </option>
+            )}
+          </For>
+        </FieldControl>
       </Field>
     </ListFilters>
   );

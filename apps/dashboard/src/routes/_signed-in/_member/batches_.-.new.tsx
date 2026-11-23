@@ -3,6 +3,8 @@ import { isSchemaIssue } from "@orpc/contract";
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import {
   BATCH_ID_PATTERN,
   BREAKER_DEFAULTS,
@@ -516,17 +518,14 @@ function SubmitBatch() {
               }
               error={refused("id")}
             >
-              {(control) => (
-                <input
-                  {...control}
-                  name="id"
-                  pattern={BATCH_ID_PATTERN.source}
-                  title="Letters, digits, _ and -, not beginning with -"
-                  spellcheck={false}
-                  autocapitalize="off"
-                  readonly={pending()}
-                />
-              )}
+              <Input
+                name="id"
+                pattern={BATCH_ID_PATTERN.source}
+                title="Letters, digits, _ and -, not beginning with -"
+                spellcheck={false}
+                autocapitalize="off"
+                readonly={pending()}
+              />
             </Field>
           }
         />
@@ -562,19 +561,17 @@ function SubmitBatch() {
             hint="The Batch’s first jobs run before the rest are released, and any of them failing pauses the Batch. 0 for none."
             error={refused(breakerFields.canary)}
           >
-            {(control) => (
-              <input
-                {...control}
-                name={breakerFields.canary}
-                type="number"
-                min="0"
-                step="1"
-                required
-                defaultValue={String(BREAKER_DEFAULTS.canary)}
-                disabled={!breakerOn()}
-                readonly={pending()}
-              />
-            )}
+            <FieldControl
+              render={(part) => <input {...part} />}
+              name={breakerFields.canary}
+              type="number"
+              min="0"
+              step="1"
+              required
+              defaultValue={String(BREAKER_DEFAULTS.canary)}
+              disabled={!breakerOn()}
+              readonly={pending()}
+            />
           </Field>
           <Field
             label="Failure limit"
@@ -582,20 +579,18 @@ function SubmitBatch() {
             hint="After the Canary, the Batch pauses once more than this share of its ended jobs have failed. 100 keeps the Canary alone."
             error={refused(breakerFields.maxFailurePercent)}
           >
-            {(control) => (
-              <input
-                {...control}
-                name={breakerFields.maxFailurePercent}
-                type="number"
-                min="0"
-                max="100"
-                step="any"
-                required
-                defaultValue={String(BREAKER_DEFAULTS.maxFailurePercent)}
-                disabled={!breakerOn()}
-                readonly={pending()}
-              />
-            )}
+            <FieldControl
+              render={(part) => <input {...part} />}
+              name={breakerFields.maxFailurePercent}
+              type="number"
+              min="0"
+              max="100"
+              step="any"
+              required
+              defaultValue={String(BREAKER_DEFAULTS.maxFailurePercent)}
+              disabled={!breakerOn()}
+              readonly={pending()}
+            />
           </Field>
         </FieldGroup>
         <DraftJobs

@@ -3,7 +3,12 @@ import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
-import { launchDashboardBrowser, liveRegions, signInAt } from "./dashboard-browser.ts";
+import {
+  descriptionOnFocus,
+  launchDashboardBrowser,
+  liveRegions,
+  signInAt,
+} from "./dashboard-browser.ts";
 import { OWNER, protocolClient, startSystem } from "./harness.ts";
 
 // The dashboard's Runners and API keys pages, as browsers reach them through the hub, on both
@@ -679,10 +684,12 @@ test("a member can correct a refused key name and keep the permissions they chos
       }),
     { times: 1 },
   );
-  await create.click();
   const permissions = dialog.getByRole("group", { name: "Permissions", exact: true });
+  const words = await descriptionOnFocus(permissions);
+  await create.click();
   await expectBrowser(permissions).toHaveAccessibleDescription(/Choose another action/);
   await expectBrowser(permissions).toBeFocused();
+  expect(await words.jsonValue()).toEqual(["Choose at least one action.", "Choose another action"]);
   await expectBrowser(dialog.getByRole("alert")).toHaveCount(0);
   await create.click();
   await expectBrowser(dialog.getByRole("heading")).toHaveText(`The new key, ${corrected}`);

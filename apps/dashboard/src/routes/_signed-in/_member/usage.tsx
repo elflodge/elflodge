@@ -9,6 +9,8 @@ import {
   useRouter,
 } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import {
   LABEL_KEY_PATTERN,
   problemOf,
@@ -17,7 +19,7 @@ import {
   parseUsagePeriod,
   type UsageReport,
 } from "contract";
-import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
+import { For, Show, createMemo, createSignal, createEffect, deep, latest } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
@@ -128,6 +130,10 @@ function GrantedUsage() {
   const router = useRouter();
   // The form observes the shown report and its refusal. The loader and the report own fetching.
   const report = useQuery(() => ({ ...reportOptions(search()), enabled: false }));
+  // The Range options and date defaults must stay available during a refresh of this report.
+  const shownReport = createMemo(() =>
+    report.dataUpdatedAt ? latest(() => deep(report.data)) : undefined,
+  );
   const problem = () => problemOf(report.error);
   createEffect(
     () => problem()?.status === 403,
@@ -156,7 +162,7 @@ function GrantedUsage() {
           <h1>Usage</h1>
         </div>
         <ReportForm
-          report={report.dataUpdatedAt ? report.data : undefined}
+          report={shownReport()}
           error={problem()?.status === 400 ? report.error : undefined}
         />
       </div>
@@ -279,21 +285,19 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
       <div class="filters-row">
         {/* Desktop Firefox 125 and Safari 17.5 have no month picker. */}
         <Field class="filter-field" label="Range" error={field("range")}>
-          {(control) => (
-            <select
-              {...control}
-              name="period"
-              onChange={({ currentTarget }) => setRange(currentTarget.value)}
-            >
-              <For each={["7d", "30d", ...months(), "custom"]}>
-                {(value) => (
-                  <option value={value} defaultSelected={value === range()}>
-                    {rangeName(value)}
-                  </option>
-                )}
-              </For>
-            </select>
-          )}
+          <FieldControl
+            render={(part) => <select {...part} />}
+            name="period"
+            onChange={({ currentTarget }) => setRange(currentTarget.value)}
+          >
+            <For each={["7d", "30d", ...months(), "custom"]}>
+              {(value) => (
+                <option value={value} defaultSelected={value === range()}>
+                  {rangeName(value)}
+                </option>
+              )}
+            </For>
+          </FieldControl>
         </Field>
         <Show when={custom()}>
           <For each={["from", "to"] as const}>
@@ -303,46 +307,39 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
                 label={name === "from" ? "From" : "To"}
                 error={field(name)}
               >
-                {(control) => (
-                  <input
-                    {...control}
-                    type="date"
-                    name={name}
-                    required={name === "from"}
-                    defaultValue={dateValue(name)}
-                  />
-                )}
+                <FieldControl
+                  render={(part) => <input {...part} />}
+                  type="date"
+                  name={name}
+                  required={name === "from"}
+                  defaultValue={dateValue(name)}
+                />
               </Field>
             )}
           </For>
         </Show>
         <Field class="filter-field" label="Grouped by" error={field("group")}>
-          {(control) => (
-            <select
-              {...control}
-              name="groupBy"
-              onChange={({ currentTarget }) => setGroup(currentTarget.value)}
-            >
-              {Object.entries(groupings).map(([value, words]) => (
-                <option value={value} defaultSelected={grouping().by === value}>
-                  {words.option}
-                </option>
-              ))}
-            </select>
-          )}
+          <FieldControl
+            render={(part) => <select {...part} />}
+            name="groupBy"
+            onChange={({ currentTarget }) => setGroup(currentTarget.value)}
+          >
+            {Object.entries(groupings).map(([value, words]) => (
+              <option value={value} defaultSelected={grouping().by === value}>
+                {words.option}
+              </option>
+            ))}
+          </FieldControl>
         </Field>
         <Show when={label()}>
           <Field class="filter-field" label="Label key" error={field("label")}>
-            {(control) => (
-              <input
-                {...control}
-                name="labelKey"
-                pattern={LABEL_KEY_PATTERN.source}
-                title="A Label name, optionally after a DNS prefix and /"
-                required
-                defaultValue={grouping().labelKey ?? ""}
-              />
-            )}
+            <Input
+              name="labelKey"
+              pattern={LABEL_KEY_PATTERN.source}
+              title="A Label name, optionally after a DNS prefix and /"
+              required
+              defaultValue={grouping().labelKey ?? ""}
+            />
           </Field>
         </Show>
         <span class="filter-act">

@@ -2,7 +2,13 @@ import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
-import { launchDashboardBrowser, newMember, signInAt } from "./dashboard-browser.ts";
+import {
+  descriptionOnFocus,
+  launchDashboardBrowser,
+  liveRegions,
+  newMember,
+  signInAt,
+} from "./dashboard-browser.ts";
 import { startSystem } from "./harness.ts";
 
 const system = startSystem({ hubVars: { JOB_MODEL_BUDGET_USD_MAX: "5" } });
@@ -47,6 +53,7 @@ test("submitting a job opens its record, including when the same Custom ID is su
 
 test("a member can correct the limits the hub refused without retyping the job", async () => {
   const page = await openSubmitJob("Job editor");
+  await page.clock.install();
   const values = [
     ["Instructions", "Read each invoice."],
     ["Input", "Invoice 17"],
@@ -56,14 +63,22 @@ test("a member can correct the limits the hub refused without retyping the job",
     ["Run timeout", "90000"],
   ] as const;
   for (const [label, value] of values) await page.getByLabel(label).fill(value);
-  await page.getByRole("button", { name: "Submit job" }).click();
   const budget = page.getByLabel("Model budget");
+  const words = await descriptionOnFocus(budget);
+  await page.getByRole("button", { name: "Submit job" }).click();
   const timeout = page.getByLabel("Run timeout");
   await expectBrowser(budget).toBeFocused();
+  expect(await words.jsonValue()).toEqual([
+    expect.stringContaining("At most"),
+    expect.stringContaining("Must be at most 5, the hub's maximum"),
+  ]);
   await expectBrowser(budget).toHaveAccessibleDescription(/Must be at most 5, the hub's maximum/);
   await expectBrowser(timeout).toHaveAccessibleDescription(
     /Must be at most 86400, the hub's maximum/,
   );
+  // Allow a queued polite announcement to reach its region. Focus already describes the refusal.
+  await page.clock.runFor(500);
+  await expectBrowser(liveRegions(page).filter({ hasText: "the hub's maximum" })).toHaveCount(0);
   for (const [label, value] of values)
     await expectBrowser(page.getByLabel(label)).toHaveValue(value);
   await budget.fill(".5");

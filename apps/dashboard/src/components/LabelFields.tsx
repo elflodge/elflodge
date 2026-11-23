@@ -1,10 +1,11 @@
 import { Button } from "@ui-sdk/solid/button";
+import { Field } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import { LABEL_KEY_PATTERN, MAX_LABELS, MAX_LABEL_NAME_LENGTH } from "contract";
 import { For, Show, createSignal, flush } from "solid-js";
 
 import { fieldText, focusNextRemove } from "../form.ts";
-import { FieldGroup } from "./Field.tsx";
-import { FieldError } from "./FieldError.tsx";
+import { FieldGroup, RefusalDescription } from "./Field.tsx";
 
 // A row's fields are named by the row's own number, not its place, so a refusal at one stays with
 // its row while others come and go.
@@ -109,7 +110,7 @@ export function LabelFields(props: {
                 return (
                   <tr role="row">
                     <td role="cell" class="is-id" data-l="Key">
-                      <input
+                      <Input
                         id={`label-${row}-key`}
                         name={keyName(row)}
                         aria-label={`Key of Label ${index() + 1}`}
@@ -123,18 +124,17 @@ export function LabelFields(props: {
                         data-label-key
                       />
                     </td>
-                    <td role="cell" data-l="Value">
-                      <input
+                    <Field
+                      invalid={error() !== undefined}
+                      render={(part) => <td {...part} role="cell" data-l="Value" />}
+                    >
+                      <Input
                         name={valueName(row)}
                         aria-label={`Value of Label ${index() + 1}`}
-                        aria-invalid={error() ? "true" : undefined}
-                        aria-describedby={error() ? `label-${row}-error` : undefined}
                         readonly={props.pending}
                       />
-                      <Show when={error()} keyed>
-                        {(words) => <FieldError id={`label-${row}-error`}>{words}</FieldError>}
-                      </Show>
-                    </td>
+                      <RefusalDescription error={error()} />
+                    </Field>
                     <td role="cell" class="is-act">
                       <Button
                         aria-label={`Remove Label ${index() + 1}`}
