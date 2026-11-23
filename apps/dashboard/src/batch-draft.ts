@@ -1,3 +1,4 @@
+import { relativePath } from "@ui-sdk/core/file-input";
 import {
   batchCreationSchema,
   filePathSchema,
@@ -71,6 +72,24 @@ export function typedJob(jobs: readonly DraftJob[]): TypedJob {
  */
 export function fileJobs(files: Iterable<File>): FileJob[] {
   return Array.from(files, (file) => ({ kind: "file", customId: file.name, file }));
+}
+
+/** The most files UI SDK's FileInput reads from a drop that holds a folder. */
+export const FOLDER_READ_LIMIT = 1_000;
+
+/**
+ * Whether `files`, what one drop gave, may lack some of a dropped folder's files. FileInput reads a
+ * dropped folder up to `FOLDER_READ_LIMIT` files for the whole drop, files dropped beside it
+ * included, and says nothing when it stops (vercel-labs/ui#1040). A file read from inside a folder
+ * has a relative path through it; a file dropped or chosen alone has none, so its path is its name.
+ * The read stops at exactly the limit, and a dropped file the browser gives no entry for joins
+ * beyond it, hence at least the limit; a folder of exactly that many files reaches it too, hence
+ * "may". Delete once FileInput reports the cut itself.
+ */
+export function mayLackFolderFiles(files: readonly File[]) {
+  return (
+    files.length >= FOLDER_READ_LIMIT && files.some((file) => relativePath(file).includes("/"))
+  );
 }
 
 /**

@@ -681,8 +681,10 @@ fieldset.field {
   display: grid;
   gap: var(--space-2);
 }
-/* A group that takes dropped files, while files are held over it. */
-fieldset.field.is-receiving {
+/* A group that takes dropped files, in UI SDK's drop zone, while files are held over it, when its
+   note on what dropping does takes the place of the one after it. Drawn on the group, whose ground
+   starts halfway down its legend, rather than on the zone. */
+[data-slot="file-input-dropzone"][data-dragging] > fieldset.field {
   background: var(--c-ground-2);
   outline: var(--rule-heavy) dashed var(--c-field-edge);
   outline-offset: var(--space-2);
@@ -690,6 +692,10 @@ fieldset.field.is-receiving {
 .drop-note {
   font-weight: var(--weight-medium);
   color: var(--c-ink);
+}
+[data-slot="file-input-dropzone"]:not([data-dragging]) .drop-note,
+[data-slot="file-input-dropzone"][data-dragging] .drop-note + .note {
+  display: none;
 }
 /* Facts in a form: what it will send, ruled, a name and its value a line. A value past a limit
    takes the failed colour and the error mark. */
