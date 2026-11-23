@@ -71,6 +71,8 @@ test("a job submitted while no runner is connected stays queued, and runs once o
   system.model.setResponses([callTool("submit_output", { value: OUTPUT })]);
 
   const { id } = await submitJob(client, SUBMISSION);
+  // Staying queued is something not happening, which no state shows: the second gives a hub that
+  // would place the job anyway the time to do it.
   await setTimeout(1_000);
   expect((await client.jobs.get({ id })).status).toBe("queued");
 
@@ -108,6 +110,8 @@ test("a Runner started again with fewer slots than its jobs recovers only as man
   ]);
   await system.startRunner({ maxJobs: 1 });
   await expect.poll(() => calls() - restarted, { timeout: 10_000 }).toBe(1);
+  // That no other job is recovered is something not happening, which no state shows: the second
+  // gives a Runner that would recover one anyway the time to call the model for it.
   await setTimeout(1_000);
   expect(calls() - restarted).toBe(1);
   await using db = openDatabase(inject("databaseUrl"));
