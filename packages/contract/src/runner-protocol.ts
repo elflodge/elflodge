@@ -238,6 +238,9 @@ export const jobEventSchema = z
       id: z.int().check(z.positive()),
       type: z.literal("entry"),
       record: z.looseObject({ kind: z.string() }),
+      // On tool results with diagnostics, how the tool task ended. A generation can also write a result
+      // for a call it never started.
+      toolTaskOutcome: z.optional(z.enum(["completed", "failed", "aborted", "unstarted"])),
     }),
     z.object({
       id: z.int().check(z.positive()),

@@ -40,7 +40,11 @@ export const locateRequestProblems: StandardHandlerInterceptor<object> = onError
     const route = getOpenAPIMeta(options.procedure);
     if (!issues || !route?.path) return;
     const entries = requestProblemsFromIssues(route, issues);
-    if (entries.some((entry) => "pointer" in entry || "parameter" in entry || "header" in entry))
+    if (
+      entries.some(
+        ({ pointer, parameter, header }) => (pointer ?? parameter ?? header) !== undefined,
+      )
+    )
       error.data = { errors: entries };
   },
 );

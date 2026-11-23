@@ -1,72 +1,106 @@
 import type { JSX } from "@solidjs/web";
 import { Link } from "@tanstack/solid-router";
-import type { UsageGroup, UsageReport } from "contract";
+import type { UsageGroupBy, UsageReport } from "contract";
 import { For, Repeat, Show, createMemo } from "solid-js";
 
 import { formatCount, formatUsd, plural, UTC_DAY, UTC_WEEKDAY } from "../format.ts";
 import { shortIds } from "../short-ids.ts";
-import { groupings, type usageGrouping } from "../usage-grouping.ts";
+import { groupings, usageGrouping } from "../usage-grouping.ts";
 import { JobSubmitter, RunnerReference, submitterName } from "./JobReferences.tsx";
 import { JobStatus } from "./JobStatus.tsx";
 
 type Figures = Pick<UsageReport, "jobEnds" | "usage">;
 
-function groupName(
-  group: UsageGroup,
-  groups: UsageGroup[],
-  ids: Map<string, string>,
-  label?: string,
-) {
-  // A Batch cannot be deleted, so its recorded ID still opens its page.
-  if ("batchId" in group)
-    return (
-      <Link
-        class="mono cut stands-alone"
-        title={group.batchId}
-        to="/batches/$id"
-        params={{ id: group.batchId }}
-      >
-        {group.batchId}
-      </Link>
-    );
-  if ("status" in group) return <JobStatus status={group.status} lastRecorded={false} />;
-  if ("labelValue" in group)
-    return group.labelValue === null ? (
-      <>
-        Jobs without the Label <code>{label}</code>
-      </>
-    ) : (
-      <code class="label-value">{JSON.stringify(group.labelValue)}</code>
-    );
-  // A removed Runner has no record to link to: the hub gives its ID without a name.
-  if ("runner" in group)
-    return group.runner === null ? (
-      "No Runner: ended before one started them"
-    ) : (
-      <RunnerReference
-        linked
-        runner={group.runner}
-        shortId={ids.get(group.runner.id) ?? group.runner.id}
-      />
-    );
-  const submitter = group.submitter;
+function renderRows<Row extends Figures>(groups: () => Row[], name: (row: Row) => JSX.Element) {
+  const largest = () => groups()[0]?.usage.cost.totalUsd;
   return (
-    <>
-      <JobSubmitter submitter={submitter} />{" "}
-      <Show
-        when={groups.some(
-          (other) =>
-            "submitter" in other &&
-            other.submitter.id !== submitter.id &&
-            submitterName(other.submitter) === submitterName(submitter),
-        )}
-      >
-        <span class="sid" title={submitter.id}>
-          {ids.get(submitter.id)}
-        </span>
-      </Show>
-    </>
+    <For each={groups()}>
+      {(row) => (
+        <tr>
+          <th scope="row" class="is-name">
+            {name(row)}
+          </th>
+          <FigureCells figures={row} largest={largest()} />
+        </tr>
+      )}
+    </For>
   );
+}
+
+function groupRows(report: UsageReport) {
+  switch (report.groupBy) {
+    case undefined:
+      return null;
+    case "batch":
+      // A Batch cannot be deleted, so its recorded ID still opens its page.
+      return renderRows(
+        () => report.groups,
+        ({ batchId }) => (
+          <Link
+            class="mono cut stands-alone"
+            title={batchId}
+            to="/batches/$id"
+            params={{ id: batchId }}
+          >
+            {batchId}
+          </Link>
+        ),
+      );
+    case "status":
+      return renderRows(
+        () => report.groups,
+        ({ status }) => <JobStatus status={status} lastRecorded={false} />,
+      );
+    case "runner": {
+      const ids = createMemo(() =>
+        shortIds(report.groups.flatMap(({ runner }) => (runner ? [runner.id] : []))),
+      );
+      return renderRows(
+        () => report.groups,
+        ({ runner }) =>
+          runner === null ? (
+            "No Runner: ended before one started them"
+          ) : (
+            <RunnerReference linked runner={runner} shortId={ids().get(runner.id) ?? runner.id} />
+          ),
+      );
+    }
+    case "submitter": {
+      const ids = createMemo(() => shortIds(report.groups.map(({ submitter }) => submitter.id)));
+      return renderRows(
+        () => report.groups,
+        ({ submitter }) => (
+          <>
+            <JobSubmitter submitter={submitter} />{" "}
+            <Show
+              when={report.groups.some(
+                ({ submitter: other }) =>
+                  other.id !== submitter.id && submitterName(other) === submitterName(submitter),
+              )}
+            >
+              <span class="sid" title={submitter.id}>
+                {ids().get(submitter.id)}
+              </span>
+            </Show>
+          </>
+        ),
+      );
+    }
+    default: {
+      const label = usageGrouping(report.groupBy).labelKey;
+      return renderRows(
+        () => report.groups,
+        ({ labelValue }) =>
+          labelValue === null ? (
+            <>
+              Jobs without the Label <code>{label}</code>
+            </>
+          ) : (
+            <code class="label-value">{JSON.stringify(labelValue)}</code>
+          ),
+      );
+    }
+  }
 }
 
 function FigureCells(props: { figures: Figures; largest?: number }) {
@@ -156,7 +190,7 @@ function Ledger(props: {
 }
 
 export function UsageLedgers(props: {
-  grouping: ReturnType<typeof usageGrouping>;
+  pendingGroupBy?: UsageGroupBy;
   report?: UsageReport;
   showYears?: boolean;
 }) {
@@ -164,76 +198,66 @@ export function UsageLedgers(props: {
     Array.from(Map.groupBy(props.report?.days ?? [], (day) => day.date.slice(0, 4))),
   );
   const dayCount = () => props.report?.days.length ?? 0;
-  const label = () => props.grouping.labelKey;
-  const words = () => groupings[props.grouping.by];
-  const groups = () => props.report?.groups ?? [];
-  const ids = createMemo(() =>
-    shortIds(
-      groups().flatMap((row) =>
-        "runner" in row && row.runner
-          ? [row.runner.id]
-          : "submitter" in row
-            ? [row.submitter.id]
-            : [],
-      ),
-    ),
-  );
+  const groupBy = () => (props.report ? props.report.groupBy : props.pendingGroupBy);
   // Only the visual scale compares days here. Every printed figure comes from the report.
   const largestDay = createMemo(() =>
     Math.max(0, ...(props.report?.days ?? []).map((day) => day.usage.cost.totalUsd)),
   );
   return (
     <div class="ledger-layout">
-      <Ledger
-        id="usage-groups"
-        heading={
-          <>
-            {words().heading}{" "}
-            <Show when={label()} keyed>
-              {(key) => <code>{key}</code>}
-            </Show>
-          </>
-        }
-        column={
-          <>
-            {words().column}{" "}
-            <Show when={label()} keyed>
-              {(key) => <code>{key}</code>}
-            </Show>
-          </>
-        }
-        footer="Total"
-        total={props.report}
-      >
-        <tbody>
-          <For each={groups()}>
-            {(group) => (
-              <tr>
-                <th scope="row" class="is-name">
-                  {groupName(group, groups(), ids(), label())}
-                </th>
-                <FigureCells figures={group} largest={groups()[0]?.usage.cost.totalUsd} />
-              </tr>
-            )}
-          </For>
-          <Show
-            when={
-              props.report?.other && props.report.other.groups > 0 ? props.report.other : undefined
-            }
-            keyed
-          >
-            {(other) => (
-              <tr>
-                <th scope="row">
-                  {formatCount(other.groups)} other{" "}
-                  {plural(other.groups, words().one, words().many)}
-                </th>
-                <FigureCells figures={other} />
-              </tr>
-            )}
-          </Show>
-        </tbody>
-      </Ledger>
+      <Show when={groupBy()} keyed>
+        {(by) => {
+          const { by: kind, labelKey } = usageGrouping(by);
+          const words = groupings[kind];
+          return (
+            <Ledger
+              id="usage-groups"
+              heading={
+                <>
+                  {words.heading}{" "}
+                  <Show when={labelKey} keyed>
+                    {(key) => <code>{key}</code>}
+                  </Show>
+                </>
+              }
+              column={
+                <>
+                  {words.column}{" "}
+                  <Show when={labelKey} keyed>
+                    {(key) => <code>{key}</code>}
+                  </Show>
+                </>
+              }
+              footer="Total"
+              total={props.report}
+            >
+              <tbody>
+                <Show when={props.report} keyed>
+                  {groupRows}
+                </Show>
+                <Show
+                  when={
+                    props.report?.other && props.report.other.groups > 0
+                      ? props.report.other
+                      : undefined
+                  }
+                  keyed
+                >
+                  {(other) => (
+                    <tr>
+                      <th scope="row">
+                        {formatCount(other.groups)} other{" "}
+                        {plural(other.groups, words.one, words.many)}
+                      </th>
+                      <FigureCells figures={other} />
+                    </tr>
+                  )}
+                </Show>
+              </tbody>
+            </Ledger>
+          );
+        }}
+      </Show>
       <Ledger
         id="usage-days"
         heading="By day"

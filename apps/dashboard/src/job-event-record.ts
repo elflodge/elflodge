@@ -84,16 +84,31 @@ const entry = z.discriminatedUnion("kind", [
   }),
 ]);
 
+function eventDetails(record: z.infer<typeof entry> | undefined) {
+  if (!record) return {};
+  switch (record.kind) {
+    case JOB_STARTED:
+    case JOB_RESUMED:
+    case JOB_RECOVERED:
+      return { runId: record.data.runId, timestamp: record.data.timestamp };
+    case JOB_PAUSED:
+    case JOB_CANCELLED:
+    case JOB_FAILED:
+    case JOB_SUCCEEDED:
+      return { timestamp: record.data.timestamp };
+    default: {
+      const message = record.model?.[0];
+      return { message, timestamp: message?.timestamp };
+    }
+  }
+}
+
 export function readJobEvent(event: JobEvent) {
   const parsed = event.type === "entry" ? z.safeParse(entry, event.record) : undefined;
   const record = parsed?.data;
   const relation =
     event.type === "conversation" ? z.safeParse(conversation, event.record).data : undefined;
-  const message = record && "model" in record ? record.model?.[0] : undefined;
-  const data = record && "data" in record ? record.data : undefined;
-  const runId =
-    record && "data" in record && "runId" in record.data ? record.data.runId : undefined;
-  const at = data && "timestamp" in data ? data.timestamp : message?.timestamp;
+  const { message, runId, timestamp } = eventDetails(record);
   const conversationId = event.type === "conversation" ? event.id : event.record["conversationId"];
   return {
     event,
@@ -108,7 +123,7 @@ export function readJobEvent(event: JobEvent) {
         : !!parsed?.error && parsed.error.issues[0]?.path[0] !== "kind",
     ownerId: relation?.owner?.conversationId,
     conversationId: typeof conversationId === "number" ? conversationId : undefined,
-    at: at === undefined ? undefined : new Date(at),
+    at: timestamp === undefined ? undefined : new Date(timestamp),
     runId,
     providerModel:
       message?.role === "assistant" ? `${message.provider}/${message.model}` : undefined,

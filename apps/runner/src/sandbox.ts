@@ -23,7 +23,7 @@ import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
-import { Data, Effect, Equal, FileSystem, Layer, Record, Stream } from "effect";
+import { Data, Effect, Equal, FileSystem, Layer, Predicate, Record, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import ensureError from "ensure-error";
 
@@ -614,7 +614,11 @@ const OPENERS: ReadonlySet<PropertyKey> = new Set([
  * aborted context, as a tool closes its reader once it is cut off, but not waited for then, since
  * the daemon may never answer; they give back nothing.
  */
-const RELEASES: ReadonlySet<PropertyKey> = new Set(["close", "cleanup"] satisfies Operation[]);
+const RELEASES: ReadonlySet<PropertyKey> = new Set([
+  "close",
+  "cleanup",
+  "stop",
+] satisfies Operation[]);
 
 /**
  * What an operation named `name` gives back once aborted, as pi's environments do: a command's
@@ -626,12 +630,20 @@ function abortedResult(name: PropertyKey) {
   return err(new FileError("aborted", "aborted"));
 }
 
-/** Whether an opener's `result` is a handle it opened, rather than its failure or an aborted result. */
-function isOpenedHandle(
-  result: unknown,
-): result is { ok: true; value: { close(context: Context): Promise<void> } } {
-  return typeof result === "object" && result !== null && "ok" in result && result.ok === true;
-}
+// Pi returns readers with close() and file watchers with stop().
+const method = Schema.declare(Predicate.isFunction);
+const isOpenedReader = Schema.is(
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    value: Schema.Struct({ close: method }),
+  }),
+);
+const isOpenedWatcher = Schema.is(
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    value: Schema.Struct({ stop: method }),
+  }),
+);
 
 /**
  * `target`, an environment or a handle it opened, whose every operation ends as soon as the context
@@ -666,17 +678,21 @@ function endingOnAbort<T extends object>(target: T): T {
             // closes one opened after an abort.
             if (OPENERS.has(key)) {
               operation
-                .then((opened) =>
-                  isOpenedHandle(opened) ? opened.value.close(BACKGROUND_CONTEXT) : undefined,
-                )
+                .then((opened) => {
+                  if (key === "watch") {
+                    if (isOpenedWatcher(opened)) return opened.value.stop(BACKGROUND_CONTEXT);
+                  } else if (isOpenedReader(opened)) {
+                    return opened.value.close(BACKGROUND_CONTEXT);
+                  }
+                  return undefined;
+                })
                 .catch(() => {});
             }
             return abortedResult(key);
           },
         );
-        return OPENERS.has(key) && isOpenedHandle(result)
-          ? ok(endingOnAbort(result.value))
-          : result;
+        const isOpened = key === "watch" ? isOpenedWatcher : isOpenedReader;
+        return OPENERS.has(key) && isOpened(result) ? ok(endingOnAbort(result.value)) : result;
       };
     },
   });

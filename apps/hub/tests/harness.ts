@@ -549,7 +549,14 @@ export function startSystem(
       const { runnerId, socket } = await connectRunner();
       const protocol = protocolClient(socket);
       type Run = RunRef & { position: number };
-      type Entries = { kind: string; data?: object; model?: unknown[] }[];
+      type Entries = (Pick<
+        Extract<JobReport["events"][number], { type: "entry" }>,
+        "toolTaskOutcome"
+      > & {
+        kind: string;
+        data?: object;
+        model?: unknown[];
+      })[];
       const send = async (job: JobReport) => {
         const ref = { jobId: job.jobId, runId: job.runId };
         const answer = await protocol.request(
@@ -560,7 +567,8 @@ export function startSystem(
         expect(answer.refused).toEqual([]);
       };
       const entriesFrom = (position: number, entries: Entries) =>
-        entries.map(({ kind, data, model }, index) => ({
+        entries.map(({ kind, data, model, toolTaskOutcome }, index) => ({
+          toolTaskOutcome,
           id: position + index + 1,
           type: "entry" as const,
           record: { kind, data: { timestamp: Date.now(), ...data }, ...(model && { model }) },

@@ -332,7 +332,7 @@ const functions: WorkerFunctions = {
       willRetry: false,
       signal: new AbortController().signal,
     });
-    if (result?.cancel) return { cancel: true };
+    if (result?.cancel) return { decline: true };
     const summary = result?.compaction?.summary;
     return summary === undefined ? undefined : { summary };
   },

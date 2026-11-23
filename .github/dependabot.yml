@@ -8,8 +8,9 @@ updates:
       # Types must match the Node versions we support (engines), not the newest Node.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # The exact version Pi's chord takes as a peer, which `pnpm deploy` needs (pnpm-workspace.yaml).
-      # This also stops security updates for it, which need chord's own update.
+      # Move ws with the Pi graph: separate peer versions break the Runner production deploy.
+      # This also suppresses security-update PRs for ws. Review its advisories manually and
+      # verify the Runner's production deploy when updating the pin.
       - dependency-name: "ws"
       # The exact version Pi pins, which installs then share (pnpm-workspace.yaml); it moves with Pi.
       - dependency-name: "typebox"

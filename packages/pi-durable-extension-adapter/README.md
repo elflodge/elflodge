@@ -28,7 +28,7 @@ Add it to an app set up as [pi-durable's README](https://www.npmjs.com/package/@
 npm install @elflodge/pi-durable-extension-adapter
 ```
 
-It uses your app's pi-durable packages, 1.5.1 or later. Extensions from npm sources also need `npm` on the machine.
+It uses your app's Pi 1.x packages, version 1.6.0 or later. Extensions from npm sources also need `npm` on the machine.
 
 Prepare the extensions once when your process starts, then attach them to each conversation before you submit to it:
 

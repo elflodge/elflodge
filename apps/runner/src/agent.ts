@@ -5,16 +5,18 @@ import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/cont
 import type { JsonValue } from "@earendil-works/chord/json";
 import { type AssistantMessage, type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
-  type ConversationHandle,
+  type AfterToolsDecision,
   configure,
   createRegistry,
   defineDoc,
   defineExtension,
+  defineTask,
   defineTool,
   CompactionTask,
   GenerationTask,
   Harness,
   hook,
+  hookTask,
   ROOT_CONVERSATION_ID,
   type SettledSubmissionRecord,
   type Submission,
@@ -255,6 +257,25 @@ const runnerInstructions = (networkNote: string | undefined) =>
   `You are running a job unattended; nobody will answer questions. Your Workspace, where your files are and your commands run, is the current directory; the job's Input files, if any, are in its \`inputs\` folder. For temporary files, use the directory in $TMPDIR, not /tmp${MKTEMP_ON_MACOS}. To read a PDF, \`pdftotext\` extracts its text and \`pdftoppm\` renders its pages as images.${networkNote === undefined ? "" : ` ${networkNote}`}
 When the work is complete, call submit_output once with the complete output: as \`value\`, or, for a large output or one a script produced, as the \`path\` of a JSON file in the Workspace. The output is checked against the job's Output contract; if it is rejected, correct it and submit again. A reply in prose does not complete the job.`;
 
+// Pi applies an afterTools decision through a child task after all calls in the round settle.
+const finishOutput = defineTask<null, { phase: "finish" }, AfterToolsDecision>({
+  name: "elflodge.finish-output",
+  version: 1,
+  initial: () => ({ phase: "finish" }),
+  phases: {
+    finish: (_task, runtime, context) =>
+      runtime.commit(
+        () => ({
+          status: "terminal",
+          outcome: { status: "completed", result: { terminate: true } },
+        }),
+        context,
+      ),
+  },
+  abort: (_task, runtime, context) =>
+    runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+});
+
 function submitOutputTool(schema: Record<string, unknown>) {
   const contract = compileSchema(schema);
   return defineTool({
@@ -267,19 +288,20 @@ function submitOutputTool(schema: Record<string, unknown>) {
       },
       { open: true },
     ),
-    execute: async (args, api, context) => {
+    execute: async ({ value: submittedValue, path: outputPath }, api, context) => {
       // Presence, not truthiness: `false`, `0` and `null` are outputs.
-      const given = ["value" in args, "path" in args].filter(Boolean).length;
-      if (given !== 1) throw new Error("Give exactly one of `value` and `path`");
-      let input: unknown = args.value;
-      if (args.path !== undefined) {
+      const hasValue = submittedValue !== undefined;
+      const hasPath = outputPath !== undefined;
+      if (hasValue === hasPath) throw new Error("Give exactly one of `value` and `path`");
+      let input: unknown = submittedValue;
+      if (hasPath) {
         if (!api.env) throw new Error("The Workspace is not available");
-        const text = await api.env.readTextFile(args.path, context);
-        if (!text.ok) throw new Error(`Cannot read ${args.path}: ${text.error.message}`);
+        const text = await api.env.readTextFile(outputPath, context);
+        if (!text.ok) throw new Error(`Cannot read ${outputPath}: ${text.error.message}`);
         try {
           input = JSON.parse(text.value);
         } catch (error) {
-          throw new Error(`${args.path} is not JSON: ${ensureError(error).message}`, {
+          throw new Error(`${outputPath} is not JSON: ${ensureError(error).message}`, {
             cause: error,
           });
         }
@@ -297,7 +319,7 @@ function submitOutputTool(schema: Record<string, unknown>) {
       // The first accepted output is the job's, as when the model submits twice in one round.
       const first = await api.commit(async (tx) => {
         const accepted = await tx.doc(AcceptedOutput, api.conversationId);
-        if ("output" in accepted) return false;
+        if (accepted.output !== undefined) return false;
         accepted.output = value;
         return true;
       }, context);
@@ -339,9 +361,6 @@ export function openJob(
   const context = BACKGROUND_CONTEXT;
   const paths = jobPaths(options.jobsDir, jobId);
   return Effect.gen(function* () {
-    // The conversation and the journal are known only once the Harness is open; the hooks below
-    // need them.
-    let conversation: ConversationHandle | undefined;
     let journal: Harness | undefined;
     // Opened once the job's model cost has reached its budget, which `runAgent` stops it for.
     // The cost is pi's floating-point sum, so a cost exactly at the budget can fall either way.
@@ -355,21 +374,20 @@ export function openJob(
     const runnerExtension = defineExtension({
       name: "elflodge",
       tools: [submitOutputTool(job.outputContract.schema)],
+      tasks: [finishOutput],
       hooks: [
         hook(GenerationTask, {
           // Each response, failed attempts included, tells the Runner's prompt-cache warm-up
           // whether the prefix this job's requests share with other jobs' is cached.
           afterResponse: (message) => options.modelResponded(message),
-          // An accepted output ends the run only when every call of its round asks to; the job
-          // ends once the round's other calls are done, without another model turn. The output is
-          // read from the journal, so a round a restarted Runner finishes ends the run too.
+          // Pi stops on tool controls only when every call in the round asks to stop. A sibling
+          // tool may continue, or a restart can lose submit_output's control after the output is
+          // saved. Using the accepted output for every round covers both cases.
           afterTools: async (_assistant, _results, api) => {
             const accepted = await api.snapshot(AcceptedOutput, api.conversationId, context);
-            if (!accepted || !("output" in accepted)) return;
-            // Not awaited: the abort waits for this task, which is waiting for this hook. It
-            // fails only when the journal closes first, as when the Runner stops, or when the
-            // abort cannot be committed; the job's outcome is read from the journal either way.
-            conversation?.abort(context).catch(() => {});
+            return accepted?.output !== undefined
+              ? { tasks: [hookTask(finishOutput, null)] }
+              : undefined;
           },
           // A request past the budget waits, so it is never made, until the job's work is aborted.
           beforeRequest: async (_request, _api, requestContext) => {
@@ -466,7 +484,6 @@ export function openJob(
         },
       }),
     );
-    conversation = root;
     // A journal that already holds the job is opened by the same run, which the Runner's restart
     // left, or by a new run that resumes the job. A run that has closed is not recovered,
     // nor run again, also when its pause or cancel was recorded before it opened: the stop settled
@@ -701,13 +718,14 @@ export function recordStop(
   const paths = jobPaths(settings.jobsDir, jobId);
   return Effect.gen(function* () {
     if (!(yield* openAndCheckJournal(settings, jobId, position))) return undefined;
+    // A stop settles Pi's tasks and any pending output-completion task without opening a sandbox.
+    const registry = createRegistry();
+    registry.install(defineExtension({ name: "elflodge", tasks: [finishOutput] }));
     const journal = yield* Effect.acquireRelease(
       Effect.promise(async () =>
         Harness.open(
           await openNodeSqliteStorage(paths.journal),
-          // Nothing runs, and every registry holds pi's own tasks, whose abort settles the work: no
-          // tool needs registering and no environment opening.
-          { models: settings.models, registry: createRegistry() },
+          { models: settings.models, registry },
           context,
         ),
       ),

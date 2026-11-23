@@ -7,9 +7,13 @@ import {
   type Entry,
   type EntryId,
   type EntryRecord,
+  GenerationTask,
   type Harness,
   LiveDoc,
   type Session,
+  type TableCommitChange,
+  ToolResultEntry,
+  ToolTask,
   type Tx,
 } from "@earendil-works/pi-durable";
 import {
@@ -154,6 +158,30 @@ export interface ConversationHead {
   lastEntryId: EntryId | undefined;
 }
 
+/**
+ * Pi can report tool_unavailable both before execution and when a tool that already ran
+ * disappears before it wakes. The result's writer keeps the outcome that distinguishes them.
+ * Reading it alongside the entry requires no extra journal write.
+ */
+async function toolTaskOutcome(tx: Tx, entry: EntryRecord) {
+  if (
+    !ToolResultEntry.is(entry) ||
+    !Array.isArray(entry.data?.diagnostics) ||
+    !entry.data.diagnostics.length ||
+    entry.byTaskId === undefined
+  )
+    return undefined;
+
+  const writer = await tx.task(entry.byTaskId);
+  if (writer?.kind === GenerationTask.definition.name) return "unstarted";
+  if (writer?.kind !== ToolTask.definition.name || writer.state.status !== "terminal")
+    return undefined;
+  const outcome = writer.state.outcome.status;
+  // Pi's tool task writes its result in the same commit as one of these three endings.
+  if (outcome === "completed" || outcome === "aborted" || outcome === "failed") return outcome;
+  return undefined;
+}
+
 /** How many records one scan reads at a time. */
 const PAGE_SIZE = 256;
 
@@ -187,7 +215,7 @@ export function readEvents(
       cursor = page.next;
     } while (cursor !== undefined);
 
-    const events: JobEvent[] = [];
+    const records: Extract<TableCommitChange, { type: JobEvent["type"] }>[] = [];
     const heads: ConversationHead[] = [];
     // Reading stops at the lowest ID a conversation has left unread, so the merge has no gap.
     let horizon = Number.POSITIVE_INFINITY;
@@ -198,7 +226,7 @@ export function readEvents(
       );
       heads.push({ id: conversation.id, lastEntryId: latest.items[0]?.id });
       if (conversation.id > after) {
-        events.push({ id: conversation.id, type: "conversation", record: conversation });
+        records.push({ type: "conversation", value: conversation });
       }
       const minEntryId = Math.max(after, conversation.id) + 1;
       if (!isEntryId(minEntryId)) throw new RangeError(`${minEntryId} is not a journal ID`);
@@ -206,16 +234,24 @@ export function readEvents(
         { conversationId: conversation.id, minEntryId, order: "ascending" },
         PAGE_SIZE,
       );
-      for (const entry of page.items) events.push({ id: entry.id, type: "entry", record: entry });
+      for (const entry of page.items) records.push({ type: "entry", value: entry });
       const last = page.items.at(-1);
       if (page.next !== undefined && last) horizon = Math.min(horizon, last.id);
     }
 
-    const sorted = Array.sortWith(events, ({ id }) => id, Order.Number);
+    const sorted = Array.sortWith(records, ({ value }) => value.id, Order.Number);
     const read: JobEvent[] = [];
     let bytes = 0;
-    for (const event of sorted) {
-      if (event.id > horizon) break;
+    for (const { type, value: record } of sorted) {
+      if (record.id > horizon) break;
+      let event: JobEvent;
+      if (type === "entry") {
+        event = { id: record.id, type, record };
+        const outcome = await toolTaskOutcome(tx, record);
+        if (outcome !== undefined) event.toolTaskOutcome = outcome;
+      } else {
+        event = { type, id: record.id, record };
+      }
       const size = Buffer.byteLength(JSON.stringify(event)) + 1;
       if (bytes + size > maxBytes && read.length > 0) break;
       read.push(event);
@@ -281,18 +317,19 @@ export async function readActivity(
   for (const { id: conversationId, lastEntryId } of conversations) {
     const state = await journal.snapshot(LiveDoc, conversationId, BACKGROUND_CONTEXT);
     const { generation } = state ?? {};
-    const tools = (state?.tools ?? []).flatMap(({ callId, name, status }) =>
-      status === "done"
-        ? []
-        : [
-            {
-              callId,
-              name,
-              status,
-              changedAt: changedAt(`${conversationId} tool ${callId} ${status}`),
-            },
-          ],
-    );
+    const tools = (state?.tools ?? []).flatMap(({ callId, name, status }) => {
+      if (status === "done") return [];
+      // A parked tool is waiting. Neither a new wire status nor a new timestamp is needed.
+      const visible = status === "running" ? status : "pending";
+      return [
+        {
+          callId,
+          name,
+          status: visible,
+          changedAt: changedAt(`${conversationId} tool ${callId} ${visible}`),
+        },
+      ] as const;
+    });
     const compactions = (state?.compactions ?? []).map(
       ({ taskId, trigger: reason, blocking, attempt, retry }) => ({
         reason,

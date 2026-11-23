@@ -140,36 +140,19 @@ function reportRow(report: JobReport, now: Date): ReportRow {
 
 /**
  * A tool call's result, as pi records it: a `pi.tool-result` entry, its message's `toolName` (the
- * name pi keys a tool's usage by) and `durationMs`, and its diagnostics. Only what the count reads;
+ * name pi keys a tool's usage by), and its diagnostics. Only what the count reads;
  * the rest is kept as it comes. A name Postgres cannot hold as a `jsonb` key (`textSchema`) makes
  * a result of another shape, so it cannot fail the report's statement.
  */
 const toolResultSchema = z.object({
   kind: z.literal("pi.tool-result"),
-  model: z.tuple([z.object({ toolName: textSchema, durationMs: z.optional(z.unknown()) })]),
+  model: z.tuple([z.object({ toolName: textSchema })]),
   data: z.optional(
     z.object({ diagnostics: z.optional(z.array(z.object({ code: z.optional(z.string()) }))) }),
   ),
 });
 
-/**
- * The diagnostic codes pi's harness writes on a result of a call it did not run: a hook refused it,
- * as the Runner's web-access guard does, its arguments were invalid, the tool was not available, or
- * its caller ended with a restart before it started. They are read only where the result has no
- * duration (`toolCallsOf`), as a tool that ran can give the same codes in the same list. A call
- * ended `tool_error`, `interrupted` or `restart_limit` may have run, so it counts, as does a code
- * the hub does not know. `aborted` counts too: pi writes it both for a call cut off while it ran and
- * for one that never started, such as the rest of a round run one call at a time, and the result
- * does not tell them apart.
- */
-const NEVER_RAN = new Set(["blocked", "invalid_arguments", "tool_unavailable", "abandoned"]);
-
-/**
- * How many tool calls `events` record a result of, by tool name, leaving out those known not to
- * have run. pi's harness writes a result's `durationMs` only when it ran the tool, so a duration is
- * the evidence of a run; for a result without one, its diagnostic codes are the inference
- * (`NEVER_RAN`). A record of another shape counts as nothing, and never refuses its report.
- */
+/** Finished calls by tool name. An ambiguous interruption counts because work may have run. */
 function toolCallsOf(events: JobReport["events"]): ToolCalls {
   // A Map, then own properties, so a tool named `__proto__` is counted rather than setting a prototype.
   const counts = new Map<string, number>();
@@ -177,10 +160,19 @@ function toolCallsOf(events: JobReport["events"]): ToolCalls {
     if (event.type !== "entry") continue;
     const result = z.safeParse(toolResultSchema, event.record).data;
     if (!result) continue;
-    const [{ toolName, durationMs }] = result.model;
+    const [{ toolName }] = result.model;
+    const diagnostics = result.data?.diagnostics ?? [];
+    const outcome = event.toolTaskOutcome;
+    // In Pi 1.6 duration includes waiting for permission. A missing tool normally never ran,
+    // but if it disappeared while waiting to resume, Pi marks the task failed and it counts.
     const ran =
-      typeof durationMs === "number" ||
-      !result.data?.diagnostics?.some(({ code }) => code !== undefined && NEVER_RAN.has(code));
+      outcome !== "unstarted" &&
+      !diagnostics.some(
+        ({ code }) =>
+          code === "blocked" ||
+          code === "invalid_arguments" ||
+          (code === "tool_unavailable" && outcome !== "failed"),
+      );
     if (ran) counts.set(toolName, (counts.get(toolName) ?? 0) + 1);
   }
   return Object.fromEntries(counts);

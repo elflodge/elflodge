@@ -9,7 +9,6 @@ import { Instant } from "../../../components/Instant.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { focusAfterLinkDrops } from "../../../form.ts";
 import { TIME_SECONDS_ZONED, TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
-import { usageGrouping } from "../../../usage-grouping.ts";
 import { rangeOf, rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/usage/")({
@@ -26,10 +25,9 @@ export const Route = createFileRoute("/_signed-in/_member/usage/")({
   },
   pendingComponent: () => {
     const search = Route.useSearch();
-    const grouping = () => usageGrouping(search().groupBy);
     return (
       <>
-        <UsageLedgers grouping={grouping()} />
+        <UsageLedgers pendingGroupBy={search().groupBy} />
         <p class="vh" role="status">
           Loading Usage
         </p>
@@ -72,7 +70,6 @@ function rangeField() {
 
 function Report() {
   const search = Route.useSearch();
-  const grouping = () => usageGrouping(search().groupBy);
   const query = useQuery(() => reportOptions(search()));
   const showYears = () => {
     const year = query.data.today.slice(0, 4);
@@ -137,7 +134,7 @@ function Report() {
           </div>
         }
       >
-        <UsageLedgers report={query.data} grouping={grouping()} showYears={showYears()} />
+        <UsageLedgers report={query.data} showYears={showYears()} />
       </Show>
     </>
   );

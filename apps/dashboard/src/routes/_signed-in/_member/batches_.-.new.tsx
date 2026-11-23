@@ -92,7 +92,7 @@ const AGAIN = "Submit again reads the files again and uploads only what the hub 
  * Part of an alert's words: text, a command, or the sentence that no Batch came of this try, whose
  * words depend on whether an earlier try may have made one.
  */
-type AlertPart = string | { readonly code: string } | { readonly noBatch: true };
+type AlertPart = string | { readonly code: string } | typeof noBatchWords;
 
 /**
  * What stops a send at a row: what the page's own check finds, which the row may also have told
@@ -398,7 +398,7 @@ function SubmitBatch() {
       case "checkFailed":
         setEnding({
           ...NO_ENDING,
-          alert: [`${hubFailureMessage(outcome.error)}\n`, { noBatch: true }, ` ${AGAIN}`],
+          alert: [`${hubFailureMessage(outcome.error)}\n`, noBatchWords, ` ${AGAIN}`],
         });
         return;
       case "notUploaded":
@@ -734,8 +734,8 @@ function AlertWords(props: { parts: readonly AlertPart[]; mayHaveBatch: boolean 
     <For each={props.parts}>
       {(value) => {
         if (typeof value === "string") return value;
-        if ("code" in value) return <code>{value.code}</code>;
-        return noBatchWords(props.mayHaveBatch);
+        if (typeof value === "function") return value(props.mayHaveBatch);
+        return <code>{value.code}</code>;
       }}
     </For>
   );
