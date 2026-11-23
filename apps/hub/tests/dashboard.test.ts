@@ -1,7 +1,12 @@
-import { parse } from "node-html-parser";
-import { type APIRequestContext, request } from "playwright";
-import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
+import { type APIRequestContext, request } from "playwright";
+import type { ManifestChunk } from "vite-plus";
+import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import { z } from "zod";
+
+import { DASHBOARD_BASE } from "../src/dashboard.ts";
 import { startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
@@ -9,10 +14,30 @@ import { startSystem } from "./harness.ts";
 
 const system = startSystem();
 let requests: APIRequestContext;
+/** The app shell of the dashboard's build, which global setup builds and both hubs serve. */
+let shell: string;
+/** The path the shell loads the dashboard's script from, its entry in Vite's manifest. */
+let scriptPath: string;
+
+/** What the test reads of Vite's build manifest. */
+const manifestSchema: z.ZodType<Record<string, Pick<ManifestChunk, "file" | "isEntry">>> = z.record(
+  z.string(),
+  z.object({ file: z.string(), isEntry: z.boolean().optional() }),
+);
 
 beforeAll(async () => {
   await system.start();
   requests = await request.newContext({ baseURL: system.url().href });
+  // Where the hubs serve the build from, `src/main.ts` and `wrangler.jsonc`.
+  const build = path.join(import.meta.dirname, "../../dashboard/dist/client");
+  shell = await readFile(path.join(build, "index.html"), "utf8");
+  const manifest = z.parse(
+    manifestSchema,
+    JSON.parse(await readFile(path.join(build, ".vite/manifest.json"), "utf8")),
+  );
+  const entry = Object.values(manifest).find((chunk) => chunk.isEntry);
+  if (!entry) throw new Error("The dashboard's build manifest has no entry");
+  scriptPath = DASHBOARD_BASE + entry.file;
 });
 afterAll(async () => {
   await requests?.dispose();
@@ -32,23 +57,22 @@ function navigate(pathname: string) {
   return requests.get(pathname, { headers: { "sec-fetch-mode": "navigate" }, maxRedirects: 0 });
 }
 
-/** Checks that the hub answers a navigation to `pathname` with the app shell. */
+/** Checks that the hub answers a navigation to `pathname` with the build's app shell, unchanged. */
 async function expectShellAt(pathname: string) {
   const response = await navigate(pathname);
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toMatch(/^text\/html/);
-  const scriptPath = parse(await response.text())
-    .querySelector('script[src^="/dashboard/assets/"][src$=".js"]')
-    ?.getAttribute("src");
-  if (!scriptPath) throw new Error(`No dashboard script in the shell at ${pathname}`);
-  return { scriptPath, vary: response.headers().vary };
+  expect(await response.text()).toBe(shell);
+  return { vary: response.headers().vary };
 }
 
 test("dashboard deep links load the shell and caches distinguish missing assets from navigations", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
-  const { scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
+  await expectShellAt("/dashboard/.vite/manifest.json");
+  // The shell leads to a script the hub serves.
+  expect(shell).toContain(`src="${scriptPath}"`);
   const script = await system.hub.fetch(scriptPath);
   expect(script.status).toBe(200);
   expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
