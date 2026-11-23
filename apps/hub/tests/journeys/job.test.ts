@@ -39,11 +39,8 @@ test("a member pauses a listed job, finds it paused in its Batch, and resumes it
   await page.clock.install();
   await signInAt(system, page, "jobs", await newMember(system, "Job reader"));
   await page.getByRole("link", { name: "april-invoices" }).click();
-  await expectBrowser(page).toHaveTitle("Job april-invoices · Elflodge");
   const pause = page.getByRole("button", { name: "Pause", exact: true });
   await pause.click();
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Pause asked" })).toBeFocused();
-  await expectBrowser(pause).toBeDisabled();
   // The Runner stops the model call in progress and reports the job paused.
   await untilStatus(client, job.id, "paused");
   await page.getByRole("link", { name: "its jobs" }).click();

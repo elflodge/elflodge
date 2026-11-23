@@ -316,6 +316,7 @@ test("a Leave refused for the only owner says so, is withdrawn once the members 
   hub.session.answers(withoutMembership(owner));
   await confirm.click();
   await expectBrowser(page.getByRole("heading", { name: "Organization access" })).toBeFocused();
+  await expectBrowser(page).toHaveTitle("Organization access · Elflodge");
 });
 
 test("a Remove the members list has overtaken says why: one removed elsewhere is gone, one made an owner only an owner can remove", async ({

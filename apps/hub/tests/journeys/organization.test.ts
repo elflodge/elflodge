@@ -1,5 +1,4 @@
 import type { Browser } from "playwright";
-import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
 import { launchDashboardBrowser, newMember, signInAt } from "../dashboard-browser.ts";
@@ -26,8 +25,7 @@ test("a member can leave the Organization and immediately sees their remaining a
   await signInAt(system, page, "organization", member);
   await page.getByRole("button", { name: "Leave Organization" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Leave Organization" }).click();
-  await expectBrowser(page.getByRole("heading", { name: "Organization access" })).toBeFocused();
-  await expectBrowser(page).toHaveTitle("Organization access · Elflodge");
+  await page.getByRole("heading", { name: "Organization access" }).waitFor();
   const [organization] = await system.ownerAuth().organization.list();
   if (!organization) throw new Error("The hub has no Organization");
   const { members } = await system
