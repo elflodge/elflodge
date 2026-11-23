@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { InvitationId } from "../src/db/types.ts";
-import { launchDashboardBrowser } from "./dashboard-browser.ts";
+import { launchDashboardBrowser, liveRegions } from "./dashboard-browser.ts";
 import { OWNER, startSystem } from "./harness.ts";
 
 const system = startSystem();
@@ -894,9 +894,11 @@ test("an invitation's Copy link says it copied", async () => {
     .context()
     .grantPermissions(["clipboard-read", "clipboard-write"], { origin: system.origin });
   await page.getByRole("button", { name: `Copy link for ${email}` }).click();
-  await expectBrowser(
-    page.locator('[aria-live="polite"]').filter({ hasText: "Copied." }),
-  ).toHaveCount(1);
+  const result = liveRegions(page).filter({ hasText: "Copied." });
+  await expectBrowser(result).toHaveCount(1);
+  await expectBrowser(result).toHaveText("Copied.");
+  await expectBrowser(result).toHaveRole("status");
+  await expectBrowser(result).toHaveAttribute("aria-live", "polite");
 }, 30_000);
 
 test("a Remove whose reader has lost their membership reads the session again", async () => {

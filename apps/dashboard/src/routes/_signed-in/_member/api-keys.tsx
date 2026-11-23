@@ -139,7 +139,7 @@ function keyLabel(key: Revocation) {
 
 function KeyList() {
   const queryClient = useQueryClient();
-  const [revoked, setRevoked] = createSignal<{ id: string; message: string }>();
+  const [revoked, setRevoked] = createSignal<string>();
   const keys = useQuery(() => orpc.apiKeys.list.queryOptions());
   // While a read of the list is in flight, `keys.data` is pending, and Solid can hold the
   // confirmation's writes with a render pass here that reads it until the read lands, as its opening
@@ -177,12 +177,12 @@ function KeyList() {
       await writeAbsence(queryClient, queryKey, (cached) =>
         cached.filter((item) => item.id !== key.id),
       );
-      setRevoked({ id: key.id, message: `${label} is already gone.` });
+      setRevoked(`${label} is already gone.`);
       // On the page before the dialog closes and focus moves to it.
       flush();
       return;
     }
-    setRevoked({ id: key.id, message: `${label} is revoked.` });
+    setRevoked(`${label} is revoked.`);
     // Render the outcome before starting a background read that may need to retry. The read starts
     // before UI SDK closes the dialog, which is no matter: nothing the dialog, the notice or a row
     // reads waits for it.
@@ -196,14 +196,14 @@ function KeyList() {
         <p class="note">{timeZoneNote()}</p>
       </Show>
       <Show when={revoked()} keyed>
-        {(revocation) => (
+        {(message) => (
           <Notice
             role="status"
             focusRef={(element) => {
               notice = element;
             }}
           >
-            {revocation.message}
+            {message}
           </Notice>
         )}
       </Show>

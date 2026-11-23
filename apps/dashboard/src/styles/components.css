@@ -1163,11 +1163,6 @@ p mark.placeholder {
   color: var(--c-ink-2);
   font-size: var(--text-xs);
 }
-/* Empty, the status stays in the page for a screen reader but takes no place in the line, so the
-   gap does not set the button apart from what follows the copy. */
-.copy > .copy-result:empty {
-  position: absolute;
-}
 .shown-once {
   padding: var(--space-2) var(--space-3);
   background: var(--c-lamp-wash);
