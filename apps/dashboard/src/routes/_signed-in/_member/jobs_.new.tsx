@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { BATCH_ID_PATTERN, MAX_BATCH_ID_LENGTH, batchCreationSchema } from "contract";
 import { Show, createSignal } from "solid-js";
 
@@ -230,9 +231,9 @@ function SubmitJob() {
             </Show>
           </Notice>
         </Show>
-        <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
+        <Button class="primary" type="submit" disabled={pending()} focusableWhenDisabled>
           Submit job
-        </button>
+        </Button>
         <p role="status" class={pending() ? "note" : "vh"}>
           {pending() ? "Working…" : ""}
         </p>

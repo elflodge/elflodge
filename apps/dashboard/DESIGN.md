@@ -55,7 +55,7 @@ With no class at all:
 - **Links** are underlined at rest in a quieter tint of their colour, and at full strength under the pointer or the keyboard. Focus everywhere is a 2px ring.
 - **Tables** are ruled: a hairline under each row, a one-line row 30px tall, small quiet column heads, a double rule above a `tfoot`.
 - **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
-- **Buttons** are paper with an edge. Disabled buttons are greyed. A pending submit button uses `aria-disabled` and keeps its keyboard focus ring. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
+- **Buttons** are paper with an edge. Disabled buttons are greyed. UI SDK’s submit `Button` stays focusable while the form is pending and keeps its keyboard focus ring. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
 - **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
 - **`dialog`**, UI SDK's dialog content and **`[popover]`** are paper with an edge and a shadow.
 
@@ -232,9 +232,9 @@ The router shows `DefaultCatchBoundary` in place of a page that failed and `NotF
 <FallbackPage heading="This page could not be shown">
   <Notice role="alert">{asError(props.error).message}</Notice>
   <p>
-    <button type="button" class="primary" onClick={() => void router.invalidate()}>
+    <Button class="primary" onClick={() => router.invalidate()}>
       Try again
-    </button>
+    </Button>
   </p>
 </FallbackPage>
 ```
@@ -313,7 +313,7 @@ which draw
 
 A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu. `.danger` is a destructive control, its words and edge in the failed colour; `.danger.is-fill`, filled, is the button in a dialog that confirms it.
 
-A record's control that waits for the hub, such as a job's Pause, is UI SDK's `Button` (`@ui-sdk/solid/button`), which looks as a plain `button` does, and so are a form dialog's submit button and Cancel. Disabled with `focusableWhenDisabled`, it keeps its place in the tab order with `aria-disabled`, which takes the disabled look.
+A button that waits for the hub is UI SDK's `Button` (`@ui-sdk/solid/button`). A press that returns a promise keeps focus, ignores another press and announces a slow action. A form’s submit uses `type="submit"` and takes `disabled` from the form’s pending state, as do its draft-editing controls. Disabled with `focusableWhenDisabled`, it keeps its place in the tab order with `aria-disabled`, which takes the disabled look.
 
 A page's one action that leads to another page is a link drawn as a button, `a.button`, so it can be opened in a new tab and is preloaded as a link is. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
 
@@ -465,7 +465,7 @@ The member reads from top to bottom. The first page holds up to the latest hundr
 
 - In `.tl-head`, place the “Events” heading, the count in `span.read[role=status]`, and `.tl-choices`. Each `fieldset.seg` has a visually hidden legend and two labelled native radios with one initially checked. The checked `.view-line` shows summaries. The checked `.view-records` shows Runner records and errors. Both choices work together and stay set when paging or jumping.
 - The `.events-edge-note` for earlier Events follows `.tl-head`; `nav.jump-row` follows it and stands directly above `ol.timeline`. A walk back changes nothing above its button: the head sentence and the timeout count use the Events of the arrival read and live arrivals only.
-- Each edge box says whether earlier or later Events are missing. The hub pages by journal number. Event timestamps can fall out of order. Align the button to the top so a wrapping refusal grows downward. Show a paging or jump failure in a Notice at the edge it tried to read. Name the failed command and let the member retry it there. End the notice with a full stop when the hub gives no words. Keep paging and jump buttons disabled during a requested read and available during background polls. At the first Event the box keeps its height, says “There are no earlier Events.” and takes focus only if its button had it. The lower box also keeps its space when its button goes.
+- Each edge box says whether earlier or later Events are missing. The hub pages by journal number. Event timestamps can fall out of order. Align the button to the top so a wrapping refusal grows downward. Show a paging or jump failure in a Notice at the edge it tried to read. Name the failed command and let the member retry it there. End the notice with a full stop when the hub gives no words. Keep paging and jump buttons focusable and disabled during a requested read and available during background polls. At the first Event the box keeps its height, says “There are no earlier Events.” and takes focus only if its button had it. The lower box also keeps its space when its button goes.
 - The timeline reads forwards. The visible edge box anchors paging so “Show earlier Events” keeps its place and focus as earlier Events open below it. The labelled jump row reaches Start and Latest, plus moments and numbered Events on the loaded pages. Its `.jump-content` groups follow the kind filter. On touch screens the jump links and buttons have a 44px target in both directions and the wrapped lines have no extra row gap.
 - Focus stays at the place on the screen where the reader pressed. If “Show later Events” had focus, it goes to the first added item the selected view shows. A date line, gap line or run heading takes focus itself. An Event takes focus on its number. If the view hides every addition, restore focus to the button, or to the list when the button goes. Paging leaves scrolling to the browser. The count says how many Events were added until the Events next change. Only a successful read can confirm the end. If following fails, the count describes the Events held and Latest retries from the last held Event. Keep Latest beside the failure when the journal is empty.
 - In `ol.timeline`, each opening gets a `li.run-h` with its heading, recorded time, run ID and known models. A `li.run-gap` between a closing and a resume gives the previous recorded ending and the resume, each with its date and time. The hub can cancel a paused job without a Runner Event. A `li.day-line` separates local days.

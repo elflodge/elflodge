@@ -907,13 +907,18 @@ test("a member can retry a refused earlier page from its own box", async () => {
     "The earlier Events could not be read: Access to these Events was refused.",
   );
   await expectBrowser(earlier).toBeFocused();
+  let requests = 0;
   await page.route(earlierPage, async (route) => {
+    requests++;
     await retry.promise;
     await route.continue();
   });
   try {
     await page.keyboard.press("Enter");
     await expectBrowser(earlier).toBeDisabled();
+    await expectBrowser(earlier).toHaveAttribute("aria-busy", "true");
+    await expectBrowser(earlier).toBeFocused();
+    await page.keyboard.press("Enter");
     await expectBrowser(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
     await expectBrowser(box.getByRole("alert")).toHaveCount(0);
   } finally {
@@ -921,6 +926,7 @@ test("a member can retry a refused earlier page from its own box", async () => {
   }
   await expectBrowser(box.getByText("There are no earlier Events.", { exact: true })).toBeVisible();
   await expectBrowser(box).toBeFocused();
+  expect(requests).toBe(1);
 }, 30_000);
 
 test("Latest recovers a refused forward read without dropping the Events already shown", async () => {

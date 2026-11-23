@@ -1,5 +1,6 @@
 import type { JSX } from "@solidjs/web";
 import { useRouter, type ErrorComponentProps } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { Show } from "solid-js";
 
 import { failureDetailSuffix, HubReadError } from "../api-client.ts";
@@ -48,7 +49,7 @@ export function ReadErrorPage(
   if (!(failure instanceof HubReadError)) {
     return <DefaultCatchBoundary {...props} />;
   }
-  async function retry(event: MouseEvent & { currentTarget: HTMLButtonElement }) {
+  async function retry(event: MouseEvent & { currentTarget: HTMLElement }) {
     const button = event.currentTarget;
     const address = location.href;
     await router.invalidate();
@@ -66,9 +67,9 @@ export function ReadErrorPage(
       </p>
       <FailedReadNotice what={failure.what} detail={failure.detail} failedAt={failure.failedAt} />
       <p>
-        <button type="button" class="primary" onClick={retry}>
+        <Button class="primary" onClick={retry}>
           Try again
-        </button>
+        </Button>
       </p>
       {props.children}
     </FallbackPage>

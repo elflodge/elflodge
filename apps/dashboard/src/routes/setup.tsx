@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { api, failureDetailSuffix, hubFailureDetail, readFromHub } from "../api-client.ts";
@@ -161,9 +162,9 @@ function Setup() {
             <Show when={error()} keyed>
               {(message) => <Notice role="alert">{message}</Notice>}
             </Show>
-            <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+            <Button type="submit" class="primary" disabled={pending()} focusableWhenDisabled>
               Create owner
-            </button>
+            </Button>
           </form>
         </Show>
       </Show>

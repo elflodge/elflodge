@@ -1,8 +1,9 @@
 import type { JSX } from "@solidjs/web";
 import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { problemOf } from "contract";
-import { Match, Show, Switch, createEffect, createSignal, onSettled } from "solid-js";
+import { Match, Show, Switch, createEffect, createSignal, deep, latest, onSettled } from "solid-js";
 
 import {
   api,
@@ -148,16 +149,16 @@ function ReadInvitation(props: { invitationId: string }) {
             The invitation could not be read{failureDetailSuffix(hubFailureDetail(preview.error))}
           </Notice>
           <p>
-            <button type="button" class="primary" onClick={() => void preview.refetch()}>
+            <Button class="primary" onClick={() => preview.refetch()}>
               Try again
-            </button>
+            </Button>
           </p>
         </InvitationPage>
       </Match>
       <Match when={preview.dataUpdatedAt}>
         <AcceptInvitation
           invitationId={props.invitationId}
-          invitation={preview.data}
+          invitation={latest(() => deep(preview.data))}
           consumed={forgetPreview}
           unavailable={() => {
             forgetPreview();
@@ -346,9 +347,9 @@ function AcceptInvitation(props: {
             <Show when={error()} keyed>
               {(message) => <Notice role="alert">{message}</Notice>}
             </Show>
-            <button type="submit" aria-disabled={pending() ? "true" : undefined}>
+            <Button type="submit" disabled={pending()} focusableWhenDisabled>
               Sign out to use it
-            </button>
+            </Button>
           </form>
         </Match>
         <Match when={true}>
@@ -416,9 +417,9 @@ function AcceptInvitation(props: {
             <Show when={error()} keyed>
               {(message) => <Notice role="alert">{message}</Notice>}
             </Show>
-            <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+            <Button type="submit" class="primary" disabled={pending()} focusableWhenDisabled>
               {session() ? join() : "Create account and join"}
-            </button>
+            </Button>
           </form>
           <Show when={!session() || offerSignIn()}>
             <p class="prose">
