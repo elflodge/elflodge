@@ -295,6 +295,30 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
   await expectBrowser(queued).toBeVisible();
 });
 
+test("an open dashboard returns to sign-in when a background read discovers the session ended", async ({
+  hub,
+  open,
+}) => {
+  hub.jobs.list.answers(NO_JOBS_LISTED);
+  hub.setup.get.answers({ needed: false });
+  const page = await open("jobs");
+  await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
+  // Better Auth's client makes its first read of the session the shell watches on a timer, which
+  // the paused clock fires only as the test moves it: made while the session holds.
+  const reads = hub.session.calls.length;
+  await runClockUntil(page, 10, () => hub.session.calls.length > reads);
+  const watched = hub.session.calls.length;
+
+  // The session ends without a sign-out in this browser or a navigation: the hub strip's next poll
+  // of the counts is refused, and a session read then names no one.
+  hub.session.answers(null);
+  hub.jobs.counts.refuses("UNAUTHORIZED");
+  await page.clock.runFor(5_000);
+  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible();
+  expect(hub.session.calls.length).toBeGreaterThan(watched);
+  expect(new URL(page.url()).searchParams.get("redirect")).toContain("/jobs");
+});
+
 test("a member change in another tab loads a fresh document", async ({ hub, open }) => {
   const first = signedIn("owner");
   const next = signedIn("admin");
