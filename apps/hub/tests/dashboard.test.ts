@@ -1,12 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { type APIRequestContext, request } from "playwright";
-import type { ManifestChunk } from "vite-plus";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
-import * as z from "zod/mini";
 
-import { DASHBOARD_BASE } from "../src/dashboard.ts";
+import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../src/dashboard.ts";
 import { startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
@@ -16,12 +14,8 @@ const system = startSystem();
 let requests: APIRequestContext;
 /** The app shell of the dashboard's build, which global setup builds and both hubs serve. */
 let shell: string;
-/** The path of the dashboard's entry script, a hashed file of the build, from Vite's manifest. */
-let scriptPath: string;
-
-/** What the test reads of Vite's build manifest. */
-const manifestSchema: z.ZodMiniType<Record<string, Pick<ManifestChunk, "file" | "isEntry">>> =
-  z.record(z.string(), z.object({ file: z.string(), isEntry: z.optional(z.boolean()) }));
+/** The path of one of the build's files under assets, which Vite names by content hash. */
+let hashedPath: string;
 
 beforeAll(async () => {
   await system.start();
@@ -29,13 +23,8 @@ beforeAll(async () => {
   // Where the hubs serve the build from, `src/main.ts` and `wrangler.jsonc`.
   const build = path.join(import.meta.dirname, "../../dashboard/dist/client");
   shell = await readFile(path.join(build, "index.html"), "utf8");
-  const manifest = z.parse(
-    manifestSchema,
-    JSON.parse(await readFile(path.join(build, ".vite/manifest.json"), "utf8")),
-  );
-  const entry = Object.values(manifest).find((chunk) => chunk.isEntry);
-  if (!entry) throw new Error("The dashboard's build manifest has no entry");
-  scriptPath = DASHBOARD_BASE + entry.file;
+  const [hashed] = await readdir(path.join(build, DASHBOARD_ASSETS));
+  hashedPath = `${DASHBOARD_BASE}${DASHBOARD_ASSETS}/${hashed}`;
 });
 afterAll(async () => {
   await requests?.dispose();
@@ -69,9 +58,9 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
   await expectShellAt("/dashboard/.vite/manifest.json");
-  const script = await system.hub.fetch(scriptPath);
-  expect(script.status).toBe(200);
-  expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
+  const hashed = await system.hub.fetch(hashedPath);
+  expect(hashed.status).toBe(200);
+  expect(hashed.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
     expect.arrayContaining(["max-age=31536000", "immutable"]),
   );
 
@@ -84,7 +73,7 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   if (inject("hub") === "workers") {
     // Cloudflare answers the navigation itself, with the shell (ADR 0043).
     const navigation = await expectShellAt(missingPath);
-    for (const vary of [script.headers.get("vary"), navigation.vary, missing.headers.get("vary")]) {
+    for (const vary of [hashed.headers.get("vary"), navigation.vary, missing.headers.get("vary")]) {
       expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
     }
   } else {
