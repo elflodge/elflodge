@@ -35,7 +35,6 @@
     "@orpc/server": "catalog:",
     "@orpc/shared": "catalog:",
     "@solidjs/vite-plugin": "catalog:",
-    "ensure-error": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"

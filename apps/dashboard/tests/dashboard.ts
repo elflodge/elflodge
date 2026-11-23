@@ -1,4 +1,4 @@
-import ensureError from "ensure-error";
+import { asError } from "contract";
 import {
   chromium,
   type BrowserContext,
@@ -102,7 +102,7 @@ export const test = base
       try {
         response = await network.handle(await toFetchRequest(request));
       } catch (error) {
-        failures.push(`${request.method()} ${url.href}: ${ensureError(error).message}`);
+        failures.push(`${request.method()} ${url.href}: ${asError(error).message}`);
         return route.abort();
       }
       if (response) return fulfillWith(route, response);
