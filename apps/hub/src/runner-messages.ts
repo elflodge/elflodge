@@ -774,9 +774,10 @@ function placeAndRead(runnerId: RunnerId, load: Load) {
                     runnerEb("runnerId", "=", runnerId),
                   ]),
                 )
-                // Use existence predicates so Postgres can check the Batch rules while walking
-                // the queue in order. The Batch is read without a lock: a placement already under
-                // way when a pause commits may still send the jobs it took (ADR 0033).
+                // blockedByFrom's rule for an unsent queued job, written as existence predicates so
+                // Postgres can check it while walking the queue in order. The Batch is read without
+                // a lock: a placement already under way when a pause commits may still send the jobs
+                // it took (ADR 0033).
                 .where((batchEb) =>
                   batchEb.not(
                     batchEb.exists(

@@ -740,9 +740,9 @@ const dateSchema = z.iso.date();
 const usageLabelGroupingSchema = z.templateLiteral(["label:", labelKeySchema]);
 
 /**
- * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner
- * they were last sent to as recorded at each end, the status they ended in, or the value of one
- * of their labels, as `label:customer`.
+ * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner each was
+ * placed on when its end was recorded, the status they ended in, or the value of one of their
+ * labels, as `label:customer`.
  */
 export const usageGroupBySchema = z.union(
   [z.enum(["batch", "submitter", "runner", "status"]), usageLabelGroupingSchema],
@@ -769,7 +769,8 @@ export const rankedUsageSchema = z.union([
   rankedUsage(z.literal("batch"), { batchId: batchIdSchema }),
   // The latest record in the window supplies the submitter's name, by recordedAt then write order.
   rankedUsage(z.literal("submitter"), { submitter: submitterSchema }),
-  // The final placement keeps its Runner ID even after removal. An end with no placement has none.
+  // A removed Runner keeps its ID. An end has none when its job was on no Runner as it was recorded:
+  // never placed, or cancelled before its Runner started it, which frees the job.
   rankedUsage(z.literal("runner"), {
     runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
   }),
@@ -1523,7 +1524,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, `runner` for the Runner the jobs were last sent to as recorded at each end, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, `runner` for the Runner each job was placed on when its end was recorded, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),
@@ -1556,7 +1557,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           ),
           runnerId: z.optional(
             textSchema.check(
-              z.describe("The ID of the Runner the job was last sent to, as recorded at its end."),
+              z.describe("The ID of the Runner the job was placed on when its end was recorded."),
             ),
           ),
           status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
