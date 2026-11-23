@@ -756,6 +756,54 @@ test("Resume keeps the focus when a poll changes whether it asks for a budget", 
   await expectBrowser(resume).toBeFocused();
 }, 45_000);
 
+test("a refused direct Resume focuses its failure though a poll changed Resume meanwhile", async () => {
+  const { id, batchId } = await jobWithSpentBudget();
+  const client = system.owner();
+  // A resume queues while its Batch is paused, so the job runs only when the test lets it.
+  await client.batches.pause({ id: batchId });
+  async function raiseBudget() {
+    const { usage } = await client.jobs.get({ id });
+    await client.jobs.resume({ id, modelBudgetUsd: usage.cost.totalUsd + 0.000001 });
+    await client.jobs.pause({ id });
+  }
+  await raiseBudget();
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const now = Date.now();
+  await page.clock.install({ time: new Date(now) });
+  await page.clock.pauseAt(new Date(now + 1_000));
+  await signInAt(system, page, `jobs/${id}`, await newMember(system, "Resume refused"));
+  const resume = page.getByRole("button", { name: "Resume", exact: true });
+  const poll = () => page.clock.runFor(5_000);
+  await expectBrowser(resume).not.toHaveAttribute("aria-haspopup");
+  const answer = Promise.withResolvers<Route>();
+  await page.route(`**/jobs/${id}/resume`, answer.resolve, { times: 1 });
+  await resume.click();
+  const request = await answer.promise;
+  // Another member resumes the job meanwhile, and it spends its budget.
+  system.model.setResponses([callTool("bash", { command: "true" })]);
+  await client.jobs.resume({ id });
+  await client.batches.resume({ id: batchId });
+  await untilStatus(client, id, "failed");
+  await poll();
+  await expectBrowser(page.locator(".status-lg")).toHaveText("Failed");
+  await expectBrowser(resume).toBeFocused();
+  await request.fulfill(problemAnswer(409, "Conflict", "The job is changing; try again."));
+  const failure = page.locator('main [role="alert"]');
+  await expectBrowser(failure).toHaveText("Resume: The job is changing; try again.");
+  await expectBrowser(resume).toHaveAttribute("aria-haspopup", "dialog");
+  await expectBrowser(failure).toBeFocused();
+
+  // With the failure still shown, a later swap keeps focus on Resume.
+  await resume.focus();
+  await client.batches.pause({ id: batchId });
+  await raiseBudget();
+  await poll();
+  await expectBrowser(resume).not.toHaveAttribute("aria-haspopup");
+  await expectBrowser(resume).toBeFocused();
+  await expectBrowser(failure).toBeVisible();
+}, 45_000);
+
 function message(id: number): JobEvent {
   return {
     id,

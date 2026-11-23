@@ -142,15 +142,21 @@ export function JobControls(props: {
   const resumeNeedsBudget = () =>
     controls.resume.isPending ? controls.resume.variables?.modelBudgetUsd !== undefined : spent();
   // A poll can also swap Resume's Button for its dialog trigger, or back, while nothing runs. If
-  // the one going holds focus, focus moves to the one replacing it. Bound through a ref, since
-  // UI SDK's parts take no slot binding of ours: keepResumeFocus() runs as its part is built, so
-  // the binding ends when that part goes.
+  // the one going holds focus, focus moves to the one replacing it. One part cannot serve both:
+  // the trigger always says it opens a dialog, and it has no pending state. A Button still pending
+  // leaves focus to its press, which focuses the page's alert on a refusal. Bound through a ref,
+  // since UI SDK's parts take no slot binding of ours: keepResumeFocus() runs as its part is built,
+  // so the binding ends when that part goes. A trigger renders a plain button until its dialog
+  // mounts, then the real one, each with this ref, so a later call releases the earlier binding.
   let resumeElement: HTMLElement | undefined;
-  const resumeFocus = createFocusRecovery({ fallback: () => resumeElement });
+  const resumeFocus = createFocusRecovery({
+    fallback: (lost) => (lost.el.hasAttribute("data-pending") ? undefined : resumeElement),
+  });
   function keepResumeFocus() {
     let unbind: (() => void) | undefined;
     onCleanup(() => unbind?.());
     return (element: HTMLElement) => {
+      unbind?.();
       resumeElement = element;
       unbind = resumeFocus.bind(element, { key: "resume", props: undefined });
     };
