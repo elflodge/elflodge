@@ -14,12 +14,9 @@ export function CopyButton(props: {
   /** A table button has no adjacent copyable text unless a clipboard write fails. */
   showTextOnFailure?: boolean;
   /**
-   * Says the result through UI SDK's shared announcer, for a button in a list's row beside a control
-   * that opens a confirmation: a live region of its own would keep the row's ancestors out of what the
-   * open confirmation makes inert, and a row a read adds there pressable. The other copy buttons keep
-   * their own region: most sit in a native modal `dialog`, which makes the announcer's regions in the
-   * body inert, and Copy Output on a job's page sits apart from its controls. Once those dialogs are
-   * UI SDK's, which leave the announcer live, this can be the only way.
+   * A row's Copy uses UI SDK's shared announcer so a live region in the row cannot leave new
+   * controls pressable behind an open confirmation. Copy buttons in dialogs and Copy Output on
+   * a job's page use an adjacent status.
    */
   sharedAnnouncer?: boolean;
   /** The ID of what the button's purpose depends on, such as a note that the text is shown once. */
