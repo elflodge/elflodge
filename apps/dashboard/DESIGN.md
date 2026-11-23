@@ -57,7 +57,7 @@ With no class at all:
 - **`dl`** is ruled facts, name and value on one line; below 480px the value goes under its name.
 - **Buttons** are paper with an edge. Disabled buttons are greyed. UI SDK’s submit `Button` stays focusable while the form is pending and keeps its keyboard focus ring. **Fields** (`input`, `select`, `textarea`) match them, show their focus ring inside the edge, and take the failed wash with `aria-invalid="true"`.
 - **`details`** has its `summary` in the link colour. **`progress`** is a short bar in the brand's green.
-- UI SDK's dialog content and the dashboard's **`[popover]`** are paper with an edge and a shadow.
+- UI SDK's dialog and popover content are paper with an edge and a shadow.
 
 ## Parts
 
@@ -78,20 +78,23 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
   </nav>
   <CurrentDestination />
   <div class="topbar-end">
-    <button type="button" class="quiet" popovertarget="account" ref={(element) => { opener = element; }}>
-      <span class="member-name" title="Robin Hale">Robin Hale</span>
-      <span class="mark mark-opens" aria-hidden="true" />
-    </button>
-    <div id="account" class="menu-pop" popover ref={(element) => { account = element; }}>
-      <nav class="pop-nav" aria-label="Destinations">
-        <Destinations class="nav-stack" />
-      </nav>
-      <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor & Pine</p>
-      <ul class="pop-list">
-        <li><Link to="/change-password">Change password</Link></li>
-        <li><form onSubmit={signOut}><button type="submit" class="quiet" aria-disabled={pending() ? "true" : undefined}>Sign out</button></form></li>
-      </ul>
-    </div>
+    <span class="menu-anchor" ref={setMenuAnchor} />
+    <Popover controller={menu}>
+      <PopoverTrigger class="quiet">
+        <span class="member-name" title="Robin Hale">Robin Hale</span>
+        <span class="mark mark-opens" aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent class="menu-pop" anchor={menuAnchor()} align="end" sideOffset={0} initialFocus="none" keepMounted>
+        <nav class="pop-nav" aria-label="Destinations">
+          <Destinations class="nav-stack" />
+        </nav>
+        <p class="pop-who"><strong>Robin Hale</strong><br /><span class="mono">robin@example.com</span><br />Harbor &amp; Pine</p>
+        <ul class="pop-list">
+          <li><Link to="/change-password">Change password</Link></li>
+          <li><Button class="quiet" onClick={signOut} pendingAnnouncement="Working…">Sign out</Button></li>
+        </ul>
+      </PopoverContent>
+    </Popover>
   </div>
 </header>
 <main id="main" class="page">
@@ -101,13 +104,14 @@ Every page for a signed-in member is inside it (`src/routes/_signed-in.tsx`).
 
 - The bar holds the brand, the Organization's name, the destinations and, at its end, the member's name. Its links are not underlined: the bar is a known place.
 - The destinations are the pages the bar leads to, listed once in `src/components/Destinations.tsx`; a page the bar leads to adds its line there. The router marks the current one `aria-current="page"`, which draws it as a tab standing on the bar's rule. An entry is current at its page and at every page under it, unless its `activeOptions` say otherwise. A search string does not change the current destination.
-- The member's name opens the account menu, a native popover: who is signed in, then the account's links. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are.
+- The member's name opens the account menu, UI SDK's popover (`@ui-sdk/solid/popover`): who is signed in, then the account's links. It has the role `dialog` and, having no title, is named by the member's name. The menu is at most 20rem wide, and a longer name or address wraps in it. The chevron after the name says it opens something. A button in the menu is drawn as its links are. The menu is paper with an edge and a shadow, as every UI SDK popover is (`[data-slot="popover-content"]`).
+- The menu sits `--space-1` below the bar's height and ends at the page's gutter, fixed in the window, so it stays there when the page scrolls. UI SDK places it against `span.menu-anchor`, which CSS fixes at that point. Its height is at most the window's less the bar's height and `--space-3`, and it scrolls past that. Where the window is too narrow for the menu at that place, which takes a large default font, UI SDK shifts it so that its left edge stays in view, 8px from the window's edge; its right side can then pass the window's edge. Opened by keyboard or pointer, it leaves focus on the member's name, as the bar's controls keep theirs, and Tab then reaches the menu's first link. Opened by touch, UI SDK focuses the menu itself, so that no on-screen keyboard appears, and a tap on blank space in the page then returns focus to the member's name.
 - A long name is cut at its end in the bar, with the whole name in its `title` and in the menu. The destinations are never cut; the names beside them are.
 - The bar folds as it narrows. Below 60rem the Organization's name is only in the menu. At 52rem and below the destinations fold into the menu too, above who is signed in (`nav.pop-nav` with `ul.nav-stack`), the current one marked by a rule at its start. Its name stays in the bar as `span.here` while the menu is closed, whole at every width: it does not shrink, and the member's name beside it is cut instead, down to its chevron if it must be. At 320px the two share 178px, so a destination's name of up to 120px leaves the member's name at least 58px. At 390px they share 248px, leaving at least 128px. A longer destination is measured again. The stages hold six destinations of ordinary length beside a member's name at its full width; a bar that holds more is measured again. At 26rem and below the brand is its mark alone, which is why the mark's `alt` names it.
-- The browser closes the menu on Escape or a press elsewhere. The shell closes it in three cases the browser leaves open:
+- UI SDK closes the menu on Escape, a press elsewhere and focus leaving it, and Escape returns focus to the member's name. A press elsewhere has been checked in Chromium, with a mouse and with touch, and not in Safari on iOS. The shell closes it, through the popover's controller, in two cases a popover leaves open:
   - the router resolves a navigation in this tab, including one to the current page;
-  - the focus arrives anywhere in the page but the menu and its button, which the shell watches for on the document;
-  - signing out fails, when the notice is in the page under the menu. The focus then goes to the member's name, unless the member has moved on to something else meanwhile.
+  - signing out fails, when the notice is in the page under the menu. The focus then goes back to the member's name if it was in the menu; a member who moved on has already closed it.
+- Sign out is UI SDK's `Button` with the sign-out as its action: while the hub answers it keeps the focus, takes no second press and announces "Working…" after a second. The menu stays mounted while closed, so a pending Sign out still refuses a press after the menu is closed and opened again.
 - `InShell` around the outlet tells a page that failed or was not found that the bar and `main` are already there.
 
 ### The hub strip
@@ -307,7 +311,7 @@ which draw
 
 A plain `button` is the default. `.primary` is the one action a page or form exists for; a page has at most one. `.quiet` is words alone, for a control in the bar or in a menu. `.danger` is a destructive control, its words and edge in the failed colour; `.danger.is-fill`, filled, is the button in a dialog that confirms it.
 
-A button that waits for the hub uses UI SDK's `Button` (`@ui-sdk/solid/button`), except the account menu's native Sign out submit. While a Button's click promise is pending and the pressed button stays mounted, it keeps focus, ignores another press and announces the wait after a second. A pending Events button or retry takes the dashboard’s disabled colours at full opacity and its `not-allowed` cursor, as Pause and Resume do. A keyboard press keeps its focus ring while the button is on screen. A route can replace a retry button during the read. A form’s submit uses `type="submit"` and takes `disabled` from the form’s pending state, as do its draft-editing buttons. Disabled with `focusableWhenDisabled`, it keeps its place in the tab order with `aria-disabled`, which takes the disabled look. Submit a job, the invitation form and form dialogs show “Working…” in a status paragraph. Batch submission reports its current step. A changed filter shows its loading view when its read is slow. Setup, sign-in and change password mark their submit button unavailable without a wait announcement. Apply and Show do the same when the query is unchanged.
+A button that waits for the hub uses UI SDK's `Button` (`@ui-sdk/solid/button`). While a Button's click promise is pending and the pressed button stays mounted, it keeps focus, ignores another press and announces the wait after a second. A pending Events button or retry takes the dashboard’s disabled colours at full opacity and its `not-allowed` cursor, as Pause and Resume do. A keyboard press keeps its focus ring while the button is on screen. A route can replace a retry button during the read. A form’s submit uses `type="submit"` and takes `disabled` from the form’s pending state, as do its draft-editing buttons. Disabled with `focusableWhenDisabled`, it keeps its place in the tab order with `aria-disabled`, which takes the disabled look. Submit a job, the invitation form and form dialogs show “Working…” in a status paragraph. Batch submission reports its current step. A changed filter shows its loading view when its read is slow. Setup, sign-in and change password mark their submit button unavailable without a wait announcement. Apply and Show do the same when the query is unchanged.
 
 A page's one action that leads to another page is a link drawn as a button, `a.button`, so it can be opened in a new tab and is preloaded as a link is. It takes the button's size, edge, hover and press, and no underline (rule 1); with `.primary` it is filled. Its rules are in the button variants in `components.css`.
 
@@ -803,5 +807,3 @@ Chromium 123, Firefox 125 and Safari 17.5, the first versions with both `light-d
 Firefox 125–127 shows the folded cell label using `content: attr(data-l)`. These versions may also read the label with the cell value. From Firefox 128 the empty text alternative suppresses the repeated label.
 
 Playwright’s WebKit 27.2 kept the reader’s place when earlier Events arrived. Earlier Safari versions were not run.
-
-Safari on iOS and iPadOS before 18.3 does not close a popover on a tap elsewhere (WebKit bug 267688). The account menu still closes there from the member's name, which opened it, and when one of its links is followed.

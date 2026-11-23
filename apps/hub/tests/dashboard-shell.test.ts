@@ -90,6 +90,52 @@ test("in a browser, the bar leads to the dashboard's pages", async () => {
   await expectBrowser(jobs).toHaveAttribute("aria-current", "page");
   await jobs.click({ modifiers: ["ControlOrMeta"] });
   await expectBrowser(jobs).toBeVisible();
+  const menu = page.getByRole("dialog", { name: member.name });
+  await expectBrowser(menu).toBeVisible();
+  // Following a link from the menu closes it, so it does not cover the page it leads to.
+  await destinations.getByRole("link", { name: "Runners" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/runners`);
+  await page.getByRole("heading", { name: "Runners", level: 1 }).waitFor();
+  await expectBrowser(menu).toBeHidden();
+}, 30_000);
+
+test("in a browser, a refused sign-out keeps the member signed in and says why", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  const member = await newMember(system, "Refused Leaver");
+  await signInAt(system, page, "change-password", member);
+  const release = Promise.withResolvers<void>();
+  let signOuts = 0;
+  await page.route("**/api/auth/sign-out", async (route) => {
+    signOuts++;
+    await release.promise;
+    await route.fulfill({ status: 500, body: "" });
+  });
+
+  const account = page.getByRole("button", { name: member.name, exact: true });
+  await account.click();
+  const menu = page.getByRole("dialog", { name: member.name });
+  await expectBrowser(menu).toBeVisible();
+  const signOut = page.getByRole("button", { name: "Sign out" });
+  try {
+    await signOut.click();
+    // While the hub answers, Sign out keeps the focus and takes no second press.
+    await expectBrowser(signOut).toHaveAttribute("aria-busy", "true");
+    await expectBrowser(signOut).toBeFocused();
+    await page.keyboard.press("Enter");
+    // Closed and opened again meanwhile, the menu still holds the pending sign-out.
+    await page.keyboard.press("Escape");
+    await account.click();
+    await signOut.focus();
+    await page.keyboard.press("Enter");
+  } finally {
+    release.resolve();
+  }
+  // The menu closes to show the notice under it, and focus returns to the member's name.
+  await expectBrowser(page.getByRole("alert")).toBeVisible();
+  await expectBrowser(menu).toBeHidden();
+  await expectBrowser(account).toBeFocused();
+  expect(signOuts).toBe(1);
 }, 30_000);
 
 test("in a browser, the document title names the page across a navigation and back", async () => {

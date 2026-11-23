@@ -353,8 +353,8 @@ progress {
 [data-slot="dialog-content"]::backdrop {
   background: var(--c-scrim);
 }
-/* The dashboard's own popovers: UI SDK's parts, which carry `data-slot`, are styled by their own. */
-[popover]:where(:not([data-slot])) {
+/* UI SDK opens its popover content in the top layer, and resets the browser's drawing of it. */
+[data-slot="popover-content"] {
   background: var(--c-paper);
   color: var(--c-ink);
   border: var(--rule) solid var(--c-field-edge);

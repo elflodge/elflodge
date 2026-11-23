@@ -206,13 +206,14 @@ a:where(.button) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The account menu, opened by the member's name: who is signed in, then the account's links. */
-.menu-pop {
-  margin: 0;
-  inset: auto;
+/* Where the account menu hangs, fixed in the window: under the bar, at the page's gutter. */
+.menu-anchor {
   position: fixed;
   top: calc(var(--topbar) + var(--space-1));
   right: var(--gutter);
+}
+/* The account menu, opened by the member's name: who is signed in, then the account's links. */
+.menu-pop {
   min-width: 15rem;
   /* A name or an address longer than this wraps. */
   max-width: min(20rem, calc(100vw - 2 * var(--gutter)));
