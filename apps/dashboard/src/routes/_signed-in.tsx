@@ -105,7 +105,9 @@ function SignedIn() {
                 the page's gutter, which grows with the window, and a pixel offset along the bar could
                 not follow it. The end stretches to the bar's height, so 6px is the bar's 2px rule and
                 --space-1 below it. Opening leaves focus on the member's name, so Tab goes on to the
-                first link. Having no title, the menu is named by the member's name. */}
+                first link. Having no title, the menu is named by the member's name. Kept mounted while
+                closed, so that a pending Sign out stays pending, and refuses another press, when the
+                menu is closed and opened again. */}
             <PopoverContent
               class="menu-pop"
               anchor={barEnd()}
@@ -113,6 +115,7 @@ function SignedIn() {
               sideOffset={6}
               collisionPadding={8}
               initialFocus="none"
+              keepMounted
             >
               <nav class="pop-nav" aria-label="Destinations">
                 <Destinations class="nav-stack" />
