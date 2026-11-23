@@ -90,8 +90,8 @@ jobs:
       - run: vp test --project workers
         working-directory: apps/hub
 
-  # The dashboard's pages in a browser, beside the hub's suite rather than inside it: against one
-  # hub, as both serve the same build and the suite checks on each how it is served (ADR 0003).
+  # The dashboard's pages in a browser, beside the hub's suite rather than inside it and against one
+  # hub: the suite checks on each hub what a page takes from it (ADR 0003).
   dashboard:
     if: github.event_name == 'merge_group'
     runs-on: *ubuntu

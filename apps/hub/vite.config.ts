@@ -3,7 +3,10 @@ import { configDefaults, defaultServerConditions, defineConfig } from "vite-plus
 
 import { DASHBOARD_ASSETS } from "./src/dashboard.ts";
 
-/** The tests that drive the dashboard's pages in a browser, which the `dashboard` project runs. */
+/**
+ * The files of tests that drive the dashboard's pages in a browser, which the `dashboard` project
+ * runs. A test of what a hub itself answers goes in another file, which both hubs run.
+ */
 const DASHBOARD_PAGES = "tests/dashboard-*.test.ts";
 
 export default defineConfig({
@@ -55,34 +58,29 @@ export default defineConfig({
     // project with a Postgres of its own.
     projects: [
       {
-        extends: true,
         test: {
           name: "workers",
           provide: { hub: "workers" },
-          // These run a Runner against a server of their own, never the hub, so the Node project
-          // alone runs them.
           exclude: [
             ...configDefaults.exclude,
             DASHBOARD_PAGES,
+            // These run a Runner against a server of their own, never the hub, so the Node project
+            // alone runs them.
             "tests/runner-reports.test.ts",
             "tests/runner-stop.test.ts",
           ],
         },
       },
       {
-        extends: true,
         test: {
           name: "node",
           provide: { hub: "node" },
           exclude: [...configDefaults.exclude, DASHBOARD_PAGES],
         },
       },
-      // The dashboard's pages in a browser, against one hub: both hubs serve the same build, and
-      // `tests/dashboard.test.ts`, in the projects above, covers how each serves it.
-      {
-        extends: true,
-        test: { name: "dashboard", provide: { hub: "node" }, include: [DASHBOARD_PAGES] },
-      },
+      // The dashboard's pages, against one hub: a page shows the build both hubs serve and the API's
+      // answers, and the projects above check on each hub how it serves the one and gives the other.
+      { test: { name: "dashboard", provide: { hub: "node" }, include: [DASHBOARD_PAGES] } },
     ],
   },
 });
