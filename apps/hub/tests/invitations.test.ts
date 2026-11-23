@@ -171,7 +171,7 @@ test("an owner can replace an admin's member invitation in one call", async () =
   await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
 });
 
-test("renewal works while the inviter can grant the role and replacement works after demotion", async () => {
+test("a resend renews while the inviter can grant the role, is refused after demotion without spending the session's renewal, and a replacement works", async () => {
   const inviterEmail = "demoted-owner@example.com";
   const inviter = await joinAsInviter(inviterEmail, ["owner"]);
   const admin = await joinAsInviter("replacement-admin@example.com", "admin");

@@ -366,8 +366,9 @@ export function startSystem(
   }
 
   /**
-   * Makes the session `cookie` carries due for renewal, as it is a day after its last one, so the
-   * next session read that may renew does. The hub has no call that ages a session.
+   * Makes the session `cookie` carries due for renewal, so the next session read that may renew
+   * does. The hub keeps Better Auth's defaults, a 7-day expiry renewed after a day, so an expiry 5
+   * days away dates the last renewal 2 days back. The hub has no call that ages a session.
    */
   async function makeSessionDueForRenewal(cookie: string) {
     const current = await authClient(cookie).getSession();
