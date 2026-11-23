@@ -44,12 +44,14 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # `vp run ready`, with the hub's tests on the Node hub only: `node-22` runs them on the Workers
       # hub, with its Runners on Node 22, so each hub runs the suite once, and `dashboard` runs the
-      # dashboard's pages.
+      # dashboard's tests and the journeys through its pages.
       - run: vp check
-      # Every package's tests but the hub's, so a new package is tested without being listed here.
-      - run: vp run --filter '!hub' test
-      # The Chromium the hub's browser test drives. The test runs it headless, which Playwright does
-      # with its smaller headless shell, so the full browser is not installed.
+      # Every package's tests but the hub's and the dashboard's, so a new package is tested without
+      # being listed here.
+      - &other-tests
+        run: vp run --filter '!hub' --filter '!dashboard' test
+      # The Chromium the browser tests drive: the hub's and the dashboard's. They run it headless,
+      # which Playwright does with its smaller headless shell, so the full browser is not installed.
       - &playwright
         run: vp exec playwright install --with-deps --only-shell chromium
         working-directory: apps/hub
@@ -83,15 +85,16 @@ jobs:
           cache: true
           node-version: 22.19.0
       - *job-sandbox
-      - run: vp run --filter '!hub' test
+      - *other-tests
       - *playwright
       # The hub in workerd, with the tests and the Runners they start on Node 22. The `node` project
       # would run the hub itself on the tests' Node.
       - run: vp test --project workers
         working-directory: apps/hub
 
-  # The dashboard's pages in a browser, beside the hub's suite rather than inside it and against one
-  # hub: the suite checks on each hub what a page takes from it (ADR 0003).
+  # The dashboard's own tests, which drive its build in a browser against a stand-in for the hub,
+  # then the journeys through its pages, against one hub: the hub's suite checks on each hub what a
+  # page takes from it (ADR 0003).
   dashboard:
     if: github.event_name == 'merge_group'
     runs-on: *ubuntu
@@ -102,7 +105,9 @@ jobs:
           cache: true
       - *job-sandbox
       - *playwright
-      - run: vp test --project dashboard
+      - run: vp test
+        working-directory: apps/dashboard
+      - run: vp test --project journeys
         working-directory: apps/hub
 
   # The Runner's job sandbox on macOS, where it is Seatbelt rather than bubblewrap (ADR 0027).

@@ -74,6 +74,8 @@ test.for([
 
     await expect.poll(() => started(client, ids)).toHaveLength(1);
     const [firstJob = ""] = await started(client, ids);
+    // That the others wait is something not happening, which no state shows: the second gives a hub
+    // that would start them anyway the time to do it.
     await setTimeout(1_000);
     expect(await started(client, ids)).toEqual([firstJob]);
     for (const id of ids.filter((other) => other !== firstJob)) {

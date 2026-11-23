@@ -100,7 +100,9 @@ export function JobControls(props: {
 
   /** Sends `control`, and resolves once the page shows the hub's answer; rejects with its failure. */
   async function run(control: Control, modelBudgetUsd?: number) {
-    // Clear an earlier failure while the hub is answering.
+    // An earlier failure, of this control or another, no longer describes the job once a control
+    // is sent, so it goes as this one starts, a confirmed Cancel included, rather than once the hub
+    // answers. In `onFlush`, since a plain write beside `mutate` would show only once it settles.
     onFlush(() => setPageFailure(undefined));
     const id = props.job.id;
     if (control === "resume") await controls.resume.mutate({ id, modelBudgetUsd });

@@ -107,9 +107,3 @@ test("a member's request another site sends is refused, and the same from the hu
   });
   expect(resumed.status).toBe(200);
 });
-
-test("a request with neither a session nor a key is told how to authenticate", async () => {
-  const response = await system.hub.fetch("/batches/x/pause", { method: "POST" });
-  expect(response.status).toBe(401);
-  expect(response.headers.get("www-authenticate")).not.toBeNull();
-});

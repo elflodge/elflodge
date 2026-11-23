@@ -2,8 +2,11 @@ import type { Browser, Request } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
-import { launchDashboardBrowser } from "./dashboard-browser.ts";
-import { startSystem } from "./harness.ts";
+import { launchDashboardBrowser, signInAt } from "../dashboard-browser.ts";
+import { OWNER, startSystem } from "../harness.ts";
+
+// Joining the Organization through an invitation's link: the account the hub creates or signs in,
+// and the role it grants.
 
 const system = startSystem();
 let browser: Browser;
@@ -21,20 +24,30 @@ afterAll(async () => {
   await system.stop();
 });
 
-async function invite(email: string) {
-  const { id } = await system
-    .ownerAuth()
-    .organization.inviteMember({ email, organizationId, role: "member" });
-  return new URL(`/dashboard/invitation#${id}`, system.origin);
-}
-
-test("a new invitee creates an account and lands signed in as a member", async () => {
+test("a new invitee creates an account through the link an owner copied and lands signed in with the role chosen", async () => {
   const email = "lucia@example.com";
-  const link = await invite(email);
+  const owner = await browser.newPage();
+  onTestFinished(() => owner.close());
+  await signInAt(system, owner, "organization", OWNER);
+  await owner.getByRole("button", { name: "Invite a member" }).click();
+  const dialog = owner.getByRole("dialog");
+  await dialog.getByLabel("Email").fill(email);
+  await dialog.getByRole("radio", { name: /^Admin/ }).check();
+  await dialog.getByRole("button", { name: "Create invitation" }).click();
+  const copy = dialog.getByRole("button", { name: "Copy the link" });
+  await expectBrowser(copy).toBeFocused();
+  await owner
+    .context()
+    .grantPermissions(["clipboard-read", "clipboard-write"], { origin: system.origin });
+  await copy.click();
+  const link = await owner.evaluate<string>("navigator.clipboard.readText()");
+  expect(new URL(link).origin + new URL(link).pathname).toBe(
+    system.origin + "/dashboard/invitation",
+  );
+
   const page = await browser.newPage();
   onTestFinished(() => page.close());
-
-  await page.goto(link.href);
+  await page.goto(link);
   await expectBrowser(page.getByLabel("Email")).toHaveValue(email);
   await page.getByLabel("Your name").fill("Lucia");
   const password = page.getByLabel("Password");
@@ -50,18 +63,25 @@ test("a new invitee creates an account and lands signed in as a member", async (
   await expectBrowser(page).toHaveURL(system.origin + "/dashboard/jobs");
   await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
   await expectBrowser(page.getByRole("button", { name: "Lucia" })).toBeVisible();
+  const { members } = await system
+    .ownerAuth()
+    .organization.listMembers({ query: { organizationId } });
+  expect(members.find((member) => member.user.email === email)?.role).toBe("admin");
 
   await page.goBack();
   await expectBrowser(page.getByText(/^This invitation is no longer available/)).toBeVisible();
   await expectBrowser(page.getByRole("link", { name: "Go to the dashboard" })).toBeVisible();
-}, 30_000);
+});
 
 test("a returning invitee can sign in through a private link and choose when to rejoin", async () => {
   const email = "returning@example.com";
   const password = "a returning member's password";
   await system.addMember({ email, name: "Returning member", password });
   await system.ownerAuth().organization.removeMember({ memberIdOrEmail: email, organizationId });
-  const link = await invite(email);
+  const { id } = await system
+    .ownerAuth()
+    .organization.inviteMember({ email, organizationId, role: "member" });
+  const link = new URL(`/dashboard/invitation#${id}`, system.origin);
   const page = await browser.newPage();
   onTestFinished(() => page.close());
   // A reload on the sign-in page must keep the invitation out of request URLs and referrers.
@@ -87,4 +107,4 @@ test("a returning invitee can sign in through a private link and choose when to 
     expect(request.url()).not.toContain(link.hash.slice(1));
     expect((await request.headerValue("referer")) ?? "").not.toContain(link.hash.slice(1));
   }
-}, 30_000);
+});

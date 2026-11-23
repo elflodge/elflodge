@@ -92,7 +92,11 @@ export function focusAfterLinkDrops(target: () => HTMLElement | null, onPress?: 
   };
 }
 
-/** Returns true when a field was refused, even if the member moved focus while waiting. */
+/**
+ * Returns true when a field was refused, even if the member moved focus while waiting. Focus goes to
+ * the refused field only from where the submission left it, or when it was lost: a member who moved
+ * on meanwhile, to Cancel say, keeps their place, and the field's words reach them when they return.
+ */
 export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Element | null) {
   const refused = form.querySelector<HTMLElement>('[aria-invalid="true"]');
   if (!refused) return false;

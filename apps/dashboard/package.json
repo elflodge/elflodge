@@ -31,7 +31,11 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@better-auth/core": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/shared": "catalog:",
     "@solidjs/vite-plugin": "catalog:",
+    "playwright": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

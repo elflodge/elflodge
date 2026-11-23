@@ -1,23 +1,14 @@
 import { catchORPCErrorCode, middlewareGen, type WithEffectContext } from "@orpc/effect";
 import "@orpc/effect/extensions/effect";
-import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
-import { BracketNotationSerializer, getOpenAPIMeta } from "@orpc/openapi";
-import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
-import { implement, ValidationError } from "@orpc/server";
-import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
-import type { StandardHandlerInterceptor } from "@orpc/server/standard";
-import { getOwn, isPlainObject, matchesHttpPath, setOwn } from "@orpc/shared";
-import { parseStandardUrl } from "@standard-server/core";
+import { implement } from "@orpc/server";
+import { matchesHttpPath } from "@orpc/shared";
 import {
   type AddedJobs,
   apiContract,
-  errorStatusMap,
   getAccess,
-  MAX_BODY_BYTES,
   MAX_FILE_BYTES,
   NotFound,
-  openOutputSchemaConverter,
   PROTOCOL_UNSUPPORTED,
   RUNNER_CONNECT_PATH,
   RUNNER_NOT_FOUND,
@@ -27,14 +18,11 @@ import {
 } from "contract";
 import { type Context, Effect, Struct } from "effect";
 import { type Context as HonoContext, Hono } from "hono";
-import {
-  PROBLEM_JSON_CONTENT_TYPE,
-  problemDetails,
-  problemDetailsHandler,
-} from "hono-problem-details";
+import { problemDetails, problemDetailsHandler } from "hono-problem-details";
 import { except } from "hono/combine";
 import { csrf } from "hono/csrf";
 
+import { createApiHandler } from "./api-handler.ts";
 import { listServiceKeys } from "./api-keys.ts";
 import {
   Auth,
@@ -69,7 +57,7 @@ import {
   UploadChunkIndex,
 } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
-import { InvalidInput } from "./invalid-input.ts";
+import { InvalidInput, invalidInput } from "./invalid-input.ts";
 import { acceptInvitation, listInvitations, previewInvitation } from "./invitations.ts";
 import {
   type Control,
@@ -85,7 +73,6 @@ import {
 } from "./jobs.ts";
 import { generateOpenAPIDocument, sessionCookieName } from "./openapi.ts";
 import { RunnerConnections, type HubServices } from "./platform.ts";
-import { locateRequestProblems, toProblemDetails } from "./problem-details.ts";
 import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registration.ts";
 import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
@@ -153,24 +140,6 @@ function controlJobAndHint(jobId: JobId, control: Control, given?: GivenLimits) 
     yield* hintRunners(hint);
     return job;
   });
-}
-
-/**
- * `problems` with an input, raised as oRPC raises invalid input, so the answer lists them as it lists
- * the contract's own: for what the contract's schemas cannot check, such as an Output contract's
- * schema or the hub's maximums for limits.
- */
-function invalidInput<E>(
-  errors: { BAD_REQUEST: (options: { cause: ValidationError }) => E },
-  input: unknown,
-  problems: readonly { message: string; path: readonly (string | number)[] }[],
-) {
-  const cause = new ValidationError({
-    message: "Input validation failed",
-    issues: problems,
-    invalidData: input,
-  });
-  return errors.BAD_REQUEST({ cause });
 }
 
 // The access check is the router's alone, as oRPC's docs extend a router: applied to the handlers
@@ -447,59 +416,15 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
   });
 
-// A query string's values arrive as text; this turns them into what the input's schema expects,
-// such as `after=42` into a number. Inputs convert the same with the open-output converter, so the
-// contract keeps one converter.
-const coercion = new SmartCoercionHandlerPlugin({ converters: [openOutputSchemaConverter] });
-const bracketNotation = new BracketNotationSerializer();
-
-// oRPC's array query style reads only bare keys, so one `status=failed` decodes as a one-element
-// list. It ignores bracketed keys by design (middleapi/orpc#2500). Restore their names so strict
-// validation can name each refused key.
-// A one-or-list schema changes the contract's input type, the client's encoding and the CLI flag.
-// Remove this if oRPC gains an option to keep or refuse bracketed names for a styled parameter.
-const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<ApiContext> = (options) => {
-  const styles = getOpenAPIMeta(options.procedure)?.queryStyles;
-  // oRPC's compact codec reads the query as the input object on GET and HEAD.
-  if (!styles || (options.request.method !== "GET" && options.request.method !== "HEAD")) {
-    return options.next();
-  }
-  const [, search] = parseStandardUrl(options.request.url);
-  return options.next({
-    ...options,
-    decodeInput: async () => {
-      const query = await options.decodeInput();
-      if (!isPlainObject(query)) return query;
-      for (const name of new URLSearchParams(search).keys()) {
-        const [root = name] = bracketNotation.parsePath(name);
-        if (root !== name && getOwn(styles, root) !== undefined) setOwn(query, name, undefined);
-      }
-      return query;
-    },
-  });
-};
-
 // The same router behind two handlers, as oRPC's request limit is one per handler: uploads, whose
 // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
 // JSON body.
-const uploads = new OpenAPIHandler(router, {
-  errorStatusMap,
-  errorResponseBodyEncoder: toProblemDetails,
-  errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-  interceptors: [locateRequestProblems],
-  plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
-});
+const uploads = createApiHandler<ApiContext>(router, { maxBodySize: MAX_FILE_BYTES });
 
 const OPENAPI_SPEC_PATH = "/spec.json";
 
-const api = new OpenAPIHandler(router, {
-  errorStatusMap,
-  errorResponseBodyEncoder: toProblemDetails,
-  errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-  interceptors: [locateRequestProblems, restoreDroppedQueryNamesForValidation],
+const api = createApiHandler<ApiContext>(router, {
   plugins: [
-    new RequestLimitHandlerPlugin({ maxBodySize: MAX_BODY_BYTES }),
-    coercion,
     new OpenAPIReferenceHandlerPlugin({
       specPath: OPENAPI_SPEC_PATH,
       // oRPC has no spec-only mode. Without this guard, moving the dashboard redirect would

@@ -170,6 +170,9 @@ catalogs:
     '@better-auth/api-key':
       specifier: 1.7.26
       version: 1.7.26
+    '@better-auth/core':
+      specifier: 1.7.26
+      version: 1.7.26
     '@better-fetch/fetch':
       specifier: 1.3.3
       version: 1.3.3
@@ -541,9 +544,21 @@ importers:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
+      '@better-auth/core':
+        specifier: 'catalog:'
+        version: 1.7.26(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.6(zod@4.6.7))(jose@6.2.12)(kysely@0.29.9)(nanostores@1.5.5)
+      '@orpc/server':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/shared':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.52
       '@solidjs/vite-plugin':
         specifier: 'catalog:'
         version: 3.0.1(@babel/core@7.29.7(supports-color@10.2.2))(@solidjs/web@2.0.3(solid-js@2.0.3))(@types/node@22.20.5)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(jiti@2.7.0)(solid-js@2.0.3)(typescript@7.0.2)(yaml@2.9.1)
+      playwright:
+        specifier: 'catalog:'
+        version: 1.65.1
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

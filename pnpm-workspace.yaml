@@ -30,6 +30,9 @@ allowBuilds:
 catalog:
   "@anthropic-ai/sandbox-runtime": ^0.0.83
   "@better-auth/api-key": 1.7.26
+  # Better Auth's own, at Better Auth's version: the dashboard's tests take its route paths and error
+  # answers from it.
+  "@better-auth/core": 1.7.26
   "@better-fetch/fetch": 1.3.3
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4

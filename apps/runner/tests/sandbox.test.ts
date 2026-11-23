@@ -226,6 +226,8 @@ it("aborting or timing out a command stops it without touching another job's", (
       const { context, cancel } = withCancel(BACKGROUND_CONTEXT);
       let started = Date.now();
       const aborted = job.env.exec("sleep 30", undefined, context);
+      // Cancelled 200 ms later rather than at once, to give the command time to start: the aim is
+      // stopping a running command, though nothing here checks that it has started.
       setTimeout(() => cancel(), 200);
       const abortedResult = await aborted;
       expect(abortedResult.ok ? undefined : abortedResult.error.code).toBe("aborted");

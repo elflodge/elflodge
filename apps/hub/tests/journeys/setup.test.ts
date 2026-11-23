@@ -1,9 +1,9 @@
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, onTestFinished, test } from "vite-plus/test";
 
-import { launchDashboardBrowser } from "./dashboard-browser.ts";
-import { startSystem } from "./harness.ts";
-import { SETUP, setupLink } from "./setup-link.ts";
+import { launchDashboardBrowser } from "../dashboard-browser.ts";
+import { startSystem } from "../harness.ts";
+import { SETUP, setupLink } from "../setup-link.ts";
 
 // Setting up a new hub in the dashboard, with the link the hub prints.
 
