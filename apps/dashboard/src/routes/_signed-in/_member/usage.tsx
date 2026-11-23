@@ -8,6 +8,7 @@ import {
   stripSearchParams,
   useRouter,
 } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import {
   LABEL_KEY_PATTERN,
   problemOf,
@@ -345,9 +346,9 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
           </Field>
         </Show>
         <span class="filter-act">
-          <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+          <Button type="submit" class="primary" disabled={pending()} focusableWhenDisabled>
             Show
-          </button>
+          </Button>
         </span>
       </div>
       <Show when={refusal()?.alert} keyed>

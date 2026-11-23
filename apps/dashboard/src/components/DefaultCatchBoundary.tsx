@@ -1,5 +1,6 @@
 import { useRouter } from "@tanstack/solid-router";
 import type { ErrorComponentProps } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { asError } from "contract";
 
 import { FallbackPage } from "./FallbackPage.tsx";
@@ -12,9 +13,9 @@ export function DefaultCatchBoundary(props: ErrorComponentProps<unknown>) {
     <FallbackPage heading="This page could not be shown">
       <Notice role="alert">{asError(props.error).message}</Notice>
       <p>
-        <button type="button" class="primary" onClick={() => void router.invalidate()}>
+        <Button class="primary" onClick={() => router.invalidate()}>
           Try again
-        </button>
+        </Button>
       </p>
     </FallbackPage>
   );

@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { Show, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -94,9 +95,9 @@ function SignIn() {
         <Show when={error()} keyed>
           {(message) => <Notice role="alert">{message}</Notice>}
         </Show>
-        <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+        <Button type="submit" class="primary" disabled={pending()} focusableWhenDisabled>
           Sign in
-        </button>
+        </Button>
       </form>
     </main>
   );

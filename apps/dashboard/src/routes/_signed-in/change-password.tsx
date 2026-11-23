@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import { Show, createSignal } from "solid-js";
 
 import { hubFailureMessage } from "../../api-client.ts";
@@ -114,9 +115,9 @@ function ChangePassword() {
         <Show when={result()}>
           <Notice role={result()?.role ?? "status"}>{result()?.message}</Notice>
         </Show>
-        <button type="submit" class="primary" aria-disabled={pending() ? "true" : undefined}>
+        <Button type="submit" class="primary" disabled={pending()} focusableWhenDisabled>
           Change password
-        </button>
+        </Button>
       </form>
     </>
   );

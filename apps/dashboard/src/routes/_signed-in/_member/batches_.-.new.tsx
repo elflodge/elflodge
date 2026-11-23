@@ -2,6 +2,7 @@ import { ORPCError } from "@orpc/client";
 import { isSchemaIssue } from "@orpc/contract";
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
+import { Button } from "@ui-sdk/solid/button";
 import {
   BATCH_ID_PATTERN,
   BREAKER_DEFAULTS,
@@ -706,9 +707,9 @@ function SubmitBatch() {
           </Notice>
         </Show>
         <div class="controls">
-          <button class="primary" type="submit" aria-disabled={pending() ? "true" : undefined}>
+          <Button class="primary" type="submit" disabled={pending()} focusableWhenDisabled>
             Submit Batch
-          </button>
+          </Button>
           <Show when={progress()?.step === "reading" || progress()?.step === "uploading"}>
             <button type="button" onClick={stopPreparing}>
               Stop

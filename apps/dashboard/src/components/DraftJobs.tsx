@@ -8,6 +8,7 @@ import {
   createConfirm,
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
+import { Button } from "@ui-sdk/solid/button";
 import { For, Show, createSignal, flush } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
@@ -140,14 +141,13 @@ export function DraftJobs(props: {
     const added = props.rows.at(-1);
     if (added) document.getElementById(rowControlId(added.key, "input"))?.focus();
   }
-  function remove(row: DraftRow, number: number, button: HTMLButtonElement) {
-    if (props.pending) return;
+  function remove(row: DraftRow, number: number, button: HTMLElement) {
     focusNextRemove(button, addJobButton);
     props.onRemove(row.key);
     setSaid(`Job ${formatCount(number)} removed.`);
   }
   async function removeAll() {
-    if (props.pending || !(await confirmRemoveAll())) return;
+    if (!(await confirmRemoveAll())) return;
     // Answered once the dialog has closed and returned focus to Remove all, so focus can move on from
     // it, as it goes with the rows.
     const count = props.rows.length;
@@ -205,39 +205,37 @@ export function DraftJobs(props: {
               event.currentTarget.value = "";
             }}
           />
-          <button
-            type="button"
+          <Button
             ref={(element) => {
               addFilesButton = element;
             }}
-            aria-disabled={props.pending ? "true" : undefined}
-            onClick={() => {
-              if (!props.pending) chooser?.click();
-            }}
+            disabled={props.pending}
+            focusableWhenDisabled
+            onClick={() => chooser?.click()}
           >
             Add files
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             ref={(element) => {
               addJobButton = element;
             }}
-            aria-disabled={props.pending ? "true" : undefined}
+            disabled={props.pending}
+            focusableWhenDisabled
             onClick={addTyped}
           >
             Add a job
-          </button>
+          </Button>
           <Show when={props.rows.length}>
-            <button
-              type="button"
+            <Button
               ref={(element) => {
                 removeAllButton = element;
               }}
-              aria-disabled={props.pending ? "true" : undefined}
+              disabled={props.pending}
+              focusableWhenDisabled
               onClick={() => void removeAll()}
             >
               Remove all
-            </button>
+            </Button>
           </Show>
         </div>
         <Show when={receiving()}>
@@ -355,14 +353,14 @@ export function DraftJobs(props: {
                         )}
                       </Show>
                       <td role="cell" class="is-act">
-                        <button
-                          type="button"
+                        <Button
                           aria-label={`Remove job ${number()}`}
-                          aria-disabled={props.pending ? "true" : undefined}
+                          disabled={props.pending}
+                          focusableWhenDisabled
                           onClick={(event) => remove(row(), number(), event.currentTarget)}
                         >
                           Remove
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   );
