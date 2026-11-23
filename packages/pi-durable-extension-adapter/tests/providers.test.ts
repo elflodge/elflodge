@@ -206,6 +206,31 @@ test("a direct caller's abort stops a provider query that asked for tools", asyn
   await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
 });
 
+test("closing a conversation ends its direct caller's provider query while a shutdown handler hangs", async () => {
+  const { attach, models, dir } = await setup();
+  const alice = await attach("alice");
+  const bob = await attach("bob");
+  const model = models.getModel("fixture", "echo");
+  if (!model) throw new Error("The fixture's model is missing");
+  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
+  const stream = models.streamSimple(
+    model,
+    { messages: [{ role: "user", content: "call tool", timestamp: Date.now() }] },
+    { sessionId: provider?.sessionId, signal: new AbortController().signal },
+  );
+  expect(await stream.result()).toMatchObject({ stopReason: "toolUse" });
+  const status = () => bob.extensions.input("status of alice");
+  expect(await status()).toMatchObject({ action: "transform", text: "open" });
+
+  const hold = path.join(dir, "alice.shutdown");
+  await writeFile(hold, "");
+  onTestFinished(() => rm(hold, { force: true }));
+  const closing = alice.extensions.close();
+  await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
+  await rm(hold);
+  await closing;
+});
+
 test.each(["alone", "beside a conversation on another worker"])(
   "a conversation %s has its extensions' models again once their worker's replacement registers them",
   async (where) => {
@@ -225,7 +250,7 @@ test.each(["alone", "beside a conversation on another worker"])(
     // The reopening waits in `session_start`, before the extensions register their stream.
     expect(await (await alice.ask("meanwhile")).wait(context)).toMatchObject(
       bob
-        ? { status: "unanswered", reason: "model_error", detail: expect.stringContaining("exited") }
+        ? { status: "unanswered", reason: "model_error" }
         : { status: "unanswered", reason: "no_model" },
     );
     if (bob) {
@@ -259,7 +284,6 @@ test("after a worker exit, a provider whose stream a handler added has it again 
   expect(await (await carol.ask("again")).wait(context)).toMatchObject({
     status: "unanswered",
     reason: "model_error",
-    detail: expect.stringContaining("No API provider registered for api: fixture"),
   });
   await carol.extensions.input("register late");
   expect(await (await carol.ask("again")).wait(context)).toMatchObject({ status: "done" });
@@ -335,7 +359,7 @@ test("a conversation that registered settings alone is served by Pi once the las
   const dave = await attach("dave");
   expect(await (await dave.ask("hello")).wait(context)).toMatchObject({
     status: "unanswered",
-    detail: expect.stringContaining("No unique attached conversation"),
+    reason: "model_error",
   });
 
   await alice.extensions.close();

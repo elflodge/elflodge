@@ -120,8 +120,6 @@ interface Parking {
 }
 
 const catalogs = new WeakMap<Models, Map<string, InstalledProvider>>();
-/** The attached conversations on each runtime, by provider session ID. */
-const attached = new WeakMap<Models, Map<string, ProviderSession>>();
 
 /**
  * The providers one attached conversation's extensions registered. A worker's exit withdraws them
@@ -139,17 +137,15 @@ export class ProviderSession {
   #gone: Error | undefined;
   readonly #parked = new Map<SubmissionId, Parking>();
   /**
-   * Requests of callers other than pi-durable that asked for tools, each with what stops listening
-   * to its caller's signal; the worker's close or exit ends the query itself.
+   * Requests of callers other than pi-durable that asked for tools, each by what stops listening to
+   * its caller's signal, with what also cancels it: a close cancels them, an exit ended them.
    */
-  readonly #held = new Set<() => void>();
+  readonly #held = new Map<() => void, () => void>();
 
   constructor(models: Models, sessionId: string, harness: Harness, conversation: ConversationId) {
     this.#models = models;
     this.#catalog = catalogs.get(models) ?? new Map();
     catalogs.set(models, this.#catalog);
-    const sessions = attached.get(models) ?? new Map();
-    attached.set(models, sessions.set(sessionId, this));
     this.#sessionId = sessionId;
     this.#harness = harness;
     this.#conversation = conversation;
@@ -168,7 +164,7 @@ export class ProviderSession {
     this.#worker = undefined;
     this.#gone = error;
     for (const parking of this.#parked.values()) parking.drop();
-    for (const stop of this.#held) stop();
+    for (const stop of this.#held.keys()) stop();
     for (const name of this.#catalog.keys()) this.unregister(name);
   }
 
@@ -208,7 +204,6 @@ export class ProviderSession {
   #createRegistration(name: string, runtime: Runtime): InstalledProvider {
     const previous = runtime.getRegisteredProviderConfig(name);
     const catalog = this.#catalog;
-    const models = this.#models;
     return {
       runtime,
       previous,
@@ -224,30 +219,13 @@ export class ProviderSession {
             const matches = [...(catalog.get(name)?.sessions ?? [])].filter(
               ([session, stream]) => stream && session.#sessionId === options.sessionId,
             );
-            if (matches.length !== 1) {
-              const session = attached.get(models)?.get(options.sessionId ?? "");
-              throw (
-                (session && session.#unregistered(name)) ??
-                new Error(
-                  `No unique attached conversation for provider "${name}" and session "${options.sessionId ?? ""}"`,
-                )
-              );
-            }
+            if (matches.length !== 1) throw unrouted(name, options.sessionId);
             return matches[0][0].#stream(name, model, context, options);
           },
           undefined,
           options.signal,
         ),
     };
-  }
-
-  /** Why a request finds no stream of this conversation, if its worker exited since it attached. */
-  #unregistered(name: string) {
-    if (!this.#gone) return undefined;
-    if (!this.#worker) return this.#gone;
-    return new Error(
-      `The conversation's extensions have not registered a stream for provider "${name}" since their worker exited: ${this.#gone.message}`,
-    );
   }
 
   get(name: string) {
@@ -301,11 +279,9 @@ export class ProviderSession {
     if (this.#life.signal.aborted) return;
     this.#life.abort(reason);
     for (const parking of this.#parked.values()) parking.release();
-    for (const stop of this.#held) stop();
+    for (const end of this.#held.values()) end();
     for (const name of this.#catalog.keys()) this.unregister(name);
     this.#worker = undefined;
-    const sessions = attached.get(this.#models);
-    if (sessions?.get(this.#sessionId) === this) sessions.delete(this.#sessionId);
   }
 
   async #stream(
@@ -333,8 +309,7 @@ export class ProviderSession {
     const worker = this.#worker;
     if (!worker) throw this.#gone ?? new Error("The conversation's extension worker exited");
     // The worker may have exited and the reopened extensions registered otherwise meanwhile.
-    if (this.#catalog.get(name)?.sessions.get(this) !== true)
-      throw this.#unregistered(name) ?? new Error(`No stream is registered for "${name}"`);
+    if (this.#catalog.get(name)?.sessions.get(this) !== true) throw unrouted(name, this.#sessionId);
     live.throwIfAborted();
     signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
@@ -456,9 +431,16 @@ export class ProviderSession {
       this.#held.delete(stop);
       signal.removeEventListener("abort", aborted);
     };
-    this.#held.add(stop);
+    this.#held.set(stop, aborted);
     signal.addEventListener("abort", aborted, { once: true });
   }
+}
+
+/** Why a request finds no stream to route to, as while a conversation's extensions open again. */
+function unrouted(name: string, sessionId: string | undefined) {
+  return new Error(
+    `No attached conversation with session "${sessionId ?? ""}" has a stream registered for provider "${name}". Extensions whose worker exited register theirs again once they have opened again.`,
+  );
 }
 
 /** `reason` as it can cross to the worker: a value that cannot be copied goes as its message. */

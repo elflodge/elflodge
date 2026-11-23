@@ -11,6 +11,9 @@ import {
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 
+// The queries of the conversations on this worker, by owner, which a neighbour can report.
+const queries = new Map<string, AbortSignal | undefined>();
+
 export default function extension(pi: ExtensionAPI) {
   pi.registerProvider("anthropic", { baseUrl: "https://proxy.example" });
   const faux = createFauxCore({ provider: "fixture", api: "fixture", models: [{ id: "echo" }] });
@@ -39,6 +42,7 @@ export default function extension(pi: ExtensionAPI) {
               : fauxAssistantMessage(owner + ": " + contentText(last.content));
           }
           request = options?.signal;
+          queries.set(owner, request);
           if (text === "crash") process.exit(3);
           if (/^(wait for provider|ignore abort)$/.test(text) && request && !request.aborted)
             await once(request, "abort");
@@ -94,12 +98,14 @@ export default function extension(pi: ExtensionAPI) {
       });
     else if (!ctx.modelRegistry.getProvider("fixture")) pi.registerProvider("fixture", config);
   });
+  pi.on("session_shutdown", async (_event, ctx) => {
+    // Holds the shutdown while the test keeps the file beside the working directory.
+    while (existsSync(`${ctx.cwd}.shutdown`)) await setTimeout(20);
+  });
   pi.on("input", ({ text }) => {
-    if (text === "status") {
-      return {
-        action: "transform",
-        text: request ? (request.aborted ? "aborted" : "open") : "idle",
-      };
+    if (text === "status" || text.startsWith("status of ")) {
+      const query = text === "status" ? request : queries.get(text.slice("status of ".length));
+      return { action: "transform", text: query ? (query.aborted ? "aborted" : "open") : "idle" };
     }
     if (text === "exit") process.exit(1);
     if (text === "register late") pi.registerProvider("late", config);

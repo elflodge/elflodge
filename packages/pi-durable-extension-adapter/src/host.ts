@@ -950,8 +950,9 @@ class AttachedConversation {
     const reopening = this.#loaded !== undefined;
     const opened = await hosted.rpc.open(route, this.sessionId, cwd, flags ?? {});
     this.#stillOn(hosted);
-    // Opened again, the extensions keep what they registered before, a `tool_call` gate included,
-    // until they are all back: one that loaded before and fails now fails the reopen.
+    // Opened again, the extensions keep the tools and hooks they registered before, a `tool_call`
+    // gate included, until they are all back: one that loaded before and fails now fails the
+    // reopen. Their providers went at the exit and are registered again as at attach.
     const loaded = new Map(opened.loaded.map((each) => [each.path, each.source]));
     for (const [module, source] of this.#loaded ?? []) {
       if (loaded.has(module)) continue;
@@ -1788,13 +1789,15 @@ class AttachedConversation {
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(this.#ready, limited).catch(() => {});
     this.#installation.remove(this);
+    // Its provider queries end by their IDs first, so a `session_shutdown` handler that hangs
+    // cannot keep them open; their registrations go with them.
+    this.providers.close();
     const hosted = this.#hosted;
     if (hosted) {
       // What `session_shutdown` handlers write is kept, as the worker waits for it before it
       // answers; what extensions do after it, or after the time limit, is dropped.
       await awaitWithContext(hosted.rpc.close(this.#route), limited).catch(() => {});
     }
-    this.providers.close();
     this.#closed = true;
     this.#release?.();
   }
