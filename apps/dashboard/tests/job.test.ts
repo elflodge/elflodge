@@ -521,6 +521,52 @@ test("a cancelled Batch withdraws Resume while the member is editing the budget"
   expect(hub.jobs.resume.calls).toEqual([]);
 });
 
+test("a raised budget keeps a member from resending an older amount after a refusal", async ({
+  hub,
+  open,
+}) => {
+  const journal = spentBudget("budget-raised");
+  hub.batches.get.answers(aBatch("april"));
+  const page = await openJob(hub, open, journal);
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Resume the job" });
+  const field = dialog.getByLabel("New model budget USD");
+  await field.fill("1.50");
+  const submit = dialog.getByRole("button", { name: "Resume the job" });
+  hub.jobs.resume.refuses("CONFLICT", { message: "The job is changing; try again." });
+  const sending = hub.jobs.resume.hold();
+  await submit.click();
+  await sending.arrived;
+
+  // Meanwhile another member resumes it with a budget of 4 USD and pauses it, which the page reads
+  // while its own request waits; the hub then refuses that request.
+  journal.job = aJob("budget-raised", {
+    status: "paused",
+    ...STARTED,
+    modelBudgetUsd: 4,
+    usage: journal.job.usage,
+  });
+  await page.clock.runFor(5_000);
+  const reason = dialog.getByText("Its model budget was raised, so it resumes without a new one.");
+  await expectBrowser(reason).toBeVisible();
+  sending.release();
+  await expectBrowser(dialog.getByRole("alert")).toHaveText("The job is changing; try again.");
+  await expectBrowser(reason).toBeVisible();
+  await expectBrowser(field).toHaveValue("1.50");
+  await expectBrowser(submit).toBeDisabled();
+
+  // The hub would take 1.50, above the cost so far, in place of the raised budget: only the page
+  // keeps the member from sending it again.
+  hub.jobs.resume.answers(journal.job);
+  await submit.focus();
+  await page.keyboard.press("Enter");
+  await field.press("Enter");
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toHaveCount(0);
+  await expectBrowser(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+  expect(hub.jobs.resume.calls).toEqual([{ id: journal.job.id, modelBudgetUsd: 1.5 }]);
+});
+
 test("a member opening a job sees its success Event and Output together before the next poll", async ({
   hub,
   open,
