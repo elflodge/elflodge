@@ -57,9 +57,6 @@ function wordsOf(...words: readonly (string | undefined)[]) {
   return [...lines].join("\n") || undefined;
 }
 
-/** What the file input holds: nothing, as each file it takes becomes a row at once. */
-const NO_FILES: File[] = [];
-
 /** Why a send stopped at a row, at the part of it concerned. */
 export interface RowRefusal {
   readonly customId?: string;
@@ -156,12 +153,11 @@ export function DraftJobs(props: {
 
   return (
     <>
-      {/* Held empty: each choice, drop or paste is taken from `added` and the change canceled, so the
-          part keeps no files and the same file chosen again is added again. Canceling also leaves
-          unsaid the part's own "1 file accepted.", which the words about the rows replace. */}
+      {/* Each choice, drop or paste is taken from `added` and the change canceled, so the part keeps
+          no files and the same file chosen again is added again. Canceling also leaves unsaid the
+          part's own "1 file accepted.", which the words about the rows replace. */}
       <FileInput
         multiple
-        value={NO_FILES}
         disabled={props.pending}
         onValueChange={(_, details) => {
           details.cancel();
