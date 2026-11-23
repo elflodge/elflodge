@@ -18,6 +18,7 @@
     "check": "vp check"
   },
   "dependencies": {
+    "@earendil-works/chord": "catalog:",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/json-schema": "catalog:",

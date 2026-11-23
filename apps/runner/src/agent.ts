@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { isJsonValue, type JsonValue } from "@earendil-works/chord/json";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { type AssistantMessage, type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
   type ConversationHandle,
@@ -289,8 +289,6 @@ function submitOutputTool(schema: Record<string, unknown>) {
         throw new Error(`The output cannot be stored:\n${z.prettifyError(storable.error)}`);
       }
       const value = storable.data;
-      // Chord's stricter in-memory check also recurses. Run it after the shared depth guard.
-      if (args.path === undefined && !isJsonValue(value)) throw new Error("`value` is not JSON");
       const { valid, errors } = contract.validate(value);
       if (!valid) {
         const problems = errors.map((error) => `- ${error.message}`).join("\n");

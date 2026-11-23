@@ -1,3 +1,4 @@
+import { isJsonValue, type JsonValue } from "@earendil-works/chord/json";
 import isValidFilename from "valid-filename";
 import * as z from "zod/mini";
 
@@ -21,13 +22,6 @@ const storableText = (text: string) => text.isWellFormed() && !text.includes("\0
 const textError = "Must be Unicode text without NUL";
 export const textSchema = z.string().check(z.refine(storableText, textError));
 
-const json = z.json();
-// Validate without replacing the input: Zod drops the own member named __proto__ from its copy.
-const originalJson = z.custom<z.infer<typeof json>, unknown>(
-  (value) => json.safeParse(value).success,
-  "Expected a JSON value",
-);
-
 const checkJsonText = z.superRefine((input: unknown, context) => {
   const path: (string | number)[] = [];
   const refuse = (message: string) =>
@@ -36,7 +30,7 @@ const checkJsonText = z.superRefine((input: unknown, context) => {
   function visit(value: unknown): boolean {
     if (typeof value === "string" && !storableText(value)) refuse(textError);
     if (value === null || typeof value !== "object") return true;
-    // Count the root as one. The .NET default of 64 stays below Zod’s call-stack limit.
+    // Count the root as one. Use the .NET default of 64 before Chord's recursive JSON check.
     if (path.length === 64) {
       refuse("JSON must not nest more than 64 containers");
       return false;
@@ -45,8 +39,6 @@ const checkJsonText = z.superRefine((input: unknown, context) => {
       path.push(key);
       if (typeof key === "string" && !storableText(key)) refuse(textError);
       if (!visit(child)) return false;
-      // Zod also skips validation under this key. Check that subtree after bounding its depth.
-      if (key === "__proto__" && !json.safeParse(child).success) refuse("Expected a JSON value");
       path.pop();
     }
     return true;
@@ -56,8 +48,12 @@ const checkJsonText = z.superRefine((input: unknown, context) => {
 });
 
 /** A JSON value whose keys and strings the Hub's jsonb column can store, up to 64 containers deep. */
-export const jsonTextSchema = z.pipe(z.unknown().check(checkJsonText), originalJson);
-export type JsonValue = z.infer<typeof jsonTextSchema>;
+export const jsonTextSchema = z.pipe(
+  z.unknown().check(checkJsonText),
+  // A guard keeps every JSON member of the submitted value, including an own `__proto__` key.
+  z.custom<JsonValue, unknown>(isJsonValue, "Expected a JSON value"),
+);
+export type { JsonValue };
 
 /**
  * How long each run of a job on a Runner may work, in whole seconds: above zero, and no more than a
