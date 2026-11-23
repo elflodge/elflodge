@@ -558,7 +558,8 @@ test("a raised budget keeps a member from resending an older amount after a refu
   // The hub would take 1.50, above the cost so far, in place of the raised budget: only the page
   // keeps the member from sending it again.
   hub.jobs.resume.answers(journal.job);
-  await submit.focus();
+  // Withdrawn, the pressed button keeps focus, marked `aria-disabled` rather than disabled.
+  await expectBrowser(submit).toBeFocused();
   await page.keyboard.press("Enter");
   await field.press("Enter");
   await page.keyboard.press("Escape");
