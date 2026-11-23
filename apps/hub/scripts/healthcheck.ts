@@ -15,9 +15,11 @@ const host = process.env.HOST;
 const port = process.env.PORT ?? 8787;
 // Without HOST the hub listens on every interface.
 const target = host || "::";
-// Node binds `::` to IPv4 too, so a wildcard bind, given as an address or a name for one, is probed
-// on IPv4 loopback, which a container keeps without IPv6.
-const wildcards = new Set(["0.0.0.0", "::"]);
+// Node binds `::` to IPv4 too, so a wildcard bind, given as an address in any spelling or a name for
+// one, is probed on IPv4 loopback, which a container keeps without IPv6.
+const wildcards = new BlockList();
+wildcards.addAddress("0.0.0.0", "ipv4");
+wildcards.addAddress("::", "ipv6");
 
 // This container's addresses. The kernel answers all of 127.0.0.0/8 locally, though interfaces
 // list only 127.0.0.1.
@@ -37,7 +39,9 @@ const findOwnAddresses: LookupFunction = (_hostname, options, callback) =>
     if (error) return callback(error, []);
     const mine = addresses
       .map((resolved) =>
-        wildcards.has(resolved.address) ? { address: "127.0.0.1", family: 4 } : resolved,
+        wildcards.check(resolved.address, resolved.family === 6 ? "ipv6" : "ipv4")
+          ? { address: "127.0.0.1", family: 4 }
+          : resolved,
       )
       .filter(({ address, family }) => own.check(address, family === 6 ? "ipv6" : "ipv4"));
     if (mine.length === 0) {
@@ -59,6 +63,9 @@ get(
     port,
     path: "/healthz",
     lookup: findOwnAddresses,
+    // A connection of its own, outside the global agent, which sends requests through an HTTP proxy
+    // when NODE_USE_ENV_PROXY is set: the proxy, not this hub, would answer.
+    agent: false,
   },
   (response) => {
     response.resume();
