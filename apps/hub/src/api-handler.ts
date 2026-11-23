@@ -73,7 +73,8 @@ export function createApiHandler<T extends object>(
     });
   // The same router behind two handlers, as oRPC's request limit is one per handler: an upload, whose
   // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
-  // JSON body. The uploads' handler routes only the upload, so a request it does not route goes to
+  // JSON body. The uploads' handler routes only the upload, as oRPC routes it, with or without a
+  // trailing `/`, so either spelling keeps the upload's limit; a request it does not route goes to
   // the other.
   const uploads = handler(MAX_FILE_BYTES, {
     filter: (_, path) => path.join(".") === "blobs.upload",
