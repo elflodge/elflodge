@@ -9,6 +9,8 @@ import {
   useRouter,
 } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import {
   LABEL_KEY_PATTERN,
   problemOf,
@@ -279,21 +281,19 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
       <div class="filters-row">
         {/* Desktop Firefox 125 and Safari 17.5 have no month picker. */}
         <Field class="filter-field" label="Range" error={field("range")}>
-          {(control) => (
-            <select
-              {...control}
-              name="period"
-              onChange={({ currentTarget }) => setRange(currentTarget.value)}
-            >
-              <For each={["7d", "30d", ...months(), "custom"]}>
-                {(value) => (
-                  <option value={value} defaultSelected={value === range()}>
-                    {rangeName(value)}
-                  </option>
-                )}
-              </For>
-            </select>
-          )}
+          <FieldControl
+            render={(part) => <select {...part} />}
+            name="period"
+            onChange={({ currentTarget }) => setRange(currentTarget.value)}
+          >
+            <For each={["7d", "30d", ...months(), "custom"]}>
+              {(value) => (
+                <option value={value} defaultSelected={value === range()}>
+                  {rangeName(value)}
+                </option>
+              )}
+            </For>
+          </FieldControl>
         </Field>
         <Show when={custom()}>
           <For each={["from", "to"] as const}>
@@ -303,46 +303,39 @@ function ReportForm(props: { report?: UsageReport; error?: unknown }) {
                 label={name === "from" ? "From" : "To"}
                 error={field(name)}
               >
-                {(control) => (
-                  <input
-                    {...control}
-                    type="date"
-                    name={name}
-                    required={name === "from"}
-                    defaultValue={dateValue(name)}
-                  />
-                )}
+                <FieldControl
+                  render={(part) => <input {...part} />}
+                  type="date"
+                  name={name}
+                  required={name === "from"}
+                  defaultValue={dateValue(name)}
+                />
               </Field>
             )}
           </For>
         </Show>
         <Field class="filter-field" label="Grouped by" error={field("group")}>
-          {(control) => (
-            <select
-              {...control}
-              name="groupBy"
-              onChange={({ currentTarget }) => setGroup(currentTarget.value)}
-            >
-              {Object.entries(groupings).map(([value, words]) => (
-                <option value={value} defaultSelected={grouping().by === value}>
-                  {words.option}
-                </option>
-              ))}
-            </select>
-          )}
+          <FieldControl
+            render={(part) => <select {...part} />}
+            name="groupBy"
+            onChange={({ currentTarget }) => setGroup(currentTarget.value)}
+          >
+            {Object.entries(groupings).map(([value, words]) => (
+              <option value={value} defaultSelected={grouping().by === value}>
+                {words.option}
+              </option>
+            ))}
+          </FieldControl>
         </Field>
         <Show when={label()}>
           <Field class="filter-field" label="Label key" error={field("label")}>
-            {(control) => (
-              <input
-                {...control}
-                name="labelKey"
-                pattern={LABEL_KEY_PATTERN.source}
-                title="A Label name, optionally after a DNS prefix and /"
-                required
-                defaultValue={grouping().labelKey ?? ""}
-              />
-            )}
+            <Input
+              name="labelKey"
+              pattern={LABEL_KEY_PATTERN.source}
+              title="A Label name, optionally after a DNS prefix and /"
+              required
+              defaultValue={grouping().labelKey ?? ""}
+            />
           </Field>
         </Show>
         <span class="filter-act">

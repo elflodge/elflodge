@@ -1,4 +1,5 @@
 import type { JSX } from "@solidjs/web";
+import { Field as SDKField, FieldLabel, FieldDescription } from "@ui-sdk/solid/field";
 import { Show, createUniqueId, omit } from "solid-js";
 
 import { FieldError } from "./FieldError.tsx";
@@ -14,45 +15,6 @@ type FieldProps = {
   error?: string;
 };
 
-type FieldControl = {
-  readonly id: string;
-  readonly "aria-invalid": "true" | undefined;
-  readonly "aria-describedby": string | undefined;
-};
-
-function fieldParts(props: FieldProps) {
-  const id = createUniqueId();
-  const hintId = id + "-hint";
-  const errorId = id + "-error";
-  return {
-    control: {
-      id,
-      get "aria-invalid"(): "true" | undefined {
-        return props.error !== undefined ? "true" : undefined;
-      },
-      get "aria-describedby"() {
-        return (
-          [props.hint && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
-        );
-      },
-    },
-    hint: () => (
-      <Show when={props.hint} keyed>
-        {(hint) => (
-          <p id={hintId} class="note">
-            {hint}
-          </p>
-        )}
-      </Show>
-    ),
-    refusal: () => (
-      <Show when={props.error} keyed>
-        {(words) => <FieldError id={errorId}>{words}</FieldError>}
-      </Show>
-    ),
-  };
-}
-
 type FieldLayout =
   | {
       /** A label above its control. */
@@ -65,26 +27,36 @@ type FieldLayout =
     };
 
 /** One control under a label. */
-export function Field(
-  props: FieldProps &
-    FieldLayout & {
-      /** Spread these attributes on the labeled control. */
-      children: (control: FieldControl) => JSX.Element;
-    },
-) {
-  const { control, hint, refusal } = fieldParts(props);
+export function Field(props: FieldProps & FieldLayout & { children: JSX.Element }) {
   return (
-    <div class={props.class ?? "field"}>
-      <label for={control.id}>
+    <SDKField class={props.class ?? "field"} invalid={props.error !== undefined}>
+      <FieldLabel>
         {props.label}
         {/* The space sits inside the unit's text: Chromium drops a separate space text node from
             the label's accessible name, which would read "budgetUSD". */}
         <Show when={props.unit}>{(unit) => <span class="unit">{` ${unit()}`}</span>}</Show>
-      </label>
-      {hint()}
-      {props.children(control)}
-      {refusal()}
-    </div>
+      </FieldLabel>
+      {/* Keep the hint registered first when a fresh hub limit changes its words. */}
+      <Show when={!!props.hint}>
+        <FieldDescription class="note">{props.hint}</FieldDescription>
+      </Show>
+      {props.children}
+      <RefusalDescription error={props.error} />
+    </SDKField>
+  );
+}
+
+// UI SDK's FieldError with match announces only the last of several refusals, without its field's name.
+// Use that part when UI SDK can deliver a refusal on focus without a competing announcement.
+export function RefusalDescription(props: { error?: string }) {
+  return (
+    <Show when={props.error} keyed>
+      {(words) => (
+        <FieldDescription class="field-error">
+          <FieldError>{words}</FieldError>
+        </FieldDescription>
+      )}
+    </Show>
   );
 }
 
@@ -103,18 +75,36 @@ export function FieldGroup(
       children: JSX.Element;
     },
 ) {
-  const { control, hint, refusal } = fieldParts(props);
+  // UI SDK's FieldSet has no part for a refusal on the set itself.
+  const id = createUniqueId();
+  const hintId = id + "-hint";
+  const errorId = id + "-error";
   return (
     <fieldset
       {...omit(props, "label", "hint", "error", "children", "class")}
-      {...omit(control, "id")}
+      aria-invalid={props.error !== undefined ? "true" : undefined}
+      aria-describedby={
+        [props.hint && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
+      }
       class={["field", props.class]}
       tabindex="-1"
     >
       <legend>{props.label}</legend>
-      {hint()}
+      <Show when={props.hint} keyed>
+        {(hint) => (
+          <p class="note" id={hintId}>
+            {hint}
+          </p>
+        )}
+      </Show>
       {props.children}
-      {refusal()}
+      <Show when={props.error} keyed>
+        {(words) => (
+          <p class="field-error" id={errorId}>
+            <FieldError>{words}</FieldError>
+          </p>
+        )}
+      </Show>
     </fieldset>
   );
 }

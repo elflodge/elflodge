@@ -1,6 +1,8 @@
 import { ORPCError } from "@orpc/client";
 import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import { Show, createSignal, onSettled } from "solid-js";
 
 import { api, failureDetailSuffix, hubFailureDetail, readFromHub } from "../api-client.ts";
@@ -127,37 +129,23 @@ function Setup() {
             }}
           >
             <Field label="Organization name" error={field("organizationName")}>
-              {(control) => (
-                <input
-                  {...control}
-                  name="organizationName"
-                  autocomplete="organization"
-                  required
-                  {...GIVEN_NAME}
-                />
-              )}
+              <Input name="organizationName" autocomplete="organization" required {...GIVEN_NAME} />
             </Field>
             <Field label="Your name" error={field("name")}>
-              {(control) => (
-                <input {...control} name="name" autocomplete="name" required {...GIVEN_NAME} />
-              )}
+              <Input name="name" autocomplete="name" required {...GIVEN_NAME} />
             </Field>
             <Field label="Email" error={field("email")}>
-              {(control) => (
-                <input {...control} name="email" type="email" autocomplete="username" required />
-              )}
+              <Input name="email" type="email" autocomplete="username" required />
             </Field>
             <Field label="Password" error={field("password")}>
-              {(control) => (
-                <input
-                  {...control}
-                  name="password"
-                  type="password"
-                  autocomplete="new-password"
-                  required
-                  {...NEW_PASSWORD}
-                />
-              )}
+              <FieldControl
+                render={(part) => <input {...part} />}
+                name="password"
+                type="password"
+                autocomplete="new-password"
+                required
+                {...NEW_PASSWORD}
+              />
             </Field>
             <Show when={error()} keyed>
               {(message) => <Notice role="alert">{message}</Notice>}

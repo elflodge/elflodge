@@ -247,7 +247,9 @@ A plain form uses `form.fields` to stack fields up to 24rem wide, with the butto
 
 Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field` it draws the label, an optional hint as `p.note` (pass `undefined` when absent), the control and, when refused, the reason as `p.field-error`. The error mark and words are small and in the failed colour. Several reasons appear on separate lines.
 
-Spread the attributes from `Field` on the control. Its ID connects it to the label. Its `aria-describedby` names the hint first and the refusal second, when each has words. It carries `aria-invalid="true"` while refused. A control that takes the part’s attributes must not bind `value`. Use `defaultValue` for a starting value. When a spread attribute changes, Solid 2 can write a bound `value` back to the DOM and overwrite the member's edit. Select options use `defaultSelected`.
+Put the control directly inside `Field`. UI SDK’s `FieldLabel` names it and focuses it when pressed. A `FieldDescription` connects the hint and a second one connects the refusal, in reading order. The control carries `aria-invalid="true"` only while a refusal stands. The browser still blocks invalid submissions and shows its own validation bubble.
+
+Use UI SDK’s `Input` for a line of text and `Textarea` for several. Use `FieldControl` with `render` for a native select or number or date input to keep the browser’s picker and spinner. Passwords also use a native input through `FieldControl` so the typed value stays out of component state. Supply `name`, `required`, `disabled`, `readonly`, constraints and autocomplete on the control as needed. Give a starting value with `defaultValue`, or `defaultSelected` on a select option, so an update to field state preserves the member’s edits.
 
 A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in the hint. Required fields carry no mark. For several controls under one legend, `FieldGroup` draws a `fieldset.field` that takes the refusal and focus itself, and adds a `class` given for a variant. In a filters row, pass `class="filter-field"` to put the label beside the control. Filter fields take no hint.
 
@@ -256,24 +258,17 @@ A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in t
   label="New model budget"
   unit="USD"
   hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
-  error={budgetFailure()?.fields.get("budget")}
+  error={fields.refused("modelBudgetUsd")}
 >
-  {(control) => (
-    <input
-      {...control}
-      name="modelBudgetUsd"
-      type="number"
-      required
-      min="0"
-      step="any"
-      readonly={pending()}
-      onInput={() => setBudgetFailure(undefined)}
-      autofocus
-      ref={(element) => {
-        budgetField = element;
-      }}
-    />
-  )}
+  <FieldControl
+    render={(part) => <input {...part} />}
+    name="modelBudgetUsd"
+    type="number"
+    required
+    min="0"
+    step="any"
+    readonly={fields.pending()}
+  />
 </Field>
 ```
 
@@ -421,7 +416,7 @@ A record with no page of its own, such as an API key, has its identifier as a `s
 
 At 640px and below a record is a block: its identifier on a line of its own, then one value per line. Its name and unit, from `data-l`, take the first 7rem. A long value wraps in the space beside its name. The action in `td.is-act` starts its line, as a value does. The folded cell label has an empty text alternative because the column head already names the value. The column heads are hidden but still read by the declarations `.vh` has, repeated in the table's rule, since a class cannot apply at one width only. That layout drops a table's implicit roles, so the table states them.
 
-Rows a form gathers before it sends them are draft records, `table.records.is-draft`: fields in the cells, each row ending with its Remove in `td.is-act`, and `.is-pairs` for two fields a row, as Labels. The layout is fixed, so a thousand rows lay out at once. The form is the one source of what is typed; the page keeps for each row only what the form cannot say, its kind, its file and what was told when it was added, and keeps its last reading of the form for the figures and the Custom ID checks, read once for each committed change: a field left (its `change`), rows or Labels added or removed, and Submit, which sends what it reads then. A keystroke reads nothing. Each field's `aria-label` names its row, as "Custom ID of job 3", since a column head does not say which row a field is in. A row's refusal stands under its field as `p.field-error`, each problem once though a row's own words and the page's check can both name it. Once a send has ended, an alert counts and links the rows whose words stand now, by what stops them: what the page's own check or a row's own words find ("cannot be sent"), what the hub refused, and the files that could not be read or uploaded, each kind in a sentence of its own, so an edit, an addition or a removal changes it; the sentence about trying again after a failed upload stands only while such a row does. A refusal of the jobs as a whole, as for their count, ends once the rows are within the limits. Each link leads to the control that carries the words: the file's cell for a file the hub or the browser refused, could not read or could not upload, otherwise the Custom ID or the Input, whose description holds them. Ten links, then how many more: a choice of what an alert can hold. A file a row holds is `td.is-file` with `span.file`: its name as `span.cut.mono`, cut at its end with the whole name in its `title`, and its size. A refused file's name takes the failed colour, and its cell takes `aria-invalid` and `tabindex="-1"` so that a link can focus it. At 640px and below, a draft record folds to two lines at most: its number, the field that names it and Remove, then what it holds; two fields a row stay on one line with Remove. The heads of the first line stay in sight above the first row, as Job and Custom ID, or Key and Value, since a field in a row shows no label of its own; the head of the second line, "Input or file", is hidden, as what that line holds shows what it is, and the cells show no `data-l` names. Every field keeps its `aria-label` and Remove its name, so each control of a folded row is named without a head.
+Rows a form gathers before it sends them are draft records, `table.records.is-draft`: fields in the cells, each row ending with its Remove in `td.is-act`, and `.is-pairs` for two fields a row, as Labels. The layout is fixed, so a thousand rows lay out at once. The form is the one source of what is typed; the page keeps for each row only what the form cannot say, its kind, its file and what was told when it was added, and keeps its last reading of the form for the figures and the Custom ID checks, read once for each committed change: a field left (its `change`), rows or Labels added or removed, and Submit, which sends what it reads then. A keystroke does not reread the draft. Each field's `aria-label` names its row, as "Custom ID of job 3", since a column head does not say which row a field is in. For a Label value, a job’s Custom ID or its typed Input, UI SDK’s field renders the table cell itself so its control and refusal stay direct children. Keep each control’s row-specific accessible name and the IDs used for focus and links. A row's refusal stands under its field as `p.field-error`, each problem once though a row's own words and the page's check can both name it. Once a send has ended, an alert counts and links the rows whose words stand now, by what stops them: what the page's own check or a row's own words find ("cannot be sent"), what the hub refused, and the files that could not be read or uploaded, each kind in a sentence of its own, so an edit, an addition or a removal changes it; the sentence about trying again after a failed upload stands only while such a row does. A refusal of the jobs as a whole, as for their count, ends once the rows are within the limits. Each link leads to the control that carries the words: the file's cell for a file the hub or the browser refused, could not read or could not upload, otherwise the Custom ID or the Input, whose description holds them. Ten links, then how many more: a choice of what an alert can hold. A file a row holds is `td.is-file` with `span.file`: its name as `span.cut.mono`, cut at its end with the whole name in its `title`, and its size. A refused file's name takes the failed colour, and its cell takes `aria-invalid` and `tabindex="-1"` so that a link can focus it. At 640px and below, a draft record folds to two lines at most: its number, the field that names it and Remove, then what it holds; two fields a row stay on one line with Remove. The heads of the first line stay in sight above the first row, as Job and Custom ID, or Key and Value, since a field in a row shows no label of its own; the head of the second line, "Input or file", is hidden, as what that line holds shows what it is, and the cells show no `data-l` names. Every field keeps its `aria-label` and Remove its name, so each control of a folded row is named without a head.
 
 ### Jobs list
 

@@ -9,13 +9,16 @@ import {
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
+import { Field } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
+import { Textarea } from "@ui-sdk/solid/textarea";
 import { For, Show, createSignal, flush } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
 import { focusNextRemove } from "../form.ts";
 import { formatBytes } from "../format-bytes.ts";
 import { formatCount, plural } from "../format.ts";
-import { FieldGroup } from "./Field.tsx";
+import { FieldGroup, RefusalDescription } from "./Field.tsx";
 import { FieldError } from "./FieldError.tsx";
 
 /**
@@ -289,13 +292,16 @@ export function DraftJobs(props: {
                       <td role="cell" class="num" data-l="Job">
                         {formatCount(number())}
                       </td>
-                      <td role="cell" class="is-id" data-l="Custom ID">
-                        <input
+                      <Field
+                        invalid={idError() !== undefined}
+                        render={(part) => (
+                          <td {...part} role="cell" class="is-id" data-l="Custom ID" />
+                        )}
+                      >
+                        <Input
                           id={rowControlId(first.key, "customId")}
                           name={`jobs[${index()}][customId]`}
                           aria-label={`Custom ID of job ${number()}`}
-                          aria-invalid={idError() ? "true" : undefined}
-                          aria-describedby={idError() ? `${id}-id-error` : undefined}
                           defaultValue={first.customId}
                           required
                           spellcheck={false}
@@ -303,30 +309,27 @@ export function DraftJobs(props: {
                           readonly={props.pending}
                           onInput={() => props.onEdited(first.key, "customId")}
                         />
-                        <Show when={idError()} keyed>
-                          {(words) => <FieldError id={`${id}-id-error`}>{words}</FieldError>}
-                        </Show>
-                      </td>
+                        <RefusalDescription error={idError()} />
+                      </Field>
                       <Show
                         when={first.kind === "file" && first}
                         fallback={
-                          <td role="cell" data-l="Input">
-                            <textarea
+                          <Field
+                            invalid={holdsError() !== undefined}
+                            render={(part) => <td {...part} role="cell" data-l="Input" />}
+                          >
+                            <Textarea
                               id={rowControlId(first.key, "input")}
                               name={`jobs[${index()}][input]`}
                               aria-label={`Input of job ${number()}`}
-                              aria-invalid={holdsError() ? "true" : undefined}
-                              aria-describedby={holdsError() ? `${id}-input-error` : undefined}
                               // Three rows: a short input shows whole, a longer one scrolls.
                               rows={3}
                               required
                               readonly={props.pending}
                               onInput={() => props.onEdited(first.key, "input")}
                             />
-                            <Show when={holdsError()} keyed>
-                              {(words) => <FieldError id={`${id}-input-error`}>{words}</FieldError>}
-                            </Show>
-                          </td>
+                            <RefusalDescription error={holdsError()} />
+                          </Field>
                         }
                       >
                         {(job) => (
@@ -347,7 +350,11 @@ export function DraftJobs(props: {
                               <span class="num">{formatBytes(job().file.size)}</span>
                             </span>
                             <Show when={holdsError()} keyed>
-                              {(words) => <FieldError id={`${id}-file-error`}>{words}</FieldError>}
+                              {(words) => (
+                                <p class="field-error" id={`${id}-file-error`}>
+                                  <FieldError>{words}</FieldError>
+                                </p>
+                              )}
                             </Show>
                           </td>
                         )}

@@ -7,6 +7,8 @@ import {
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
 import { DialogTrigger, createDialogController, type DialogController } from "@ui-sdk/solid/dialog";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import type { ApiKey } from "contract";
 import { GRANTABLE_KEY_PERMISSIONS, MAX_API_KEY_NAME_LENGTH, problemOf } from "contract";
 import {
@@ -341,21 +343,18 @@ function CreateKey(props: { controller: DialogController }) {
             hint={`Optional, up to ${MAX_API_KEY_NAME_LENGTH} characters.`}
             error={fields.refused("name")}
           >
-            {(control) => (
-              <input
-                {...control}
-                name="name"
-                autocomplete="off"
-                readonly={fields.pending()}
-                onInput={({ currentTarget }) =>
-                  currentTarget.setCustomValidity(
-                    currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
-                      ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
-                      : "",
-                  )
-                }
-              />
-            )}
+            <Input
+              name="name"
+              autocomplete="off"
+              readonly={fields.pending()}
+              onInput={({ currentTarget }) =>
+                currentTarget.setCustomValidity(
+                  currentTarget.value.length > MAX_API_KEY_NAME_LENGTH
+                    ? `Use a name of ${MAX_API_KEY_NAME_LENGTH} characters or fewer. This one has ${formatCount(currentTarget.value.length)}.`
+                    : "",
+                )
+              }
+            />
           </Field>
           <FieldGroup
             name="permissions"
@@ -384,13 +383,11 @@ function CreateKey(props: { controller: DialogController }) {
             </For>
           </FieldGroup>
           <Field label="Expires" error={fields.refused("expiresIn")}>
-            {(control) => (
-              <select {...control} name="expiresIn">
-                <For each={EXPIRIES}>
-                  {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
-                </For>
-              </select>
-            )}
+            <FieldControl render={(part) => <select {...part} />} name="expiresIn">
+              <For each={EXPIRIES}>
+                {(expiry, index) => <option value={String(index())}>{expiry.label}</option>}
+              </For>
+            </FieldControl>
           </Field>
         </>
       )}

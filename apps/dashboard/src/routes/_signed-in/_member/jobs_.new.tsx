@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { Input } from "@ui-sdk/solid/input";
+import { Textarea } from "@ui-sdk/solid/textarea";
 import { BATCH_ID_PATTERN, MAX_BATCH_ID_LENGTH, batchCreationSchema } from "contract";
 import { Show, createSignal } from "solid-js";
 
@@ -152,16 +154,13 @@ function SubmitJob() {
           refused={refused}
           afterInstructions={
             <Field label="Input" hint="What the agent works on." error={refused("input")}>
-              {(control) => (
-                <textarea
-                  {...control}
-                  name="input"
-                  // Eight rows: a short document, such as an invoice's lines and a question about them.
-                  rows={8}
-                  required
-                  readonly={pending()}
-                />
-              )}
+              <Textarea
+                name="input"
+                // Eight rows: a short document, such as an invoice's lines and a question about them.
+                rows={8}
+                required
+                readonly={pending()}
+              />
             </Field>
           }
           afterSchema={
@@ -176,17 +175,14 @@ function SubmitJob() {
               }
               error={refused("id")}
             >
-              {(control) => (
-                <input
-                  {...control}
-                  name="id"
-                  pattern={BATCH_ID_PATTERN.source}
-                  title="Letters, digits, _ and -, not beginning with -"
-                  spellcheck={false}
-                  autocapitalize="off"
-                  readonly={pending()}
-                />
-              )}
+              <Input
+                name="id"
+                pattern={BATCH_ID_PATTERN.source}
+                title="Letters, digits, _ and -, not beginning with -"
+                spellcheck={false}
+                autocapitalize="off"
+                readonly={pending()}
+              />
             </Field>
           }
         />
