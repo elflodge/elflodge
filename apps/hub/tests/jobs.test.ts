@@ -99,7 +99,7 @@ test("a Batch is created and a job added to it, each with 200, and the job reads
   expect(await system.owner().jobs.get({ id: job.id })).toEqual(read);
 });
 
-test("a Batch and its job show the key that submitted them after revocation, and keep who created the key", async () => {
+test("a Batch and its job show the key that submitted them after revocation", async () => {
   const { id: keyId, client } = await system.createApiKey({
     name: "nightly batch",
     permissions: { job: ["create"] },
@@ -120,19 +120,6 @@ test("a Batch and its job show the key that submitted them after revocation, and
   ).toMatchObject({
     submitter,
   });
-
-  const session = await system.ownerAuth().getSession();
-  assert(session, "The owner has no session");
-  // No API shows who created the key, so the test reads it where the hub keeps it.
-  await using db = openDatabase(inject("databaseUrl"));
-  expect(
-    await db
-      .withSchema(DB_SCHEMA)
-      .selectFrom("job")
-      .select("keyCreatorUserId")
-      .where("id", "=", JobId(id))
-      .executeTakeFirst(),
-  ).toEqual({ keyCreatorUserId: session.user.id });
 });
 
 test("a member's session submits as a key does: Blobs, a Batch and its jobs, shown as the member's", async () => {

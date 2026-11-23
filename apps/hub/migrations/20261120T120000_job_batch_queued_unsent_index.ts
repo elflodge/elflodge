@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
-// Counting each listed Batch's unsent queued jobs by block reason: the predicate and the Canary
-// flag cover the count, so Postgres skips the jobs' rows on pages a vacuum marked all-visible.
+// Counting each listed Batch's unsent queued jobs that wait for its Canary: the predicate and the
+// Canary flag cover the count, so Postgres skips the jobs' rows on pages a vacuum marked all-visible.
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .withSchema("elflodge")

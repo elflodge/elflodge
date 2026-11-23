@@ -105,15 +105,19 @@ describe.skipIf(inject("hub") !== "node")("the Docker images", () => {
     const [hubImage] = await Promise.all([buildImage("hub"), buildImage("runner")]);
     await using hub = await hubImage
       .withNetwork(network)
-      .withNetworkAliases("hub")
+      // Keep the Hub on one network: it binds only to "hub", and Docker must publish that same
+      // interface. A Testcontainers network alias attaches the container to a second bridge.
+      .withHostname("hub")
       .withEnvironment({
         DATABASE_URL: `postgres://${database.getUsername()}:${database.getPassword()}@database:5432/${database.getDatabase()}`,
+        HOST: "hub",
         BETTER_AUTH_SECRET: "a-secret-only-for-tests-0123456789abcdef",
         HUB_URL: HUB_ORIGIN,
         ADMIN_EMAIL: OWNER.email,
         ADMIN_PASSWORD: OWNER.password,
       })
       .withExposedPorts(8787)
+      .withHealthCheck({ test: ["CMD", "/nodejs/bin/node", "healthcheck.ts", "hub"] })
       .withWaitStrategy(Wait.forHealthCheck())
       .start();
     const url = `http://${hub.getHost()}:${hub.getMappedPort(8787)}`;

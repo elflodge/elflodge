@@ -914,7 +914,7 @@ function progressOf(batch: Batch) {
     .map(([status, count]) => `${count} ${status === "running" ? "agents running" : status}`)
     .join(", ");
   // Short wording keeps the usual line near 80 columns. log-update also rewrites lines that wrap.
-  const waiting = batch.blockedJobCounts.batchCanary;
+  const waiting = batch.jobsWaitingForCanary;
   const canary = waiting > 0 ? `; ${waiting} waiting for its Canary` : "";
   const pause = batch.pausedBy === "caller" ? "; paused" : "";
   const unknown = batch.statusUnknownJobs > 0 ? `; ${batch.statusUnknownJobs} status unknown` : "";

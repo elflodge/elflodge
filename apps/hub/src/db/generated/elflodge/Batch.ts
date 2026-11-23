@@ -8,7 +8,6 @@ import type { ColumnType, Selectable, Insertable, Updateable } from "kysely";
 import type { default as BatchPausedBy } from "./BatchPausedBy.js";
 import type { OrganizationId } from "./Organization.js";
 import type { default as SubmitterKind } from "./SubmitterKind.js";
-import type { UserId } from "./User.js";
 
 /** Identifier type for elflodge.batch */
 export type BatchUid = Brand.Branded<string, "elflodge.batch">;
@@ -40,8 +39,6 @@ export default interface BatchTable {
   submitterId: ColumnType<string, string, string>;
 
   submitterName: ColumnType<string | null, string | null, string | null>;
-
-  keyCreatorUserId: ColumnType<UserId | null, UserId | null, UserId | null>;
 
   createdAt: ColumnType<Date, Date | string, Date | string>;
 

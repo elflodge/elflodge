@@ -171,18 +171,39 @@ test("an owner can replace an admin's member invitation in one call", async () =
   await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
 });
 
-test("an admin can replace an owner invitation after its inviter is demoted", async () => {
+test("a resend renews while the inviter can grant the role, is refused after demotion without spending the session's renewal, and a replacement works", async () => {
   const inviterEmail = "demoted-owner@example.com";
   const inviter = await joinAsInviter(inviterEmail, ["owner"]);
   const admin = await joinAsInviter("replacement-admin@example.com", "admin");
   const email = "reinvited-member@example.com";
   const original = await invite(email, "owner", inviter);
+  const resend = () =>
+    authPost(
+      "organization/invite-member",
+      { email, role: "owner", organizationId, resend: true },
+      system.ownerCookie(),
+    );
+  const renewed = await resend();
+  expect(renewed.status).toBe(200);
+  expect(await renewed.json()).toMatchObject({ id: original.id });
   const inviterMemberId = await memberId(inviterEmail);
   await system.ownerAuth().organization.updateMemberRole({
     memberId: inviterMemberId,
     role: "admin",
     organizationId,
   });
+
+  await system.makeSessionDueForRenewal(system.ownerCookie());
+  const refused = await resend();
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({
+    message: "This invitation can no longer be renewed. Create a new invitation.",
+  });
+  // The refusal leaves the renewal to get-session, which sends the cookie.
+  const session = await system.hub.fetch("/api/auth/get-session", {
+    headers: { cookie: system.ownerCookie() },
+  });
+  expect(session.headers.get("set-cookie")).toContain("session_token=");
 
   const replacement = await invite(email, "member", admin);
   await system.ownerAuth().organization.updateMemberRole({

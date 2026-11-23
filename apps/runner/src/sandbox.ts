@@ -649,11 +649,12 @@ const isOpenedWatcher = Schema.is(
  * `target`, an environment or a handle it opened, whose every operation ends as soon as the context
  * it is given is aborted, rather than when the daemon answers. pi aborts a tool call's context when
  * the call is cut off, by an abort of its conversation or by the journal closing, and waits for the
- * call to end before either is done. But pi-env waits for the daemon's answer to a cancel, passes
- * most file operations no signal, and waits for a start whose sandbox is still being wrapped; and a
- * daemon can stop answering a request while it still answers pings, as when the host refuses it a
- * thread for a command or a file operation opens a FIFO. So a job's timeout, pause, cancel and the
- * Runner's stop wait on nothing the daemon owes. Once a call is cut off, pi takes nothing more from
+ * call to end before either is done. pi-env stops waiting for its connection when aborted and gives
+ * a sent request a second to have its cancel answered, but it sends most file operations without
+ * the signal, so they wait for the daemon's reply. That can take indefinitely, as opening a FIFO
+ * waits for a writer, while the daemon's pings keep the connection alive. Job timeouts, pauses,
+ * cancellations and Runner shutdown must therefore proceed without a reply, and without the
+ * second's wait. Once a call is cut off, pi takes nothing more from
  * it: an abort records the call as aborted, and a close leaves it pending, for recovery to give it
  * an interrupted result. An operation left running carries on until the sandbox closes, which stops
  * the daemon. pi-env has no option for this, so it is done here, around

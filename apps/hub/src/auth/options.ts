@@ -1,6 +1,11 @@
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+  setShouldSkipSessionRefresh,
+} from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
@@ -12,7 +17,11 @@ import * as z from "zod/mini";
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import { findLiveInvitationCallerCannotGrantByEmail, mayGrantRole } from "./invitation-grants.ts";
+import {
+  findInvitationInviterCannotGrantByEmail,
+  findLiveInvitationCallerCannotGrantByEmail,
+  mayGrantRole,
+} from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -67,8 +76,10 @@ export interface AuthSettings {
 }
 
 /**
- * A member gets the Organization and role. Other accounts get only the `notMember` or
- * `hubNotSetUp` status.
+ * Read the Organization and membership together. Better Auth's `getActiveMemberRole` needs an
+ * Organization and returns only the role, so using it here would add reads. The single query also
+ * distinguishes a hub awaiting setup from a signed-in account without membership. Only members
+ * get the Organization and role.
  */
 async function findMembership(db: Kysely<Database>, userId: UserId) {
   const row = await db
@@ -157,38 +168,52 @@ export function authOptions(settings: AuthSettings) {
       "/api-key/delete",
     ],
     hooks: {
-      // A caller may replace a live invitation only if they could see it and grant its role.
-      // The hub checks the inviter's current authority to decide whether the invitation is live.
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== "/organization/invite-member" || ctx.body?.resend === true) return;
+        // Only the hub calls this route, to revoke a key or remove a Runner, with the member's
+        // request headers, and it cannot forward the renewal cookie Better Auth would set. The
+        // dashboard renews through get-session.
+        if (ctx.path === "/api-key/delete") {
+          await setShouldSkipSessionRefresh(true);
+          return;
+        }
+        // Better Auth may cancel the old invitation before beforeCreateInvitation runs, and a
+        // resend keeps the original inviter. Check both paths before Better Auth changes the row.
+        if (ctx.path !== "/organization/invite-member") return;
+        const resend = ctx.body?.resend === true;
         // Match the invite request's lowercased address and its explicit or active Organization.
         const address = ctx.body?.email;
         if (typeof address !== "string") return;
         const email = address.toLowerCase();
         if (!invitationEmail.safeParse(email).success) return;
-        const session = await getSessionFromCtx(ctx);
+        // A refusal below drops the headers this read would set, so it must not renew.
+        const session = await getSessionFromCtx(ctx, { disableRefresh: true });
         if (!session) return;
-        const organizationId = ctx.body.organizationId || session.session.activeOrganizationId;
-        if (typeof organizationId !== "string") return;
-        const invitation = await findLiveInvitationCallerCannotGrantByEmail(
-          db,
-          OrganizationId(organizationId),
-          UserId(session.user.id),
-          email,
-        );
-        if (invitation)
+        const requested = ctx.body.organizationId || session.session.activeOrganizationId;
+        if (typeof requested !== "string") return;
+        const organizationId = OrganizationId(requested);
+        const caller = UserId(session.user.id);
+        if (resend) {
+          if (await findInvitationInviterCannotGrantByEmail(db, organizationId, caller, email)) {
+            throw APIError.fromStatus("CONFLICT", {
+              message: "This invitation can no longer be renewed. Create a new invitation.",
+            });
+          }
+        } else if (
+          await findLiveInvitationCallerCannotGrantByEmail(db, organizationId, caller, email)
+        ) {
           throw APIError.from(
             "FORBIDDEN",
             ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE,
           );
+        }
       }),
     },
-    logger: {
-      // Better Auth's lines go to the console like the hub's own, without terminal colours, so Workers
-      // Logs keeps them with the request they belong to.
-      log: (level, message, ...args) => console[level](`[Better Auth] ${message}`, ...args),
-    },
+    // Workers Logs collects these console lines with the request that produced them.
+    logger: { disableColors: true },
     plugins: [
+      // A separate `/viewer` endpoint could return the same data, but it would have to forward
+      // session renewal cookies. The dashboard already calls Better Auth's `get-session`, which
+      // handles renewal and gives the hub's member guard the same session result.
       customSession(async ({ user, session }) => {
         const id = UserId(user.id);
         const membership = await findMembership(settings.db, id);
@@ -225,7 +250,8 @@ export function authOptions(settings: AuthSettings) {
           configId: API_KEY_CONFIG,
           maximumNameLength: MAX_API_KEY_NAME_LENGTH,
           references: "organization",
-          // API rate limits are a separate concern; per-key limits would add a write to every request.
+          // API rate limits are a separate concern. Better Auth still records each key's use with
+          // per-key rate limits disabled.
           rateLimit: { enabled: false },
           // Better Auth keeps an Organization's key without the member who created it, so the hub
           // records them in the key's metadata. Only the hub writes it: Better Auth's routes that

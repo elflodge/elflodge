@@ -47,14 +47,15 @@ COPY --from=hub-build /app/apps/hub/dist/dashboard ./dist/dashboard
 # Applied as the hub starts (ADR 0015); the manifest makes Node load them as modules.
 COPY --from=hub-build /app/apps/hub/migrations ./migrations
 COPY --from=hub-build /app/apps/hub/package.json ./
+COPY --from=hub-build /app/apps/hub/scripts/healthcheck.ts ./healthcheck.ts
 COPY --from=hub-build /app/LICENSE ./LICENSE
 
 EXPOSE 8787
 # Healthy once the hub answers its health route, after migrating and setting up. For its first
 # minute, until it first answers, Docker checks each second and counts no failure; after that, every
-# 30 seconds. The image has no curl, so its Node fetches the route.
+# 30 seconds. The image probes the hub on IPv4 loopback.
 HEALTHCHECK --start-period=60s --start-interval=1s \
-  CMD ["/nodejs/bin/node", "-e", "fetch(`http://localhost:${process.env.PORT ?? 8787}/healthz`).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  CMD ["/nodejs/bin/node", "healthcheck.ts"]
 CMD ["dist/main.mjs"]
 
 # --- the Runner's build, its notices and its deployment: `pnpm deploy`, pnpm's way to build an image

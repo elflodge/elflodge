@@ -27,7 +27,7 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
         CreatedBatch: {
           required: expect.arrayContaining([
             "submitter",
-            "blockedJobCounts",
+            "jobsWaitingForCanary",
             "statusUnknownJobs",
             "jobs",
           ]),

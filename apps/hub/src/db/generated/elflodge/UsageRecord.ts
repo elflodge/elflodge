@@ -13,7 +13,6 @@ import type { default as JobStatus } from "./JobStatus.js";
 import type { OrganizationId } from "./Organization.js";
 import type { RunnerId } from "./Runner.js";
 import type { default as SubmitterKind } from "./SubmitterKind.js";
-import type { UserId } from "./User.js";
 
 /** Identifier type for elflodge.usageRecord */
 export type UsageRecordId = Brand.Branded<number, "elflodge.usageRecord">;
@@ -39,8 +38,6 @@ export default interface UsageRecordTable {
   submitterId: ColumnType<string, string, string>;
 
   submitterName: ColumnType<string | null, string | null, string | null>;
-
-  keyCreatorUserId: ColumnType<UserId | null, UserId | null, UserId | null>;
 
   createdAt: ColumnType<Date, Date | string, Date | string>;
 

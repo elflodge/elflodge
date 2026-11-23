@@ -534,17 +534,8 @@ export const batchSchema = z
       failed: z.int(),
       cancelled: z.int(),
     }),
-    /**
-     * How many of its jobs show each `blockedBy` reason. Each is also counted in
-     * `jobCounts.queued`. New reasons may be added.
-     */
-    // An object, not a record keyed by the enum, so an older client drops a reason a newer hub
-    // adds instead of refusing the Batch; `satisfies` keeps a key for every reason.
-    blockedJobCounts: z.object({
-      batchPausedByCaller: z.int(),
-      batchPausedByBreaker: z.int(),
-      batchCanary: z.int(),
-    } satisfies Record<z.infer<typeof blockedBySchema>, unknown>),
+    /** How many of its queued jobs show `blockedBy: "batchCanary"`. */
+    jobsWaitingForCanary: z.int(),
     /**
      * How many of its jobs show `statusUnknown`: each is also counted in `jobCounts`, under its
      * recorded status.
@@ -749,9 +740,9 @@ const dateSchema = z.iso.date();
 const usageLabelGroupingSchema = z.templateLiteral(["label:", labelKeySchema]);
 
 /**
- * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner
- * they last ran on, the status they ended in, or the value of one of their labels, as
- * `label:customer`.
+ * What a read of usage groups it by: the jobs' Batch, who submitted them, the Runner each was
+ * placed on when its end was recorded, the status they ended in, or the value of one of their
+ * labels, as `label:customer`.
  */
 export const usageGroupBySchema = z.union(
   [z.enum(["batch", "submitter", "runner", "status"]), usageLabelGroupingSchema],
@@ -778,7 +769,8 @@ export const rankedUsageSchema = z.union([
   rankedUsage(z.literal("batch"), { batchId: batchIdSchema }),
   // The latest record in the window supplies the submitter's name, by recordedAt then write order.
   rankedUsage(z.literal("submitter"), { submitter: submitterSchema }),
-  // A removed Runner keeps its ID. A job that ended before a Runner started it has none.
+  // A removed Runner keeps its ID. An end has none when its job was on no Runner as it was recorded:
+  // never placed, or freed when its Runner reported a cancel or pause before starting it.
   rankedUsage(z.literal("runner"), {
     runner: z.nullable(z.object({ id: z.string(), name: z.optional(z.string()) })),
   }),
@@ -1532,7 +1524,7 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
           groupBy: z.optional(
             usageGroupBySchema.check(
               z.describe(
-                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, the one recorded last, `runner` for the Runner they last ran on, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
+                "What to group usage by: `batch`, `submitter` for who submitted the jobs, an API key or a member, named as the group's latest record in the window names it, `runner` for the Runner each job was placed on when its end was recorded, `status` for the status they ended in, or `label:` and a label's key, such as `label:customer`, for that label's value. Not grouped when absent.",
               ),
             ),
           ),
@@ -1564,7 +1556,9 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
               ),
           ),
           runnerId: z.optional(
-            textSchema.check(z.describe("The ID of the Runner the jobs last ran on.")),
+            textSchema.check(
+              z.describe("The ID of the Runner the job was placed on when its end was recorded."),
+            ),
           ),
           status: z.optional(z.array(finalJobStatusSchema).check(statusFilterDescription)),
           labels: labelFilterSchema,

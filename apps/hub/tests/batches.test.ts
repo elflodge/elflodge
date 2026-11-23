@@ -595,7 +595,7 @@ test("a Batch's Canary, its first jobs, those added later included, runs before 
   await client.batches.cancel({ id: uncautious.id });
 });
 
-test("Batch reads count blocked jobs through a pause and a new Canary at the end of the queue", async () => {
+test("Batch reads count jobs waiting for a Canary through a pause and a new Canary at the end of the queue", async () => {
   const client = await system.clientWithNewJobsKey();
   const labels = { series: "tail-canary" };
   const { id } = await client.batches.create({
@@ -613,26 +613,15 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
   const [, , older, next, newest] = jobs.map(({ job }) => job.id);
   if (!older || !next || !newest) throw new Error("The add answered without the jobs");
 
-  async function counts(expected: {
-    batchCanary?: number;
-    batchPausedByCaller?: number;
-    batchPausedByBreaker?: number;
-  }) {
+  async function waitingForCanary(expected: number) {
     const batch = await client.batches.get({ id });
-    expect(batch.blockedJobCounts).toEqual({
-      batchPausedByCaller: 0,
-      batchPausedByBreaker: 0,
-      batchCanary: 0,
-      ...expected,
-    });
+    expect(batch.jobsWaitingForCanary).toBe(expected);
     const [listed] = (await client.batches.list({ labels })).batches;
-    expect(listed?.blockedJobCounts).toEqual(batch.blockedJobCounts);
+    expect(listed?.jobsWaitingForCanary).toBe(expected);
   }
-  await counts({ batchCanary: 3 });
+  await waitingForCanary(3);
   await client.jobs.pause({ id: older });
 
-  // Placement alone leaves both Canary jobs queued. Neither counts under the caller's pause,
-  // and the second still does not count when the first job's failure trips the breaker.
   const { socket, runnerId } = await system.connectRunner();
   onTestFinished(async () => {
     socket.close(1000);
@@ -647,7 +636,7 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
   );
   if (!first) throw new Error("The Runner received no job");
   await client.batches.pause({ id });
-  await counts({ batchPausedByCaller: 2 });
+  await waitingForCanary(0);
   await client.batches.resume({ id });
   await runner.request(
     "report",
@@ -671,7 +660,7 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
     },
     10_000,
   );
-  await counts({ batchPausedByBreaker: 2 });
+  await waitingForCanary(0);
 
   await client.batches.resume({ id });
   expect(await client.jobs.resume({ id: older })).toMatchObject({ blockedBy: "batchCanary" });
@@ -679,11 +668,11 @@ test("Batch reads count blocked jobs through a pause and a new Canary at the end
   expect(latest?.id).toBe(newest);
   // The newest queued job is free while the older resumed job is blocked.
   expect(latest).not.toHaveProperty("blockedBy");
-  await counts({ batchCanary: 1 });
+  await waitingForCanary(1);
 
   await client.jobs.cancel({ id: next });
   await client.jobs.cancel({ id: newest });
-  await counts({});
+  await waitingForCanary(0);
   expect(await client.jobs.get({ id: older })).not.toHaveProperty("blockedBy");
 });
 
