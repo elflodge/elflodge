@@ -77,8 +77,9 @@ export interface Procedure<Input, Output, Errors extends ErrorMap> extends Endpo
    */
   answersUnchecked(body: unknown): void;
   /**
-   * The input of every call received, in order. A call whose input the contract refuses gets the
-   * hub's refusal, whatever the test arranged, and is not among them.
+   * The input of every call received, in order. A request the hub's handlers refuse before the
+   * procedure runs, such as one whose body is too large or whose input the contract refuses, gets
+   * the hub's refusal, whatever the test arranged, and is not among them.
    */
   readonly calls: readonly Input[];
 }
