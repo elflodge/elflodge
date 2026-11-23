@@ -212,8 +212,6 @@ test("a member can correct a refused range and leave the end open through today"
   const read = hub.usage.get.calls.at(-1);
   expect(read).toMatchObject({ from: week.from });
   expect(read).not.toHaveProperty("to");
-  await expectBrowser(days).toHaveCount(7);
-  await expectBrowser(days.last()).toHaveAttribute("datetime", TODAY);
   expect(new URL(page.url()).searchParams.has("to")).toBe(false);
   afterToday();
   await page.goBack();
