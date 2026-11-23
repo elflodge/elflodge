@@ -4,7 +4,7 @@ import path from "node:path";
 import { type APIRequestContext, request } from "playwright";
 import type { ManifestChunk } from "vite-plus";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
-import { z } from "zod";
+import * as z from "zod/mini";
 
 import { DASHBOARD_BASE } from "../src/dashboard.ts";
 import { startSystem } from "./harness.ts";
@@ -20,10 +20,8 @@ let shell: string;
 let scriptPath: string;
 
 /** What the test reads of Vite's build manifest. */
-const manifestSchema: z.ZodType<Record<string, Pick<ManifestChunk, "file" | "isEntry">>> = z.record(
-  z.string(),
-  z.object({ file: z.string(), isEntry: z.boolean().optional() }),
-);
+const manifestSchema: z.ZodMiniType<Record<string, Pick<ManifestChunk, "file" | "isEntry">>> =
+  z.record(z.string(), z.object({ file: z.string(), isEntry: z.optional(z.boolean()) }));
 
 beforeAll(async () => {
   await system.start();
