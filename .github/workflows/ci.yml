@@ -50,11 +50,6 @@ jobs:
       # being listed here.
       - &other-tests
         run: vp run --filter '!hub' --filter '!dashboard' test
-      # The Chromium the browser tests drive: the hub's and the dashboard's. They run it headless,
-      # which Playwright does with its smaller headless shell, so the full browser is not installed.
-      - &playwright
-        run: vp exec playwright install --with-deps --only-shell chromium
-        working-directory: apps/hub
       - run: vp test --project node
         working-directory: apps/hub
       - run: vp run -r build
@@ -86,7 +81,6 @@ jobs:
           node-version: 22.19.0
       - *job-sandbox
       - *other-tests
-      - *playwright
       # The hub in workerd, with the tests and the Runners they start on Node 22. The `node` project
       # would run the hub itself on the tests' Node.
       - run: vp test --project workers
@@ -104,7 +98,11 @@ jobs:
         with:
           cache: true
       - *job-sandbox
-      - *playwright
+      # The Chromium the browser tests drive, the dashboard's and the journeys', the only tests that
+      # use one. They run it headless, which Playwright does with its smaller headless shell, so the
+      # full browser is not installed.
+      - run: vp exec playwright install --with-deps --only-shell chromium
+        working-directory: apps/hub
       - run: vp test
         working-directory: apps/dashboard
       - run: vp test --project journeys

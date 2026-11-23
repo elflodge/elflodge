@@ -1,74 +1,94 @@
-import type { Browser } from "playwright";
-import { afterAll, beforeAll, expect, inject, onTestFinished, test } from "vite-plus/test";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
-import { launchDashboardBrowser } from "./dashboard-browser.ts";
+import { type APIRequestContext, request } from "playwright";
+import type { ManifestChunk } from "vite-plus";
+import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
+import * as z from "zod/mini";
+
+import { DASHBOARD_BASE } from "../src/dashboard.ts";
 import { startSystem } from "./harness.ts";
 
 // The dashboard as browsers reach it through the hub, on both runtimes, and the rule that keeps
 // other sites from acting with a member's session.
 
 const system = startSystem();
-let browser: Browser;
+let requests: APIRequestContext;
+/** The app shell of the dashboard's build, which global setup builds and both hubs serve. */
+let shell: string;
+/** The path of the dashboard's entry script, a hashed file of the build, from Vite's manifest. */
+let scriptPath: string;
+
+/** What the test reads of Vite's build manifest. */
+const manifestSchema: z.ZodMiniType<Record<string, Pick<ManifestChunk, "file" | "isEntry">>> =
+  z.record(z.string(), z.object({ file: z.string(), isEntry: z.optional(z.boolean()) }));
 
 beforeAll(async () => {
   await system.start();
-  browser = await launchDashboardBrowser(system);
+  requests = await request.newContext({ baseURL: system.url().href });
+  // Where the hubs serve the build from, `src/main.ts` and `wrangler.jsonc`.
+  const build = path.join(import.meta.dirname, "../../dashboard/dist/client");
+  shell = await readFile(path.join(build, "index.html"), "utf8");
+  const manifest = z.parse(
+    manifestSchema,
+    JSON.parse(await readFile(path.join(build, ".vite/manifest.json"), "utf8")),
+  );
+  const entry = Object.values(manifest).find((chunk) => chunk.isEntry);
+  if (!entry) throw new Error("The dashboard's build manifest has no entry");
+  scriptPath = DASHBOARD_BASE + entry.file;
 });
 afterAll(async () => {
-  await browser?.close();
+  await requests?.dispose();
   await system.stop();
 });
 
 /**
- * Checks that the hub answers a browser's navigation to `pathname` with the app shell. The Workers
- * hub serves the shell for a path with no file of its own only for a navigation.
+ * Requests `pathname` as a browser's navigation to it, which `Sec-Fetch-Mode: navigate` marks:
+ * Cloudflare documents that header as what makes Workers Static Assets serve the app shell for a
+ * path with no file, under single-page-application handling. The Node hub serves the shell by path,
+ * and a missing file under assets is a 404 whatever the request. Node's `fetch` cannot send it, as
+ * it sets `Sec-Fetch-Mode` to the request's mode, which is never `navigate`; Playwright's request
+ * API, which needs no browser, sends headers as given. A redirect is not followed, so a shell
+ * reached through one fails.
  */
+function navigate(pathname: string) {
+  return requests.get(pathname, { headers: { "sec-fetch-mode": "navigate" }, maxRedirects: 0 });
+}
+
+/** Checks that the hub answers a navigation to `pathname` with the build's app shell, unchanged. */
 async function expectShellAt(pathname: string) {
-  // Inspect the HTML the hub served before the dashboard can change it or navigate away.
-  const page = await browser.newPage({ javaScriptEnabled: false });
-  onTestFinished(() => page.close());
-  const response = await page.goto(`${system.origin}${pathname}`);
-  if (!response) throw new Error(`No response for ${pathname}`);
+  const response = await navigate(pathname);
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toMatch(/^text\/html/);
-  const scriptPath = await page
-    .locator('script[src^="/dashboard/assets/"][src$=".js"]')
-    .first()
-    .getAttribute("src");
-  if (!scriptPath) throw new Error(`No dashboard script in the shell at ${pathname}`);
-  return { page, scriptPath };
+  expect(await response.text()).toBe(shell);
+  return { vary: response.headers().vary };
 }
 
 test("dashboard deep links load the shell and caches distinguish missing assets from navigations", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
-  const { page, scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
+  await expectShellAt("/dashboard/.vite/manifest.json");
   const script = await system.hub.fetch(scriptPath);
   expect(script.status).toBe(200);
   expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
     expect.arrayContaining(["max-age=31536000", "immutable"]),
   );
 
+  // Node's `fetch` sends `Sec-Fetch-Mode: cors`, as a page's `fetch` or module script does.
   const missingPath = "/dashboard/assets/missing.js";
-  const missing = await page.evaluate(async (path) => {
-    const response = await fetch(path);
-    return {
-      status: response.status,
-      cacheControl: response.headers.get("cache-control"),
-      vary: response.headers.get("vary"),
-    };
-  }, missingPath);
+  const missing = await system.hub.fetch(missingPath);
   expect(missing.status).toBe(404);
-  expect(missing.cacheControl ?? "").not.toContain("immutable");
+  expect(missing.headers.get("cache-control") ?? "").not.toContain("immutable");
 
-  const navigation = await page.goto(`${system.origin}${missingPath}`);
   if (inject("hub") === "workers") {
-    for (const vary of [script.headers.get("vary"), navigation?.headers().vary, missing.vary]) {
+    // Cloudflare answers the navigation itself, with the shell (ADR 0043).
+    const navigation = await expectShellAt(missingPath);
+    for (const vary of [script.headers.get("vary"), navigation.vary, missing.headers.get("vary")]) {
       expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
     }
   } else {
-    expect(navigation?.status()).toBe(404);
+    expect((await navigate(missingPath)).status()).toBe(404);
   }
   const notices = await system.hub.fetch("/dashboard/THIRD_PARTY_NOTICES.md");
   expect(notices.headers.get("content-type")).toMatch(/^text\/markdown/);
