@@ -31,13 +31,16 @@ export type Open = (path: string, options?: BrowserOptions) => Promise<Page>;
 /**
  * The test for a dashboard page, driven in Chromium against the stand-in for the hub. `hub` is
  * arranged before or between steps. It answers the shell's own reads until a test arranges them: a
- * session of an owner of the Organization, no Runners and no unfinished jobs. Any other call it has
- * no answer for, any request outside the contract, Better Auth's routes and the build, and any
- * request whose arranged answer throws, fails the test, which names them; a request the hub's API
- * handler refuses before the procedure runs, such as one whose input the contract refuses, needs
- * no answer, as the hub's refusal answers it. A call whose answer is lost is arranged with
- * `drops`, and a browser gone offline with `setOffline`. `open` opens a page. Its clock stands
- * still at `NOW` until a test moves it, so no poll or deadline passes unless the test makes it.
+ * session of an owner of the Organization, no Runners and no unfinished jobs. These fail the test,
+ * which names them: a call it has no answer for; a request outside the contract, Better Auth's
+ * routes and the build, a WebSocket among them; an arranged answer that throws, other than a
+ * procedure's declared refusal, or that the contract refuses; and a body an arranged Better Auth
+ * route cannot decode. A request the hub's API handler refuses before the procedure runs, such as
+ * one whose input the contract refuses, needs no answer, as the hub's refusal answers it. Only
+ * what arrives while the test runs counts, not what its closing tabs send. A call whose answer is
+ * lost is arranged with `drops`, and a browser gone offline with `setOffline`. `open` opens a
+ * page. Its clock stands still at `NOW` until a test moves it, so no poll or deadline passes
+ * unless the test makes it.
  */
 export const test = base
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern; this one has none.
@@ -86,8 +89,9 @@ export const test = base
     });
 
     // The build's navigations and files go on to the preview server; every other request goes to
-    // the stand-in. One it does not answer fails the test as a stray, and one whose answer throws,
-    // such as an arranged answer or a body the stand-in cannot decode, fails it with the error.
+    // the stand-in. One it does not answer fails the test as a stray, and one whose answer throws
+    // out of the stand-in, as a Better Auth answer or a body it cannot decode does, fails it with
+    // the error; a procedure's failure the stand-in records itself.
     async function serve(route: Route, request: PlaywrightRequest) {
       const url = new URL(request.url());
       const isNavigation = request.isNavigationRequest() && url.pathname.startsWith(DASHBOARD_BASE);

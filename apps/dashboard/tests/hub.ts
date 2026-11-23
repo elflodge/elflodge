@@ -47,7 +47,10 @@ export interface Held<Input> {
  * for every call until the test arranges another, as the hub's data changes between steps.
  */
 export interface Endpoint<Input, Output> {
-  /** Answers every call with `output`, or with what `answer` returns for the call's input. */
+  /**
+   * Answers every call with `output`, or with what `answer` returns for the call's input. An
+   * `answer` that throws fails the test.
+   */
   answers(output: Output | ((input: Input) => Output | Promise<Output>)): void;
   /** Fails every call with a 500, as the hub answers when something goes wrong in it. */
   fails(): void;
