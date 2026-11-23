@@ -138,12 +138,17 @@ export const test = base
 /**
  * The request the page sent, as the fetch API's `Request`. Playwright reports a routed request's
  * headers without those the browser's network stack adds, Content-Length among them, which the
- * hub's upload requires: given back from the body.
+ * hub's upload requires: given back from the body, and as 0 for a POST or PUT without one, as the
+ * browser sends it. Playwright gives no body for an empty one either, so another method's empty
+ * body arrives without Content-Length, as that method without a body does.
  */
 async function toFetchRequest(request: PlaywrightRequest) {
   const headers = new Headers(await request.allHeaders());
   const body = request.postDataBuffer();
   if (body) headers.set("content-length", String(body.length));
+  else if (request.method() === "POST" || request.method() === "PUT") {
+    headers.set("content-length", "0");
+  }
   return new Request(request.url(), {
     method: request.method(),
     headers,
