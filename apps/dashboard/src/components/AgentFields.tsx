@@ -155,7 +155,6 @@ export function AgentFields(props: {
         error={props.refused(agentFields.modelBudgetUsd)}
       >
         <FieldControl
-          render={(part) => <input {...part} />}
           name={agentFields.modelBudgetUsd}
           type="number"
           min="0"
@@ -170,7 +169,6 @@ export function AgentFields(props: {
         error={props.refused(agentFields.runTimeoutSeconds)}
       >
         <FieldControl
-          render={(part) => <input {...part} />}
           name={agentFields.runTimeoutSeconds}
           type="number"
           min="1"

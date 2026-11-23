@@ -562,7 +562,6 @@ function SubmitBatch() {
             error={refused(breakerFields.canary)}
           >
             <FieldControl
-              render={(part) => <input {...part} />}
               name={breakerFields.canary}
               type="number"
               min="0"
@@ -580,7 +579,6 @@ function SubmitBatch() {
             error={refused(breakerFields.maxFailurePercent)}
           >
             <FieldControl
-              render={(part) => <input {...part} />}
               name={breakerFields.maxFailurePercent}
               type="number"
               min="0"

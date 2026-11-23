@@ -71,7 +71,6 @@ function ChangePassword() {
           error={currentRefused() ? WRONG_CURRENT_PASSWORD : undefined}
         >
           <FieldControl
-            render={(part) => <input {...part} />}
             name="current-password"
             type="password"
             autocomplete="current-password"
@@ -84,7 +83,6 @@ function ChangePassword() {
         </Field>
         <Field label="New password">
           <FieldControl
-            render={(part) => <input {...part} />}
             name="new-password"
             type="password"
             autocomplete="new-password"
@@ -94,7 +92,6 @@ function ChangePassword() {
         </Field>
         <Field label="Confirm new password">
           <FieldControl
-            render={(part) => <input {...part} />}
             name="confirm-password"
             type="password"
             autocomplete="new-password"

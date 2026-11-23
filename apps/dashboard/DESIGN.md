@@ -249,7 +249,7 @@ Use `Field` (`src/components/Field.tsx`) for a single control. Inside `div.field
 
 Put the control directly inside `Field`. UI SDK’s `FieldLabel` names it and focuses it when pressed. A `FieldDescription` connects the hint and a second one connects the refusal, in reading order. The control carries `aria-invalid="true"` only while a refusal stands. The browser still blocks invalid submissions and shows its own validation bubble.
 
-Use UI SDK’s `Input` for a line of text and `Textarea` for several. Use `FieldControl` with `render` for a native select or number or date input to keep the browser’s picker and spinner. Passwords also use a native input through `FieldControl` so the typed value stays out of component state. Supply `name`, `required`, `disabled`, `readonly`, constraints and autocomplete on the control as needed. Give a starting value with `defaultValue`, or `defaultSelected` on a select option, so an update to field state preserves the member’s edits.
+Use UI SDK’s `Input` for a line of text and `Textarea` for several. Use `FieldControl` for a native number or date input, which it renders by default, and give it `render` for a native select, to keep the browser’s picker and spinner. Passwords also use a native input through `FieldControl` so the typed value stays out of component state. Supply `name`, `required`, `disabled`, `readonly`, constraints and autocomplete on the control as needed. Give a starting value with `defaultValue`, or `defaultSelected` on a select option, so an update to field state preserves the member’s edits.
 
 A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in the hint. Required fields carry no mark. For several controls under one legend, `FieldGroup` uses UI SDK’s `FieldSet` as `fieldset.field`, with a `FieldLegend` and descriptions for the hint and refusal. The set carries `aria-invalid="true"` while refused and `tabindex="-1"` so it can receive focus. A caller’s `class` adds its variant. In a filters row, pass `class="filter-field"` to put the label beside the control. Filter fields take no hint.
 
@@ -261,7 +261,6 @@ A unit goes in the label through `unit`, as `span.unit`. Say “Optional” in t
   error={fields.refused("modelBudgetUsd")}
 >
   <FieldControl
-    render={(part) => <input {...part} />}
     name="modelBudgetUsd"
     type="number"
     required
