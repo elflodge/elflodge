@@ -91,6 +91,7 @@
     "node": ">=22.19.0"
   },
   "inlinedDependencies": {
+    "@earendil-works/chord": "1.5.2",
     "@effect/platform-node-shared": "4.1.4",
     "@orpc/client": "2.0.0-beta.51",
     "@orpc/contract": "2.0.0-beta.51",

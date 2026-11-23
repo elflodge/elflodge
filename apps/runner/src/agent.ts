@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { awaitWithContext, BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { isJsonValue, type JsonValue } from "@earendil-works/chord/json";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { type AssistantMessage, type ModelThinkingLevel, type Models } from "@earendil-works/pi-ai";
 import {
   type ConversationHandle,
@@ -271,26 +271,24 @@ function submitOutputTool(schema: Record<string, unknown>) {
       // Presence, not truthiness: `false`, `0` and `null` are outputs.
       const given = ["value" in args, "path" in args].filter(Boolean).length;
       if (given !== 1) throw new Error("Give exactly one of `value` and `path`");
-      let value: JsonValue;
-      if (args.path === undefined) {
-        if (!isJsonValue(args.value)) throw new Error("`value` is not JSON");
-        value = args.value;
-      } else {
+      let input: unknown = args.value;
+      if (args.path !== undefined) {
         if (!api.env) throw new Error("The Workspace is not available");
         const text = await api.env.readTextFile(args.path, context);
         if (!text.ok) throw new Error(`Cannot read ${args.path}: ${text.error.message}`);
         try {
-          value = JSON.parse(text.value);
+          input = JSON.parse(text.value);
         } catch (error) {
           throw new Error(`${args.path} is not JSON: ${ensureError(error).message}`, {
             cause: error,
           });
         }
       }
-      const storable = z.safeParse(jsonTextSchema, value);
+      const storable = z.safeParse(jsonTextSchema, input);
       if (!storable.success) {
         throw new Error(`The output cannot be stored:\n${z.prettifyError(storable.error)}`);
       }
+      const value = storable.data;
       const { valid, errors } = contract.validate(value);
       if (!valid) {
         const problems = errors.map((error) => `- ${error.message}`).join("\n");

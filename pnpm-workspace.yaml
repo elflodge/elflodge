@@ -12,10 +12,8 @@ overrides:
   vitest@*: "catalog:"
 peerDependencyRules:
   allowAny:
-    - vite
     - vitest
   allowedVersions:
-    vite: "*"
     vitest: "*"
 minimumReleaseAge: 1440
 allowBuilds:
@@ -44,7 +42,7 @@ catalog:
   "@effect/vitest": 4.1.4
   "@fontsource-variable/instrument-sans": ^5.3.0
   "@fontsource-variable/jetbrains-mono": ^5.3.0
-  "@hono/node-server": ^2.1.8
+  "@hono/node-server": ^2.1.9
   "@noble/hashes": ^2.4.0
   "@orpc/client": 2.0.0-beta.51
   "@orpc/contract": 2.0.0-beta.51
@@ -55,8 +53,8 @@ catalog:
   "@orpc/shared": 2.0.0-beta.51
   "@orpc/tanstack-query": 2.0.0-beta.51
   "@orpc/zod": 2.0.0-beta.51
-  "@solidjs/vite-plugin": ^3.0.0
-  "@solidjs/web": ^2.0.0
+  "@solidjs/vite-plugin": ^3.0.1
+  "@solidjs/web": ^2.0.1
   "@standard-schema/utils": ^0.3.0
   "@standard-server/core": ~0.16.0
   "@tanstack/solid-query": 6.0.0-rc.6
@@ -93,24 +91,23 @@ catalog:
   is-path-inside: ^4.0.0
   json-rpc-2.0: ^1.8.1
   json-schema-library: ^11.6.16
-  kanel: ^4.0.5
+  kanel: ^4.0.6
   kanel-kysely: ^4.0.1
   kysely: ^0.29.9
   log-update: ^8.0.0
   ms: ^2.1.3
-  nf3: ^0.4.2
+  nf3: ^0.4.3
   pg: ^8.23.1
   playwright: ^1.65.1
   proper-lockfile: ^4.1.2
-  rolldown: ^1.3.2
+  rolldown: ^1.3.3
   rollup-plugin-license: ^3.7.2
-  solid-js: ^2.0.0
+  solid-js: ^2.0.1
   statuses: ^2.0.2
   sync-message-port: ^1.2.0
   testcontainers: ^12.2.1
   tiny-merge-patch: ^1.0.0
   trpc-cli: ^0.17.1
-  type-fest: ^5.10.0
   # Exactly the version Pi pins, so installs share Pi's copy; a range would resolve to a newer one
   # beside it. Follow Pi when it moves: Dependabot leaves it alone, and the adapter's tests fail
   # while the two differ.
@@ -122,10 +119,11 @@ catalog:
   ufo: 1.6.4
   uuid: ^14.0.3
   valid-filename: ^5.0.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
-  vite-plus: 1.6.0
+  # Vite+ pins both this core alias and Vitest in its published dependencies.
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
+  vite-plus: 1.7.0
   vitest: 5.1.0
-  wrangler: ^4.161.0
+  wrangler: ^4.165.0
   # The version Pi's chord takes as a peer, exactly: with any other, pi-ai resolves twice, and
   # `pnpm deploy` cannot build the Runner's image, whose extension adapter takes pi-ai as a peer.
   ws: 8.21.0

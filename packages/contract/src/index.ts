@@ -12,6 +12,7 @@ export {
   inputFileSchema,
   MAX_FILE_BYTES,
   MAX_LABELS,
+  type JsonValue,
   jsonTextSchema,
   type Labels,
   labelsSchema,
