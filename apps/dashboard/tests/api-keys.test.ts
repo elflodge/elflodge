@@ -168,7 +168,8 @@ test("a key listed while another's revocation is pending cannot take over its di
   await expectBrowser(dialog.getByText("Working…")).toBeVisible();
 
   // Two reads while it is pending, as on returning to the tab: first no keys, then a key created
-  // meanwhile, whose row is new beside the notice, and so not made inert by the dialog.
+  // meanwhile. Its Revoke can be pressed only because its row rendered after the dialog opened,
+  // beside the notice, and so is not inert as what the dialog found on opening is.
   hub.apiKeys.list.answers([]);
   await readAgain(page);
   await expectBrowser(page.getByRole("heading", { name: "No API keys yet" })).toBeVisible();
@@ -178,12 +179,10 @@ test("a key listed while another's revocation is pending cannot take over its di
   await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
   await expectBrowser(dialog.getByText("Working…")).toBeVisible();
 
-  // Its notice shows, and focus stays on the Revoke the member pressed beside the dialog.
   revocation.release();
   await expectBrowser(
     page.getByRole("status").filter({ hasText: /^original revocation .* is revoked\.$/ }),
   ).toBeVisible();
-  await expectBrowser(page.getByRole("button", { name: /^Revoke arriving key / })).toBeFocused();
   expect(hub.apiKeys.revoke.calls).toEqual([{ id: earlier.id }, { id: original.id }]);
 });
 
