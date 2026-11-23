@@ -170,7 +170,9 @@ test("an admin made a member by an owner elsewhere loses the management controls
   arrangeOrganization(hub, admin, owner);
   const page = await open("organization");
   const invite = page.getByRole("button", { name: "Invite a member" });
+  const ownRole = page.getByRole("button", { name: "Change role for yourself" });
   await expectBrowser(invite).toBeVisible();
+  await expectBrowser(ownRole).toBeVisible();
 
   const demoted = withRole(admin, "member");
   hub.auth.organization.listMembers.answers(roster(memberOf(demoted), owner));
@@ -178,9 +180,7 @@ test("an admin made a member by an owner elsewhere loses the management controls
   await readAgain(page);
   await expectBrowser(invite).toHaveCount(0);
   await expectBrowser(page.getByRole("heading", { name: "Invitations" })).toHaveCount(0);
-  await expectBrowser(
-    page.getByRole("button", { name: "Change role for Olive Owner" }),
-  ).toHaveCount(0);
+  await expectBrowser(ownRole).toHaveCount(0);
 });
 
 test("Rename keeps the name read-only while the hub answers, and its notice takes focus before the session is read again", async ({
