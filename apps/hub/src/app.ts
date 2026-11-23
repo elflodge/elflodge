@@ -1,16 +1,12 @@
 import { catchORPCErrorCode, middlewareGen, type WithEffectContext } from "@orpc/effect";
 import "@orpc/effect/extensions/effect";
-import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { implement, ValidationError } from "@orpc/server";
-import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import { matchesHttpPath } from "@orpc/shared";
 import {
   type AddedJobs,
   apiContract,
-  errorStatusMap,
   getAccess,
-  MAX_FILE_BYTES,
   NotFound,
   PROTOCOL_UNSUPPORTED,
   RUNNER_CONNECT_PATH,
@@ -21,15 +17,11 @@ import {
 } from "contract";
 import { type Context, Effect, Struct } from "effect";
 import { type Context as HonoContext, Hono } from "hono";
-import {
-  PROBLEM_JSON_CONTENT_TYPE,
-  problemDetails,
-  problemDetailsHandler,
-} from "hono-problem-details";
+import { problemDetails, problemDetailsHandler } from "hono-problem-details";
 import { except } from "hono/combine";
 import { csrf } from "hono/csrf";
 
-import { coercion, createApiHandler } from "./api-handler.ts";
+import { createApiHandler } from "./api-handler.ts";
 import { listServiceKeys } from "./api-keys.ts";
 import {
   Auth,
@@ -80,7 +72,6 @@ import {
 } from "./jobs.ts";
 import { generateOpenAPIDocument, sessionCookieName } from "./openapi.ts";
 import { RunnerConnections, type HubServices } from "./platform.ts";
-import { locateRequestProblems, toProblemDetails } from "./problem-details.ts";
 import { findRunnerByKey, registerRunner, removeRunner } from "./runner-registration.ts";
 import { hintConnectedRunners, listRunners } from "./runners.ts";
 import { JobLimitSettings } from "./settings.ts";
@@ -442,17 +433,6 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
   });
 
-// The same router behind two handlers, as oRPC's request limit is one per handler: uploads, whose
-// body the hub reads as it arrives, may be as large as a file, and everything else as large as a
-// JSON body.
-const uploads = new OpenAPIHandler(router, {
-  errorStatusMap,
-  errorResponseBodyEncoder: toProblemDetails,
-  errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-  interceptors: [locateRequestProblems],
-  plugins: [new RequestLimitHandlerPlugin({ maxBodySize: MAX_FILE_BYTES }), coercion],
-});
-
 const OPENAPI_SPEC_PATH = "/spec.json";
 
 const api = createApiHandler<ApiContext>(router, [
@@ -643,8 +623,6 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
     return response;
   };
 
-  // Both spellings oRPC matches, so a trailing `/` keeps the upload's limit.
-  app.on("PUT", ["/blobs/:digest", "/blobs/:digest/"], (c) => serve(c, uploads));
   app.all("*", (c) => serve(c, api));
 
   return app;
