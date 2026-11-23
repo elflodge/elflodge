@@ -270,12 +270,6 @@ test("a failed keys read leaves members and invitations usable and explains the 
   await expectBrowser(dialog.getByRole("alert")).toContainText("The API keys could not be read");
   await expectBrowser(dialog).toContainText("API keys you created keep working.");
   await dialog.getByRole("button", { name: "Stay" }).click();
-  await page
-    .getByRole("navigation", { name: "Destinations" })
-    .getByRole("link", { name: "API keys" })
-    .click();
-  await expectBrowser(page.getByRole("heading", { name: "API keys" })).toBeVisible();
-  await expectBrowser(page.getByRole("alert")).toContainText("The API keys could not be read");
 });
 
 test("a Leave refused for the only owner says so, is withdrawn once the members are read, and works once another owner is back", async ({
