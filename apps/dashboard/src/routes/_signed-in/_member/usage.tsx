@@ -19,7 +19,7 @@ import {
   parseUsagePeriod,
   type UsageReport,
 } from "contract";
-import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
+import { For, Show, createMemo, createSignal, createEffect, deep, latest } from "solid-js";
 import * as z from "zod/mini";
 
 import { HubReadError, hubFailureMessage } from "../../../api-client.ts";
@@ -130,6 +130,10 @@ function GrantedUsage() {
   const router = useRouter();
   // The form observes the shown report and its refusal. The loader and the report own fetching.
   const report = useQuery(() => ({ ...reportOptions(search()), enabled: false }));
+  // The Range options and date defaults must stay available during a refresh of this report.
+  const shownReport = createMemo(() =>
+    report.dataUpdatedAt ? latest(() => deep(report.data)) : undefined,
+  );
   const problem = () => problemOf(report.error);
   createEffect(
     () => problem()?.status === 403,
@@ -158,7 +162,7 @@ function GrantedUsage() {
           <h1>Usage</h1>
         </div>
         <ReportForm
-          report={report.dataUpdatedAt ? report.data : undefined}
+          report={shownReport()}
           error={problem()?.status === 400 ? report.error : undefined}
         />
       </div>

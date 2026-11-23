@@ -1,6 +1,12 @@
 import type { JSX } from "@solidjs/web";
-import { Field as SDKField, FieldLabel, FieldDescription } from "@ui-sdk/solid/field";
-import { Show, createUniqueId, omit } from "solid-js";
+import {
+  Field as SDKField,
+  FieldLabel,
+  FieldDescription,
+  FieldSet,
+  FieldLegend,
+} from "@ui-sdk/solid/field";
+import { Show, omit } from "solid-js";
 
 import { FieldError } from "./FieldError.tsx";
 
@@ -36,7 +42,8 @@ export function Field(props: FieldProps & FieldLayout & { children: JSX.Element 
             the label's accessible name, which would read "budgetUSD". */}
         <Show when={props.unit}>{(unit) => <span class="unit">{` ${unit()}`}</span>}</Show>
       </FieldLabel>
-      {/* Keep the hint registered first when a fresh hub limit changes its words. */}
+      {/* Hints are present from the start or absent throughout. A hint first mounted during a
+          refusal would register after it. Updating a hub limit keeps the hint registered first. */}
       <Show when={!!props.hint}>
         <FieldDescription class="note">{props.hint}</FieldDescription>
       </Show>
@@ -75,36 +82,23 @@ export function FieldGroup(
       children: JSX.Element;
     },
 ) {
-  // UI SDK's FieldSet has no part for a refusal on the set itself.
-  const id = createUniqueId();
-  const hintId = id + "-hint";
-  const errorId = id + "-error";
+  // A refusal belongs to the whole set. FieldSet connects its descriptions, but has
+  // no invalid state, and the form needs a focus target for that refusal.
   return (
-    <fieldset
-      {...omit(props, "label", "hint", "error", "children", "class")}
+    <FieldSet
+      {...omit(props, "label", "hint", "error", "children", "class", "disabled", "style")}
+      disabled={props.disabled === "" || props.disabled}
+      style={props.style === false ? undefined : props.style}
       aria-invalid={props.error !== undefined ? "true" : undefined}
-      aria-describedby={
-        [props.hint && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
-      }
       class={["field", props.class]}
       tabindex="-1"
     >
-      <legend>{props.label}</legend>
-      <Show when={props.hint} keyed>
-        {(hint) => (
-          <p class="note" id={hintId}>
-            {hint}
-          </p>
-        )}
+      <FieldLegend>{props.label}</FieldLegend>
+      <Show when={!!props.hint}>
+        <FieldDescription class="note">{props.hint}</FieldDescription>
       </Show>
       {props.children}
-      <Show when={props.error} keyed>
-        {(words) => (
-          <p class="field-error" id={errorId}>
-            <FieldError>{words}</FieldError>
-          </p>
-        )}
-      </Show>
-    </fieldset>
+      <RefusalDescription error={props.error} />
+    </FieldSet>
   );
 }

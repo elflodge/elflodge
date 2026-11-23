@@ -9,16 +9,13 @@ import {
   type AlertDialogController,
 } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
-import { Field } from "@ui-sdk/solid/field";
-import { Input } from "@ui-sdk/solid/input";
-import { Textarea } from "@ui-sdk/solid/textarea";
 import { For, Show, createSignal, flush } from "solid-js";
 
 import { type DraftJob, fileJobs, typedJob } from "../batch-draft.ts";
 import { focusNextRemove } from "../form.ts";
 import { formatBytes } from "../format-bytes.ts";
 import { formatCount, plural } from "../format.ts";
-import { FieldGroup, RefusalDescription } from "./Field.tsx";
+import { FieldGroup } from "./Field.tsx";
 import { FieldError } from "./FieldError.tsx";
 
 /**
@@ -287,21 +284,20 @@ export function DraftJobs(props: {
                       ? wordsOf(...current.problems, refusal?.file)
                       : wordsOf(refusal?.input);
                   };
+                  // Rows already need their own names and focus IDs. With UI SDK field parts,
+                  // adding 1,000 typed rows took 1,925 ms versus 431 ms with native controls.
                   return (
                     <tr role="row" id={id}>
                       <td role="cell" class="num" data-l="Job">
                         {formatCount(number())}
                       </td>
-                      <Field
-                        invalid={idError() !== undefined}
-                        render={(part) => (
-                          <td {...part} role="cell" class="is-id" data-l="Custom ID" />
-                        )}
-                      >
-                        <Input
+                      <td role="cell" class="is-id" data-l="Custom ID">
+                        <input
                           id={rowControlId(first.key, "customId")}
                           name={`jobs[${index()}][customId]`}
                           aria-label={`Custom ID of job ${number()}`}
+                          aria-invalid={idError() ? "true" : undefined}
+                          aria-describedby={idError() ? `${id}-id-error` : undefined}
                           defaultValue={first.customId}
                           required
                           spellcheck={false}
@@ -309,27 +305,38 @@ export function DraftJobs(props: {
                           readonly={props.pending}
                           onInput={() => props.onEdited(first.key, "customId")}
                         />
-                        <RefusalDescription error={idError()} />
-                      </Field>
+                        <Show when={idError()} keyed>
+                          {(words) => (
+                            <p class="field-error" id={`${id}-id-error`}>
+                              <FieldError>{words}</FieldError>
+                            </p>
+                          )}
+                        </Show>
+                      </td>
                       <Show
                         when={first.kind === "file" && first}
                         fallback={
-                          <Field
-                            invalid={holdsError() !== undefined}
-                            render={(part) => <td {...part} role="cell" data-l="Input" />}
-                          >
-                            <Textarea
+                          <td role="cell" data-l="Input">
+                            <textarea
                               id={rowControlId(first.key, "input")}
                               name={`jobs[${index()}][input]`}
                               aria-label={`Input of job ${number()}`}
+                              aria-invalid={holdsError() ? "true" : undefined}
+                              aria-describedby={holdsError() ? `${id}-input-error` : undefined}
                               // Three rows: a short input shows whole, a longer one scrolls.
                               rows={3}
                               required
                               readonly={props.pending}
                               onInput={() => props.onEdited(first.key, "input")}
                             />
-                            <RefusalDescription error={holdsError()} />
-                          </Field>
+                            <Show when={holdsError()} keyed>
+                              {(words) => (
+                                <p class="field-error" id={`${id}-input-error`}>
+                                  <FieldError>{words}</FieldError>
+                                </p>
+                              )}
+                            </Show>
+                          </td>
                         }
                       >
                         {(job) => (

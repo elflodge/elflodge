@@ -2,7 +2,13 @@ import type { Browser } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 
-import { launchDashboardBrowser, liveRegions, newMember, signInAt } from "./dashboard-browser.ts";
+import {
+  descriptionOnFocus,
+  launchDashboardBrowser,
+  liveRegions,
+  newMember,
+  signInAt,
+} from "./dashboard-browser.ts";
 import { startSystem } from "./harness.ts";
 
 const system = startSystem({ hubVars: { JOB_MODEL_BUDGET_USD_MAX: "5" } });
@@ -57,10 +63,15 @@ test("a member can correct the limits the hub refused without retyping the job",
     ["Run timeout", "90000"],
   ] as const;
   for (const [label, value] of values) await page.getByLabel(label).fill(value);
-  await page.getByRole("button", { name: "Submit job" }).click();
   const budget = page.getByLabel("Model budget");
+  const words = await descriptionOnFocus(budget);
+  await page.getByRole("button", { name: "Submit job" }).click();
   const timeout = page.getByLabel("Run timeout");
   await expectBrowser(budget).toBeFocused();
+  expect(await words.jsonValue()).toEqual([
+    expect.stringContaining("At most"),
+    expect.stringContaining("Must be at most 5, the hub's maximum"),
+  ]);
   await expectBrowser(budget).toHaveAccessibleDescription(/Must be at most 5, the hub's maximum/);
   await expectBrowser(timeout).toHaveAccessibleDescription(
     /Must be at most 86400, the hub's maximum/,
