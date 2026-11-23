@@ -832,7 +832,7 @@ class AttachedConversation {
    * such as one still shutting down after the time limit, never reaches a later one.
    */
   #route = "";
-  /** What the extensions registered as model providers, which outlives a worker's exit. */
+  /** What the extensions registered as model providers. */
   readonly providers: ProviderSession;
   readonly models: Models;
   readonly #options: AttachOptions;
@@ -887,7 +887,6 @@ class AttachedConversation {
       sessionId,
       options.harness,
       options.conversation.id,
-      () => this.#ready,
     );
   }
 
@@ -970,7 +969,6 @@ class AttachedConversation {
     this.#stillOn(hosted);
     // Extensions often register tools in `session_start`; they are installed before the first request.
     this.update(registrations);
-    this.providers.dropStale();
     return opened;
   }
 
@@ -1738,8 +1736,8 @@ class AttachedConversation {
 
   /**
    * The worker exited: until the extensions are opened again, their tools fail, their hooks do
-   * nothing, and a `tool_call` gate blocks. Their providers stay registered, and model requests
-   * wait for the reopening, as hooks do.
+   * nothing, and a `tool_call` gate blocks. Their providers go now, as at close, and the reopened
+   * extensions register theirs again.
    */
   lost(error: Error) {
     this.providers.unbind(error);

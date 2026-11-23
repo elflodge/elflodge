@@ -99,23 +99,14 @@ export interface ProviderWorker {
   readonly route: string;
 }
 
-/** What an extension instance, by its route, registered under a name. */
-interface Registration {
-  readonly route: string;
-  /** Whether the instance registered a stream, so model requests may reach it. */
-  readonly stream: boolean;
-}
-
-type Descriptor = { id: string; name: string; baseUrl: string | undefined };
-
 interface InstalledProvider {
   readonly runtime: Runtime;
+  /** The app's registration, found when an extension first registered the name. */
   readonly previous: ProviderConfig | undefined;
   readonly native: Provider | undefined;
-  /** The provider as the app had it before any extension registered it. */
-  readonly baseline: Descriptor | undefined;
   current: ProviderConfig | undefined;
-  readonly sessions: Map<ProviderSession, Registration>;
+  /** The conversations that registered the provider, each with whether it registered a stream. */
+  readonly sessions: Map<ProviderSession, boolean>;
   readonly dispatch: NonNullable<ProviderConfig["streamSimple"]>;
 }
 
@@ -129,11 +120,12 @@ interface Parking {
 }
 
 const catalogs = new WeakMap<Models, Map<string, InstalledProvider>>();
+/** The attached conversations on each runtime, by provider session ID. */
+const attached = new WeakMap<Models, Map<string, ProviderSession>>();
 
 /**
- * The providers one attached conversation registered, from its attach to its close. They outlive
- * a worker's exit, so the conversation keeps its models while its extensions open again; a stream
- * belongs to the instance that registered it, so the reopened instance registers its own.
+ * The providers one attached conversation's extensions registered. A worker's exit withdraws them
+ * as a close does, and the reopened extensions register theirs again as at attach.
  */
 export class ProviderSession {
   readonly #catalog: Map<string, InstalledProvider>;
@@ -141,30 +133,26 @@ export class ProviderSession {
   readonly #sessionId: string;
   readonly #harness: Harness;
   readonly #conversation: ConversationId;
-  /** The opening of the extensions under way, which a model request waits for. */
-  readonly #ready: () => Promise<unknown>;
   readonly #life = new AbortController();
   #worker: ProviderWorker | undefined;
   /** Why the last worker went, for the requests that find none. */
   #gone: Error | undefined;
   readonly #parked = new Map<SubmissionId, Parking>();
-  /** Requests of callers other than pi-durable that asked for tools, held until their caller aborts. */
-  readonly #held = new Set<Parking>();
+  /**
+   * Requests of callers other than pi-durable that asked for tools, each with what stops listening
+   * to its caller's signal; the worker's close or exit ends the query itself.
+   */
+  readonly #held = new Set<() => void>();
 
-  constructor(
-    models: Models,
-    sessionId: string,
-    harness: Harness,
-    conversation: ConversationId,
-    ready: () => Promise<unknown>,
-  ) {
+  constructor(models: Models, sessionId: string, harness: Harness, conversation: ConversationId) {
     this.#models = models;
     this.#catalog = catalogs.get(models) ?? new Map();
     catalogs.set(models, this.#catalog);
+    const sessions = attached.get(models) ?? new Map();
+    attached.set(models, sessions.set(sessionId, this));
     this.#sessionId = sessionId;
     this.#harness = harness;
     this.#conversation = conversation;
-    this.#ready = ready;
   }
 
   /** Model requests go to this instance from now on. */
@@ -173,41 +161,25 @@ export class ProviderSession {
   }
 
   /**
-   * The extensions finished opening again: what the instance before the worker's exit registered
-   * and this one did not goes, as at close, so the conversation's registrations are this
-   * instance's, as its tools and hooks are, and what closing and attaching again would leave.
-   */
-  dropStale() {
-    for (const [name, entry] of this.#catalog) {
-      const registration = entry.sessions.get(this);
-      if (registration && registration.route !== this.#worker?.route) this.unregister(name);
-    }
-  }
-
-  /**
-   * The worker exited. The registrations stay until the extensions open again or are given up on;
-   * the requests on that worker fail with its error, and nothing more goes to it.
+   * The worker exited: the requests on it fail with its error, and the registrations go as at
+   * close, since their streams went with the worker. The reopened extensions register again.
    */
   unbind(error: Error) {
     this.#worker = undefined;
     this.#gone = error;
     for (const parking of this.#parked.values()) parking.drop();
-    for (const held of this.#held) held.drop();
+    for (const stop of this.#held) stop();
+    for (const name of this.#catalog.keys()) this.unregister(name);
   }
 
   register(name: string, settings: ProviderSettings, customStream: boolean) {
     this.#life.signal.throwIfAborted();
-    const route = this.#worker?.route;
-    if (route === undefined) throw new Error("The conversation's extension worker exited");
+    if (!this.#worker) throw new Error("The conversation's extension worker exited");
     const models = this.#models;
     if (!supportsProviders(models))
       throw new Error(
         "registerProvider is not supported by these Harness models; supply a Pi ModelRuntime",
       );
-    // The first registration of a reopened instance replaces its predecessor's, as attaching again
-    // after a close would, so Pi's merge with the previous settings cannot keep a stream that
-    // ended with the old worker.
-    if (this.#stale(name)) this.unregister(name);
     const entry = this.#catalog.get(name) ?? this.#createRegistration(name, models);
     if (models.getRegisteredProviderConfig(name) !== entry.current)
       throw new Error(`Provider "${name}" was replaced outside the extension host`);
@@ -228,34 +200,39 @@ export class ProviderSession {
       customStream ? { ...settings, streamSimple: entry.dispatch } : settings,
     );
     entry.current = models.getRegisteredProviderConfig(name);
-    // As in Pi, a settings-only update keeps the instance's stream.
-    const stream = customStream || entry.sessions.get(this)?.stream === true;
-    entry.sessions.set(this, { route, stream });
+    // As in Pi, a settings-only update keeps the stream.
+    entry.sessions.set(this, customStream || entry.sessions.get(this) === true);
     this.#catalog.set(name, entry);
   }
 
   #createRegistration(name: string, runtime: Runtime): InstalledProvider {
-    const sessions = new Map<ProviderSession, Registration>();
     const previous = runtime.getRegisteredProviderConfig(name);
-    const provider = this.#models.getProvider(name);
+    const catalog = this.#catalog;
+    const models = this.#models;
     return {
       runtime,
       previous,
-      baseline: provider && describe(provider),
       current: previous,
       native: runtime.getRegisteredNativeProvider(name),
-      sessions,
+      sessions: new Map(),
       dispatch: (model, context, options = {}) =>
         lazyStream(
           model,
           async () => {
-            const matches = [...sessions].filter(
-              ([session, { stream }]) => stream && session.#sessionId === options.sessionId,
+            // A request can hold this function past a worker's exit, as while Pi prepares its
+            // headers, so it routes by the registrations of now.
+            const matches = [...(catalog.get(name)?.sessions ?? [])].filter(
+              ([session, stream]) => stream && session.#sessionId === options.sessionId,
             );
-            if (matches.length !== 1)
-              throw new Error(
-                `No unique attached conversation for provider "${name}" and session "${options.sessionId ?? ""}"`,
+            if (matches.length !== 1) {
+              const session = attached.get(models)?.get(options.sessionId ?? "");
+              throw (
+                (session && session.#unregistered(name)) ??
+                new Error(
+                  `No unique attached conversation for provider "${name}" and session "${options.sessionId ?? ""}"`,
+                )
               );
+            }
             return matches[0][0].#stream(name, model, context, options);
           },
           undefined,
@@ -264,30 +241,28 @@ export class ProviderSession {
     };
   }
 
-  get(name: string): Descriptor | undefined {
-    const entry = this.#catalog.get(name);
-    // A reopened instance reads what attaching again after a close would: its predecessor's
-    // registrations withdrawn, which leaves the app's provider when no peer registered it.
-    const stale = this.#stale(name);
-    if (entry && stale && entry.sessions.size === 1) return entry.baseline;
+  /** Why a request finds no stream of this conversation, if its worker exited since it attached. */
+  #unregistered(name: string) {
+    if (!this.#gone) return undefined;
+    if (!this.#worker) return this.#gone;
+    return new Error(
+      `The conversation's extensions have not registered a stream for provider "${name}" since their worker exited: ${this.#gone.message}`,
+    );
+  }
+
+  get(name: string) {
     const provider = this.#models.getProvider(name);
-    // A stream belongs to the extension instance that registered it, which may be a peer's, or
-    // this conversation's before its worker exited. Reporting it here would cause extensions that
-    // register on first use to skip registering their own.
+    const entry = this.#catalog.get(name);
+    // A stream belongs to the extension instance that registered it. Reporting a peer's here
+    // would cause extensions that register on first use to skip registering their own.
     if (
       !provider ||
       (entry &&
         entry.runtime.getRegisteredProviderConfig(name)?.streamSimple === entry.dispatch &&
-        (stale || entry.sessions.get(this)?.stream !== true))
+        entry.sessions.get(this) !== true)
     )
       return undefined;
-    return describe(provider);
-  }
-
-  /** Whether the conversation's registration under `name` is from an instance before this one. */
-  #stale(name: string) {
-    const registration = this.#catalog.get(name)?.sessions.get(this);
-    return registration !== undefined && registration.route !== this.#worker?.route;
+    return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl };
   }
 
   unregister(name: string) {
@@ -304,7 +279,7 @@ export class ProviderSession {
     if (entry.sessions.size) {
       // The last stream went: the conversations left registered settings alone, which Pi's
       // built-in stream serves, while the stand-in would find no conversation to route to.
-      const streaming = [...entry.sessions.values()].some(({ stream }) => stream);
+      const streaming = [...entry.sessions.values()].some(Boolean);
       if (streaming || entry.current?.streamSimple !== entry.dispatch) return;
       const { streamSimple: _, ...settings } = entry.current;
       entry.runtime.unregisterProvider(name);
@@ -326,9 +301,11 @@ export class ProviderSession {
     if (this.#life.signal.aborted) return;
     this.#life.abort(reason);
     for (const parking of this.#parked.values()) parking.release();
-    for (const held of this.#held) held.release();
+    for (const stop of this.#held) stop();
     for (const name of this.#catalog.keys()) this.unregister(name);
     this.#worker = undefined;
+    const sessions = attached.get(this.#models);
+    if (sessions?.get(this.#sessionId) === this) sessions.delete(this.#sessionId);
   }
 
   async #stream(
@@ -352,15 +329,12 @@ export class ProviderSession {
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
     const run = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run;
     const submission = run?.inputs[0];
-    // A request that comes while the extensions open again after their worker exited waits for
-    // them, as hooks and tool calls do. Nothing waits between reading the worker and calling it.
-    await awaitWithContext(this.#ready(), signal ? withAbortSignal(signal, bound) : bound);
+    // Nothing waits between reading the worker and calling it.
     const worker = this.#worker;
     if (!worker) throw this.#gone ?? new Error("The conversation's extension worker exited");
-    // The reopened instance may not have registered the stream the request was routed by.
-    const registration = this.#catalog.get(name)?.sessions.get(this);
-    if (!registration?.stream || registration.route !== worker.route)
-      throw new Error(`This conversation's extensions no longer register a stream for "${name}"`);
+    // The worker may have exited and the reopened extensions registered otherwise meanwhile.
+    if (this.#catalog.get(name)?.sessions.get(this) !== true)
+      throw this.#unregistered(name) ?? new Error(`No stream is registered for "${name}"`);
     live.throwIfAborted();
     signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
@@ -474,22 +448,17 @@ export class ProviderSession {
   }
 
   #hold(signal: AbortSignal, cancel: (reason?: unknown) => void) {
-    const release = () => {
-      drop();
+    const aborted = () => {
+      stop();
       cancel(signal.reason);
     };
-    const drop = () => {
-      this.#held.delete(held);
-      signal.removeEventListener("abort", release);
+    const stop = () => {
+      this.#held.delete(stop);
+      signal.removeEventListener("abort", aborted);
     };
-    const held: Parking = { cancels: new Set([cancel]), release, drop };
-    this.#held.add(held);
-    signal.addEventListener("abort", release, { once: true });
+    this.#held.add(stop);
+    signal.addEventListener("abort", aborted, { once: true });
   }
-}
-
-function describe(provider: Pick<Provider, "id" | "name" | "baseUrl">): Descriptor {
-  return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl };
 }
 
 /** `reason` as it can cross to the worker: a value that cannot be copied goes as its message. */

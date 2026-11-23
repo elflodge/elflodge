@@ -1,5 +1,7 @@
 import { once } from "node:events";
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
+import { setTimeout } from "node:timers/promises";
 
 import {
   createFauxCore,
@@ -37,6 +39,7 @@ export default function extension(pi: ExtensionAPI) {
               : fauxAssistantMessage(owner + ": " + contentText(last.content));
           }
           request = options?.signal;
+          if (text === "crash") process.exit(3);
           if (/^(wait for provider|ignore abort)$/.test(text) && request && !request.aborted)
             await once(request, "abort");
           // As a provider that finishes its answer after the cancellation.
@@ -63,10 +66,33 @@ export default function extension(pi: ExtensionAPI) {
     },
   };
 
-  pi.on("session_start", (_event, ctx) => {
+  const { streamSimple: _, ...settings } = config;
+
+  pi.on("session_start", async ({ reason }, ctx) => {
     owner = basename(ctx.cwd);
+    // Holds a reopening while the test keeps the file beside the working directory.
+    while (reason === "resume" && existsSync(`${ctx.cwd}.hold`)) await setTimeout(20);
     if (!ctx.modelRegistry.getProvider("openai")) throw new Error("Missing built-in provider");
-    if (!ctx.modelRegistry.getProvider("fixture")) pi.registerProvider("fixture", config);
+    // As an extension that starts with its provider's settings and adds a stream from a handler.
+    if (owner === "carol") pi.registerProvider("late", settings);
+    // As an extension that points the provider at a server the app reaches with a built-in API.
+    if (owner === "dave")
+      pi.registerProvider("fixture", {
+        api: "host-echo",
+        baseUrl: "https://dave.example",
+        models: [
+          {
+            id: "echo",
+            name: "echo",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 1000,
+            maxTokens: 100,
+          },
+        ],
+      });
+    else if (!ctx.modelRegistry.getProvider("fixture")) pi.registerProvider("fixture", config);
   });
   pi.on("input", ({ text }) => {
     if (text === "status") {
