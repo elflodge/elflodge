@@ -106,7 +106,8 @@ test("a member opens a job's tool calls by name, and they stay open as a count g
   const job = aJob("tool-calls", {
     status: "running",
     ...STARTED,
-    toolCalls: { fetch_content: 1, web_search: 1 },
+    // Not by name, as the hub may send them.
+    toolCalls: { web_search: 1, fetch_content: 1 },
   });
   const journal = { job, events: [aConversation(1), aStart(2)] };
   const page = await openJob(hub, open, journal);
@@ -116,7 +117,7 @@ test("a member opens a job's tool calls by name, and they stay open as a count g
   await expectBrowser(table.getByRole("cell")).toHaveText(["1", "1"]);
 
   // By the page's next read, a new tool, and another call of one.
-  journal.job = { ...job, toolCalls: { fetch_content: 1, read: 1, web_search: 2 } };
+  journal.job = { ...job, toolCalls: { web_search: 2, read: 1, fetch_content: 1 } };
   await page.clock.runFor(5_000);
   await expectBrowser(table.getByRole("rowheader")).toHaveText([
     "fetch_content",
