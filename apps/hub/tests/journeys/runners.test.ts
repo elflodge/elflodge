@@ -27,7 +27,7 @@ async function newPage() {
   return page;
 }
 
-test("a registration key Add Runner creates when asked registers a Runner, which the dialog then shows", async () => {
+test("a registration key Add Runner creates when asked registers a Runner, which the dialog and the page's list then show", async () => {
   const before = await system.owner().apiKeys.list();
   const page = await newPage();
   // Installed before the page loads, so the test can move it to the dialog's next read.
@@ -55,6 +55,11 @@ test("a registration key Add Runner creates when asked registers a Runner, which
   await expectBrowser(dialog.getByRole("status").filter({ hasText: "has registered." })).toHaveText(
     `new-host ${id.slice(0, 8)} has registered.`,
   );
+  // Behind the dialog, the page lists it by name and short ID, as host names repeat.
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expectBrowser(
+    page.getByRole("heading", { name: `new-host ${id.slice(0, 8)}` }),
+  ).toBeVisible();
   const created = (await system.owner().apiKeys.list()).filter(
     (listed) => !before.some((earlier) => earlier.id === listed.id),
   );
