@@ -466,10 +466,15 @@ const functions: WorkerFunctions = {
   cancelTool(key, callId) {
     instances.get(key)?.running.get(callId)?.abort();
   },
-  cancelProvider(key, request, reason) {
-    const requests = instances.get(key)?.providerRequests;
-    requests?.get(request)?.abort(reason);
-    requests?.delete(request);
+  cancelProvider(request, reason) {
+    // The host numbers requests across the worker, so one instance at most has this one.
+    for (const { providerRequests } of instances.values()) {
+      const controller = providerRequests.get(request);
+      if (!controller) continue;
+      providerRequests.delete(request);
+      controller.abort(reason);
+      return;
+    }
   },
   async close(key) {
     const found = instances.get(key);

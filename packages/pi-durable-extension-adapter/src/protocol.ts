@@ -197,7 +197,7 @@ export interface WorkerFunctions extends DispatchFunctions {
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;
   /** Aborts the signal a model request's provider was given; a request already done is ignored. */
-  cancelProvider(key: string, request: number, reason: unknown): void;
+  cancelProvider(request: number, reason: unknown): void;
   close(key: string): Promise<void>;
 }
 

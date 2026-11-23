@@ -295,13 +295,13 @@ export class ProviderSession {
       throw new Error("An extension provider running on a worker cannot use a host fetch function");
     const live = this.#life.signal;
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
+    const submission = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run
+      ?.inputs[0];
     // A request that comes while the extensions open again after their worker exited waits for
-    // them, as hooks and tool calls do.
+    // them, as hooks and tool calls do. Nothing waits between reading the worker and calling it.
     await awaitWithContext(this.#ready(), signal ? withAbortSignal(signal, bound) : bound);
     const worker = this.#worker;
     if (!worker) throw this.#gone ?? new Error("The conversation's extension worker exited");
-    const submission = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run
-      ?.inputs[0];
     live.throwIfAborted();
     signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
@@ -326,7 +326,7 @@ export class ProviderSession {
     // The worker's IDs are its own, so a cancel goes only to the worker that has the request.
     const cancel = (reason?: unknown) => {
       if (this.#worker !== worker) return;
-      void worker.rpc.cancelProvider(worker.route, id, cloneable(reason)).catch(() => {});
+      void worker.rpc.cancelProvider(id, cloneable(reason)).catch(() => {});
     };
     const aborted = () => cancel(signal?.reason);
     const closed = () => cancel(live.reason);
