@@ -289,6 +289,26 @@ test("setting up again leaves the existing Organization and owner as they are", 
   await system.signIn(OWNER);
 });
 
+test("a member's changed password replaces the old one, and signing out ends the session", async () => {
+  const email = "new-password@example.com";
+  const password = "the password they were given";
+  const { cookie } = await system.addMember({ email, name: "New password", password });
+  const newPassword = "a password of their own";
+  await system.authClient(cookie).changePassword({ currentPassword: password, newPassword });
+
+  const oldPassword = await system.hub.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: system.origin },
+    body: JSON.stringify({ email, password }),
+  });
+  expect(oldPassword.status).toBe(401);
+  const session = await system.signIn({ email, password: newPassword });
+  expect((await system.hub.fetch("/runners", { headers: { cookie: session } })).status).toBe(200);
+
+  await system.authClient(session).signOut();
+  expect((await system.hub.fetch("/runners", { headers: { cookie: session } })).status).toBe(401);
+});
+
 test("a forgotten password is reset with the recovery command, signing out old sessions", async () => {
   const oldSession = await system.signIn(OWNER);
   const password = "a brand new password";
