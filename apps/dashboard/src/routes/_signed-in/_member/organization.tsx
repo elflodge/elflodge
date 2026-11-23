@@ -739,7 +739,6 @@ function OrganizationPage(props: { organizationId: string }) {
                           <div class="controls">
                             <CopyButton
                               showTextOnFailure
-                              sharedAnnouncer
                               label="Copy link"
                               accessibleLabel={`Copy link for ${invite().email}`}
                               text={invitationLink(invite().id).href}
