@@ -502,17 +502,17 @@ test("a cancelled Batch withdraws Resume while the member is editing the budget"
   const field = dialog.getByLabel("New model budget USD");
   await field.fill("2.50");
   const submit = dialog.getByRole("button", { name: "Resume the job" });
-  await submit.focus();
-  // Another member cancels its Batch, which the page reads every five seconds.
+  // Another member cancels its Batch, which the page reads every five seconds, while the member
+  // is in the field.
+  await expectBrowser(field).toBeFocused();
   hub.batches.get.answers(aBatch("april", { status: "cancelled" }));
   await page.clock.runFor(5_000);
   await expectBrowser(
     dialog.getByText("Its Batch was cancelled, so it cannot be resumed."),
   ).toBeVisible();
   await expectBrowser(field).toHaveValue("2.50");
+  await expectBrowser(field).toBeFocused();
   await expectBrowser(submit).toBeDisabled();
-  await expectBrowser(submit).toBeFocused();
-  await page.keyboard.press("Enter");
   await field.press("Enter");
   await page.keyboard.press("Escape");
   await expectBrowser(dialog).toHaveCount(0);
