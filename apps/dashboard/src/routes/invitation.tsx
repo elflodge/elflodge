@@ -2,6 +2,8 @@ import type { JSX } from "@solidjs/web";
 import { focusManager, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import { problemOf } from "contract";
 import {
   Match,
@@ -381,48 +383,40 @@ function AcceptInvitation(props: {
           <form class="fields" onSubmit={onSubmit}>
             <Show when={!session()}>
               <Field label="Email">
-                {(control) => (
-                  <input
-                    {...control}
-                    name="email"
-                    type="email"
-                    autocomplete="username"
-                    class="mono"
-                    readonly
-                    defaultValue={props.invitation.email}
-                  />
-                )}
+                <Input
+                  name="email"
+                  type="email"
+                  autocomplete="username"
+                  class="mono"
+                  readonly
+                  defaultValue={props.invitation.email}
+                />
               </Field>
               <Field label="Your name" error={nameError()}>
-                {(control) => (
-                  <input
-                    {...control}
-                    name="name"
-                    autocomplete="name"
-                    required
-                    {...GIVEN_NAME}
-                    ref={(field) => {
-                      nameField = field;
-                    }}
-                    onInput={() => setNameError(undefined)}
-                  />
-                )}
+                <Input
+                  name="name"
+                  autocomplete="name"
+                  required
+                  {...GIVEN_NAME}
+                  ref={(field) => {
+                    nameField = field;
+                  }}
+                  onInput={() => setNameError(undefined)}
+                />
               </Field>
               <Field label="Password" error={passwordError()}>
-                {(control) => (
-                  <input
-                    {...control}
-                    name="password"
-                    type="password"
-                    autocomplete="new-password"
-                    required
-                    {...NEW_PASSWORD}
-                    onInput={() => setPasswordError(undefined)}
-                    ref={(input) => {
-                      password = input;
-                    }}
-                  />
-                )}
+                <FieldControl
+                  render={(part) => <input {...part} />}
+                  name="password"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  {...NEW_PASSWORD}
+                  onInput={() => setPasswordError(undefined)}
+                  ref={(input) => {
+                    password = input;
+                  }}
+                />
               </Field>
             </Show>
             <Show when={error()} keyed>

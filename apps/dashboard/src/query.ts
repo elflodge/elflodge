@@ -28,9 +28,10 @@ export function availableRunners(query: UseQueryResult<Runner[]>) {
 }
 
 /**
- * Resolves once Solid has applied the writes made so far. A UI SDK part writes its pending state in
- * the tick its action starts, and a mutation started in that same tick, a Solid action, would hold
- * that write until the hub answers: an action awaits this before it calls `mutate`.
+ * Resolves after Solid’s scheduled flush. A transition can still hold writes. A UI SDK action
+ * waits for this before calling `mutate` so the mutation does not hold the part’s pending state
+ * until the hub answers. `createFormAction` waits so UI SDK can register a newly mounted
+ * description before focus moves to the refused control.
  */
 export function untilFlushed() {
   return new Promise<void>((resolve) => onFlush(resolve));

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { AlertDialogTrigger, createAlertDialogController } from "@ui-sdk/solid/alert-dialog";
 import { Button } from "@ui-sdk/solid/button";
 import { DialogTrigger, createDialogController } from "@ui-sdk/solid/dialog";
+import { FieldControl } from "@ui-sdk/solid/field";
 import { FINAL_JOB_STATUSES, type Job } from "contract";
 import { Show, createSignal, flush, onFlush } from "solid-js";
 
@@ -339,17 +340,15 @@ export function JobControls(props: {
             hint={`Cost so far ${USD_THRESHOLD.format(props.job.usage.cost.totalUsd)} USD, est. The new budget must exceed this cost.`}
             error={fields.refused("modelBudgetUsd")}
           >
-            {(control) => (
-              <input
-                {...control}
-                name="modelBudgetUsd"
-                type="number"
-                required
-                min="0"
-                step="any"
-                readonly={fields.pending()}
-              />
-            )}
+            <FieldControl
+              render={(part) => <input {...part} />}
+              name="modelBudgetUsd"
+              type="number"
+              required
+              min="0"
+              step="any"
+              readonly={fields.pending()}
+            />
           </Field>
         )}
       </FormDialog>

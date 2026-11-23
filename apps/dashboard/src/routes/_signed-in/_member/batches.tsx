@@ -5,6 +5,7 @@ import {
   useChildMatches,
   useLocation,
 } from "@tanstack/solid-router";
+import { Input } from "@ui-sdk/solid/input";
 import { batchStatusSchema, LABEL_KEY_PATTERN, MAX_LABEL_NAME_LENGTH } from "contract";
 import { createSignal } from "solid-js";
 import * as z from "zod/mini";
@@ -89,26 +90,20 @@ function Batches() {
           }
         >
           <Field class="filter-field" label="Label key">
-            {(control) => (
-              <input
-                {...control}
-                name="labelKey"
-                pattern={LABEL_KEY_PATTERN.source}
-                title={`Use a name of up to ${MAX_LABEL_NAME_LENGTH} letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash.`}
-                defaultValue={appliedFilters().labelKey ?? ""}
-                required={!!(draftValue() ?? appliedFilters().labelValue)}
-              />
-            )}
+            <Input
+              name="labelKey"
+              pattern={LABEL_KEY_PATTERN.source}
+              title={`Use a name of up to ${MAX_LABEL_NAME_LENGTH} letters, digits, hyphens, underscores or dots. Start and end with a letter or digit. An optional DNS prefix ends in a slash.`}
+              defaultValue={appliedFilters().labelKey ?? ""}
+              required={!!(draftValue() ?? appliedFilters().labelValue)}
+            />
           </Field>
           <Field class="filter-field" label="Label value">
-            {(control) => (
-              <input
-                {...control}
-                name="labelValue"
-                defaultValue={appliedFilters().labelValue ?? ""}
-                onInput={({ currentTarget }) => setDraftValue(currentTarget.value)}
-              />
-            )}
+            <Input
+              name="labelValue"
+              defaultValue={appliedFilters().labelValue ?? ""}
+              onInput={({ currentTarget }) => setDraftValue(currentTarget.value)}
+            />
           </Field>
         </ListFilters>
       </div>

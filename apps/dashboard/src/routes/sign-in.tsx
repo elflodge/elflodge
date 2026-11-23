@@ -1,5 +1,7 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Input } from "@ui-sdk/solid/input";
 import { Show, createSignal } from "solid-js";
 import * as z from "zod/mini";
 
@@ -77,20 +79,16 @@ function SignIn() {
       <h1>Sign in to Elflodge</h1>
       <form class="fields" onSubmit={onSubmit}>
         <Field label="Email">
-          {(control) => (
-            <input {...control} name="email" type="email" autocomplete="username" required />
-          )}
+          <Input name="email" type="email" autocomplete="username" required />
         </Field>
         <Field label="Password">
-          {(control) => (
-            <input
-              {...control}
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              required
-            />
-          )}
+          <FieldControl
+            render={(part) => <input {...part} />}
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
         </Field>
         <Show when={error()} keyed>
           {(message) => <Notice role="alert">{message}</Notice>}

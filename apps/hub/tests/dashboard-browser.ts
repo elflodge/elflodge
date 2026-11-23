@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { chromium } from "playwright";
 
 import type { startSystem } from "./harness.ts";
@@ -9,6 +9,22 @@ type System = ReturnType<typeof startSystem>;
 export function launchDashboardBrowser(system: { origin: string; url(): URL }) {
   return chromium.launch({
     args: [`--host-resolver-rules=MAP ${new URL(system.origin).hostname} ${system.url().host}`],
+  });
+}
+
+/** Capture the description as focus arrives, before later DOM updates can change it. */
+export function descriptionOnFocus(control: Locator) {
+  return control.evaluateHandle((element) => {
+    const words: string[] = [];
+    element.addEventListener(
+      "focusin",
+      () => {
+        for (const part of element.ariaDescribedByElements ?? [])
+          words.push(part.textContent ?? "");
+      },
+      { once: true },
+    );
+    return words;
   });
 }
 

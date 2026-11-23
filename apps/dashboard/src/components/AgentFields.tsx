@@ -1,4 +1,6 @@
 import type { JSX } from "@solidjs/web";
+import { FieldControl } from "@ui-sdk/solid/field";
+import { Textarea } from "@ui-sdk/solid/textarea";
 import { asError } from "contract";
 
 import type { DraftAgent } from "../batch-draft.ts";
@@ -115,15 +117,12 @@ export function AgentFields(props: {
         hint={`Optional. What the agent is told before ${words().input} input, after its Runner’s own instructions.`}
         error={props.refused(agentFields.instructions)}
       >
-        {(control) => (
-          <textarea
-            {...control}
-            name={agentFields.instructions}
-            // Four rows: a few sentences.
-            rows={4}
-            readonly={props.pending}
-          />
-        )}
+        <Textarea
+          name={agentFields.instructions}
+          // Four rows: a few sentences.
+          rows={4}
+          readonly={props.pending}
+        />
       </Field>
       {props.afterInstructions}
       <Field
@@ -131,20 +130,17 @@ export function AgentFields(props: {
         hint={`A JSON Schema ${words().output} Output must match: one value, not a list. A starting schema: one text answer. Replace it with yours.`}
         error={props.refused(agentFields.outputSchema)}
       >
-        {(control) => (
-          <textarea
-            {...control}
-            class="mono"
-            name={agentFields.outputSchema}
-            // Ten rows: the starting schema's seven lines and a few more properties.
-            rows={10}
-            required
-            spellcheck={false}
-            autocapitalize="off"
-            readonly={props.pending}
-            defaultValue={startingSchema}
-          />
-        )}
+        <Textarea
+          class="mono"
+          name={agentFields.outputSchema}
+          // Ten rows: the starting schema's seven lines and a few more properties.
+          rows={10}
+          required
+          spellcheck={false}
+          autocapitalize="off"
+          readonly={props.pending}
+          defaultValue={startingSchema}
+        />
       </Field>
       {props.afterSchema}
       <Field
@@ -158,16 +154,14 @@ export function AgentFields(props: {
         }
         error={props.refused(agentFields.modelBudgetUsd)}
       >
-        {(control) => (
-          <input
-            {...control}
-            name={agentFields.modelBudgetUsd}
-            type="number"
-            min="0"
-            step="any"
-            readonly={props.pending}
-          />
-        )}
+        <FieldControl
+          render={(part) => <input {...part} />}
+          name={agentFields.modelBudgetUsd}
+          type="number"
+          min="0"
+          step="any"
+          readonly={props.pending}
+        />
       </Field>
       <Field
         label="Run timeout"
@@ -175,16 +169,14 @@ export function AgentFields(props: {
         hint={limitHint(limits.held()?.runTimeoutSeconds, formatSeconds)}
         error={props.refused(agentFields.runTimeoutSeconds)}
       >
-        {(control) => (
-          <input
-            {...control}
-            name={agentFields.runTimeoutSeconds}
-            type="number"
-            min="1"
-            step="1"
-            readonly={props.pending}
-          />
-        )}
+        <FieldControl
+          render={(part) => <input {...part} />}
+          name={agentFields.runTimeoutSeconds}
+          type="number"
+          min="1"
+          step="1"
+          readonly={props.pending}
+        />
       </Field>
     </>
   );

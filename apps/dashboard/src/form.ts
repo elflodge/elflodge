@@ -6,6 +6,7 @@ import { PASSWORD_LENGTH } from "contract";
 import { action, createOptimistic } from "solid-js";
 
 import { hubFailureMessage } from "./api-client.ts";
+import { untilFlushed } from "./query.ts";
 
 /** A refusal as a form shows it: the words at each control, by its name, and the alert's. */
 export type FormRefusal = { fields: Map<string, string>; alert: string | undefined };
@@ -123,7 +124,9 @@ export function createFormAction(
     try {
       await run(currentTarget);
     } finally {
-      // The description has rendered with aria-invalid, so a screen reader can announce it on focus.
+      // UI SDK registers a newly mounted description after binding it. Focus reads the
+      // refusal only once that registration reaches the control’s aria-describedby.
+      await untilFlushed();
       if (
         !focusRefusedField(currentTarget, focused) &&
         focused instanceof HTMLElement &&

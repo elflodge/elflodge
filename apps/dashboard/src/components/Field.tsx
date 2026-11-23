@@ -1,5 +1,12 @@
 import type { JSX } from "@solidjs/web";
-import { Show, createUniqueId, omit } from "solid-js";
+import {
+  Field as SDKField,
+  FieldLabel,
+  FieldDescription,
+  FieldSet,
+  FieldLegend,
+} from "@ui-sdk/solid/field";
+import { Show, omit } from "solid-js";
 
 import { FieldError } from "./FieldError.tsx";
 
@@ -14,45 +21,6 @@ type FieldProps = {
   error?: string;
 };
 
-type FieldControl = {
-  readonly id: string;
-  readonly "aria-invalid": "true" | undefined;
-  readonly "aria-describedby": string | undefined;
-};
-
-function fieldParts(props: FieldProps) {
-  const id = createUniqueId();
-  const hintId = id + "-hint";
-  const errorId = id + "-error";
-  return {
-    control: {
-      id,
-      get "aria-invalid"(): "true" | undefined {
-        return props.error !== undefined ? "true" : undefined;
-      },
-      get "aria-describedby"() {
-        return (
-          [props.hint && hintId, props.error && errorId].filter(Boolean).join(" ") || undefined
-        );
-      },
-    },
-    hint: () => (
-      <Show when={props.hint} keyed>
-        {(hint) => (
-          <p id={hintId} class="note">
-            {hint}
-          </p>
-        )}
-      </Show>
-    ),
-    refusal: () => (
-      <Show when={props.error} keyed>
-        {(words) => <FieldError id={errorId}>{words}</FieldError>}
-      </Show>
-    ),
-  };
-}
-
 type FieldLayout =
   | {
       /** A label above its control. */
@@ -65,26 +33,37 @@ type FieldLayout =
     };
 
 /** One control under a label. */
-export function Field(
-  props: FieldProps &
-    FieldLayout & {
-      /** Spread these attributes on the labeled control. */
-      children: (control: FieldControl) => JSX.Element;
-    },
-) {
-  const { control, hint, refusal } = fieldParts(props);
+export function Field(props: FieldProps & FieldLayout & { children: JSX.Element }) {
   return (
-    <div class={props.class ?? "field"}>
-      <label for={control.id}>
+    <SDKField class={props.class ?? "field"} invalid={props.error !== undefined}>
+      <FieldLabel>
         {props.label}
         {/* The space sits inside the unit's text: Chromium drops a separate space text node from
             the label's accessible name, which would read "budgetUSD". */}
         <Show when={props.unit}>{(unit) => <span class="unit">{` ${unit()}`}</span>}</Show>
-      </label>
-      {hint()}
-      {props.children(control)}
-      {refusal()}
-    </div>
+      </FieldLabel>
+      {/* Hints are present from the start or absent throughout. A hint first mounted during a
+          refusal would register after it. Updating a hub limit keeps the hint registered first. */}
+      <Show when={!!props.hint}>
+        <FieldDescription class="note">{props.hint}</FieldDescription>
+      </Show>
+      {props.children}
+      <RefusalDescription error={props.error} />
+    </SDKField>
+  );
+}
+
+// UI SDK's FieldError with match announces only the last of several refusals, without its field's name.
+// Use that part when UI SDK can deliver a refusal on focus without a competing announcement.
+export function RefusalDescription(props: { error?: string }) {
+  return (
+    <Show when={props.error} keyed>
+      {(words) => (
+        <FieldDescription class="field-error">
+          <FieldError>{words}</FieldError>
+        </FieldDescription>
+      )}
+    </Show>
   );
 }
 
@@ -95,6 +74,8 @@ export function Field(
 export function FieldGroup(
   props: Omit<FieldProps, "unit"> &
     Omit<JSX.FieldsetHTMLAttributes<HTMLFieldSetElement>, "tabindex"> & {
+      /** The legend names the set. */
+      "aria-label"?: never;
       /** Derived from the presence of a refusal. */
       "aria-invalid"?: never;
       /** Derived from the hint and refusal. */
@@ -103,18 +84,23 @@ export function FieldGroup(
       children: JSX.Element;
     },
 ) {
-  const { control, hint, refusal } = fieldParts(props);
+  // A refusal belongs to the whole set. FieldSet connects its descriptions, but has
+  // no invalid state, and the form needs a focus target for that refusal.
   return (
-    <fieldset
-      {...omit(props, "label", "hint", "error", "children", "class")}
-      {...omit(control, "id")}
+    <FieldSet
+      {...omit(props, "label", "hint", "error", "children", "class", "disabled", "style")}
+      disabled={props.disabled === "" || props.disabled}
+      style={props.style === false ? undefined : props.style}
+      aria-invalid={props.error !== undefined ? "true" : undefined}
       class={["field", props.class]}
       tabindex="-1"
     >
-      <legend>{props.label}</legend>
-      {hint()}
+      <FieldLegend>{props.label}</FieldLegend>
+      <Show when={!!props.hint}>
+        <FieldDescription class="note">{props.hint}</FieldDescription>
+      </Show>
       {props.children}
-      {refusal()}
-    </fieldset>
+      <RefusalDescription error={props.error} />
+    </FieldSet>
   );
 }
