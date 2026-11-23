@@ -1,8 +1,11 @@
 import { BetterFetchError } from "@better-fetch/fetch";
-import { createORPCClient, ORPCError, ResponseError } from "@orpc/client";
+import { createORPCClient, onError, ORPCError, ResponseError } from "@orpc/client";
 import { TimeoutLinkPlugin } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
-import { apiContract, asError, createProblemDetailsLink, problemOf } from "contract";
+import { getProcedureContractOrThrow, type ContractRouterClient } from "@orpc/contract";
+import { getOpenAPIMeta } from "@orpc/openapi";
+import { apiContract, asError, createProblemDetailsLink, getAccess, problemOf } from "contract";
+
+import { authClient } from "./auth-client.ts";
 
 /**
  * How long the dashboard waits for the hub to answer one of its oRPC calls, or a Better Auth call a
@@ -25,6 +28,17 @@ const CALLS_CARRYING_CONTENT = new Set(["blobs.upload", "batches.create", "batch
  */
 export const api: ContractRouterClient<typeof apiContract> = createORPCClient(
   createProblemDetailsLink(apiContract, {
+    interceptors: [
+      onError((error, { path }) => {
+        if (!(error instanceof ORPCError) || error.code !== "UNAUTHORIZED") return;
+        const procedure = getProcedureContractOrThrow(apiContract, path);
+        if (!getAccess(procedure)?.member || getOpenAPIMeta(procedure)?.method !== "GET") return;
+        // A background read can discover expiry while the tab stays open. The shell watches this
+        // session and returns to sign-in if Better Auth confirms that it ended.
+        const session = authClient.useSession.get();
+        if (!session.isRefetching) void session.refetch();
+      }),
+    ],
     plugins: [
       new TimeoutLinkPlugin({
         timeout: ({ path }) =>

@@ -364,6 +364,23 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
   await expectBrowser(queued).toBeVisible();
 }, 30_000);
 
+test("an open dashboard returns to sign-in when a background read discovers the session ended", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  await signInAt(system, page, "jobs", await newMember(system, "Polling Reader"));
+  await page
+    .getByRole("region", { name: "The hub now" })
+    .getByRole("link", { name: /Runners/ })
+    .waitFor();
+
+  // Lose the cookie without a sign-out notification or a navigation.
+  await page.context().clearCookies();
+  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(new URL(page.url()).searchParams.get("redirect")).toContain("/jobs");
+}, 30_000);
+
 test("in a browser, a member change in another tab loads a fresh document", async () => {
   const first = await newMember(system, "First Tab Reader");
   const next = await newMember(system, "Next Tab Reader");

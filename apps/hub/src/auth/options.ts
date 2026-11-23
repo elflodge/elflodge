@@ -208,11 +208,8 @@ export function authOptions(settings: AuthSettings) {
         }
       }),
     },
-    logger: {
-      // Better Auth's lines go to the console like the hub's own, without terminal colours, so Workers
-      // Logs keeps them with the request they belong to.
-      log: (level, message, ...args) => console[level](`[Better Auth] ${message}`, ...args),
-    },
+    // Workers Logs collects these console lines with the request that produced them.
+    logger: { disableColors: true },
     plugins: [
       // A separate `/viewer` endpoint could return the same data, but it would have to forward
       // session renewal cookies. The dashboard already calls Better Auth's `get-session`, which
