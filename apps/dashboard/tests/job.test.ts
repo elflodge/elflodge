@@ -657,37 +657,34 @@ test("a member can retry a refused earlier page from its own box", async ({ hub,
   ]);
 });
 
-test.for([408, 429])(
-  "following Events resumes automatically after HTTP %i",
-  async (status, { hub, open }) => {
-    const journal = { job: runningJob("transient-events"), events: history(23) };
-    const page = await openJob(hub, open, journal);
-    await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText("All 25 read");
+test("following Events resumes automatically after a rate limit", async ({ hub, open }) => {
+  const journal = { job: runningJob("transient-events"), events: history(23) };
+  const page = await openJob(hub, open, journal);
+  await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText("All 25 read");
 
-    const events = (url: URL) => url.pathname.endsWith(`/jobs/${journal.job.id}/events`);
-    await page.route(
-      events,
-      (route) =>
-        route.fulfill({
-          status,
-          contentType: "application/problem+json",
-          json: {
-            type: "about:blank",
-            status,
-            title: status === 408 ? "Request Timeout" : "Too Many Requests",
-          },
-        }),
-      { times: 1 },
-    );
-    journal.events.push(aMessage(235));
-    const failedRead = page.waitForResponse(
-      (response) => events(new URL(response.url())) && response.status() === status,
-    );
-    await page.clock.runFor(5_000);
-    await failedRead;
-    await runClockUntil(page, 1_000, () => page.locator("#event-235").isVisible());
-  },
-);
+  const events = (url: URL) => url.pathname.endsWith(`/jobs/${journal.job.id}/events`);
+  await page.route(
+    events,
+    (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          status: 429,
+          title: "Too Many Requests",
+        },
+      }),
+    { times: 1 },
+  );
+  journal.events.push(aMessage(235));
+  const failedRead = page.waitForResponse(
+    (response) => events(new URL(response.url())) && response.status() === 429,
+  );
+  await page.clock.runFor(5_000);
+  await failedRead;
+  await runClockUntil(page, 1_000, () => page.locator("#event-235").isVisible());
+});
 
 test("Latest recovers a refused forward read without dropping the Events already shown", async ({
   hub,

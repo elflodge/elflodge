@@ -11,6 +11,7 @@ import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/tes
 import { sweepUnusedBlobs } from "../src/blobs.ts";
 import { Db, DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import {
+  problemResponse,
   blobRef,
   digestOf,
   type OneJob,
@@ -277,11 +278,11 @@ test("an upload whose bytes are not those its digest names stores nothing", asyn
       body: new Blob(["else"]).stream(),
     }),
   ).rejects.toMatchObject({
-    cause: {
+    cause: problemResponse({
       status: 400,
       detail: expect.stringContaining(digestOf("else")),
       errors: [{ parameter: "digest" }],
-    },
+    }),
     data: { issues: [{ path: ["params", "digest"] }] },
   });
   expect(await storedOf([claimed, "else"])).toEqual([]);

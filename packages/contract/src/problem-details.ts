@@ -1,4 +1,10 @@
-import { COMMON_ERROR_STATUS_MAP, ORPCError, onError, type ClientContext } from "@orpc/client";
+import {
+  COMMON_ERROR_STATUS_MAP,
+  ORPCError,
+  ResponseError,
+  onError,
+  type ClientContext,
+} from "@orpc/client";
 import { getProcedureContractOrThrow, type SchemaIssue, type RouterContract } from "@orpc/contract";
 import { ResponseValidationLinkPlugin } from "@orpc/contract/plugins";
 import {
@@ -149,13 +155,10 @@ export const errorStatusMap: Record<string, number> = {
   ),
 };
 
-/**
- * The Problem Details an error from the API carries, which the link below keeps as the error's
- * cause; an error oRPC raises itself, such as an answer the contract does not allow, has none.
- */
+/** A Hub error carries its Problem Details in the response body. A local validation error has no response. */
 export function problemOf(error: unknown): ProblemDetails | undefined {
-  if (!(error instanceof ORPCError)) return undefined;
-  const problem = problemDetailsSchema.safeParse(error.cause);
+  if (!(error instanceof ORPCError) || !(error.cause instanceof ResponseError)) return undefined;
+  const problem = problemDetailsSchema.safeParse(error.cause.response.body);
   return problem.success ? problem.data : undefined;
 }
 
@@ -198,15 +201,20 @@ export function createProblemDetailsLink<T extends ClientContext>(
     },
     // oRPC's client reads only `application/json` as JSON by itself, errors included.
     errorResponseContentType: PROBLEM_DETAILS_CONTENT_TYPE,
-    errorResponseBodyDecoder: (body, _response, defaultError) => {
+    errorResponseBodyDecoder: (body, response, defaultError) => {
       const problem = problemDetailsSchema.safeParse(body);
       if (!problem.success) return defaultError();
       const { status, title, detail } = problem.data;
-      // The document itself is kept as the cause, for a client that shows it as the hub sent it.
-      return new ORPCError(errorCodeOf(status), { message: detail ?? title, cause: problem.data });
+      // oRPC reads the HTTP status from this cause when deciding whether to retry.
+      return new ORPCError(errorCodeOf(status), {
+        message: detail ?? title,
+        cause: new ResponseError({
+          response: { status: response.status, headers: response.headers, body },
+        }),
+      });
     },
     // The body decoder has no procedure. The link interceptor knows the call path, so it can
-    // restore the input paths oRPC's form helpers read while keeping the wire document as cause.
+    // restore the input paths oRPC's form helpers read while leaving the response body intact.
     interceptors: [
       ...(options.interceptors ?? []),
       onError((error, { path }) => {

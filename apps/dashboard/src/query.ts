@@ -1,5 +1,6 @@
 import { BetterFetchError } from "@better-fetch/fetch";
-import { ORPCError } from "@orpc/client";
+import { ORPCError, ResponseError } from "@orpc/client";
+import { isRetryableError } from "@orpc/client/plugins";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import {
   QueryClient,
@@ -7,7 +8,7 @@ import {
   type QueryKey,
   type UseQueryResult,
 } from "@tanstack/solid-query";
-import { problemOf, type Runner } from "contract";
+import type { Runner } from "contract";
 import { onFlush } from "solid-js";
 
 import { api } from "./api-client.ts";
@@ -84,7 +85,10 @@ export function createQueryClient() {
 /** A timeout, rate limit or server failure may clear on the next read. oRPC can also reject
  * a response locally when it fails the contract. Retrying that response would not help. */
 export function refused(error: Error) {
-  const status = error instanceof BetterFetchError ? error.status : problemOf(error)?.status;
-  if (status === undefined) return error instanceof ORPCError;
-  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+  if (error instanceof BetterFetchError) {
+    const { status } = error;
+    return status >= 400 && status < 500 && status !== 408 && status !== 429;
+  }
+  if (error instanceof ORPCError && !(error.cause instanceof ResponseError)) return true;
+  return !isRetryableError(error);
 }

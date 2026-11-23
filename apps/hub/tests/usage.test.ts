@@ -4,7 +4,7 @@ import { afterAll, assert, beforeAll, expect, inject, test } from "vite-plus/tes
 
 import { DB_SCHEMA, openDatabase, plusDuration } from "../src/db/database.ts";
 import { JobId } from "../src/db/types.ts";
-import { startSystem, submitJob, untilStatus } from "./harness.ts";
+import { problemResponse, startSystem, submitJob, untilStatus } from "./harness.ts";
 import { callTool } from "./scripted-model.ts";
 
 // Reading the Organization's usage, against a real hub and Runner: what jobs used, added up from
@@ -288,11 +288,11 @@ test("a window that ends before it starts, is longer than 400 days or starts bef
     [{ to: "0001-01-01" }, "to"],
   ] as const) {
     await expect(owner.usage.get(window)).rejects.toMatchObject({
-      cause: {
+      cause: problemResponse({
         status: 400,
         errors: [{ parameter: field }],
         detail: expect.stringMatching(`→ at ${field}$`),
-      },
+      }),
     });
   }
   // 400 days, both included.
@@ -307,7 +307,7 @@ test("a member whose role does not allow reading usage is refused", async () => 
   await expect(member.usage.get({})).rejects.toMatchObject({
     code: "FORBIDDEN",
     defined: true,
-    cause: { status: 403, detail: expect.stringContaining("usage:read") },
+    cause: problemResponse({ status: 403, detail: expect.stringContaining("usage:read") }),
   });
 });
 
@@ -350,11 +350,11 @@ test("refused periods and future starts name the conflicting field", async () =>
     [{ from: "9999-12-31" }, "from"],
   ] as const) {
     await expect(system.owner().usage.get(input)).rejects.toMatchObject({
-      cause: {
+      cause: problemResponse({
         status: 400,
         errors: [{ parameter: field }],
         detail: expect.stringMatching(`→ at ${field}$`),
-      },
+      }),
     });
   }
 });

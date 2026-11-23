@@ -102,10 +102,7 @@ export function secretAnswerFailure(caught: unknown): Error {
   const error = asError(caught);
   if (isWriteRefusal(error)) return error;
   const responseError = error instanceof ORPCError ? error.cause : error;
-  const status =
-    responseError instanceof ResponseError
-      ? responseError.response.status
-      : problemOf(error)?.status;
+  const status = responseError instanceof ResponseError ? responseError.response.status : undefined;
   return new Error(status === undefined ? error.name : `${error.name}, status ${status}`);
 }
 
