@@ -12,6 +12,12 @@ export function launchDashboardBrowser(system: { origin: string; url(): URL }) {
   });
 }
 
+export function liveRegions(page: Page) {
+  return page.locator(
+    '[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"], output',
+  );
+}
+
 /** A member of the Organization named `name`, added to it, whom a browser can sign in as. */
 export async function newMember(system: System, name: string) {
   const member = {

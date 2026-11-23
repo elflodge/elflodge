@@ -3,7 +3,7 @@ import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/test";
 import * as z from "zod/mini";
 
-import { launchDashboardBrowser, signInAt } from "./dashboard-browser.ts";
+import { launchDashboardBrowser, liveRegions, signInAt } from "./dashboard-browser.ts";
 import { OWNER, protocolClient, startSystem } from "./harness.ts";
 
 // The dashboard's Runners and API keys pages, as browsers reach them through the hub, on both
@@ -183,7 +183,8 @@ test("in a browser, Add Runner gives a command for another machine, and creates 
   }
 
   await dialog.getByText("Shown this once:").waitFor();
-  const copy = dialog.getByRole("button", { name: "Copy the command" });
+  const copyLine = dialog.locator("p.copy");
+  const copy = copyLine.getByRole("button", { name: "Copy the command" });
   await expectBrowser(copy).toBeFocused();
   await expectBrowser(copy).toHaveAccessibleDescription(/^Shown this once: the registration key/);
   expect(sent).toBe(1);
@@ -192,13 +193,16 @@ test("in a browser, Add Runner gives a command for another machine, and creates 
     .context()
     .grantPermissions(["clipboard-read", "clipboard-write"], { origin: system.origin });
   await copy.click();
-  await expectBrowser(dialog.getByText("Copied.", { exact: true })).toBeVisible();
-  await expectBrowser(page.getByRole("status").filter({ hasText: /^Copied\.$/ })).toHaveCount(1);
+  await expectBrowser(copyLine.getByText("Copied.", { exact: true })).toBeVisible();
+  const live = liveRegions(page);
+  const result = live.filter({ hasText: "Copied." });
+  await expectBrowser(result).toHaveCount(1);
+  await expectBrowser(result.and(dialog.locator("*"))).toHaveCount(0);
+  await expectBrowser(result).toHaveRole("status");
+  await expectBrowser(result).toHaveAttribute("aria-live", "polite");
+  expect(await result.evaluate((element) => element.closest("[inert]") === null)).toBe(true);
   const copied = await page.evaluate<string>("navigator.clipboard.readText()");
   expect(copied === (await command.textContent())).toBe(true);
-  const live = page.locator(
-    '[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"], output',
-  );
   expect((await live.allTextContents()).some((message) => message.includes(key))).toBe(false);
   // The key in the command registers a Runner, and is an ordinary key, listed with the others.
   const { id } = await system.runnerClient({ "x-api-key": key }).register({ name: "new-host" });

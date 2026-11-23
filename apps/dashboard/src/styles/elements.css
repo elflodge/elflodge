@@ -340,6 +340,8 @@ progress {
   min-width: min(24rem, calc(100vw - 2 * var(--gutter)));
   max-width: min(44rem, calc(100vw - 2 * var(--gutter)));
   box-shadow: var(--shadow-dialog);
+  /* UI SDK resets its popover's size and position. Restore the browser's centred modal box
+     and leave room above and below it when the content needs to scroll. */
   inset: 0;
   margin: auto;
   width: fit-content;
