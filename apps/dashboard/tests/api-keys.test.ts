@@ -1,3 +1,4 @@
+import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
 import { InvalidInput } from "../../hub/src/invalid-input.ts";
@@ -9,6 +10,13 @@ import { anApiKey } from "./records.ts";
 
 /** A new key's answer, which carries the key itself. */
 const created = (name: string) => ({ id: anApiKey(name).id, key: `elf_secret_${name.length}` });
+
+/** Has the page read the keys again, as returning to its tab does once they are stale. */
+async function readAgain(page: Page) {
+  // Past Query's `staleTime` of a second.
+  await page.clock.runFor(2_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+}
 
 test.for(["lists no keys", "fails"] as const)(
   "a revoked key's notice has focus before the list is read again, and after it %s",
@@ -126,6 +134,46 @@ test("a second revocation while the first one's reread is unanswered shows its p
     page.getByRole("status").filter({ hasText: /second held key .* is revoked/ }),
   ).toBeFocused();
   expect(hub.apiKeys.revoke.calls).toEqual([{ id: first.id }, { id: second.id }]);
+});
+
+test("a key listed while another's revocation is asked about cannot take over its dialog", async ({
+  hub,
+  open,
+}) => {
+  const earlier = anApiKey("earlier key");
+  const original = anApiKey("original revocation");
+  const arriving = anApiKey("arriving key");
+  hub.apiKeys.list.answers([earlier, original]);
+  hub.apiKeys.revoke.answers(undefined);
+  const page = await open("api-keys");
+  const dialog = page.getByRole("alertdialog");
+  // An earlier revocation leaves its notice, a live region, which an open dialog leaves exposed
+  // with what is beside it.
+  const revokeEarlier = { name: /^Revoke earlier key / };
+  await page.getByRole("button", revokeEarlier).click();
+  hub.apiKeys.list.answers([original]);
+  await dialog.getByRole("button", revokeEarlier).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "is revoked" })).toBeFocused();
+  await expectBrowser(page.getByRole("row").filter({ hasText: "earlier key" })).toHaveCount(0);
+
+  const revoke = { name: /^Revoke original revocation / };
+  await page.getByRole("button", revoke).click();
+  const heading = await dialog.getByRole("heading").innerText();
+  // Two reads while it is open, as on returning to the tab: first no keys, then a key created
+  // meanwhile, whose row is new beside the notice, and so not made inert by the dialog.
+  hub.apiKeys.list.answers([]);
+  await readAgain(page);
+  await expectBrowser(page.getByRole("heading", { name: "No API keys yet" })).toBeVisible();
+  hub.apiKeys.list.answers([arriving]);
+  await readAgain(page);
+  await page.getByRole("button", { name: /^Revoke arriving key / }).click();
+  await expectBrowser(dialog.getByRole("heading")).toHaveText(heading);
+
+  await dialog.getByRole("button", revoke).click();
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: /^original revocation .* is revoked\.$/ }),
+  ).toBeFocused();
+  expect(hub.apiKeys.revoke.calls).toEqual([{ id: earlier.id }, { id: original.id }]);
 });
 
 test("Create key cannot be left while the hub answers, then shows the key with Copy focused, and forgets it once closed", async ({
