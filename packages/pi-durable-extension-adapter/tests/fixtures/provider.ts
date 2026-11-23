@@ -24,6 +24,7 @@ export default function extension(pi: ExtensionAPI) {
     models: faux.models,
     streamSimple(model, transcript, options) {
       const last = transcript.messages.at(-1);
+      const text = last?.role === "user" ? contentText(last.content) : "";
       faux.setResponses([
         async () => {
           // As a provider that keeps its query open while tools run: only the instance that
@@ -36,9 +37,10 @@ export default function extension(pi: ExtensionAPI) {
               : fauxAssistantMessage(owner + ": " + contentText(last.content));
           }
           request = options?.signal;
-          const text = last?.role === "user" ? contentText(last.content) : "";
-          if (text === "wait for provider" && request && !request.aborted)
+          if (/^(wait for provider|ignore abort)$/.test(text) && request && !request.aborted)
             await once(request, "abort");
+          // As a provider that finishes its answer after the cancellation.
+          if (text === "ignore abort") return tool("stubborn");
           if (text === "call two tools") return tool("begin");
           if (text === "call tool") return tool("receipt");
           if (text === "call stubborn tool") return tool("stubborn");
@@ -49,10 +51,15 @@ export default function extension(pi: ExtensionAPI) {
           if (text === "endpoint") return fauxAssistantMessage(model.baseUrl);
           if (text === "header")
             return fauxAssistantMessage(options?.headers?.["x-fixture"] ?? "missing");
+          await options?.onProviderStreamEvent?.({ owner }, model);
           return fauxAssistantMessage(owner + ": " + text);
         },
       ]);
-      return faux.streamSimple(model, transcript, options);
+      return faux.streamSimple(
+        model,
+        transcript,
+        text === "ignore abort" ? { ...options, signal: undefined } : options,
+      );
     },
   };
 
@@ -69,6 +76,7 @@ export default function extension(pi: ExtensionAPI) {
       };
     }
     if (text === "exit") process.exit(1);
+    if (text === "register late") pi.registerProvider("late", config);
     if (text === "refresh") {
       pi.registerProvider("fixture", {
         ...config,

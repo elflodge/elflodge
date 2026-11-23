@@ -154,6 +154,58 @@ test("aborting a conversation while a tool that ignores the abort runs stops its
   expect(await submission.wait(context)).toMatchObject({ status: "unanswered", reason: "aborted" });
 });
 
+test("aborting a run whose provider answers with a tool call after the abort releases its query", async () => {
+  const { attach } = await setup();
+  const alice = await attach("alice");
+  const submission = await alice.ask("ignore abort");
+  const status = () => alice.extensions.input("status");
+  await expect.poll(status).toMatchObject({ action: "transform", text: "open" });
+
+  await alice.conversation.abort(context);
+  expect(await submission.wait(context)).toMatchObject({ status: "unanswered", reason: "aborted" });
+  expect(await status()).toMatchObject({ action: "transform", text: "aborted" });
+  expect(await (await alice.ask("again")).wait(context)).toMatchObject({ status: "done" });
+});
+
+test("a direct caller's abort stops a provider query that asked for tools", async () => {
+  const { attach, models } = await setup();
+  const alice = await attach("alice");
+  const model = models.getModel("fixture", "echo");
+  if (!model) throw new Error("The fixture's model is missing");
+  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
+  const caller = new AbortController();
+  const stream = models.streamSimple(
+    model,
+    { messages: [{ role: "user", content: "call tool", timestamp: Date.now() }] },
+    { sessionId: provider?.sessionId, signal: caller.signal },
+  );
+  expect(await stream.result()).toMatchObject({ stopReason: "toolUse" });
+  const status = () => alice.extensions.input("status");
+  expect(await status()).toMatchObject({ action: "transform", text: "open" });
+
+  caller.abort();
+  await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
+});
+
+test("after a worker exit, a provider only the old instance registered goes until registered again", async () => {
+  const { attach } = await setup();
+  const alice = await attach("alice");
+  await alice.extensions.input("register late");
+  await alice.conversation.configure({ model: { provider: "late", modelId: "echo" } }, context);
+  expect(await (await alice.ask("hello")).wait(context)).toMatchObject({ status: "done" });
+
+  await expect(alice.extensions.input("exit")).rejects.toThrow("exited");
+  // Waits for the extensions to open again.
+  await alice.extensions.input("status");
+  expect(await (await alice.ask("again")).wait(context)).toMatchObject({
+    status: "unanswered",
+    reason: "no_model",
+  });
+  await alice.extensions.input("register late");
+  expect(await (await alice.ask("again")).wait(context)).toMatchObject({ status: "done" });
+  expect(await alice.answer()).toMatchObject({ content: [{ text: "alice: again" }] });
+});
+
 test.each(["alone", "beside a conversation on another worker"])(
   "a conversation %s keeps its providers when its worker exits and is answered once they are back",
   async (where) => {
@@ -173,7 +225,7 @@ test.each(["alone", "beside a conversation on another worker"])(
   },
 );
 
-test("a custom stream receives its caller's payload and response hooks", async () => {
+test("a custom stream receives its caller's payload, response and stream event hooks", async () => {
   const { attach, models } = await setup();
   const alice = await attach("alice");
   expect(await (await alice.ask("payload")).wait(context)).toMatchObject({ status: "done" });
@@ -186,6 +238,7 @@ test("a custom stream receives its caller's payload and response hooks", async (
   if (!model) throw new Error("The fixture's model is missing");
   const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
   const statuses: number[] = [];
+  const streamed: unknown[] = [];
   const stream = models.streamSimple(
     model,
     { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] },
@@ -194,10 +247,14 @@ test("a custom stream receives its caller's payload and response hooks", async (
       onResponse: ({ status }) => {
         statuses.push(status);
       },
+      onProviderStreamEvent: (data) => {
+        streamed.push(data);
+      },
     },
   );
   expect(await stream.result()).toMatchObject({ content: [{ text: "alice: hello" }] });
   expect(statuses).toEqual([200]);
+  expect(streamed).toEqual([{ owner: "alice" }]);
 });
 
 test("a shared catalog can gain models while each conversation keeps its own provider", async () => {

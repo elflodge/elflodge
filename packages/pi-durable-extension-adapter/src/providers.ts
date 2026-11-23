@@ -140,7 +140,11 @@ export class ProviderSession {
   #worker: ProviderWorker | undefined;
   /** Why the last worker went, for the requests that find none. */
   #gone: Error | undefined;
+  /** The providers the current instance registered, which a reopening keeps (`dropStale`). */
+  #registered = new Set<string>();
   readonly #parked = new Map<SubmissionId, Parking>();
+  /** Requests of callers other than pi-durable that asked for tools, held until their caller aborts. */
+  readonly #held = new Set<Parking>();
 
   constructor(
     models: Models,
@@ -161,6 +165,18 @@ export class ProviderSession {
   /** Model requests go to this instance from now on. */
   bind(worker: ProviderWorker) {
     this.#worker = worker;
+    this.#registered = new Set();
+  }
+
+  /**
+   * The extensions finished opening: the conversation's registrations become what this instance
+   * registered, as its tools and hooks do. One that only an instance before a worker's exit made,
+   * such as from a handler of that instance, goes, so its model no longer reaches a dead stream.
+   */
+  dropStale() {
+    for (const [name, entry] of this.#catalog) {
+      if (entry.sessions.has(this) && !this.#registered.has(name)) this.unregister(name);
+    }
   }
 
   /**
@@ -171,6 +187,7 @@ export class ProviderSession {
     this.#worker = undefined;
     this.#gone = error;
     for (const parking of this.#parked.values()) parking.drop();
+    for (const held of this.#held) held.drop();
   }
 
   register(name: string, settings: ProviderSettings, customStream: boolean) {
@@ -202,8 +219,11 @@ export class ProviderSession {
       customStream ? { ...settings, streamSimple: entry.dispatch } : settings,
     );
     entry.current = models.getRegisteredProviderConfig(name);
-    entry.sessions.set(this, customStream ? route : entry.sessions.get(this));
+    // A settings-only update keeps a stream only if this instance registered it.
+    const own = entry.sessions.get(this) === route ? route : undefined;
+    entry.sessions.set(this, customStream ? route : own);
     this.#catalog.set(name, entry);
+    this.#registered.add(name);
   }
 
   #createRegistration(name: string, runtime: Runtime): InstalledProvider {
@@ -255,6 +275,7 @@ export class ProviderSession {
       throw new Error(
         "unregisterProvider is not supported by these Harness models; supply a Pi ModelRuntime",
       );
+    this.#registered.delete(name);
     const entry = this.#catalog.get(name);
     if (!entry || !entry.sessions.delete(this) || entry.sessions.size) return;
     this.#catalog.delete(name);
@@ -272,6 +293,7 @@ export class ProviderSession {
     if (this.#life.signal.aborted) return;
     this.#life.abort(reason);
     for (const parking of this.#parked.values()) parking.release();
+    for (const held of this.#held) held.release();
     for (const name of this.#catalog.keys()) this.unregister(name);
     this.#worker = undefined;
   }
@@ -295,13 +317,16 @@ export class ProviderSession {
       throw new Error("An extension provider running on a worker cannot use a host fetch function");
     const live = this.#life.signal;
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
-    const submission = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run
-      ?.inputs[0];
+    const run = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run;
+    const submission = run?.inputs[0];
     // A request that comes while the extensions open again after their worker exited waits for
     // them, as hooks and tool calls do. Nothing waits between reading the worker and calling it.
     await awaitWithContext(this.#ready(), signal ? withAbortSignal(signal, bound) : bound);
     const worker = this.#worker;
     if (!worker) throw this.#gone ?? new Error("The conversation's extension worker exited");
+    // The reopened instance may not have registered the stream the request was routed by.
+    if (this.#catalog.get(name)?.sessions.get(this) !== worker.route)
+      throw new Error(`This conversation's extensions no longer register a stream for "${name}"`);
     live.throwIfAborted();
     signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
@@ -312,8 +337,11 @@ export class ProviderSession {
       // A generation invocation retires its signal even on toolUse. Its provider can still be
       // waiting for the tool when the run is aborted between this request and the next one.
       signal?.removeEventListener("abort", aborted);
-      if (message.stopReason === "toolUse" && submission !== undefined)
-        this.#park(submission, cancel);
+      if (message.stopReason !== "toolUse") return;
+      if (submission !== undefined) this.#park(submission, cancel);
+      // A caller other than pi-durable runs the tools itself and ends the query by its signal.
+      // pi-durable aborts each step's signal, so a run without inputs keeps its request until close.
+      else if (run === undefined && signal && !signal.aborted) this.#hold(signal, cancel);
     };
     const id = worker.requests.add({
       options,
@@ -397,16 +425,32 @@ export class ProviderSession {
       .submission(submission, watching.context)
       .then((input) => input?.wait(watching.context))
       .then(release, release);
-    void this.#harness.watchTaskGraph(watching.context).then(
-      (watch) => {
-        if (abortedRun(watch.value)) release();
+    void this.#harness
+      .watchTaskGraph(watching.context)
+      .then((watch) => {
+        // Released while the watch was acquired, or aborted already: a stopped watch cannot start.
+        if (this.#parked.get(submission) !== parking) return;
+        if (abortedRun(watch.value)) return release();
         watch.start(async (call) => {
           if (call.kind === "value" && abortedRun(call.value)) release();
         });
-        // Without the watch, the input's settling still releases them.
-      },
-      () => {},
-    );
+      })
+      // Without the watch, the input's settling still releases them.
+      .catch(() => {});
+  }
+
+  #hold(signal: AbortSignal, cancel: (reason?: unknown) => void) {
+    const release = () => {
+      drop();
+      cancel(signal.reason);
+    };
+    const drop = () => {
+      this.#held.delete(held);
+      signal.removeEventListener("abort", release);
+    };
+    const held: Parking = { cancels: new Set([cancel]), release, drop };
+    this.#held.add(held);
+    signal.addEventListener("abort", release, { once: true });
   }
 }
 

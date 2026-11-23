@@ -970,6 +970,7 @@ class AttachedConversation {
     this.#stillOn(hosted);
     // Extensions often register tools in `session_start`; they are installed before the first request.
     this.update(registrations);
+    this.providers.dropStale();
     return opened;
   }
 
