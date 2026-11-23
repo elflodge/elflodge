@@ -46,7 +46,10 @@ export function BatchControls(props: { batch: Batch }) {
   }
   /** Sends `control`, and resolves once the page shows the hub's answer; rejects with its failure. */
   async function run(control: "pause" | "resume" | "cancel") {
-    // On its own: written beside the request, it would be held until it settles.
+    // A press clears the previous control's failure as it starts, as a Cancel confirmed after a
+    // refused Pause does: that failure tells of the earlier press, and shown beside this one's
+    // progress it would read as this one's. On its own: written beside the request, it would be
+    // held until it settles.
     onFlush(() => setFailure(undefined));
     await controls[control].mutate({ id: props.batch.id });
     // Shown before the reads start, which would hold it.

@@ -228,7 +228,9 @@ function OrganizationPage(props: { organizationId: string }) {
   const refreshInvites = () => client.invalidateQueries({ queryKey: orpc.invitations.list.key() });
   const refreshKeys = () => client.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
   // Each refresh reads the session anew rather than join a read under way, which may have been
-  // answered before the change it is for; invalidated again, the router publishes its latest load.
+  // answered before the change it is for; invalidated again, the router publishes its latest load,
+  // so an answer to an earlier read that arrives last cannot bring back the controls of a role the
+  // member no longer has.
   const refreshSession = () => router.invalidate();
   const isOwn = (person: Member) => person.userId === context().user.id;
   const currentMember = (person: Member) =>
@@ -482,7 +484,8 @@ function OrganizationPage(props: { organizationId: string }) {
   }
 
   // Only a reader who may no longer revoke it: the list leaves out an invitation accepted, revoked
-  // elsewhere or expired alike, and the answer to revoking it says which.
+  // elsewhere or expired alike, so its leaving the list does not mean it was revoked, and one that
+  // expired while its Revoke was open can still be revoked. The answer to revoking it says which.
   function revocationWithdrawn(invite: Revocation) {
     const reader = roster().members.find(isOwn);
     if (reader && rolesOf(invite.role).includes("owner") && !rolesOf(reader.role).includes("owner"))
@@ -574,6 +577,9 @@ function OrganizationPage(props: { organizationId: string }) {
           </Show>
         </div>
       </Show>
+      {/* The notice and the failed reads' notices, live regions, stay outside the tables: UI SDK leaves
+          live regions and their ancestors out of what an open confirmation makes inert, so a row's
+          controls beside one, a row a read adds included, would stay pressable behind it. */}
       <Show when={notice()} keyed>
         {({ message }) => (
           <Notice

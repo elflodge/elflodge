@@ -98,7 +98,9 @@ export function ConfirmDialog<T>(props: {
                               // The explanation is rendered text a read changes, so its own element is
                               // the live region; UI SDK's `announce` is for an action's result that has
                               // no element of its own. Off while the action runs: its own answer
-                              // changes the record as the dialog closes.
+                              // changes the record as the dialog closes, and decides what the member
+                              // is told. A read that changes the record meanwhile, such as the same
+                              // action asked elsewhere, is not the outcome of their action.
                               <div {...description} aria-live={close.pending ? "off" : "polite"} />
                             )}
                           >

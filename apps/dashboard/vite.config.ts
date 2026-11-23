@@ -5,6 +5,30 @@ import { defineConfig } from "vite-plus";
 import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../hub/src/dashboard.ts";
 
 export default defineConfig({
+  run: {
+    tasks: {
+      // Not cached: Vite Task traces a cached task's file reads by preloading a library into every
+      // process it starts, and under that tracing the tests' setup cannot start the dashboard's build
+      // through Vite Task, which fails to spawn it. The build itself stays cached.
+      test: { command: "vp test", cache: false },
+    },
+  },
+  test: {
+    // The tests run in Node, import none of the dashboard's components and drive the build in a
+    // browser, so the build's plugins have nothing to do in them; a top-level `test` would load them
+    // with the rest of this config, and `extends: false` leaves them out.
+    projects: [
+      {
+        extends: false,
+        test: {
+          include: ["tests/**/*.test.ts"],
+          // Builds the dashboard and serves the build for the run.
+          globalSetup: ["tests/global-setup.ts"],
+          testTimeout: 15_000,
+        },
+      },
+    ],
+  },
   // TanStack Start derives the router's basepath from this Vite base.
   base: DASHBOARD_BASE,
   build: { assetsDir: DASHBOARD_ASSETS },

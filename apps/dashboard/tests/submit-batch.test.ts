@@ -1,0 +1,422 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+import { ORPCError } from "@orpc/client";
+import type { Page } from "playwright";
+import { expect, onTestFinished } from "vite-plus/test";
+
+import { InvalidInput } from "../../hub/src/invalid-input.ts";
+import { expectBrowser, runClockUntil, test, type Open } from "./dashboard.ts";
+import type { Hub } from "./hub.ts";
+import { aBatch, JOB_LIMITS, jobsCounted } from "./records.ts";
+
+// Submit a Batch: rows that cannot be sent, uploads stopped, failed and tried again, leaving while
+// it sends, and a lost answer. What the hub stores from a submission is in tests/journeys.
+
+/** The digest the hub names a file of `text` by. */
+const digestOf = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
+
+/** Opens Submit a Batch, with the hub's limits to read. */
+async function openSubmitBatch(hub: Hub, open: Open) {
+  hub.jobs.limits.answers(JOB_LIMITS);
+  const page = await open("batches/-/new");
+  await page.getByRole("heading", { name: "Submit a Batch" }).waitFor();
+  return page;
+}
+
+/** Chooses files of these names and texts with Add files. */
+async function addFiles(page: Page, files: readonly (readonly [string, string])[]) {
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Add files" }).click();
+  await (
+    await chooser
+  ).setFiles(
+    files.map(([name, text]) => ({ name, mimeType: "text/plain", buffer: Buffer.from(text) })),
+  );
+}
+
+/**
+ * Arranges the hub's Blobs: a check answers whether `held` has each digest, and an upload adds
+ * its digest, until the test arranges uploads otherwise.
+ */
+function holdBlobs(hub: Hub, held: Set<string>) {
+  hub.blobs.check.answers(({ files }) => ({
+    files: files.map((file) =>
+      held.has(file.digest)
+        ? { ...file, stored: true as const }
+        : {
+            ...file,
+            stored: false as const,
+            upload: { transfer: "put", url: `/blobs/${file.digest}` },
+          },
+    ),
+  }));
+  hub.blobs.upload.answers(({ params, headers }) => {
+    held.add(params.digest);
+    return { digest: params.digest, sizeBytes: headers["content-length"] };
+  });
+}
+
+/** The answer to a creation of the Batch `id` with `customIds` its jobs. */
+function created(id: string, customIds: string[]) {
+  return {
+    ...aBatch(id, { jobCounts: jobsCounted({ queued: customIds.length }) }),
+    jobs: customIds.map((customId, index) => ({
+      created: true,
+      job: { id: `0196d6a0-0000-7000-8000-${String(index).padStart(12, "0")}`, customId },
+    })),
+  };
+}
+
+test("what a row cannot send is told when it is added and stops Submit before anything is sent, and a repeat fixed is no longer told", async ({
+  hub,
+  open,
+}) => {
+  // The stand-in has no answer for a check, an upload or a create: one sent fails the test.
+  const page = await openSubmitBatch(hub, open);
+  await addFiles(page, [
+    ["Report: Q3.pdf", "Q3"],
+    ["scan.pdf", "first scan"],
+    ["scan.pdf", "second scan"],
+  ]);
+  await expectBrowser(
+    page.getByRole("cell", { name: /^Report: Q3\.pdf \d/ }),
+  ).toHaveAccessibleDescription(
+    /Must be a relative path of file names valid on Linux, macOS and Windows/,
+  );
+  for (const job of [2, 3])
+    await expectBrowser(page.getByLabel(`Custom ID of job ${job}`)).toHaveAccessibleDescription(
+      'Must be unique in the request: "scan.pdf" is given more than once',
+    );
+  await expectBrowser(page.getByRole("status").filter({ hasText: "added" })).toHaveText(
+    "3 files added as jobs 1 to 3. 3 cannot be sent: each says why at its row.",
+  );
+
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  const alert = page.getByRole("alert");
+  await expectBrowser(alert).toHaveText("3 jobs cannot be sent. Each says why at its row: 1, 2, 3");
+
+  // Fixing one use of the Custom ID ends the repeat at both rows.
+  await page.getByLabel("Custom ID of job 3").fill("scan-2.pdf");
+  await page.getByLabel("Custom ID of job 3").blur();
+  for (const job of [2, 3])
+    await expectBrowser(page.getByLabel(`Custom ID of job ${job}`)).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+  await expectBrowser(alert).toHaveText("1 job cannot be sent. It says why at its row: 1");
+  // The link leads to the cell that carries the words.
+  await alert.getByRole("link", { name: "1" }).click();
+  await expectBrowser(page.getByRole("cell", { name: /^Report: Q3\.pdf \d/ })).toBeFocused();
+  // The alert tells what stands now.
+  await page.getByRole("button", { name: "Remove job 1" }).click();
+  await expectBrowser(alert).toBeHidden();
+  expect([hub.blobs.check.calls, hub.blobs.upload.calls, hub.batches.create.calls]).toEqual([
+    [],
+    [],
+    [],
+  ]);
+});
+
+test("Submit again after a stop and after a failed upload uploads only what is missing and creates one Batch", async ({
+  hub,
+  open,
+}) => {
+  const files = [
+    ["a.txt", "alpha"],
+    ["b.txt", "bravo"],
+    ["c.txt", "charlie"],
+  ] as const;
+  const names = new Map(files.map(([name, text]) => [digestOf(text), name]));
+  const uploaded = () => hub.blobs.upload.calls.map(({ params }) => names.get(params.digest));
+  const held = new Set<string>();
+  holdBlobs(hub, held);
+  const page = await openSubmitBatch(hub, open);
+  await page.getByLabel("Batch ID").fill("letters");
+  await addFiles(page, files);
+  const submit = page.getByRole("button", { name: "Submit Batch" });
+
+  // First: a.txt is uploaded, and the others wait until Stop, which drops them.
+  hub.blobs.upload.answers(({ params, headers }) => {
+    if (names.get(params.digest) !== "a.txt") return new Promise(() => undefined);
+    held.add(params.digest);
+    return { digest: params.digest, sizeBytes: headers["content-length"] };
+  });
+  await submit.click();
+  const firstUploaded = page.getByText("Uploaded 1 of 3 files", { exact: false });
+  await runClockUntil(page, 1, () => firstUploaded.isVisible());
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toHaveText(
+    "Stopped. No Batch was created. Submit again reads the files again and uploads only what the hub does not hold.",
+  );
+  expect(new Set(uploaded())).toEqual(new Set(["a.txt", "b.txt", "c.txt"]));
+
+  // Then: b.txt fails, c.txt is uploaded, and a.txt, which the hub holds, is not sent.
+  let tried = hub.blobs.upload.calls.length;
+  hub.blobs.upload.answers(({ params, headers }) => {
+    if (names.get(params.digest) === "b.txt")
+      throw new ORPCError("SERVICE_UNAVAILABLE", { message: "The hub is busy." });
+    held.add(params.digest);
+    return { digest: params.digest, sizeBytes: headers["content-length"] };
+  });
+  await submit.click();
+  await runClockUntil(page, 1, () => page.getByRole("alert").isVisible());
+  await expectBrowser(page.getByRole("alert")).toHaveText(
+    "1 file was not uploaded. No Batch was created. It says why at its row: 2\nSubmit again reads the files again and uploads only what the hub does not hold.",
+  );
+  await expectBrowser(page.getByRole("cell", { name: /^b\.txt \d/ })).toHaveAccessibleDescription(
+    /The hub is busy\./,
+  );
+  expect(new Set(uploaded().slice(tried))).toEqual(new Set(["b.txt", "c.txt"]));
+  expect(uploaded().slice(tried)).toHaveLength(2);
+
+  tried = hub.blobs.upload.calls.length;
+  holdBlobs(hub, held);
+  hub.batches.create.answers(created("letters", ["a.txt", "b.txt", "c.txt"]));
+  hub.batches.get.answers(created("letters", ["a.txt", "b.txt", "c.txt"]));
+  await submit.click();
+  const landed = page.getByRole("heading", { level: 1, name: /letters/ });
+  await runClockUntil(page, 1, () => landed.isVisible());
+  expect(uploaded().slice(tried)).toEqual(["b.txt"]);
+  expect(hub.batches.create.calls).toHaveLength(1);
+  expect(
+    hub.batches.create.calls[0]?.jobs?.map((job) => [job.customId, job.files[0]?.digest]),
+  ).toEqual(files.map(([name, text]) => [name, digestOf(text)]));
+  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("3");
+});
+
+test("Leave confirmed while an upload is held sends no create", async ({ hub, open }) => {
+  // The stand-in has no answer for a create: one sent fails the test.
+  holdBlobs(hub, new Set());
+  hub.batches.list.answers({ batches: [], hasMore: false });
+  const page = await openSubmitBatch(hub, open);
+  await page.getByLabel("Batch ID").fill("left-late");
+  await addFiles(page, [["left.txt", "Left while uploading."]]);
+  const upload = hub.blobs.upload.hold();
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await upload.arrived;
+  // The session read of the next page is held, so this page stays while the next one loads.
+  const session = hub.session.hold();
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  const dialog = page.getByRole("alertdialog", { name: "Leave without submitting?" });
+  await dialog.getByRole("button", { name: "Leave the page" }).click();
+  // Stopped by Leave itself, while the page is still here.
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Stopped." })).toBeVisible();
+  upload.release();
+  session.release();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Batches");
+  expect(hub.batches.create.calls).toEqual([]);
+});
+
+test("after a lost answer the Batch ID field holds the ID sent: an edit cannot make a second Batch, and another ID says one may exist", async ({
+  hub,
+  open,
+}) => {
+  const page = await openSubmitBatch(hub, open);
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
+  // The create is sent and no answer comes back, so the page cannot tell whether the hub made the
+  // Batch.
+  await page.route(
+    "**/batches",
+    (route) =>
+      route.request().method() === "POST" ? route.abort("connectionreset") : route.fallback(),
+    { times: 1 },
+  );
+  const submit = page.getByRole("button", { name: "Submit Batch" });
+  const batchId = page.getByLabel("Batch ID");
+  const alert = page.getByRole("alert");
+  const create = page.waitForRequest(
+    (request) => request.method() === "POST" && new URL(request.url()).pathname === "/batches",
+  );
+  await submit.click();
+  const sentId: string = (await create).postDataJSON().id;
+  await expectBrowser(alert).toContainText(
+    `The hub may already have a Batch under this Batch ID: ${sentId} (opens in a new tab). Submit again to find out: the same values return that Batch.`,
+  );
+  // The ID the page made, which the field now holds.
+  await expectBrowser(batchId).toHaveValue(sentId);
+  // The link opens the Batch beside the draft, which stays as it is.
+  hub.batches.get.answers(aBatch(sentId, { jobCounts: jobsCounted({ queued: 1 }) }));
+  const [tab] = await Promise.all([
+    page.context().waitForEvent("page"),
+    alert.getByRole("link", { name: sentId }).click(),
+  ]);
+  await expectBrowser(tab.getByRole("heading", { level: 1 })).toContainText(sentId);
+  await tab.close();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
+  // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
+  await page.getByRole("button", { name: "Remove all" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Remove the job?" });
+  await expectBrowser(dialog).toContainText("A Batch the hub may already have keeps its jobs.");
+  await expectBrowser(dialog).not.toContainText("not been submitted");
+  await dialog.getByRole("button", { name: "Keep it" }).click();
+
+  // An edit keeps the ID, so the hub refuses the changed Batch instead of making a second one.
+  const reused = "The ID was already used for a Batch with other content";
+  hub.batches.create.refuses("UNPROCESSABLE_CONTENT", {
+    message: reused,
+    cause: new InvalidInput({ problems: [{ message: reused, path: ["id"] }] }),
+  });
+  const instructions = page.getByLabel("Instructions");
+  await instructions.fill("Add up the receipt.");
+  await submit.click();
+  await expectBrowser(batchId).toHaveAttribute("aria-invalid", "true");
+  // Another ID would make another Batch, which the alert says.
+  await batchId.fill("receipts-again");
+  await expectBrowser(alert).toHaveText(
+    `The hub may already have a Batch from an earlier submission: ${sentId} (opens in a new tab). Submitting now goes under another Batch ID and leaves that one as it is.`,
+  );
+  await batchId.fill(sentId);
+  await instructions.fill("");
+  hub.batches.create.answers(created(sentId, ["job-1"]));
+  await submit.click();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(sentId);
+  await expectBrowser(page.getByRole("row", { name: /All its jobs/ })).toContainText("1");
+  // Every try after the first went under the ID sent.
+  expect(hub.batches.create.calls.map(({ id }) => id)).toEqual([sentId, sentId]);
+});
+
+test("a Batch of typed jobs says it is being created, and leaving meanwhile says the hub may have it until it lands there", async ({
+  hub,
+  open,
+}) => {
+  hub.batches.create.answers(created("typed-only", ["job-1"]));
+  hub.batches.get.answers(created("typed-only", ["job-1"]));
+  const page = await openSubmitBatch(hub, open);
+  await page.getByLabel("Batch ID").fill("typed-only");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 1").fill("Receipt 4: 9.10 EUR.");
+  const creation = hub.batches.create.hold();
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  await creation.arrived;
+  await expectBrowser(page.getByRole("status").filter({ hasText: "Creating" })).toHaveText(
+    "Creating the Batch…",
+  );
+  await page
+    .getByRole("navigation", { name: "Where this is" })
+    .getByRole("link", { name: "Batches" })
+    .click();
+  const dialog = page.getByRole("alertdialog", { name: "Leave this page?" });
+  await expectBrowser(dialog).toContainText(
+    "The hub may already have a Batch from this page: look for it in Batches before submitting it again.",
+  );
+  // The Batch is made while the question is open, which gives way to it at once, while the session
+  // read of the Batch's page is held, so this page stays while that one loads.
+  const session = hub.session.hold();
+  const entries = await page.evaluate(() => history.length);
+  creation.release();
+  await session.arrived;
+  await expectBrowser(page.getByRole("alertdialog")).toHaveCount(0);
+  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
+  session.release();
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("typed-only");
+  expect(await page.evaluate(() => history.length)).toBe(entries + 1);
+  await expectBrowser(page.locator("[inert]")).toHaveCount(0);
+  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+});
+
+test("Remove all asks first: keeping keeps every job, and removing sends nothing, says so and leaves focus on Add files", async ({
+  hub,
+  open,
+}) => {
+  // The stand-in has no answer for a check, an upload or a create: one sent fails the test.
+  const page = await openSubmitBatch(hub, open);
+  // A submission of the page's form starts in the click that causes it, so counting them needs no
+  // wait.
+  const submissions = await page.evaluateHandle(() => {
+    const count = { submitted: 0 };
+    document.querySelector("form.fields")?.addEventListener("submit", () => count.submitted++);
+    return count;
+  });
+  await addFiles(page, [["note.txt", "A note."]]);
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 2").fill("Typed.");
+  const removeAll = page.getByRole("button", { name: "Remove all" });
+  const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
+  await removeAll.click();
+  await dialog.getByRole("button", { name: "Keep them" }).click();
+  await expectBrowser(dialog).toBeHidden();
+  await removeAll.click();
+  await expectBrowser(dialog.getByRole("button", { name: "Keep them" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  // Pressed without taking focus, as a click does not in Safari.
+  await page.getByLabel("Input of job 2").focus();
+  await removeAll.dispatchEvent("click");
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(removeAll).toBeFocused();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+
+  // The rows go while the limits, from which the draft's figures are recomputed, are read again:
+  // back on the tab, Query reads them again once they are stale.
+  await expectBrowser(page.getByLabel("Model budget")).toHaveAccessibleDescription(/At most/);
+  const limits = hub.jobs.limits.hold();
+  await page.clock.runFor(1_001);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await limits.arrived;
+  await removeAll.click();
+  await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
+  await expectBrowser(page.getByLabel("Custom ID of job 1")).toBeHidden();
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: "All 2 jobs removed." }),
+  ).toBeVisible();
+  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+  await expectBrowser(page.getByRole("button", { name: "Add files" })).toBeFocused();
+  limits.release();
+  expect(await submissions.evaluate(({ submitted }) => submitted)).toBe(0);
+});
+
+test("a file dropped on the Jobs group adds a job, but not while Remove all asks", async ({
+  hub,
+  open,
+}) => {
+  const page = await openSubmitBatch(hub, open);
+  await page.getByRole("button", { name: "Add a job" }).click();
+  const folder = await mkdtemp(path.join(tmpdir(), "dropped-"));
+  onTestFinished(() => rm(folder, { recursive: true }));
+  const dropped = path.join(folder, "dropped.txt");
+  await writeFile(dropped, "Dropped.");
+  const group = page.getByRole("group", { name: "Jobs" });
+  const input = await page.context().newCDPSession(page);
+  // Dropped as a person drops it, through the browser's own hit test, at the group's start, beside
+  // where a dialog shows.
+  async function drop() {
+    const box = await group.boundingBox();
+    if (!box) throw new Error("The Jobs group is not shown.");
+    const at = { x: box.x + 10, y: box.y + box.height / 2 };
+    const data = { items: [], files: [dropped], dragOperationsMask: 1 };
+    for (const type of ["dragEnter", "dragOver", "drop"] as const)
+      await input.send("Input.dispatchDragEvent", { type, ...at, data });
+  }
+  await drop();
+  await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
+  await page.getByRole("button", { name: "Remove all" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
+  await expectBrowser(dialog).toBeVisible();
+  // UI SDK makes the page behind the dialog inert after the next paint, through an animation frame
+  // and then a timer, which the paused clock runs only as the test moves it: two frames' time.
+  await page.clock.runFor(32);
+  expect(await group.evaluate((element) => element.closest("[inert]") !== null)).toBe(true);
+  // Dropped where nothing takes it, the file is the browser's to open in the tab: refused here, as
+  // the stand-in refuses what is outside the build. The browser asks for it, not the page, so only
+  // a route of the context sees it.
+  await page.context().route(
+    (url) => url.protocol === "file:",
+    (route) => route.abort(),
+  );
+  await drop();
+  await expectBrowser(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expectBrowser(dialog).toBeHidden();
+  await expectBrowser(page.getByRole("button", { name: /^Remove job / })).toHaveCount(2);
+});

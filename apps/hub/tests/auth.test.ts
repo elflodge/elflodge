@@ -11,10 +11,13 @@ const system = startSystem();
 beforeAll(() => system.start());
 afterAll(() => system.stop());
 
-test("calls without a member's session or a key are refused", async () => {
+test("calls without a member's session or a key are refused, and told how to authenticate", async () => {
   for (const path of ["/runners", "/api-keys"]) {
     expect((await system.hub.fetch(path)).status).toBe(401);
   }
+  const write = await system.hub.fetch("/batches/x/pause", { method: "POST" });
+  expect(write.status).toBe(401);
+  expect(write.headers.get("www-authenticate")).not.toBeNull();
   // `defined`: the contract declares the error, so the TypeScript client's errors stay typed.
   await expect(system.runnerClient().register({ name: "host" })).rejects.toMatchObject({
     code: "UNAUTHORIZED",

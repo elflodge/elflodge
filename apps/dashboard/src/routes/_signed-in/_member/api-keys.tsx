@@ -171,6 +171,7 @@ function KeyList() {
       // query's options, would then try the list once and without waiting for the network, until the
       // page's own observer reads it again.
       const current = await api.apiKeys.list().catch(() => undefined);
+      // A read that fails, or outlasts the hub deadline, decides nothing: the refusal stands.
       if (!current) {
         void reread();
         throw error;

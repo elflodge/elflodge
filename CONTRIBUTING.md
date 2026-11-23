@@ -14,7 +14,7 @@ The repository is a pnpm workspace run with Vite+ (`vp`). From a clone:
 - `vp run -r build` builds the monorepo.
 - `vp run dev` in `apps/hub` runs the hub's development server; in `apps/runner` or `packages/cli` it rebuilds the package on every change.
 - `vp dev` in `apps/dashboard` serves the dashboard with hot reloading and passes every other path to the hub's development server at `http://127.0.0.1:8787`, or at `DEV_HUB_URL`. For that hub to sign members in, its `HUB_URL` is the dashboard server's origin, such as `http://localhost:5173`.
-- The hub's tests drive Chromium through Playwright; `vp exec playwright install --with-deps --only-shell chromium` in `apps/hub` installs it.
+- The hub's and the dashboard's tests drive Chromium through Playwright; `vp exec playwright install --with-deps --only-shell chromium` in `apps/hub` installs it for both.
 
 Inside the clone, npm refuses `npx elflodge` because the workspace declares pnpm as its package manager; run the published CLI from another directory.
 

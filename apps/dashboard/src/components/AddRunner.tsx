@@ -109,7 +109,8 @@ function Instructions(
   // Each opening takes its own baseline and holds its own key until the content unmounts.
   const atOpen = new Set(untrack(() => props.runners).map((runner) => runner.id));
   const registered = createMemo(() => props.runners.find((runner) => !atOpen.has(runner.id)));
-  // A heartbeat changes the record. Only the name and short ID belong in the announcement.
+  // Every heartbeat replaces the Runner's record, with a new last contact. The announcement reads
+  // only its name and short ID, so a heartbeat does not announce the registration again.
   const registeredName = createMemo(() => registered()?.name);
   const registeredId = createMemo(() => {
     const runner = registered();
@@ -180,8 +181,9 @@ function Instructions(
                   <Show when={state.error} keyed>
                     {(error) => <Notice role="alert">{hubWriteFailureMessage(error)}</Notice>}
                   </Show>
-                  {/* A session read can withdraw permission mid-press. Keep the focused control
-                      with its request and answer. A reader who lost permission cannot retry. */}
+                  {/* A session read can change the reader's role mid-press. The button stays while
+                      its request is pending and while its refusal shows, so focus stays with the
+                      request and its answer. A reader who lost permission cannot press it again. */}
                   <Show when={props.managesKeys || state.pending || !!state.error}>
                     <button {...button}>Create a registration key</button>
                   </Show>

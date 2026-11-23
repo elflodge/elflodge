@@ -77,6 +77,7 @@ function Runners() {
       // query's options, would then try the list once and without waiting for the network, until the
       // page's own observer reads it again.
       const current = await api.runners.list().catch(() => undefined);
+      // A read that fails, or outlasts the hub deadline, decides nothing: the refusal stands.
       if (!current) {
         void reread();
         throw error;
@@ -143,8 +144,9 @@ function Runners() {
           readAt={runners.dataUpdatedAt}
         />
       </Show>
-      {/* With a notice showing, the page stays live. Keep both list states in one inert
-          container so a newly registered Runner's Remove stays behind the open dialog. */}
+      {/* A Runner can register while Add Runner is open, the list then replacing "No Runners
+          yet", with a notice showing or not. Both list states sit in one container, which the
+          open dialog has made inert, so the new Runner's Remove stays behind the dialog. */}
       <div>
         <Show
           when={list().length}

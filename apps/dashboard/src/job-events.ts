@@ -57,6 +57,9 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
       async queryFn({ pageParam, signal }) {
         // A history read that can carry the job takes over from the follower. A jump keeps
         // it stopped until the replacement history supplies the cursor for the next poll.
+        // Stopping it first also keeps a job from showing an older status than its Events: no
+        // answer of the follower, such as one bringing its success, can land while this read
+        // runs, to be replaced by the older job in this read's snapshot.
         if (order === "asc" || pageParam === 0) {
           await client.cancelQueries({
             queryKey: orpc.jobs.events.key({ type: "streamed", input: { id: jobId } }),
@@ -222,6 +225,8 @@ export function useJobEvents(id: () => string, enabled: () => boolean) {
       setJumpFailure(undefined);
       return enabled() && !rereadFailed();
     } catch (error) {
+      // A control's answer cancels a jump still reading, since the job it writes is newer
+      // (JobControls): no failure to report, and the history on screen stays.
       if (error instanceof CancelledError) setJumpFailure(undefined);
       else if (!ownerLifetime.signal.aborted) setJumpFailure({ side, error: asError(error) });
       return false;
