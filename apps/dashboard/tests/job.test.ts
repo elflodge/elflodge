@@ -280,6 +280,8 @@ test("Pause keeps the focus while the hub answers, the other controls wait, and 
   journal.job = asked;
   sending.release();
   await expectBrowser(page.getByRole("status").filter({ hasText: "Pause asked" })).toBeFocused();
+  // Pressed again, it would ask again: it waits until the Runner has paused the job.
+  await expectBrowser(pause).toBeDisabled();
   expect(hub.jobs.pause.calls).toEqual([{ id: job.id }]);
 });
 
