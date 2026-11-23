@@ -55,12 +55,41 @@ test("a removal confirmed while the list is being read shows its progress and en
   expect(hub.runners.delete.calls).toEqual([{ id: retired.id }]);
 });
 
-test("removing an already removed Runner closes the dialog and explains its absence", async ({
+test("removing an already removed Runner closes the dialog, explains its absence and drops its record", async ({
   hub,
   open,
 }) => {
   const former = aRunner("former-host");
   const label = `former-host ${former.id.slice(0, 8)}`;
+  hub.runners.list.answers([former]);
+  const page = await open("runners");
+  const record = page
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("heading", { name: label }) });
+  const remove = { name: `Remove ${label}` };
+  await record.getByRole("button", remove).click();
+  const dialog = page.getByRole("alertdialog");
+
+  // Another member removed it after the page last read the list, which still shows it.
+  hub.runners.delete.refuses("NOT_FOUND");
+  hub.runners.list.answers([]);
+  const reads = hub.runners.list.calls.length;
+  await dialog.getByRole("button", remove).click();
+  await expectBrowser(dialog).toHaveCount(0);
+  const notice = page.getByRole("status").filter({ hasText: "is already gone" });
+  await expectBrowser(notice).toHaveText(`${label} is already gone.`);
+  await expectBrowser(notice).toBeFocused();
+  // One read of the list told it was gone; the page took its record off without reading it again.
+  await expectBrowser(record).toHaveCount(0);
+  expect(hub.runners.list.calls).toHaveLength(reads + 1);
+});
+
+test("a Runner a read drops while its dialog is open is still named there, and is already gone", async ({
+  hub,
+  open,
+}) => {
+  const former = aRunner("dropped-host");
+  const label = `dropped-host ${former.id.slice(0, 8)}`;
   hub.runners.list.answers([former]);
   const page = await open("runners");
   const record = page
@@ -79,14 +108,12 @@ test("removing an already removed Runner closes the dialog and explains its abse
   await expectBrowser(dialog.getByRole("heading")).toHaveText(`Remove ${label}?`);
 
   hub.runners.delete.refuses("NOT_FOUND");
-  const reads = hub.runners.list.calls.length;
   await dialog.getByRole("button", remove).click();
   await expectBrowser(dialog).toHaveCount(0);
-  const notice = page.getByRole("status").filter({ hasText: "is already gone" });
-  await expectBrowser(notice).toHaveText(`${label} is already gone.`);
-  await expectBrowser(notice).toBeFocused();
-  // One read of the list told it was gone; the page wrote that without reading it again.
-  expect(hub.runners.list.calls).toHaveLength(reads + 1);
+  await expectBrowser(
+    page.getByRole("status").filter({ hasText: `${label} is already gone.` }),
+  ).toBeFocused();
+  expect(hub.runners.delete.calls).toEqual([{ id: former.id }]);
 });
 
 test("a plain member gets no owner's actions on Runners and API keys", async ({ hub, open }) => {
