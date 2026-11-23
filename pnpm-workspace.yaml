@@ -119,7 +119,10 @@ catalog:
   ufo: 1.6.4
   uuid: ^14.0.3
   valid-filename: ^5.0.0
-  # Vite+ pins both this core alias and Vitest in its published dependencies.
+  # Vite+ pins both this core alias and Vitest in its published dependencies, and refuses to run
+  # with another alias. Dependabot moves neither: when vite-plus moves, set both from
+  # `npm view vite-plus@<version> dependencies` (`vp migrate` would also add release-age
+  # exceptions the cooldown rules out).
   vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
   vite-plus: 1.7.0
   vitest: 5.1.0

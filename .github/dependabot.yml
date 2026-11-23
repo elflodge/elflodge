@@ -14,6 +14,12 @@ updates:
       - dependency-name: "ws"
       # The exact version Pi pins, which installs then share (pnpm-workspace.yaml); it moves with Pi.
       - dependency-name: "typebox"
+      # vite-plus pins Vitest and @vitest/* exactly and the workspace overrides Vitest to its pin,
+      # so a bump of these alone splits Vitest; they move with vite-plus
+      # (voidzero-dev/vite-plus#2356). This also stops their security-update PRs: a Vitest fix comes
+      # in a vite-plus release.
+      - dependency-name: "vitest"
+      - dependency-name: "@vitest/*"
     # A dependency joins the first group it matches, so the families come before the catch-all.
     groups:
       better-auth:
@@ -40,14 +46,13 @@ updates:
         patterns:
           - "effect"
           - "@effect/*"
-      # Vite+ bundles its own Vite core (the `vite` alias) and a Vitest version, which move with it.
+      # Apart from the catch-all because its PR needs the `vite` alias and the Vitest pin set on its
+      # branch, which Dependabot leaves behind (pnpm-workspace.yaml says how).
       vite-plus:
         patterns:
           - "vite-plus"
           - "vite"
           - "@voidzero-dev/*"
-          - "vitest"
-          - "@vitest/*"
       # Every other minor or patch update in one pull request, as each rewrites the lockfile and
       # leaves the others to rebase. Majors still come one per pull request.
       npm-minor-and-patch:
