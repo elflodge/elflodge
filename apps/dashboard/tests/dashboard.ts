@@ -67,7 +67,7 @@ export const test = base
     // closing tab sends after the test is not the test's, so only what came before is reported.
     onCleanup(async () => {
       const unarranged = [...network.unarranged, ...strays];
-      const failed = [...failures];
+      const failed = [...network.failures, ...failures];
       network.releaseAll();
       if (context) {
         for (const page of context.pages()) await page.close();

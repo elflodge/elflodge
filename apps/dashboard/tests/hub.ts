@@ -1,5 +1,6 @@
 import { APIError, BASE_ERROR_CODES } from "@better-auth/core/error";
 import { toKebabCase } from "@better-auth/core/utils/string";
+import { ORPCError } from "@orpc/client";
 import {
   ProcedureContract,
   type AnySchema,
@@ -7,13 +8,14 @@ import {
   type InferSchemaInput,
   type InferSchemaOutput,
   type ORPCErrorConstructorMap,
+  ValidationError,
 } from "@orpc/contract";
 import { implement, ProcedureImplementer, type Router } from "@orpc/server";
 import { get } from "@orpc/shared";
 import { getEndpoints } from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { organization } from "better-auth/plugins";
-import { apiContract } from "contract";
+import { apiContract, asError } from "contract";
 
 import { createApiHandler } from "../../hub/src/api-handler.ts";
 import { invalidInput, type InputProblem } from "../../hub/src/invalid-input.ts";
@@ -62,6 +64,16 @@ export interface Endpoint<Input, Output> {
 
 /** One of the hub's procedures, as its contract defines it. */
 export interface Procedure<Input, Output, Errors extends ErrorMap> extends Endpoint<Input, Output> {
+  /**
+   * Answers every call with `output`, or with what `answer` returns for the call's input. `answer`
+   * may refuse a call by throwing one of the errors the contract declares for it, made with
+   * `errors`. Any other error it throws fails the test, as does an answer the contract refuses.
+   */
+  answers(
+    output:
+      | Output
+      | ((input: Input, errors: ORPCErrorConstructorMap<Errors>) => Output | Promise<Output>),
+  ): void;
   /** Refuses every call with one of the errors the contract declares for it, as the hub writes it. */
   refuses<Code extends keyof Errors>(
     code: Code,
@@ -141,12 +153,17 @@ export interface HubNetwork {
   handle(request: Request): Promise<Response | undefined>;
   /** The calls the test arranged no answer for, each with its input. */
   readonly unarranged: readonly string[];
+  /**
+   * The calls a procedure failed to answer as arranged, each with its input and the error: an
+   * answer that threw, or one the contract refused.
+   */
+  readonly failures: readonly string[];
   /** Lets every held call go on, so that nothing waits once the test is over. */
   releaseAll(): void;
 }
 
-type Answer<Input, Output, Refuse> =
-  | { kind: "output"; answer: (input: Input) => Output | Promise<Output> }
+type Answer<Input, Output, Refuse, Errors> =
+  | { kind: "output"; answer: (input: Input, errors: Errors) => Output | Promise<Output> }
   | { kind: "refusal"; refuse: Refuse }
   | { kind: "failure" }
   | { kind: "loss" }
@@ -154,12 +171,12 @@ type Answer<Input, Output, Refuse> =
   | { kind: "unchecked"; body: unknown };
 
 /** What one endpoint was arranged to answer, and the calls it received. */
-class Arrangement<Input, Output, Refuse> implements Endpoint<Input, Output> {
-  answer: Answer<Input, Output, Refuse> | undefined;
+class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Input, Output> {
+  answer: Answer<Input, Output, Refuse, Errors> | undefined;
   readonly calls: Input[] = [];
   #hold: { arrived: PromiseWithResolvers<Input>; gate: PromiseWithResolvers<void> } | undefined;
 
-  answers(output: Output | ((input: Input) => Output | Promise<Output>)) {
+  answers(output: Output | ((input: Input, errors: Errors) => Output | Promise<Output>)) {
     this.answer = { kind: "output", answer: isAnswerFunction(output) ? output : () => output };
   }
 
@@ -202,9 +219,9 @@ class Arrangement<Input, Output, Refuse> implements Endpoint<Input, Output> {
 }
 
 // What a procedure answers is JSON, never a function.
-function isAnswerFunction<Input, Output>(
-  value: Output | ((input: Input) => Output | Promise<Output>),
-): value is (input: Input) => Output | Promise<Output> {
+function isAnswerFunction<Input, Output, Errors>(
+  value: Output | ((input: Input, errors: Errors) => Output | Promise<Output>),
+): value is (input: Input, errors: Errors) => Output | Promise<Output> {
   return typeof value === "function";
 }
 
@@ -212,6 +229,12 @@ function isAnswerFunction<Input, Output>(
 interface Exchange {
   /** Whether the answer is to be lost on its way back. */
   lost: boolean;
+  /** The call a procedure took, by its name and input, once one took it. */
+  call?: string;
+  /** Whether what the procedure throws is the answer the test arranged. */
+  arranged: boolean;
+  /** How the procedure failed to answer as arranged, with its call. */
+  failure?: string;
 }
 
 /** The context the stand-in's router is called with: the request's `Exchange`. */
@@ -237,7 +260,8 @@ class ContractProcedure<
 > extends Arrangement<
   InferSchemaOutput<I>,
   InferSchemaInput<O>,
-  (errors: ORPCErrorConstructorMap<E>) => Error
+  (errors: ORPCErrorConstructorMap<E>) => Error,
+  ORPCErrorConstructorMap<E>
 > {
   readonly #name: string;
   readonly #unarranged: string[];
@@ -278,9 +302,18 @@ class ContractProcedure<
       throw new Error(`The test arranged no answer for ${this.#name}`);
     }
     const answer = await this.receive(input);
+    context.exchange.call = `${this.#name} with ${JSON.stringify(input)}`;
+    // What any other arrangement throws is its answer.
+    context.exchange.arranged = answer?.kind !== "output";
     switch (answer?.kind) {
       case "output":
-        return answer.answer(input);
+        try {
+          return await answer.answer(input, errors);
+        } catch (error) {
+          // A refusal the contract declares, made with `errors`, is the answer the test arranged.
+          if (error instanceof ORPCError && error.defined) context.exchange.arranged = true;
+          throw error;
+        }
       case "refusal":
         throw answer.refuse(errors);
       case "invalidInput":
@@ -300,19 +333,40 @@ type AnyProcedure = ContractProcedure<AnySchema, AnySchema, ErrorMap>;
 
 /**
  * The implementer of the stand-in's procedures, each answering an `UncheckedAnswer` its handler
- * throws with its body. A middleware applied to the contract's implementer runs ahead of the
- * procedures' input and output checks, as the hub's access check does.
+ * throws with its body, and recording in the call's `Exchange` an error that is not the answer the
+ * test arranged. A middleware applied to the contract's implementer runs ahead of the procedures'
+ * input and output checks, as the hub's access check does, so it sees an answer the contract
+ * refuses; an input the contract refuses never reaches the procedure, which takes no call.
  */
 const implementer = implement<typeof apiContract, StandInContext>(apiContract).use(
-  async ({ next }, _input, output) => {
+  async ({ next, context }, _input, output) => {
     try {
       return await next();
     } catch (error) {
       if (error instanceof UncheckedAnswer) return output({ output: error.body });
+      const { exchange } = context;
+      if (exchange.call !== undefined && !exchange.arranged) {
+        exchange.failure = `${exchange.call}: ${describeFailure(error)}`;
+      }
       throw error;
     }
   },
 );
+
+/** An error's message, and for an answer the contract refused, each problem its schema found. */
+function describeFailure(caught: unknown) {
+  const error = asError(caught);
+  const problems =
+    error.cause instanceof ValidationError
+      ? error.cause.issues.map((issue) => {
+          const path = (issue.path ?? []).map((key) =>
+            String(typeof key === "object" ? key.key : key),
+          );
+          return `${path.join(".")}: ${issue.message}`;
+        })
+      : [];
+  return [error.message, ...problems].join("; ");
+}
 
 /**
  * One `ContractProcedure` for each procedure of `contract`, at its path, gathered in `procedures`,
@@ -438,6 +492,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
   const auth = new Map<string, BetterAuthRoute>();
   const procedures: AnyProcedure[] = [];
   const unarranged: string[] = [];
+  const failures: string[] = [];
   const { hub: api, router } = arrange(apiContract, [], procedures, unarranged);
   const apiHandler = createApiHandler(router);
 
@@ -497,8 +552,9 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     if (url.pathname.startsWith(`${AUTH_BASE}/`)) {
       return serveAuth(request, url.pathname.slice(AUTH_BASE.length));
     }
-    const exchange: Exchange = { lost: false };
+    const exchange: Exchange = { lost: false, arranged: false };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
+    if (exchange.failure !== undefined) failures.push(exchange.failure);
     if (!matched) return undefined;
     return exchange.lost ? Response.error() : response;
   }
@@ -506,6 +562,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
   const network: HubNetwork = {
     handle,
     unarranged,
+    failures,
     releaseAll() {
       session.release();
       for (const route of auth.values()) route.release();

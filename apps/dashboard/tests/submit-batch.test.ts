@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { ORPCError } from "@orpc/client";
 import type { Page } from "playwright";
 import { expect, onTestFinished } from "vite-plus/test";
 
@@ -167,9 +166,9 @@ test("Submit again after a stop and after a failed upload uploads only what is m
 
   // Then: b.txt fails, c.txt is uploaded, and a.txt, which the hub holds, is not sent.
   let tried = hub.blobs.upload.calls.length;
-  hub.blobs.upload.answers(({ params, headers }) => {
+  hub.blobs.upload.answers(({ params, headers }, errors) => {
     if (names.get(params.digest) === "b.txt")
-      throw new ORPCError("SERVICE_UNAVAILABLE", { message: "The hub is busy." });
+      throw errors.SERVICE_UNAVAILABLE({ message: "The hub is busy." });
     held.add(params.digest);
     return { digest: params.digest, sizeBytes: headers["content-length"] };
   });
