@@ -1,8 +1,7 @@
-import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
 import type { Member } from "../src/organization.ts";
-import { expectBrowser, test, UNCERTAIN } from "./dashboard.ts";
+import { expectBrowser, readAgain, test, UNCERTAIN } from "./dashboard.ts";
 import type { Hub, Session } from "./hub.ts";
 import {
   aMember,
@@ -27,13 +26,6 @@ function arrangeOrganization(hub: Hub, session: NonNullable<Session>, ...others:
   hub.auth.organization.listMembers.answers(roster(memberOf(session), ...others));
   hub.invitations.list.answers([]);
   hub.apiKeys.list.answers([]);
-}
-
-/** Has the page read the members again, as returning to its tab does once they are stale. */
-async function readAgain(page: Page) {
-  // Past Query's `staleTime` of a second.
-  await page.clock.runFor(2_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
 }
 
 test("the email field explains why an admin cannot replace an owner invitation", async ({

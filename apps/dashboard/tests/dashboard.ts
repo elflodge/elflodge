@@ -202,3 +202,14 @@ export function liveRegions(page: Page) {
     '[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"], output',
   );
 }
+
+/**
+ * Has the page read again what it shows, as returning to its tab does once that is stale, past
+ * Query's `staleTime` of a second. The clock is set forward rather than run, so no timer fires
+ * meanwhile: one could change the page under the test, as the one that announces a pending action
+ * does.
+ */
+export async function readAgain(page: Page) {
+  await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 2_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+}

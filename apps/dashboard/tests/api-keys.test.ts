@@ -1,8 +1,14 @@
-import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
 import { InvalidInput } from "../../hub/src/invalid-input.ts";
-import { descriptionOnFocus, expectBrowser, runClockUntil, test, UNCERTAIN } from "./dashboard.ts";
+import {
+  descriptionOnFocus,
+  expectBrowser,
+  readAgain,
+  runClockUntil,
+  test,
+  UNCERTAIN,
+} from "./dashboard.ts";
 import { anApiKey } from "./records.ts";
 
 // The API keys page, and the key Add Runner creates: revoking a key, and creating one, whose secret
@@ -10,16 +16,6 @@ import { anApiKey } from "./records.ts";
 
 /** A new key's answer, which carries the key itself. */
 const created = (name: string) => ({ id: anApiKey(name).id, key: `elf_secret_${name.length}` });
-
-/**
- * Has the page read the keys again, as returning to its tab does once they are stale: past Query's
- * `staleTime` of a second, with no timer fired meanwhile, such as one that announces a pending
- * action.
- */
-async function readAgain(page: Page) {
-  await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 2_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-}
 
 test.for(["lists no keys", "fails"] as const)(
   "a revoked key's notice has focus before the list is read again, and after it %s",
