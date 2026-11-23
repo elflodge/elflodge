@@ -30,7 +30,10 @@ test("a removal confirmed while the list is being read shows its progress and en
     page.getByRole("heading", { name: "Runners", level: 1 }),
   ).not.toBeInViewport();
 
-  // The page reads the list every five seconds; this read, and every one after it, is held.
+  // The page reads the list every five seconds; this read, and every one after it, is held. The hub
+  // answers this one as it stood then, with the Runner, and every later one without it.
+  let answered = 0;
+  hub.runners.list.answers(() => (answered++ === 0 ? runners : runners.slice(0, -1)));
   const reads = hub.runners.list.hold();
   await page.clock.runFor(5_000);
   await reads.arrived;
@@ -42,13 +45,12 @@ test("a removal confirmed while the list is being read shows its progress and en
   await expectBrowser(dialog.getByText("Working…")).toBeVisible();
   await expectBrowser(dialog.getByRole("button", remove)).toBeFocused();
 
-  hub.runners.list.answers(runners.slice(0, -1));
   removal.release();
   const notice = page.getByRole("status").filter({ hasText: /^retired-host .* is removed\./ });
   await expectBrowser(notice).toBeFocused();
   await expectBrowser(notice).toBeInViewport();
   await expectBrowser(dialog).toHaveCount(0);
-  // Its record goes once the list is read.
+  // Its record goes once the list is read after the removal.
   await expectBrowser(record).toBeVisible();
   reads.release();
   await expectBrowser(record).toHaveCount(0);
