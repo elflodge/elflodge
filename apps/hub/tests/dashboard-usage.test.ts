@@ -99,6 +99,29 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
   ).toHaveText(["0", "0", "0.0000"]);
 }, 30_000);
 
+test("refreshing a usage report rescales its bars when the leading cost changes", async () => {
+  const page = await newPage();
+  await signInAt(system, page, "usage", OWNER);
+  const meter = page.getByRole("table", { name: "By Batch" }).locator("meter").first();
+  await expectBrowser(meter).toHaveAttribute("max", "0.125");
+  const updated = await system.owner().usage.get({ groupBy: "batch" });
+  if (updated.groupBy !== "batch") throw new Error("Expected a ranked Batch");
+  for (const row of [updated, ...updated.days, ...updated.groups, updated.other]) {
+    row.usage.cost.totalUsd *= 8;
+  }
+  await page.route(
+    (url) => url.pathname === "/usage",
+    (route) => route.fulfill({ json: updated }),
+    { times: 1 },
+  );
+  const link = page.getByRole("link", { name: "statements", exact: true });
+  await link.focus();
+  // Refresh without moving focus to the button.
+  await page.getByRole("button", { name: "Show", exact: true }).dispatchEvent("click");
+  await expectBrowser(meter).toHaveAttribute("max", "1");
+  await expectBrowser(link).toBeFocused();
+}, 30_000);
+
 test("changing the grouping keeps the window and totals", async () => {
   const page = await newPage();
   await signInAt(system, page, "usage?period=7d", OWNER);

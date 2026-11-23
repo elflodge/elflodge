@@ -11,16 +11,16 @@ import { JobStatus } from "./JobStatus.tsx";
 
 type Figures = Pick<UsageReport, "jobEnds" | "usage">;
 
-function renderRows<Row extends Figures>(groups: Row[], name: (row: Row) => JSX.Element) {
-  const largest = groups[0]?.usage.cost.totalUsd;
+function renderRows<Row extends Figures>(groups: () => Row[], name: (row: Row) => JSX.Element) {
+  const largest = () => groups()[0]?.usage.cost.totalUsd;
   return (
-    <For each={groups}>
+    <For each={groups()}>
       {(row) => (
         <tr>
           <th scope="row" class="is-name">
             {name(row)}
           </th>
-          <FigureCells figures={row} largest={largest} />
+          <FigureCells figures={row} largest={largest()} />
         </tr>
       )}
     </For>
@@ -33,58 +33,71 @@ function groupRows(report: UsageReport) {
       return null;
     case "batch":
       // A Batch cannot be deleted, so its recorded ID still opens its page.
-      return renderRows(report.groups, ({ batchId }) => (
-        <Link
-          class="mono cut stands-alone"
-          title={batchId}
-          to="/batches/$id"
-          params={{ id: batchId }}
-        >
-          {batchId}
-        </Link>
-      ));
-    case "status":
-      return renderRows(report.groups, ({ status }) => (
-        <JobStatus status={status} lastRecorded={false} />
-      ));
-    case "runner": {
-      const ids = shortIds(report.groups.flatMap(({ runner }) => (runner ? [runner.id] : [])));
-      return renderRows(report.groups, ({ runner }) =>
-        runner === null ? (
-          "No Runner: ended before one started them"
-        ) : (
-          <RunnerReference linked runner={runner} shortId={ids.get(runner.id) ?? runner.id} />
+      return renderRows(
+        () => report.groups,
+        ({ batchId }) => (
+          <Link
+            class="mono cut stands-alone"
+            title={batchId}
+            to="/batches/$id"
+            params={{ id: batchId }}
+          >
+            {batchId}
+          </Link>
         ),
+      );
+    case "status":
+      return renderRows(
+        () => report.groups,
+        ({ status }) => <JobStatus status={status} lastRecorded={false} />,
+      );
+    case "runner": {
+      const ids = createMemo(() =>
+        shortIds(report.groups.flatMap(({ runner }) => (runner ? [runner.id] : []))),
+      );
+      return renderRows(
+        () => report.groups,
+        ({ runner }) =>
+          runner === null ? (
+            "No Runner: ended before one started them"
+          ) : (
+            <RunnerReference linked runner={runner} shortId={ids().get(runner.id) ?? runner.id} />
+          ),
       );
     }
     case "submitter": {
-      const ids = shortIds(report.groups.map(({ submitter }) => submitter.id));
-      return renderRows(report.groups, ({ submitter }) => (
-        <>
-          <JobSubmitter submitter={submitter} />{" "}
-          <Show
-            when={report.groups.some(
-              ({ submitter: other }) =>
-                other.id !== submitter.id && submitterName(other) === submitterName(submitter),
-            )}
-          >
-            <span class="sid" title={submitter.id}>
-              {ids.get(submitter.id)}
-            </span>
-          </Show>
-        </>
-      ));
+      const ids = createMemo(() => shortIds(report.groups.map(({ submitter }) => submitter.id)));
+      return renderRows(
+        () => report.groups,
+        ({ submitter }) => (
+          <>
+            <JobSubmitter submitter={submitter} />{" "}
+            <Show
+              when={report.groups.some(
+                ({ submitter: other }) =>
+                  other.id !== submitter.id && submitterName(other) === submitterName(submitter),
+              )}
+            >
+              <span class="sid" title={submitter.id}>
+                {ids().get(submitter.id)}
+              </span>
+            </Show>
+          </>
+        ),
+      );
     }
     default: {
       const label = usageGrouping(report.groupBy).labelKey;
-      return renderRows(report.groups, ({ labelValue }) =>
-        labelValue === null ? (
-          <>
-            Jobs without the Label <code>{label}</code>
-          </>
-        ) : (
-          <code class="label-value">{JSON.stringify(labelValue)}</code>
-        ),
+      return renderRows(
+        () => report.groups,
+        ({ labelValue }) =>
+          labelValue === null ? (
+            <>
+              Jobs without the Label <code>{label}</code>
+            </>
+          ) : (
+            <code class="label-value">{JSON.stringify(labelValue)}</code>
+          ),
       );
     }
   }
