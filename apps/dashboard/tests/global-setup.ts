@@ -18,29 +18,38 @@ declare module "vite-plus/test" {
 }
 
 /**
- * Builds the dashboard as the hubs serve it and serves the build with Vite's preview server. Vite
- * Task replays the build when nothing it reads has changed, so each run tests the source as it is.
+ * Builds the dashboard as the hubs serve it and serves the build with Vite's preview server, which
+ * reads the files as they are on each request. It builds again before each rerun in watch mode,
+ * which a change to the dashboard's source starts (`forceRerunTriggers` in its Vite config), as the
+ * tests import none of it. Vite Task replays the build when nothing it reads has changed, so each
+ * run tests the source as it is, at little cost when it is unchanged.
  */
 export default async function setup(project: TestProject) {
   const root = path.resolve(import.meta.dirname, "..");
+  const client = path.join(root, "dist/client");
   // Without Vitest's `NODE_ENV`, `test`, with which Vite would build the libraries' development
   // builds: the build the hubs ship.
   const env = { ...process.env };
   delete env.NODE_ENV;
-  await promisify(execFile)(path.join(root, "node_modules/.bin/vp"), ["run", "dashboard#build"], {
-    cwd: root,
-    env,
-  });
-  const client = path.join(root, "dist/client");
-  const entries = await readdir(client, { recursive: true, withFileTypes: true });
-  project.provide(
-    "dashboardFiles",
-    entries
-      .filter((entry) => entry.isFile())
-      .map(
-        (entry) => DASHBOARD_BASE + path.relative(client, path.join(entry.parentPath, entry.name)),
-      ),
-  );
+  async function build() {
+    await promisify(execFile)(path.join(root, "node_modules/.bin/vp"), ["run", "dashboard#build"], {
+      cwd: root,
+      env,
+    });
+    const entries = await readdir(client, { recursive: true, withFileTypes: true });
+    project.provide(
+      "dashboardFiles",
+      entries
+        .filter((entry) => entry.isFile())
+        .map(
+          (entry) =>
+            DASHBOARD_BASE + path.relative(client, path.join(entry.parentPath, entry.name)),
+        ),
+    );
+  }
+  await build();
+  // Vitest runs a global setup once, and this before every rerun.
+  project.onTestsRerun(build);
   // Without the dashboard's config, whose plugins are for building it.
   const server = await preview({
     root,

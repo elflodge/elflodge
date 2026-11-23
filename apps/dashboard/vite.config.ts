@@ -1,6 +1,6 @@
 import solid from "@solidjs/vite-plugin";
 import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
-import { defineConfig } from "vite-plus";
+import { configDefaults, defineConfig } from "vite-plus";
 
 import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../hub/src/dashboard.ts";
 
@@ -14,6 +14,13 @@ export default defineConfig({
     },
   },
   test: {
+    // The tests import none of the dashboard's source, so Vitest's module graph cannot tell when an
+    // edit concerns them: any change to it reruns them all, and the global setup builds it again.
+    forceRerunTriggers: [
+      ...configDefaults.forceRerunTriggers,
+      `${import.meta.dirname}/src/**`,
+      `${import.meta.dirname}/public/**`,
+    ],
     // The tests run in Node, import none of the dashboard's components and drive the build in a
     // browser, so the build's plugins have nothing to do in them; a top-level `test` would load them
     // with the rest of this config, and `extends: false` leaves them out.
