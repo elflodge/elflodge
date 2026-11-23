@@ -121,7 +121,6 @@ catalog:
   # when vite-plus bundles it.
   typescript: ~7.0.2
   ufo: 1.6.4
-  undici: ^8.13.1
   uuid: ^14.0.3
   valid-filename: ^5.0.0
   # Vite+ pins both this core alias and Vitest in its published dependencies, and refuses to run

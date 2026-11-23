@@ -58,7 +58,6 @@
     "runner": "workspace:*",
     "testcontainers": "catalog:",
     "typescript": "catalog:",
-    "undici": "catalog:",
     "vite-plus": "catalog:",
     "wrangler": "catalog:",
     "ws": "catalog:"

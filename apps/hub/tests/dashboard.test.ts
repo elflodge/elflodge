@@ -1,5 +1,5 @@
 import { parse } from "node-html-parser";
-import { request } from "undici";
+import { type APIRequestContext, request } from "playwright";
 import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 
 import { startSystem } from "./harness.ts";
@@ -8,49 +8,47 @@ import { startSystem } from "./harness.ts";
 // other sites from acting with a member's session.
 
 const system = startSystem();
+let requests: APIRequestContext;
 
-beforeAll(() => system.start());
-afterAll(() => system.stop());
+beforeAll(async () => {
+  await system.start();
+  requests = await request.newContext({ baseURL: system.url().href });
+});
+afterAll(async () => {
+  await requests?.dispose();
+  await system.stop();
+});
 
 /**
- * Requests `pathname` as a browser's navigation to it. `Sec-Fetch-Mode: navigate` is what makes it
- * one: Cloudflare documents that header as what Workers Static Assets serve the app shell for under
- * single-page-application handling, where the Node hub serves it for any GET; the other headers are
- * what Chromium sends with it. Node's `fetch` replaces that header with its own mode, never
- * `navigate`, so this goes through undici's `request`, which sends headers as given.
+ * Requests `pathname` as a browser's navigation to it, which `Sec-Fetch-Mode: navigate` marks:
+ * Cloudflare documents that header as what makes Workers Static Assets serve the app shell for a
+ * path with no file, under single-page-application handling. The Node hub serves the shell by path,
+ * and a missing file under assets is a 404 whatever the request. Node's `fetch` cannot send it, as
+ * it sets `Sec-Fetch-Mode` to the request's mode, which is never `navigate`; Playwright's request
+ * API, which needs no browser, sends headers as given. A redirect is not followed, so a shell
+ * reached through one fails.
  */
-async function navigate(pathname: string) {
-  const response = await request(new URL(pathname, system.url()), {
-    headers: {
-      "sec-fetch-mode": "navigate",
-      "sec-fetch-dest": "document",
-      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
-  });
-  return {
-    status: response.statusCode,
-    headers: response.headers,
-    html: await response.body.text(),
-  };
+function navigate(pathname: string) {
+  return requests.get(pathname, { headers: { "sec-fetch-mode": "navigate" }, maxRedirects: 0 });
 }
 
-/** Checks that the hub answers a navigation to `pathname` with the app shell, and returns its script. */
+/** Checks that the hub answers a navigation to `pathname` with the app shell. */
 async function expectShellAt(pathname: string) {
-  const { status, headers, html } = await navigate(pathname);
-  expect(status).toBe(200);
-  expect(headers["content-type"]).toMatch(/^text\/html/);
-  const scriptPath = parse(html)
+  const response = await navigate(pathname);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toMatch(/^text\/html/);
+  const scriptPath = parse(await response.text())
     .querySelector('script[src^="/dashboard/assets/"][src$=".js"]')
     ?.getAttribute("src");
   if (!scriptPath) throw new Error(`No dashboard script in the shell at ${pathname}`);
-  return scriptPath;
+  return { scriptPath, vary: response.headers().vary };
 }
 
 test("dashboard deep links load the shell and caches distinguish missing assets from navigations", async () => {
   await expectShellAt("/dashboard/");
   await expectShellAt("/dashboard/jobs/x");
   // The build's own files stay private: Vite's manifest holds the paths of its sources.
-  const scriptPath = await expectShellAt("/dashboard/.vite/manifest.json");
+  const { scriptPath } = await expectShellAt("/dashboard/.vite/manifest.json");
   const script = await system.hub.fetch(scriptPath);
   expect(script.status).toBe(200);
   expect(script.headers.get("cache-control")?.split(/\s*,\s*/)).toEqual(
@@ -63,15 +61,14 @@ test("dashboard deep links load the shell and caches distinguish missing assets 
   expect(missing.status).toBe(404);
   expect(missing.headers.get("cache-control") ?? "").not.toContain("immutable");
 
-  const navigation = await navigate(missingPath);
   if (inject("hub") === "workers") {
-    // undici gives a header sent on several lines as an array, which `String` joins with commas.
-    const navigationVary = String(navigation.headers.vary);
-    for (const vary of [script.headers.get("vary"), navigationVary, missing.headers.get("vary")]) {
+    // Cloudflare answers the navigation itself, with the shell (ADR 0043).
+    const navigation = await expectShellAt(missingPath);
+    for (const vary of [script.headers.get("vary"), navigation.vary, missing.headers.get("vary")]) {
       expect(vary?.toLowerCase().split(/\s*,\s*/)).toContain("sec-fetch-mode");
     }
   } else {
-    expect(navigation.status).toBe(404);
+    expect((await navigate(missingPath)).status()).toBe(404);
   }
   const notices = await system.hub.fetch("/dashboard/THIRD_PARTY_NOTICES.md");
   expect(notices.headers.get("content-type")).toMatch(/^text\/markdown/);
