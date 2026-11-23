@@ -161,6 +161,28 @@ test("an admin changing their own role immediately loses the management controls
   ]);
 });
 
+test("an admin made a member by an owner elsewhere loses the management controls once the members are read", async ({
+  hub,
+  open,
+}) => {
+  const admin = signedIn("admin");
+  const owner = aMember("Olive Owner", "owner");
+  arrangeOrganization(hub, admin, owner);
+  const page = await open("organization");
+  const invite = page.getByRole("button", { name: "Invite a member" });
+  await expectBrowser(invite).toBeVisible();
+
+  const demoted = withRole(admin, "member");
+  hub.auth.organization.listMembers.answers(roster(memberOf(demoted), owner));
+  hub.session.answers(demoted);
+  await readAgain(page);
+  await expectBrowser(invite).toHaveCount(0);
+  await expectBrowser(page.getByRole("heading", { name: "Invitations" })).toHaveCount(0);
+  await expectBrowser(
+    page.getByRole("button", { name: "Change role for Olive Owner" }),
+  ).toHaveCount(0);
+});
+
 test("Rename keeps the name read-only while the hub answers, and its notice takes focus before the session is read again", async ({
   hub,
   open,
