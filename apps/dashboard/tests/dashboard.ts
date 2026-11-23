@@ -122,6 +122,14 @@ export const test = base
       // Within the test's own timeout, so a step that cannot happen names its locator.
       started.setDefaultTimeout(5_000);
       await started.route("**/*", serve);
+      // A WebSocket bypasses `route`: the stand-in serves none, so one is a stray, closed at once.
+      await started.routeWebSocket(
+        () => true,
+        (socket) => {
+          strays.push(`WebSocket ${socket.url()}`);
+          return socket.close();
+        },
+      );
       await started.clock.install({ time: NOW });
       await started.clock.pauseAt(NOW);
       return started;
