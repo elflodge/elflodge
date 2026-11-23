@@ -16,6 +16,7 @@ import { getEndpoints } from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { organization } from "better-auth/plugins";
 import { apiContract, asError } from "contract";
+import { prettifyError } from "zod/mini";
 
 import { createApiHandler } from "../../hub/src/api-handler.ts";
 import { invalidInput, type InputProblem } from "../../hub/src/invalid-input.ts";
@@ -359,16 +360,10 @@ const implementer = implement<typeof apiContract, StandInContext>(apiContract).u
 /** An error's message, and for an answer the contract refused, each problem its schema found. */
 function describeFailure(caught: unknown) {
   const error = asError(caught);
-  const problems =
-    error.cause instanceof ValidationError
-      ? error.cause.issues.map((issue) => {
-          const path = (issue.path ?? []).map((key) =>
-            String(typeof key === "object" ? key.key : key),
-          );
-          return `${path.join(".")}: ${issue.message}`;
-        })
-      : [];
-  return [error.message, ...problems].join("; ");
+  // In Zod's format, as the hub describes invalid input.
+  return error.cause instanceof ValidationError
+    ? `${error.message}\n${prettifyError(error.cause)}`
+    : error.message;
 }
 
 /**
