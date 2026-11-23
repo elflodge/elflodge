@@ -62,24 +62,24 @@ export const test = base
     const strays: string[] = [];
     const failures: string[] = [];
     let context: BrowserContext | undefined;
-    let over = false;
 
-    // In this order: a page still reading once the route goes would send its reads past it.
+    // In this order: a page still reading once the route goes would send its reads past it. What a
+    // closing tab sends after the test is not the test's, so only what came before is reported.
     onCleanup(async () => {
-      over = true;
+      const unarranged = [...network.unarranged, ...strays];
+      const failed = [...failures];
       network.releaseAll();
       if (context) {
         for (const page of context.pages()) await page.close();
         await context.unrouteAll({ behavior: "ignoreErrors" });
         await context.close();
       }
-      const unarranged = [...network.unarranged, ...strays];
       const problems = [
         ...(unarranged.length > 0
           ? [`Requests the test arranged no answer for:\n${unarranged.join("\n")}`]
           : []),
-        ...(failures.length > 0
-          ? [`Requests the stand-in failed to answer:\n${failures.join("\n")}`]
+        ...(failed.length > 0
+          ? [`Requests the stand-in failed to answer:\n${failed.join("\n")}`]
           : []),
       ];
       if (problems.length > 0) throw new Error(problems.join("\n"));
@@ -102,11 +102,11 @@ export const test = base
       try {
         response = await network.handle(await toFetchRequest(request));
       } catch (error) {
-        if (!over) failures.push(`${request.method()} ${url.href}: ${ensureError(error).message}`);
+        failures.push(`${request.method()} ${url.href}: ${ensureError(error).message}`);
         return route.abort();
       }
       if (response) return fulfillWith(route, response);
-      if (!over) strays.push(`${request.method()} ${url.href}`);
+      strays.push(`${request.method()} ${url.href}`);
       return route.abort();
     }
 
