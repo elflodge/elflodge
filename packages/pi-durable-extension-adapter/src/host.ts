@@ -95,7 +95,7 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
-import { ProviderRequests, ProviderSession, supportsProviders } from "./providers.ts";
+import { ProviderRequests, ProviderSession } from "./providers.ts";
 
 /** How `startExtensionHost` runs extensions. */
 export interface ExtensionHostOptions {
@@ -548,16 +548,16 @@ async function attachConversation(
 ): Promise<AttachedExtensions> {
   const { harness, conversation } = options;
   const provider = await harness.snapshot(ProviderDoc, conversation.id, context);
-  // A legacy conversation gets its ID at its first request. Give its worker the same
-  // durable ID even when it opens before that request.
+  // A conversation from before pi-durable gave each one a provider session ID gets its ID at its
+  // first request (`ensureProviderSessionId`, which pi-durable does not export). The same commit
+  // here gives its extensions that ID from the start, whichever models the app passes, so it stays
+  // the same after a restart, and their providers' requests, which carry it, reach them.
   const sessionId =
     provider?.sessionId ??
-    (supportsProviders(options.models)
-      ? await conversation.commit(
-          async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
-          context,
-        )
-      : String(conversation.id));
+    (await conversation.commit(
+      async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
+      context,
+    ));
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
