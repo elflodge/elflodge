@@ -6,14 +6,22 @@ import path from "node:path";
 import { awaitWithContext, BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createRegistry, defineExtension, defineTool, Harness } from "@earendil-works/pi-durable";
+import {
+  createRegistry,
+  defineExtension,
+  defineTool,
+  GenerationTask,
+  Harness,
+  hook,
+  ProviderDoc,
+} from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { expect, onTestFinished, test } from "vite-plus/test";
 
 import { startExtensionHost } from "../src/host.ts";
 import { prepareExtensions } from "../src/prepare.ts";
 
-async function setup() {
+async function setup({ maxWorkers = 1 } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const prepared = await prepareExtensions({
@@ -21,7 +29,7 @@ async function setup() {
     dir,
   });
   expect(prepared.failures).toEqual([]);
-  const host = startExtensionHost({ prepared, maxWorkers: 1 });
+  const host = startExtensionHost({ prepared, maxWorkers });
   onTestFinished(() => host.close());
   const models = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
@@ -43,6 +51,16 @@ async function setup() {
           execute: async () => ({}),
         }),
         defineTool({
+          name: "stubborn",
+          description: "Return the receipt, ignoring cancellation",
+          parameters: { type: "object", properties: {} },
+          async execute() {
+            started.resolve();
+            const text = await release.promise;
+            return { output: [{ type: "text", text }] };
+          },
+        }),
+        defineTool({
           name: "receipt",
           description: "Return the receipt",
           parameters: { type: "object", properties: {} },
@@ -51,6 +69,11 @@ async function setup() {
             const text = await awaitWithContext(release.promise, call);
             return { output: [{ type: "text", text }] };
           },
+        }),
+      ],
+      hooks: [
+        hook(GenerationTask, {
+          beforeProviderRequest: async ({ payload }) => ({ payload: { app: true, from: payload } }),
         }),
       ],
     });
@@ -69,12 +92,15 @@ async function setup() {
       context,
     );
     onTestFinished(() => extensions.close());
+    // A failing test must not leave a tool waiting, which would hold up closing the Harness.
+    onTestFinished(() => release.resolve("finished"));
     expect(extensions.errors).toEqual([]);
     const ask = (content: string) => conversation.submit({ type: "input", content }, context);
     const answer = async () => (await conversation.context(context)).messages.at(-1);
     return {
       ask,
       answer,
+      harness,
       conversation,
       extensions,
       started: started.promise,
@@ -109,9 +135,70 @@ test.each(["while the provider is streaming", "while its second tool is running"
     const receipt = randomUUID();
     bob.release(receipt);
     expect(await second.wait(context)).toMatchObject({ status: "done" });
-    expect(await bob.answer()).toMatchObject({ content: [{ text: receipt }] });
+    expect(await bob.answer()).toMatchObject({ content: [{ text: `bob: ${receipt}` }] });
   },
 );
+
+test("aborting a conversation while a tool that ignores the abort runs stops its provider's query", async () => {
+  const { attach } = await setup();
+  const alice = await attach("alice");
+  const submission = await alice.ask("call stubborn tool");
+  await alice.started;
+  const status = () => alice.extensions.input("status");
+  expect(await status()).toMatchObject({ action: "transform", text: "open" });
+
+  const aborting = alice.conversation.abort(context);
+  await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
+  alice.release("late");
+  await aborting;
+  expect(await submission.wait(context)).toMatchObject({ status: "unanswered", reason: "aborted" });
+});
+
+test.each(["alone", "beside a conversation on another worker"])(
+  "a conversation %s keeps its providers when its worker exits and is answered once they are back",
+  async (where) => {
+    const { attach, models } = await setup({ maxWorkers: 2 });
+    const [anthropic] = models.getModels("anthropic");
+    const alice = await attach("alice");
+    const bob = where === "alone" ? undefined : await attach("bob");
+
+    await expect(alice.extensions.input("exit")).rejects.toThrow("exited");
+    expect(models.getModel("anthropic", anthropic.id)?.baseUrl).toBe("https://proxy.example");
+    expect(await (await alice.ask("again")).wait(context)).toMatchObject({ status: "done" });
+    expect(await alice.answer()).toMatchObject({ content: [{ text: "alice: again" }] });
+    if (bob) {
+      expect(await (await bob.ask("hello")).wait(context)).toMatchObject({ status: "done" });
+      expect(await bob.answer()).toMatchObject({ content: [{ text: "bob: hello" }] });
+    }
+  },
+);
+
+test("a custom stream receives its caller's payload and response hooks", async () => {
+  const { attach, models } = await setup();
+  const alice = await attach("alice");
+  expect(await (await alice.ask("payload")).wait(context)).toMatchObject({ status: "done" });
+  expect(await alice.answer()).toMatchObject({
+    content: [{ text: JSON.stringify({ app: true, from: { owner: "alice" } }) }],
+  });
+
+  // pi-durable passes only `onPayload`; an app that calls the runtime itself can pass the others.
+  const model = models.getModel("fixture", "echo");
+  if (!model) throw new Error("The fixture's model is missing");
+  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
+  const statuses: number[] = [];
+  const stream = models.streamSimple(
+    model,
+    { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] },
+    {
+      sessionId: provider?.sessionId,
+      onResponse: ({ status }) => {
+        statuses.push(status);
+      },
+    },
+  );
+  expect(await stream.result()).toMatchObject({ content: [{ text: "alice: hello" }] });
+  expect(statuses).toEqual([200]);
+});
 
 test("a shared catalog can gain models while each conversation keeps its own provider", async () => {
   const { attach, models } = await setup();

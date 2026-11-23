@@ -165,8 +165,14 @@ export type ProviderSettings = Omit<
 
 type StreamHook = "onPayload" | "onResponse" | "onProviderStreamEvent";
 
-/** The host transfers the signal and serves each requested hook over the same RPC channel. */
-export type ProviderStreamOptions = Omit<SimpleStreamOptions, StreamHook | "fetch" | "telemetry"> &
+/**
+ * The host serves each requested hook over the same RPC channel, and cancels the request by its ID
+ * (`cancelProvider`).
+ */
+export type ProviderStreamOptions = Omit<
+  SimpleStreamOptions,
+  StreamHook | "fetch" | "telemetry" | "signal"
+> &
   Partial<Record<StreamHook, boolean>>;
 
 /** What the worker serves to the host. */
@@ -174,6 +180,12 @@ export interface WorkerFunctions extends DispatchFunctions {
   /** `key` names this instance in later calls; `sessionId` is what `ctx.sessionManager` gives. */
   open(key: string, sessionId: string, cwd: string, flags: Flags): Promise<Opened>;
   registrations(key: string): Registrations;
+  /**
+   * Streams a model request through the instance's provider. `request` is unique on the worker
+   * and names it in the host's reverse calls and in `cancelProvider`. A request that asked for tools
+   * stays cancellable after it returns, while its provider may wait for their results, until the
+   * host cancels it or the instance closes.
+   */
   streamProvider(
     key: string,
     name: string,
@@ -184,6 +196,8 @@ export interface WorkerFunctions extends DispatchFunctions {
   ): Promise<AssistantMessage>;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;
+  /** Aborts the signal a model request's provider was given; a request already done is ignored. */
+  cancelProvider(key: string, request: number, reason: unknown): void;
   close(key: string): Promise<void>;
 }
 
@@ -231,7 +245,11 @@ export interface HostFunctions {
     ...args: Parameters<NonNullable<SimpleStreamOptions["onProviderStreamEvent"]>>
   ): Promise<void>;
   setModel(key: string, model: Model<Api>): Promise<boolean>;
-  /** `pi.exec`; `id` names the command for `cancelExec`, as an `AbortSignal` cannot cross. */
+  /**
+   * `pi.exec`; `id` names the command for `cancelExec`. An `AbortSignal` stays in its thread, so
+   * either side cancels what it asked the other for by its ID, as with `cancelTool` and
+   * `cancelProvider`.
+   */
   exec(
     key: string,
     id: number,
@@ -285,8 +303,9 @@ export type ReadRequest<M extends keyof Reads = keyof Reads> = {
 };
 
 /**
- * What a worker sends on its journal channel, in order: actions that write to the conversation and
- * reads that wait for an answer, so a read sees every write an extension made before it.
+ * What a worker sends on its journal channel, in order: actions that write to the conversation,
+ * provider registrations, and reads; registrations and reads wait for an answer. So a read sees every
+ * write an extension made before it, and a registration's failure reaches the extension's call.
  */
 export type JournalMessage =
   | {

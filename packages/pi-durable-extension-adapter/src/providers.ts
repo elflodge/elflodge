@@ -1,9 +1,8 @@
-import { transferableAbortController } from "node:util";
-
 import {
   awaitWithContext,
   BACKGROUND_CONTEXT,
   withAbortSignal,
+  withCancel,
 } from "@earendil-works/chord/context";
 import type {
   Api,
@@ -19,12 +18,15 @@ import { lazyStream } from "@earendil-works/pi-ai/api/lazy";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { ModelRuntime, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import {
+  GenerationTask,
   LiveDoc,
   type ConversationId,
   type Harness,
   type SubmissionId,
+  type TaskGraph,
 } from "@earendil-works/pi-durable";
 import type { BirpcReturn } from "birpc";
+import ensureError from "ensure-error";
 
 import type { HostFunctions, ProviderSettings, WorkerFunctions } from "./protocol.ts";
 
@@ -58,29 +60,43 @@ type PendingRequest = {
   options: SimpleStreamOptions;
 };
 
-/** A worker's reverse calls reach only requests sent to that worker. */
+/**
+ * One worker's model requests, by an ID unique on that worker, which its reverse calls and the
+ * host's cancels name. A worker's reverse calls reach only requests sent to that worker.
+ */
 export class ProviderRequests {
-  readonly pending = new Map<number, PendingRequest>();
+  readonly #pending = new Map<number, PendingRequest>();
   #next = 0;
 
   readonly callbacks: Pick<
     HostFunctions,
     "providerEvent" | "providerPayload" | "providerResponse" | "providerStreamEvent"
   > = {
-    providerEvent: (id, event) => this.pending.get(id)?.event(event),
+    providerEvent: (id, event) => this.#pending.get(id)?.event(event),
     providerPayload: async (id, payload, model) =>
-      this.pending.get(id)?.options.onPayload?.(payload, model),
+      this.#pending.get(id)?.options.onPayload?.(payload, model),
     providerResponse: async (id, response, model) =>
-      this.pending.get(id)?.options.onResponse?.(response, model),
+      this.#pending.get(id)?.options.onResponse?.(response, model),
     providerStreamEvent: async (id, data, model) =>
-      this.pending.get(id)?.options.onProviderStreamEvent?.(data, model),
+      this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model),
   };
 
   add(request: PendingRequest) {
     const id = ++this.#next;
-    this.pending.set(id, request);
+    this.#pending.set(id, request);
     return id;
   }
+
+  delete(id: number) {
+    this.#pending.delete(id);
+  }
+}
+
+/** The worker a conversation's extensions are open on, and their instance there. */
+export interface ProviderWorker {
+  readonly rpc: WorkerRpc;
+  readonly requests: ProviderRequests;
+  readonly route: string;
 }
 
 interface InstalledProvider {
@@ -88,34 +104,50 @@ interface InstalledProvider {
   readonly previous: ProviderConfig | undefined;
   readonly native: Provider | undefined;
   current: ProviderConfig | undefined;
-  /** Only instances that registered a stream may receive a model request. */
-  readonly sessions: Map<ProviderSession, boolean>;
+  /**
+   * The conversations that registered the provider, each with the route of the instance whose
+   * stream it registered, if any. Only conversations with a stream may receive a model request.
+   */
+  readonly sessions: Map<ProviderSession, string | undefined>;
   readonly dispatch: NonNullable<ProviderConfig["streamSimple"]>;
+}
+
+/** The requests a run's provider queries hold open across its tool rounds, cancelled together. */
+interface Parking {
+  readonly cancels: Set<(reason?: unknown) => void>;
+  /** Cancels them and stops watching the run. */
+  release(): void;
+  /** Stops watching the run without cancelling, once their worker is gone. */
+  drop(): void;
 }
 
 const catalogs = new WeakMap<Models, Map<string, InstalledProvider>>();
 
-/** Registrations owned by one opening of a conversation on a worker. */
+/**
+ * The providers one attached conversation registered, from its attach to its close. They outlive
+ * a worker's exit, so the conversation keeps its models while its extensions open again; a stream
+ * belongs to the instance that registered it, so the reopened instance registers its own.
+ */
 export class ProviderSession {
   readonly #catalog: Map<string, InstalledProvider>;
   readonly #models: Models;
   readonly #sessionId: string;
   readonly #harness: Harness;
   readonly #conversation: ConversationId;
-  readonly #rpc: WorkerRpc;
-  readonly #requests: ProviderRequests;
-  readonly #route: string;
+  /** The opening of the extensions under way, which a model request waits for. */
+  readonly #ready: () => Promise<unknown>;
   readonly #life = new AbortController();
-  readonly #parked = new Map<SubmissionId, Set<AbortController>>();
+  #worker: ProviderWorker | undefined;
+  /** Why the last worker went, for the requests that find none. */
+  #gone: Error | undefined;
+  readonly #parked = new Map<SubmissionId, Parking>();
 
   constructor(
     models: Models,
     sessionId: string,
     harness: Harness,
     conversation: ConversationId,
-    rpc: WorkerRpc,
-    requests: ProviderRequests,
-    route: string,
+    ready: () => Promise<unknown>,
   ) {
     this.#models = models;
     this.#catalog = catalogs.get(models) ?? new Map();
@@ -123,13 +155,28 @@ export class ProviderSession {
     this.#sessionId = sessionId;
     this.#harness = harness;
     this.#conversation = conversation;
-    this.#rpc = rpc;
-    this.#requests = requests;
-    this.#route = route;
+    this.#ready = ready;
+  }
+
+  /** Model requests go to this instance from now on. */
+  bind(worker: ProviderWorker) {
+    this.#worker = worker;
+  }
+
+  /**
+   * The worker exited. The registrations stay until the extensions open again or are given up on;
+   * the requests on that worker fail with its error, and nothing more goes to it.
+   */
+  unbind(error: Error) {
+    this.#worker = undefined;
+    this.#gone = error;
+    for (const parking of this.#parked.values()) parking.drop();
   }
 
   register(name: string, settings: ProviderSettings, customStream: boolean) {
     this.#life.signal.throwIfAborted();
+    const route = this.#worker?.route;
+    if (route === undefined) throw new Error("The conversation's extension worker exited");
     const models = this.#models;
     if (!supportsProviders(models))
       throw new Error(
@@ -155,12 +202,12 @@ export class ProviderSession {
       customStream ? { ...settings, streamSimple: entry.dispatch } : settings,
     );
     entry.current = models.getRegisteredProviderConfig(name);
-    entry.sessions.set(this, customStream || entry.sessions.get(this) === true);
+    entry.sessions.set(this, customStream ? route : entry.sessions.get(this));
     this.#catalog.set(name, entry);
   }
 
   #createRegistration(name: string, runtime: Runtime): InstalledProvider {
-    const sessions = new Map<ProviderSession, boolean>();
+    const sessions = new Map<ProviderSession, string | undefined>();
     const previous = runtime.getRegisteredProviderConfig(name);
     return {
       runtime,
@@ -173,7 +220,7 @@ export class ProviderSession {
           model,
           async () => {
             const matches = [...sessions].filter(
-              ([session, custom]) => custom && session.#sessionId === options.sessionId,
+              ([session, route]) => route !== undefined && session.#sessionId === options.sessionId,
             );
             if (matches.length !== 1)
               throw new Error(
@@ -190,13 +237,14 @@ export class ProviderSession {
   get(name: string) {
     const provider = this.#models.getProvider(name);
     const entry = this.#catalog.get(name);
-    // A worker closure belongs to its own extension instance. Reporting a peer's closure here
-    // would cause extensions that register on first use to skip this conversation.
+    // A stream belongs to the extension instance that registered it, which may be a peer's, or
+    // this conversation's before its worker exited. Reporting it here would cause extensions that
+    // register on first use to skip registering their own.
     if (
       !provider ||
       (entry &&
         entry.runtime.getRegisteredProviderConfig(name)?.streamSimple === entry.dispatch &&
-        !entry.sessions.get(this))
+        (this.#worker === undefined || entry.sessions.get(this) !== this.#worker.route))
     )
       return undefined;
     return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl };
@@ -216,9 +264,16 @@ export class ProviderSession {
     else if (entry.previous) entry.runtime.registerProvider(name, entry.previous);
   }
 
-  close() {
-    this.#life.abort();
+  /**
+   * The conversation closed, or its extensions are gone for good: its requests end, with `reason`
+   * when given, and its registrations go.
+   */
+  close(reason?: Error) {
+    if (this.#life.signal.aborted) return;
+    this.#life.abort(reason);
+    for (const parking of this.#parked.values()) parking.release();
     for (const name of this.#catalog.keys()) this.unregister(name);
+    this.#worker = undefined;
   }
 
   async #stream(
@@ -240,13 +295,15 @@ export class ProviderSession {
       throw new Error("An extension provider running on a worker cannot use a host fetch function");
     const live = this.#life.signal;
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
+    // A request that comes while the extensions open again after their worker exited waits for
+    // them, as hooks and tool calls do.
+    await awaitWithContext(this.#ready(), signal ? withAbortSignal(signal, bound) : bound);
+    const worker = this.#worker;
+    if (!worker) throw this.#gone ?? new Error("The conversation's extension worker exited");
     const submission = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run
       ?.inputs[0];
     live.throwIfAborted();
-    const controller = transferableAbortController();
-    const cancel = () => controller.abort(signal?.reason);
-    signal?.addEventListener("abort", cancel, { once: true });
-    if (signal?.aborted) cancel();
+    signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
     let terminal = false;
     const ended = (message: AssistantMessage) => {
@@ -254,11 +311,11 @@ export class ProviderSession {
       terminal = true;
       // A generation invocation retires its signal even on toolUse. Its provider can still be
       // waiting for the tool when the run is aborted between this request and the next one.
-      signal?.removeEventListener("abort", cancel);
+      signal?.removeEventListener("abort", aborted);
       if (message.stopReason === "toolUse" && submission !== undefined)
-        this.#park(submission, controller);
+        this.#park(submission, cancel);
     };
-    const id = this.#requests.add({
+    const id = worker.requests.add({
       options,
       event: (event) => {
         if (event.type === "done") ended(event.message);
@@ -266,15 +323,24 @@ export class ProviderSession {
         events.push(event);
       },
     });
-    const stop = () => controller.abort(live.reason);
-    live.addEventListener("abort", stop, { once: true });
-    const call = this.#rpc.streamProvider(this.#route, name, id, model, context, {
+    // The worker's IDs are its own, so a cancel goes only to the worker that has the request.
+    const cancel = (reason?: unknown) => {
+      if (this.#worker !== worker) return;
+      void worker.rpc.cancelProvider(worker.route, id, cloneable(reason)).catch(() => {});
+    };
+    const aborted = () => cancel(signal?.reason);
+    const closed = () => cancel(live.reason);
+    // birpc posts a call as it is made (only a channel's first call waits, and `open` is always
+    // first), so a cancel sent after this call follows it on the port, where the worker has
+    // registered the request by the time the cancel arrives.
+    const call = worker.rpc.streamProvider(worker.route, name, id, model, context, {
       ...plain,
-      signal: controller.signal,
       onPayload: !!onPayload,
       onResponse: !!onResponse,
       onProviderStreamEvent: !!onProviderStreamEvent,
     });
+    signal?.addEventListener("abort", aborted, { once: true });
+    live.addEventListener("abort", closed, { once: true });
     const result = awaitWithContext(call, bound)
       .then((message) => {
         ended(message);
@@ -282,9 +348,9 @@ export class ProviderSession {
         return message;
       })
       .finally(() => {
-        live.removeEventListener("abort", stop);
-        signal?.removeEventListener("abort", cancel);
-        this.#requests.pending.delete(id);
+        live.removeEventListener("abort", closed);
+        signal?.removeEventListener("abort", aborted);
+        worker.requests.delete(id);
       });
     // An RPC failure must also wake the iterator. lazyStream then reads result() and emits
     // Pi's error message, including when the worker exited before it could send an event.
@@ -292,24 +358,64 @@ export class ProviderSession {
     return { [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](), result: () => result };
   }
 
-  #park(submission: SubmissionId, controller: AbortController) {
+  /**
+   * Keeps a request that asked for tools cancellable until its run ends. Successive tool rounds
+   * hand the run to new generation tasks, while its first input stays placed throughout, including
+   * when a tool terminates the run without another request. An abort reaches the run's generation
+   * task at once, while its input settles only once every tool has returned.
+   */
+  #park(submission: SubmissionId, cancel: (reason?: unknown) => void) {
     const held = this.#parked.get(submission);
     if (held) {
-      held.add(controller);
+      held.cancels.add(cancel);
       return;
     }
-    const controllers = new Set([controller]);
-    this.#parked.set(submission, controllers);
-    // Successive tool rounds hand the run to new generation tasks. Its first input stays
-    // placed throughout, including when a tool terminates the run without another request.
-    const release = () => {
-      this.#parked.delete(submission);
-      for (const parked of controllers) parked.abort();
+    const watching = withCancel(withAbortSignal(this.#life.signal, BACKGROUND_CONTEXT));
+    const parking: Parking = {
+      cancels: new Set([cancel]),
+      release: () => {
+        parking.drop();
+        for (const each of parking.cancels) each();
+      },
+      drop: () => {
+        if (this.#parked.get(submission) === parking) this.#parked.delete(submission);
+        watching.cancel();
+      },
     };
-    const bound = withAbortSignal(this.#life.signal, BACKGROUND_CONTEXT);
+    this.#parked.set(submission, parking);
+    const release = () => {
+      if (this.#parked.get(submission) === parking) parking.release();
+    };
+    const abortedRun = (graph: TaskGraph) =>
+      Object.values(graph.tasks).some(
+        (task) =>
+          task.conversationId === this.#conversation &&
+          task.kind === GenerationTask.definition.name &&
+          task.abortRequested,
+      );
     void this.#harness
-      .submission(submission, bound)
-      .then((input) => input?.wait(bound))
+      .submission(submission, watching.context)
+      .then((input) => input?.wait(watching.context))
       .then(release, release);
+    void this.#harness.watchTaskGraph(watching.context).then(
+      (watch) => {
+        if (abortedRun(watch.value)) release();
+        watch.start(async (call) => {
+          if (call.kind === "value" && abortedRun(call.value)) release();
+        });
+        // Without the watch, the input's settling still releases them.
+      },
+      () => {},
+    );
+  }
+}
+
+/** `reason` as it can cross to the worker: a value that cannot be copied goes as its message. */
+function cloneable(reason: unknown) {
+  try {
+    structuredClone(reason);
+    return reason;
+  } catch {
+    return new Error(ensureError(reason).message);
   }
 }

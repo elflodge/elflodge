@@ -26,11 +26,14 @@ export default function extension(pi: ExtensionAPI) {
       const last = transcript.messages.at(-1);
       faux.setResponses([
         async () => {
+          // As a provider that keeps its query open while tools run: only the instance that
+          // started it can answer a tool's result.
           if (last?.role === "toolResult") {
-            request?.throwIfAborted();
+            if (!request) throw new Error("No query of this conversation waits for a tool result");
+            request.throwIfAborted();
             return last.toolName === "begin"
               ? tool("receipt")
-              : fauxAssistantMessage(contentText(last.content));
+              : fauxAssistantMessage(owner + ": " + contentText(last.content));
           }
           request = options?.signal;
           const text = last?.role === "user" ? contentText(last.content) : "";
@@ -38,6 +41,11 @@ export default function extension(pi: ExtensionAPI) {
             await once(request, "abort");
           if (text === "call two tools") return tool("begin");
           if (text === "call tool") return tool("receipt");
+          if (text === "call stubborn tool") return tool("stubborn");
+          if (text === "payload")
+            return fauxAssistantMessage(
+              JSON.stringify(await options?.onPayload?.({ owner }, model)),
+            );
           if (text === "endpoint") return fauxAssistantMessage(model.baseUrl);
           if (text === "header")
             return fauxAssistantMessage(options?.headers?.["x-fixture"] ?? "missing");
@@ -60,6 +68,7 @@ export default function extension(pi: ExtensionAPI) {
         text: request ? (request.aborted ? "aborted" : "open") : "idle",
       };
     }
+    if (text === "exit") process.exit(1);
     if (text === "refresh") {
       pi.registerProvider("fixture", {
         ...config,

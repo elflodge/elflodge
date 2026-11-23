@@ -55,6 +55,8 @@ interface Opened extends Instance {
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
   readonly providerStreams: Map<string, NonNullable<ProviderConfig["streamSimple"]>>;
+  /** Model requests the host can still cancel, by the host's request ID. */
+  readonly providerRequests: Map<number, AbortController>;
   readonly running: Map<string, AbortController>;
   /** Calls whose `tool_execution_start` was emitted, with the arguments it gave. */
   readonly started: Map<string, unknown>;
@@ -252,6 +254,7 @@ const functions: WorkerFunctions = {
       ...instance,
       life,
       providerStreams,
+      providerRequests: new Map(),
       running: new Map(),
       started: new Map(),
       durations: new Map(),
@@ -265,20 +268,33 @@ const functions: WorkerFunctions = {
   },
   registrations: (key) => registrations(instanceFor(key)),
   async streamProvider(key, name, request, model, context, options) {
-    const streamSimple = instanceFor(key).providerStreams.get(name);
-    if (!streamSimple)
-      throw new Error(`No stream handler registered for provider ${name} in this conversation`);
-    const { onPayload, onResponse, onProviderStreamEvent, ...settings } = options;
-    const stream = streamSimple(model, context, {
-      ...settings,
-      ...(onPayload && { onPayload: (...args) => host.providerPayload(request, ...args) }),
-      ...(onResponse && { onResponse: (...args) => host.providerResponse(request, ...args) }),
-      ...(onProviderStreamEvent && {
-        onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
-      }),
-    });
-    for await (const event of stream) await host.providerEvent.asEvent(request, event);
-    return stream.result();
+    const { providerStreams, providerRequests } = instanceFor(key);
+    // Before anything that waits, so a cancel the host sends after this call finds it.
+    const controller = new AbortController();
+    providerRequests.set(request, controller);
+    let waiting = false;
+    try {
+      const streamSimple = providerStreams.get(name);
+      if (!streamSimple)
+        throw new Error(`No stream handler registered for provider ${name} in this conversation`);
+      const { onPayload, onResponse, onProviderStreamEvent, ...settings } = options;
+      const stream = streamSimple(model, context, {
+        ...settings,
+        signal: controller.signal,
+        ...(onPayload && { onPayload: (...args) => host.providerPayload(request, ...args) }),
+        ...(onResponse && { onResponse: (...args) => host.providerResponse(request, ...args) }),
+        ...(onProviderStreamEvent && {
+          onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
+        }),
+      });
+      for await (const event of stream) await host.providerEvent.asEvent(request, event);
+      const message = await stream.result();
+      // Its provider may keep its query open for the tools' results, as pi-claude-bridge does.
+      waiting = message.stopReason === "toolUse";
+      return message;
+    } finally {
+      if (!waiting) providerRequests.delete(request);
+    }
   },
   emit: (key, event) => runnerFor(key).emit(event),
   // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
@@ -442,6 +458,11 @@ const functions: WorkerFunctions = {
   cancelTool(key, callId) {
     instances.get(key)?.running.get(callId)?.abort();
   },
+  cancelProvider(key, request, reason) {
+    const requests = instances.get(key)?.providerRequests;
+    requests?.get(request)?.abort(reason);
+    requests?.delete(request);
+  },
   async close(key) {
     const found = instances.get(key);
     if (!found) return;
@@ -456,6 +477,8 @@ const functions: WorkerFunctions = {
     } finally {
       instances.delete(key);
       found.life.abort();
+      for (const controller of found.providerRequests.values()) controller.abort();
+      found.providerRequests.clear();
     }
   },
 };
