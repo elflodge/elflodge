@@ -213,32 +213,32 @@ catalogs:
       specifier: ^2.4.0
       version: 2.4.0
     '@orpc/client':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/contract':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/effect':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/json-schema':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/openapi':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/server':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/shared':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/tanstack-query':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@orpc/zod':
-      specifier: 2.0.0-beta.51
-      version: 2.0.0-beta.51
+      specifier: 2.0.0-beta.52
+      version: 2.0.0-beta.52
     '@solidjs/vite-plugin':
       specifier: ^3.0.1
       version: 3.0.1
@@ -491,16 +491,16 @@ importers:
         version: 2.4.0
       '@orpc/client':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/contract':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/openapi':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/tanstack-query':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))
       '@solidjs/web':
         specifier: 'catalog:'
         version: 2.0.1(solid-js@2.0.1)
@@ -564,22 +564,22 @@ importers:
         version: 2.1.9(hono@5.0.0-rc.1)
       '@orpc/effect':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)
       '@orpc/json-schema':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/openapi':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/server':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/shared':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/zod':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)
       '@standard-schema/utils':
         specifier: 'catalog:'
         version: 0.3.0
@@ -634,10 +634,10 @@ importers:
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.86)(@smithy/signature-v4@5.7.4)(google-auth-library@10.9.1(supports-color@10.2.2))(supports-color@10.2.2)(undici@8.12.4)(ws@8.21.0)(zod@4.6.7)
       '@orpc/client':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/contract':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@testcontainers/postgresql':
         specifier: 'catalog:'
         version: 12.2.1(supports-color@10.2.2)
@@ -718,16 +718,16 @@ importers:
         version: link:../../packages/pi-durable-extension-adapter
       '@orpc/client':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/contract':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/effect':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)
       '@orpc/openapi':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@standard-schema/utils':
         specifier: 'catalog:'
         version: 0.3.0
@@ -803,19 +803,19 @@ importers:
         version: 4.1.4(effect@4.1.4)
       '@orpc/client':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/contract':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/openapi':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/server':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/shared':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@standard-schema/utils':
         specifier: 'catalog:'
         version: 0.3.0
@@ -860,7 +860,7 @@ importers:
         version: 3.7.2(picomatch@4.0.7)(rollup@4.65.0)
       trpc-cli:
         specifier: 'catalog:'
-        version: 0.17.1(@orpc/server@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22)))(effect@4.1.4)(zod@4.6.7)
+        version: 0.17.1(@orpc/server@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22)))(effect@4.1.4)(zod@4.6.7)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -878,19 +878,19 @@ importers:
         version: 1.6.0(esbuild@0.28.2)(ws@8.21.0)
       '@orpc/client':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/contract':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51
+        version: 2.0.0-beta.52
       '@orpc/json-schema':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/openapi':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       '@orpc/zod':
         specifier: 'catalog:'
-        version: 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)
+        version: 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)
       content-type:
         specifier: 'catalog:'
         version: 3.1.1
@@ -2103,22 +2103,22 @@ packages:
   '@openapi-spec/types@0.8.0':
     resolution: {integrity: sha512-MJGUd1VdG/Ty60uYObP20rnFwrObQOJIGKfBjvSKAgDzTmbKT0gzJabCupwuDu47LbphZWaFtGmZHFYv7B4huQ==}
 
-  '@orpc/client@2.0.0-beta.51':
-    resolution: {integrity: sha512-fjRhakHq9Bz57X58QFTPYb7l7qnBX27ZNrZdUpK0i1jbUsbYXUg0rQA7LjSORrawolZB+/EnYBUYTJDIBUWD5w==}
+  '@orpc/client@2.0.0-beta.52':
+    resolution: {integrity: sha512-JfKHAlQMccFFRaRDFSJt/PwGL6Y9dbXZJlew6xCS82UkUlOqw2bEyt8y0SfxYKkXnys6txbRsOVkUqkblRncNw==}
 
-  '@orpc/contract@2.0.0-beta.51':
-    resolution: {integrity: sha512-XWoIQx0XXHHKqtp95/8yMurCbkMaxjl6x8/UUjdpFEajRPklaWSksM8rJuedu9SC3RP8jBJdd5Ow4s9nUXSUwQ==}
+  '@orpc/contract@2.0.0-beta.52':
+    resolution: {integrity: sha512-VuPObjRsUAezA06wsKsqlC0UeMfa2TZi3sL0xmHHBCaXhyo47LnzhMwBNKQUj78hnir13vlxREsfAxJVl3M5kA==}
 
-  '@orpc/effect@2.0.0-beta.51':
-    resolution: {integrity: sha512-9uyO2kEtQErid7hDww0JoN68oLAR6Dr+Hl/barEycfEtHbnD1PdybJxg/itfpJy7rPYEqUCWdScfHWgjijHmWA==}
+  '@orpc/effect@2.0.0-beta.52':
+    resolution: {integrity: sha512-7O/U7tcaye68bl8W3prgbCpxTda4KaDnHQvTyX67CRas0x9W60v4W6+8mIBQp2SESpA59IXBIvLhWCAQDOFdlg==}
     peerDependencies:
       effect: '>=4.0.0'
 
-  '@orpc/json-schema@2.0.0-beta.51':
-    resolution: {integrity: sha512-6172PrGYegPtGYqbNR+iHdYpkO9NLXPidzwvI5coDvHKCNiwEr27V8vGGoFWnbCao/VhhIqo1a0LFjqUW9Ji5w==}
+  '@orpc/json-schema@2.0.0-beta.52':
+    resolution: {integrity: sha512-QTQcDGvb/8d4RIdXDWHUUHYBOeHCJ27v7EOBjW/YveGIlXrJP1QuIw/FG5YLzpM1PurJoTUR++nsYP1HLIUEvg==}
 
-  '@orpc/openapi@2.0.0-beta.51':
-    resolution: {integrity: sha512-80V1Bt0R2WTvDzp+GWW9ilzZ+EfNrvmm/KkUpTF1ZUs0yN9SdBtvHaEzmSiJ2OWj6qAF+1WbAJy7CD6hiqPV9A==}
+  '@orpc/openapi@2.0.0-beta.52':
+    resolution: {integrity: sha512-2E5rzQogxClPHQnxGxuSLPKScX2c7DmBh5mb76SVQxNSDMYIWNTtl+EskJnC5l2joZsBwr3SGkd/HWZui2lqJw==}
     peerDependencies:
       '@scalar/api-reference': '>=1.57.2'
       '@types/swagger-ui': '>=5.32.0'
@@ -2131,8 +2131,8 @@ packages:
       swagger-ui:
         optional: true
 
-  '@orpc/server@2.0.0-beta.51':
-    resolution: {integrity: sha512-oqx4ms5vtmFSEQrMCwjXixgXz5npNsxHIzRAD1mS0BQB70AgbSlV+o6lP6Oz+Ob6HH1wp7q+AMTN7bxkssSaFQ==}
+  '@orpc/server@2.0.0-beta.52':
+    resolution: {integrity: sha512-ctuMARCazW+dOEglr+o5MUtHIBTBHh0VNDDN+f6lBc5D0HoQD4jBEEYsZBFYlYot8AUriOEDQZgFbQ/WDOsXow==}
     peerDependencies:
       crossws: '>=0.3.4'
       fastify: '>=5.6.1'
@@ -2142,16 +2142,16 @@ packages:
       fastify:
         optional: true
 
-  '@orpc/shared@2.0.0-beta.51':
-    resolution: {integrity: sha512-fufQa2bhMfzB44Q5LmbbcZbdFBVn03ZtV+8DM723CWUQlDej4eAFmwz80D6cdf4JrhpGXnT0yQtaeDp3woEcSQ==}
+  '@orpc/shared@2.0.0-beta.52':
+    resolution: {integrity: sha512-JVOBT3MbydvRcymjCbbBc/LrfuFX/JZcvWMcnrck9bH8FWBe5gtCvd1whSV13AY4V+BxE9UoGFp801kLhGYTtQ==}
 
-  '@orpc/tanstack-query@2.0.0-beta.51':
-    resolution: {integrity: sha512-QYXUXVHdHWg1dtp8XjwVWEN0Ecu9iRSOtFkV5YFFro6FaUbohomDfwhMcrAYtjEpw1MFSypMWrpDoEDIkMTbSw==}
+  '@orpc/tanstack-query@2.0.0-beta.52':
+    resolution: {integrity: sha512-py4EzxgzlOA+CJ1TO/jdu7rwjpQaWHHcwoHZm+jtZ6F1JgWL44Gz7+I5i6AIaALhzA2vv2ALJG8kJU+ClC3Fyg==}
     peerDependencies:
       '@tanstack/query-core': '>=5.105.0'
 
-  '@orpc/zod@2.0.0-beta.51':
-    resolution: {integrity: sha512-pMbwzOZP5LvD67b+MbvrfdkHH6r8v95rwP3st61am7j6eyEne1KHS1oEUYgrSNPS2hNLy6ir3QuAP+Og/BTruA==}
+  '@orpc/zod@2.0.0-beta.52':
+    resolution: {integrity: sha512-aXSHlBOQgx74fQ8z82EzEntCbpvRevsvJP/6VD1pi6uuvdDmF4frG8T1SFQ8OBFb/9vbRSoginBxAc4CZUk5IQ==}
     peerDependencies:
       zod: '>=4.5.0'
 
@@ -6258,10 +6258,12 @@ packages:
   yuku-core@0.19.0:
     resolution: {integrity: sha512-kYK9e1XdfirNhkipzW0wmMcSWcVF/CWnuugodfVYRCUwvoBefweL9HzB96OiKEhsx78V5WbUxbJqlizMX869Qg==}
     engines: {node: '>=14.18.0'}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   yuku-parser@0.19.0:
     resolution: {integrity: sha512-XrBh9ZiQK5mJVRxZBAvD6LwRyAYrK3MFtH3+onyuxFL5hFD44EC3QOmIC1FjTj6H2MMwq46/NAI+NZxLZPZgxg==}
     engines: {node: '>=14.18.0'}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   zip-stream@6.0.1:
     resolution: {integrity: sha512-zK7YHHz4ZXpW89AHXUPbQVGKI7uvkd3hzusTdotCg1UxyaVtg0zFJSTfW/Dq5f7OBBVnq6cZIaC8Ti4hb6dtCA==}
@@ -7616,64 +7618,64 @@ snapshots:
 
   '@openapi-spec/types@0.8.0': {}
 
-  '@orpc/client@2.0.0-beta.51':
+  '@orpc/client@2.0.0-beta.52':
     dependencies:
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/shared': 2.0.0-beta.52
       '@standard-server/core': 0.16.0
       '@standard-server/fetch': 0.16.0
       '@standard-server/peer': 0.16.0
 
-  '@orpc/contract@2.0.0-beta.51':
+  '@orpc/contract@2.0.0-beta.52':
     dependencies:
-      '@orpc/client': 2.0.0-beta.51
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/client': 2.0.0-beta.52
+      '@orpc/shared': 2.0.0-beta.52
       '@standard-schema/spec': 1.1.0
 
-  '@orpc/effect@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)':
+  '@orpc/effect@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(effect@4.1.4)':
     dependencies:
-      '@orpc/client': 2.0.0-beta.51
-      '@orpc/contract': 2.0.0-beta.51
-      '@orpc/json-schema': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/server': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/client': 2.0.0-beta.52
+      '@orpc/contract': 2.0.0-beta.52
+      '@orpc/json-schema': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/server': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/shared': 2.0.0-beta.52
       effect: 4.1.4
     transitivePeerDependencies:
       - crossws
       - fastify
 
-  '@orpc/json-schema@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))':
+  '@orpc/json-schema@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))':
     dependencies:
       '@openapi-spec/types': 0.8.0
-      '@orpc/client': 2.0.0-beta.51
-      '@orpc/contract': 2.0.0-beta.51
-      '@orpc/server': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/client': 2.0.0-beta.52
+      '@orpc/contract': 2.0.0-beta.52
+      '@orpc/server': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/shared': 2.0.0-beta.52
       '@standard-schema/spec': 1.1.0
     transitivePeerDependencies:
       - crossws
       - fastify
 
-  '@orpc/openapi@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))':
+  '@orpc/openapi@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))':
     dependencies:
       '@openapi-spec/downgrader': 0.8.0
       '@openapi-spec/router': 0.8.0
       '@openapi-spec/types': 0.8.0
-      '@orpc/client': 2.0.0-beta.51
-      '@orpc/contract': 2.0.0-beta.51
-      '@orpc/json-schema': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/server': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/client': 2.0.0-beta.52
+      '@orpc/contract': 2.0.0-beta.52
+      '@orpc/json-schema': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/server': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/shared': 2.0.0-beta.52
       '@standard-server/core': 0.16.0
       '@standard-server/fetch': 0.16.0
     transitivePeerDependencies:
       - crossws
       - fastify
 
-  '@orpc/server@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))':
+  '@orpc/server@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))':
     dependencies:
-      '@orpc/client': 2.0.0-beta.51
-      '@orpc/contract': 2.0.0-beta.51
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/client': 2.0.0-beta.52
+      '@orpc/contract': 2.0.0-beta.52
+      '@orpc/shared': 2.0.0-beta.52
       '@standard-server/aws-lambda': 0.16.0
       '@standard-server/core': 0.16.0
       '@standard-server/fastify': 0.16.0
@@ -7684,17 +7686,17 @@ snapshots:
     optionalDependencies:
       crossws: 0.4.17(srvx@0.11.22)
 
-  '@orpc/shared@2.0.0-beta.51':
+  '@orpc/shared@2.0.0-beta.52':
     dependencies:
       '@standard-server/shared': 0.16.0
       type-fest: 5.10.0
 
-  '@orpc/tanstack-query@2.0.0-beta.51(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))':
+  '@orpc/tanstack-query@2.0.0-beta.52(@tanstack/query-core@5.107.1)(crossws@0.4.17(srvx@0.11.22))':
     dependencies:
-      '@orpc/client': 2.0.0-beta.51
-      '@orpc/contract': 2.0.0-beta.51
-      '@orpc/openapi': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
-      '@orpc/shared': 2.0.0-beta.51
+      '@orpc/client': 2.0.0-beta.52
+      '@orpc/contract': 2.0.0-beta.52
+      '@orpc/openapi': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/shared': 2.0.0-beta.52
       '@tanstack/query-core': 5.107.1
     transitivePeerDependencies:
       - '@scalar/api-reference'
@@ -7703,9 +7705,9 @@ snapshots:
       - fastify
       - swagger-ui
 
-  '@orpc/zod@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)':
+  '@orpc/zod@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))(zod@4.6.7)':
     dependencies:
-      '@orpc/json-schema': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/json-schema': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       zod: 4.6.7
     transitivePeerDependencies:
       - crossws
@@ -11176,11 +11178,11 @@ snapshots:
 
   treeverse@3.0.0: {}
 
-  trpc-cli@0.17.1(@orpc/server@2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22)))(effect@4.1.4)(zod@4.6.7):
+  trpc-cli@0.17.1(@orpc/server@2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22)))(effect@4.1.4)(zod@4.6.7):
     dependencies:
       commander: 14.0.3
     optionalDependencies:
-      '@orpc/server': 2.0.0-beta.51(crossws@0.4.17(srvx@0.11.22))
+      '@orpc/server': 2.0.0-beta.52(crossws@0.4.17(srvx@0.11.22))
       effect: 4.1.4
       zod: 4.6.7
 
