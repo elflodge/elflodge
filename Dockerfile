@@ -53,7 +53,7 @@ COPY --from=hub-build /app/LICENSE ./LICENSE
 EXPOSE 8787
 # Healthy once the hub answers its health route, after migrating and setting up. For its first
 # minute, until it first answers, Docker checks each second and counts no failure; after that, every
-# 30 seconds. The probe uses the hub's configured bind address.
+# 30 seconds. The image probes the hub on IPv4 loopback.
 HEALTHCHECK --start-period=60s --start-interval=1s \
   CMD ["/nodejs/bin/node", "healthcheck.ts"]
 CMD ["dist/main.mjs"]

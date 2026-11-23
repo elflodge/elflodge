@@ -1,75 +1,18 @@
-import { lookup } from "node:dns";
 import { get } from "node:http";
-import { BlockList, type LookupFunction, setDefaultAutoSelectFamily } from "node:net";
-import { networkInterfaces } from "node:os";
 
-// The image copies this script alone, so it uses only Node's builtins.
-
-// Docker keeps the probe's output in the container's health log.
-function fail(reason: unknown) {
-  console.error(reason);
-  process.exitCode = 1;
-}
-
-const host = process.env.HOST;
+// A deployment that binds only to another interface can pass its local address in the health command.
+const host = process.argv[2] ?? "127.0.0.1";
 const port = process.env.PORT ?? 8787;
-// Without HOST the hub listens on every interface.
-const target = host || "::";
-// Node binds `::` to IPv4 too, so a wildcard bind, given as an address in any spelling or a name for
-// one, is probed on IPv4 loopback, which a container keeps without IPv6.
-const wildcards = new BlockList();
-wildcards.addAddress("0.0.0.0", "ipv4");
-wildcards.addAddress("::", "ipv6");
 
-// This container's addresses. The kernel answers all of 127.0.0.0/8 locally, though interfaces
-// list only 127.0.0.1.
-const own = new BlockList();
-own.addSubnet("127.0.0.0", 8, "ipv4");
-for (const { address, family } of Object.values(networkInterfaces()).flatMap(
-  (list) => list ?? [],
-)) {
-  own.addAddress(address, family === "IPv6" ? "ipv6" : "ipv4");
-}
-
-// Resolves as dns.lookup does, keeping only this container's addresses, so a container sharing the
-// name never answers for this one. Node's connect turns `hints: 0` into a filter that hides IPv6 on
-// a network without it, though the listener may have bound ::1 for localhost, so it is set here.
-const findOwnAddresses: LookupFunction = (_hostname, options, callback) =>
-  lookup(target, { ...options, hints: 0, all: true }, (error, addresses) => {
-    if (error) return callback(error, []);
-    const mine = addresses
-      .map((resolved) =>
-        wildcards.check(resolved.address, resolved.family === 6 ? "ipv6" : "ipv4")
-          ? { address: "127.0.0.1", family: 4 }
-          : resolved,
-      )
-      .filter(({ address, family }) => own.check(address, family === 6 ? "ipv6" : "ipv4"));
-    if (mine.length === 0) {
-      return callback(new Error(`${target} resolves to no address of this container`), []);
-    }
-    callback(null, mine);
-  });
-
-// The client tries each address in turn, as the listener may have bound any of them, even where
-// NODE_OPTIONS turns that off; the lookup above then always answers with every address.
-setDefaultAutoSelectFamily(true);
-
-// Node's HTTP client rather than fetch, which refuses ports browsers block, such as 6000, and IPv6
-// addresses with a zone. Requesting localhost sends a valid Host header and invokes the lookup
-// even when HOST is a numeric IP, which Node would otherwise dial without checking locality.
-get(
-  {
-    hostname: "localhost",
-    port,
-    path: "/healthz",
-    lookup: findOwnAddresses,
-    // A connection of its own, outside the global agent, which sends requests through an HTTP proxy
-    // when NODE_USE_ENV_PROXY is set: the proxy, not this hub, would answer.
-    agent: false,
-  },
-  (response) => {
-    response.resume();
-    const status = response.statusCode ?? 0;
-    if (status < 200 || status >= 300) fail(`/healthz answered ${status}`);
-  },
-).on("error", fail);
+// Check the hub directly even when Node is configured to use an HTTP proxy.
+get({ host, port, path: "/healthz", agent: false }, (response) => {
+  response.resume();
+  const status = response.statusCode ?? 0;
+  if (status < 200 || status >= 300) {
+    console.error(`/healthz answered ${status}`);
+    process.exitCode = 1;
+  }
+}).on("error", (error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
