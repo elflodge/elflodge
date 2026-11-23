@@ -1,10 +1,10 @@
-import { defineNetworkFixture, type NetworkFixture } from "@msw/playwright";
 import {
   chromium,
   type BrowserContext,
   type BrowserContextOptions,
   type Locator,
   type Page,
+  type Request as PlaywrightRequest,
   type Route,
 } from "playwright";
 import { expect, inject, test as base } from "vite-plus/test";
@@ -59,16 +59,15 @@ export const test = base
     const files = new Set(inject("dashboardFiles"));
     const strays: string[] = [];
     let context: BrowserContext | undefined;
-    let msw: NetworkFixture | undefined;
     let over = false;
 
-    // In this order: a page still reading once the handlers go would send its reads past them.
+    // In this order: a page still reading once the route goes would send its reads past it.
     onCleanup(async () => {
       over = true;
       network.releaseAll();
       if (context) {
         for (const page of context.pages()) await page.close();
-        await msw?.disable();
+        await context.unrouteAll({ behavior: "ignoreErrors" });
         await context.close();
       }
       const unarranged = [...network.unarranged, ...strays];
@@ -77,9 +76,9 @@ export const test = base
       }
     });
 
-    // What MSW passes on: the build's navigations and files, which the preview server serves.
-    async function serveBuild(route: Route) {
-      const request = route.request();
+    // The build's navigations and files go on to the preview server; every other request goes to the
+    // stand-in, and one it does not answer fails the test as a stray.
+    async function serve(route: Route, request: PlaywrightRequest) {
       const url = new URL(request.url());
       const isNavigation = request.isNavigationRequest() && url.pathname.startsWith(DASHBOARD_BASE);
       if (
@@ -89,6 +88,8 @@ export const test = base
       ) {
         return route.continue();
       }
+      const response = await network.handle(await toFetchRequest(request));
+      if (response) return fulfillWith(route, response);
       if (!over) strays.push(`${request.method()} ${url.href}`);
       return route.abort();
     }
@@ -104,22 +105,7 @@ export const test = base
       context = started;
       // Within the test's own timeout, so a step that cannot happen names its locator.
       started.setDefaultTimeout(5_000);
-      // Before MSW's, which Playwright then asks first.
-      await started.route("**/*", serveBuild);
-      const fixture = defineNetworkFixture({ context: started, handlers: [...network.handlers] });
-      msw = fixture;
-      await fixture.enable();
-      // MSW builds the request its handlers read from Playwright's `allHeaders()`. For a routed request
-      // Playwright takes those from where Chromium paused it, before the network stack adds the
-      // Content-Length the browser sends with a body, which the hub's upload requires: given back from
-      // the body, ahead of MSW, which Playwright asks after this route.
-      await started.route("**/*", (route) => {
-        const request = route.request();
-        const body = request.postDataBuffer();
-        return route.fallback(
-          body ? { headers: { ...request.headers(), "content-length": String(body.length) } } : {},
-        );
-      });
+      await started.route("**/*", serve);
       await started.clock.install({ time: NOW });
       await started.clock.pauseAt(NOW);
       return started;
@@ -132,6 +118,39 @@ export const test = base
       return page;
     };
   });
+
+/**
+ * The request the page sent, as the fetch API's `Request`. Playwright reports a routed request's
+ * headers without those the browser's network stack adds, Content-Length among them, which the
+ * hub's upload requires: given back from the body.
+ */
+async function toFetchRequest(request: PlaywrightRequest) {
+  const headers = new Headers(await request.allHeaders());
+  const body = request.postDataBuffer();
+  if (body) headers.set("content-length", String(body.length));
+  return new Request(request.url(), {
+    method: request.method(),
+    headers,
+    body: body && new Uint8Array(body),
+  });
+}
+
+/**
+ * Answers the routed request with `response`, or fails it as a lost connection for
+ * `Response.error()`. Playwright takes one value per header name, and sends each line of a
+ * `set-cookie` value as a cookie of its own.
+ */
+async function fulfillWith(route: Route, response: Response) {
+  if (response.type === "error") return route.abort();
+  const headers = Object.fromEntries(response.headers);
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length > 0) headers["set-cookie"] = cookies.join("\n");
+  return route.fulfill({
+    status: response.status,
+    headers,
+    body: Buffer.from(await response.arrayBuffer()),
+  });
+}
 
 /** What a page says when it could not confirm a write the hub may have made. */
 export const UNCERTAIN =

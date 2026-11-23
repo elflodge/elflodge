@@ -13,7 +13,6 @@ import { getEndpoints } from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { organization } from "better-auth/plugins";
 import { apiContract } from "contract";
-import { http, HttpResponse, type AnyHandler } from "msw";
 
 import { createApiHandler } from "../../hub/src/api-handler.ts";
 import { invalidInput, type InputProblem } from "../../hub/src/invalid-input.ts";
@@ -133,8 +132,12 @@ export type Hub = Procedures<typeof apiContract> & {
 
 /** The stand-in as the browser's network serves it. */
 export interface HubNetwork {
-  /** The handlers that serve it. */
-  readonly handlers: readonly AnyHandler[];
+  /**
+   * Answers `request` as the hub would: a `Response.error()` for an answer lost on its way back,
+   * and nothing for a request that is not one of the hub's, which goes on to the build or fails the
+   * test as a stray.
+   */
+  handle(request: Request): Promise<Response | undefined>;
   /** The calls the test arranged no answer for, each with its input. */
   readonly unarranged: readonly string[];
   /** Lets every held call go on, so that nothing waits once the test is over. */
@@ -436,20 +439,19 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
 
   const hub: Hub = { ...api, session, auth: authRoutes(auth) };
 
-  const sessionHandler = http.get(`${origin}${AUTH_BASE}/get-session`, async () => {
+  async function serveSession() {
     const answer = await session.receive();
     switch (answer?.kind) {
       case "output":
-        return HttpResponse.json(await answer.answer());
+        return Response.json(await answer.answer());
       case "loss":
-        return HttpResponse.error();
+        return Response.error();
       default:
-        return HttpResponse.json(null, { status: 500 });
+        return Response.json(null, { status: 500 });
     }
-  });
+  }
 
-  const authHandler = http.all(`${origin}${AUTH_BASE}/*`, async ({ request }) => {
-    const address = new URL(request.url).pathname.slice(AUTH_BASE.length);
+  async function serveAuth(request: Request, address: string) {
     const route = auth.get(address);
     const input: unknown = await authInput(request);
     const methods = AUTH_METHODS.get(address);
@@ -457,36 +459,44 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
       unarranged.push(
         `Better Auth's ${request.method} ${address}, a route that answers ${methods?.join(" or ") ?? "no method"}`,
       );
-      return HttpResponse.json(null, { status: 404 });
+      return Response.json(null, { status: 404 });
     }
     if (!route?.answer) {
       unarranged.push(`Better Auth's ${request.method} ${address} with ${JSON.stringify(input)}`);
-      return HttpResponse.json(null, { status: 500 });
+      return Response.json(null, { status: 500 });
     }
     const answer = await route.receive(input);
     switch (answer?.kind) {
       case "output":
-        return HttpResponse.json((await answer.answer(input)) ?? null);
+        return Response.json((await answer.answer(input)) ?? null);
       case "refusal":
-        return HttpResponse.json(answer.refuse.body, { status: answer.refuse.statusCode });
+        return Response.json(answer.refuse.body, { status: answer.refuse.statusCode });
       case "loss":
-        return HttpResponse.error();
+        return Response.error();
       default:
-        return HttpResponse.json(null, { status: 500 });
+        return Response.json(null, { status: 500 });
     }
-  });
+  }
 
-  // Every other request on the origin goes to the hub's API handler, whose router decides whether it
-  // is a call of the API; one it does not route goes on to the build, or fails the test as a stray.
-  const routerHandler = http.all(`${origin}/*`, async ({ request }) => {
+  // Better Auth's routes first; every other request on the origin goes to the hub's API handler,
+  // whose router decides whether it is a call of the API.
+  async function handle(request: Request) {
+    const url = new URL(request.url);
+    if (url.origin !== origin) return undefined;
+    if (url.pathname === `${AUTH_BASE}/get-session` && request.method === "GET") {
+      return serveSession();
+    }
+    if (url.pathname.startsWith(`${AUTH_BASE}/`)) {
+      return serveAuth(request, url.pathname.slice(AUTH_BASE.length));
+    }
     const exchange: Exchange = { lost: false };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
     if (!matched) return undefined;
-    return exchange.lost ? HttpResponse.error() : response;
-  });
+    return exchange.lost ? Response.error() : response;
+  }
 
   const network: HubNetwork = {
-    handlers: [sessionHandler, authHandler, routerHandler],
+    handle,
     unarranged,
     releaseAll() {
       session.release();

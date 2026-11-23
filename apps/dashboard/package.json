@@ -32,10 +32,8 @@
   },
   "devDependencies": {
     "@better-auth/core": "catalog:",
-    "@msw/playwright": "catalog:",
     "@orpc/server": "catalog:",
     "@solidjs/vite-plugin": "catalog:",
-    "msw": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
