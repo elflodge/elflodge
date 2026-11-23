@@ -34,6 +34,7 @@ type FormDialogProps<A, T> = {
   heading: (payload: T) => JSX.Element;
   /** The words of the button that sends, which name what it does. */
   confirm: string;
+  dismissLabel?: string;
   /** As wide as the dialog can be, for a form with groups of choices. */
   wide?: boolean;
   /** Places a 4xx refusal at named controls or in the alert. Defaults to the hub's words. */
@@ -63,15 +64,16 @@ type FormDialogProps<A, T> = {
 );
 
 /**
- * A dialog whose form sends a write to the hub, UI SDK's Dialog: a focused task over the page. Its
- * heading, its fields in the body, and in the footer Cancel and the button that sends, named by
- * `confirm`. The form is an ordinary one, sent through `createFormAction` after the browser's own
- * validation, and `send` makes the request.
+ * A dialog whose form sends a write to the hub, UI SDK's Dialog: a focused task over the page.
+ * Its fields sit below the heading. The footer has a dismissing button (Cancel by default) and
+ * the button that sends, named by `confirm`. The browser validates the ordinary form before
+ * `createFormAction` calls `send` to make the request.
  *
- * Once sent, the dialog cannot be left by its own means until `send` settles: Escape and Cancel do
- * nothing, another press or Enter sends nothing more, and focus stays where it was. Leaving the
- * page still leaves it. The caller makes its text fields read-only from `fields.pending`. A press
- * outside it leaves it open. The caller can place a 4xx refusal at a named field or fieldset.
+ * Once sent, the dialog cannot be left by its own means until `send` settles. Escape and the
+ * dismissing button do nothing, another press or Enter sends nothing more, and focus stays where
+ * it was. Leaving the page still leaves it. The caller makes its text fields read-only from
+ * `fields.pending`. A press outside it leaves it open. The caller can place a 4xx refusal at a
+ * named field or fieldset.
  * Editing it clears its refusal. Other failures say the write may have been done.
  *
  * A list shares one dialog outside every `Show` a read can switch. Each trigger passes the
@@ -220,7 +222,7 @@ function OpenForm<A, T>(
               <DialogClose
                 render={(close) => (
                   <Button {...close} disabled={props.pending()} focusableWhenDisabled>
-                    Cancel
+                    {props.dismissLabel ?? "Cancel"}
                   </Button>
                 )}
               />
