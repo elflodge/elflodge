@@ -6,12 +6,7 @@ import { RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import type { StandardHandlerInterceptor } from "@orpc/server/standard";
 import { getOwn, isPlainObject, setOwn } from "@orpc/shared";
 import { parseStandardUrl } from "@standard-server/core";
-import {
-  errorStatusMap,
-  MAX_BODY_BYTES,
-  MAX_FILE_BYTES,
-  openOutputSchemaConverter,
-} from "contract";
+import { errorStatusMap, MAX_BODY_BYTES, openOutputSchemaConverter } from "contract";
 import { PROBLEM_JSON_CONTENT_TYPE } from "hono-problem-details";
 
 import { locateRequestProblems, toProblemDetails } from "./problem-details.ts";
@@ -49,41 +44,27 @@ const restoreDroppedQueryNamesForValidation: StandardHandlerInterceptor<object> 
 };
 
 /**
- * The handler the hub serves its API with, given the hub's `router` and the `plugins` of the API's
- * own, such as the one serving its OpenAPI document: how a request is routed and decoded, how much
- * body it may carry, and how a refusal or failure is written as Problem Details. The dashboard's
- * tests serve their arranged answers through it too, so a page meets the hub's own refusals of what
- * it sends.
+ * A handler the hub serves its API with, given the hub's `router`: how a request is routed and
+ * decoded, and how a refusal or failure is written as Problem Details. It carries a body up to
+ * `maxBodySize`, by default a JSON body's limit, and any `plugins` of its own after the shared ones.
+ * The dashboard's tests serve their arranged answers through it too, so a page meets the hub's own
+ * refusals of what it sends.
  */
 export function createApiHandler<T extends object>(
   router: Router<T>,
-  plugins: NonNullable<OpenAPIHandlerOptions<T>["plugins"]> = [],
+  {
+    maxBodySize = MAX_BODY_BYTES,
+    plugins = [],
+  }: {
+    maxBodySize?: number;
+    plugins?: NonNullable<OpenAPIHandlerOptions<T>["plugins"]>;
+  } = {},
 ) {
-  const handler = (
-    maxBodySize: number,
-    { filter, plugins: own = [] }: Pick<OpenAPIHandlerOptions<T>, "filter" | "plugins">,
-  ) =>
-    new OpenAPIHandler(router, {
-      errorStatusMap,
-      errorResponseBodyEncoder: toProblemDetails,
-      errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
-      interceptors: [locateRequestProblems, restoreDroppedQueryNamesForValidation],
-      plugins: [new RequestLimitHandlerPlugin({ maxBodySize }), coercion, ...own],
-      filter,
-    });
-  // The same router behind two handlers, as oRPC's request limit is one per handler: an upload, whose
-  // body the hub reads as it arrives, may be as large as a file, and everything else as large as a
-  // JSON body. The uploads' handler routes only the upload, as oRPC routes it, with or without a
-  // trailing `/`, so either spelling keeps the upload's limit; a request it does not route goes to
-  // the other.
-  const uploads = handler(MAX_FILE_BYTES, {
-    filter: (_, path) => path.join(".") === "blobs.upload",
+  return new OpenAPIHandler(router, {
+    errorStatusMap,
+    errorResponseBodyEncoder: toProblemDetails,
+    errorResponseContentType: PROBLEM_JSON_CONTENT_TYPE,
+    interceptors: [locateRequestProblems, restoreDroppedQueryNamesForValidation],
+    plugins: [new RequestLimitHandlerPlugin({ maxBodySize }), coercion, ...plugins],
   });
-  const api = handler(MAX_BODY_BYTES, { plugins });
-  return {
-    async handle(...call: Parameters<typeof api.handle>) {
-      const upload = await uploads.handle(...call);
-      return upload.matched ? upload : await api.handle(...call);
-    },
-  };
 }

@@ -32,7 +32,7 @@ export type Open = (path: string, options?: BrowserOptions) => Promise<Page>;
  * arranged before or between steps. It answers the shell's own reads until a test arranges them: a
  * session of an owner of the Organization, no Runners and no unfinished jobs. Any other call it has
  * no answer for, and any request outside the contract, Better Auth's routes and the build, fails the
- * test, which names them; a request the hub's handlers refuse before the procedure runs, such as
+ * test, which names them; a request the hub's API handler refuses before the procedure runs, such as
  * one whose input the contract refuses, needs no answer, as the hub's refusal answers it. A call whose answer is lost is arranged with `drops`, and a browser gone
  * offline with `setOffline`. `open` opens a page. Its clock stands still at `NOW` until a test
  * moves it, so no poll or deadline passes unless the test makes it.

@@ -7,6 +7,7 @@ import {
   type AddedJobs,
   apiContract,
   getAccess,
+  MAX_FILE_BYTES,
   NotFound,
   PROTOCOL_UNSUPPORTED,
   RUNNER_CONNECT_PATH,
@@ -415,21 +416,28 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     },
   });
 
+// The same router behind two handlers, as oRPC's request limit is one per handler: uploads, whose
+// body the hub reads as it arrives, may be as large as a file, and everything else as large as a
+// JSON body.
+const uploads = createApiHandler<ApiContext>(router, { maxBodySize: MAX_FILE_BYTES });
+
 const OPENAPI_SPEC_PATH = "/spec.json";
 
-const api = createApiHandler<ApiContext>(router, [
-  new OpenAPIReferenceHandlerPlugin({
-    specPath: OPENAPI_SPEC_PATH,
-    // oRPC has no spec-only mode. Without this guard, moving the dashboard redirect would
-    // expose the plugin's default reference page at `/`, which loads Scalar from a CDN.
-    allow: ({ request }) => matchesHttpPath(request.url, OPENAPI_SPEC_PATH),
-    // The document names the session cookie of the deployment that serves the request.
-    spec: ({ context }) =>
-      Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
-        generateOpenAPIDocument,
-      ),
-  }),
-]);
+const api = createApiHandler<ApiContext>(router, {
+  plugins: [
+    new OpenAPIReferenceHandlerPlugin({
+      specPath: OPENAPI_SPEC_PATH,
+      // oRPC has no spec-only mode. Without this guard, moving the dashboard redirect would
+      // expose the plugin's default reference page at `/`, which loads Scalar from a CDN.
+      allow: ({ request }) => matchesHttpPath(request.url, OPENAPI_SPEC_PATH),
+      // The document names the session cookie of the deployment that serves the request.
+      spec: ({ context }) =>
+        Effect.runPromiseWith(context["effect/context"])(sessionCookieName).then(
+          generateOpenAPIDocument,
+        ),
+    }),
+  ],
+});
 
 /**
  * The challenge every 401 carries, as HTTP requires (RFC 9110, section 15.5.2): callers authenticate
@@ -605,6 +613,8 @@ export function createApp<Bindings extends object>(platform: HubPlatform<Binding
     return response;
   };
 
+  // Both spellings oRPC matches, so a trailing `/` keeps the upload's limit.
+  app.on("PUT", ["/blobs/:digest", "/blobs/:digest/"], (c) => serve(c, uploads));
   app.all("*", (c) => serve(c, api));
 
   return app;

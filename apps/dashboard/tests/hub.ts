@@ -21,8 +21,10 @@ import type { authClient } from "../src/auth-client.ts";
 
 // A stand-in for the hub at the HTTP boundary: each endpoint answers what the test arranged, and
 // records what it was sent. Its API is one router built from the contract and served through the
-// hub's own handlers, so the hub's routing picks the procedure and the hub's decoding, checks and
-// Problem Details apply to each request and answer.
+// hub's API handler, so the hub's routing picks the procedure and the hub's decoding, checks and
+// Problem Details apply to each request and answer. It differs from the hub in one way: the hub
+// serves uploads through a handler of their own that takes a file's size, and the stand-in holds an
+// upload to a JSON body's limit, as no page test uploads more.
 
 /** Better Auth's answer to a session read: who is signed in, or no one. */
 export type Session = Awaited<ReturnType<typeof authClient.getSession>> | null;
@@ -77,7 +79,7 @@ export interface Procedure<Input, Output, Errors extends ErrorMap> extends Endpo
    */
   answersUnchecked(body: unknown): void;
   /**
-   * The input of every call received, in order. A request the hub's handlers refuse before the
+   * The input of every call received, in order. A request the hub's API handler refuses before the
    * procedure runs, such as one whose body is too large or whose input the contract refuses, gets
    * the hub's refusal, whatever the test arranged, and is not among them.
    */
@@ -474,8 +476,8 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     }
   });
 
-  // Every other request on the origin goes to the hub's handlers, whose router decides whether it is
-  // a call of the API; one it does not route goes on to the build, or fails the test as a stray.
+  // Every other request on the origin goes to the hub's API handler, whose router decides whether it
+  // is a call of the API; one it does not route goes on to the build, or fails the test as a stray.
   const routerHandler = http.all(`${origin}/*`, async ({ request }) => {
     const exchange: Exchange = { lost: false };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
