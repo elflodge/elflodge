@@ -523,7 +523,7 @@ function signIn(state: State) {
       const url = hubUrl(state.port);
       // Better Auth's origin check applies to this sign-in even though it runs in Node.
       const headers = new Headers({ origin: url });
-      const auth = createAuthClient({ baseURL: url, fetchOptions: { headers, throw: true } });
+      const auth = createAuthClient({ baseURL: url, fetchOptions: { headers } });
       await auth.signIn.email(
         { email: OWNER_EMAIL, password: state.ownerPassword },
         {
