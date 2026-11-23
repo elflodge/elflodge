@@ -7,7 +7,7 @@ import type { Page } from "playwright";
 import { expect, onTestFinished } from "vite-plus/test";
 
 import { InvalidInput } from "../../hub/src/invalid-input.ts";
-import { expectBrowser, runClockUntil, test, type Open } from "./dashboard.ts";
+import { expectBrowser, readAgain, runClockUntil, test, type Open } from "./dashboard.ts";
 import type { Hub } from "./hub.ts";
 import { aBatch, JOB_LIMITS, jobsCounted } from "./records.ts";
 
@@ -361,12 +361,10 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await expectBrowser(removeAll).toBeFocused();
   await expectBrowser(page.getByLabel("Custom ID of job 2")).toBeVisible();
 
-  // The rows go while the limits, from which the draft's figures are recomputed, are read again:
-  // back on the tab, Query reads them again once they are stale.
+  // The rows go while the limits, from which the draft's figures are recomputed, are read again.
   await expectBrowser(page.getByLabel("Model budget")).toHaveAccessibleDescription(/At most/);
   const limits = hub.jobs.limits.hold();
-  await page.clock.runFor(1_001);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await readAgain(page);
   await limits.arrived;
   await removeAll.click();
   await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
