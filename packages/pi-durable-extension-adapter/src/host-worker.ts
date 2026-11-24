@@ -291,24 +291,7 @@ const functions: WorkerFunctions = {
           onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
         }),
       });
-      // Tool calls whose arguments a provider gave at their start, which the host cannot continue
-      // from the deltas alone, so their deltas carry the message so far.
-      const startedWithArguments = new Set<number>();
-      for await (const event of stream) {
-        if (event.type === "toolcall_start") {
-          const block = event.partial.content[event.contentIndex];
-          if (block?.type === "toolCall" && Object.keys(block.arguments).length > 0)
-            startedWithArguments.add(event.contentIndex);
-        }
-        if (
-          event.type === "text_delta" ||
-          event.type === "thinking_delta" ||
-          (event.type === "toolcall_delta" && !startedWithArguments.has(event.contentIndex))
-        ) {
-          const { partial: _partial, ...delta } = event;
-          await host.providerEvent(request, delta);
-        } else await host.providerEvent(request, event);
-      }
+      for await (const event of stream) await host.providerEvent(request, event);
       const message = await stream.result();
       // Its provider may keep its query open for the tools' results, as pi-claude-bridge does.
       waiting = message.stopReason === "toolUse";

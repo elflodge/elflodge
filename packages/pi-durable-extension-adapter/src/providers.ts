@@ -15,7 +15,6 @@ import type {
 } from "@earendil-works/pi-ai";
 import { lazyStream } from "@earendil-works/pi-ai/api/lazy";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
-import { ToolCallArgumentsStream } from "@earendil-works/pi-ai/utils/streaming-json";
 import type { ModelRuntime, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import {
   GenerationTask,
@@ -28,12 +27,7 @@ import {
 import type { BirpcReturn } from "birpc";
 import ensureError from "ensure-error";
 
-import type {
-  HostFunctions,
-  ProviderEvent,
-  ProviderSettings,
-  WorkerFunctions,
-} from "./protocol.ts";
+import type { HostFunctions, ProviderSettings, WorkerFunctions } from "./protocol.ts";
 
 type Runtime = Pick<
   ModelRuntime,
@@ -60,7 +54,7 @@ export function supportsProviders(models: Models): models is Models & Runtime {
 
 type WorkerRpc = BirpcReturn<WorkerFunctions, HostFunctions>;
 type PendingRequest = {
-  event(event: ProviderEvent): void;
+  event(event: AssistantMessageEvent): void;
   options: SimpleStreamOptions;
 };
 
@@ -340,7 +334,7 @@ export class ConversationProviders {
     const id = worker.requests.add({
       options,
       event: (received) => {
-        const event = partial.event(received);
+        const event = partial.apply(received);
         if (event.type === "done") ended(event.message);
         if (event.type === "error") ended(event.error);
         events.push(event);
@@ -365,8 +359,19 @@ export class ConversationProviders {
     signal?.addEventListener("abort", aborted, { once: true });
     live.addEventListener("abort", closed, { once: true });
     const result = awaitWithContext(call, bound)
-      .then((answer) => {
-        const message = partial.settle(answer);
+      .then(
+        (answer) => partial.mirror(answer),
+        (failure: unknown) => {
+          // The worker may have sent the answer's last event before the call failed.
+          if (terminal && partial.current) return partial.current;
+          const reason = signal?.aborted ? "aborted" : "error";
+          const message = partial.failed(failure, reason);
+          if (!message) throw failure;
+          events.push({ type: "error", reason, error: message });
+          return message;
+        },
+      )
+      .then((message) => {
         ended(message);
         events.end(message);
         return message;
@@ -454,49 +459,59 @@ export class ConversationProviders {
 }
 
 /**
- * A provider's message so far, rebuilt on the host as one object that grows, as pi-ai's own
- * `partial` is "the shared live response-so-far helper, not an event-time snapshot". Deltas arrive
- * without it and are applied as pi-ai's contract says blocks grow: text and thinking only through
- * their deltas, tool-call arguments through the parser pi-ai's providers use. Every other event
- * brings the worker's message, which replaces what was rebuilt.
+ * A provider's message so far as one object that grows, as pi-ai's own `partial` is "the shared
+ * live response-so-far helper, not an event-time snapshot". Each event brings a copy of the
+ * worker's live message as it was when the event was sent, which a delta cannot stand in for: by
+ * then the provider may have streamed further. The copy goes into the object and blocks callers
+ * already hold.
  */
 class LivePartial {
   #message: AssistantMessage | undefined;
-  readonly #arguments = new Map<number, ToolCallArgumentsStream>();
 
-  event(event: ProviderEvent): AssistantMessageEvent {
-    if (event.type === "done") return { ...event, message: this.settle(event.message) };
-    if (event.type === "error") return { ...event, error: this.settle(event.error) };
-    if ("partial" in event) return { ...event, partial: this.settle(event.partial) };
-    const message = this.#message;
-    if (!message) throw new Error("A provider's stream sent a delta before its start");
-    const { contentIndex, delta } = event;
-    const block = message.content[contentIndex];
-    if (event.type === "text_delta" && block?.type === "text") {
-      block.text += delta;
-      return { type: "text_delta", contentIndex, delta, partial: message };
-    }
-    if (event.type === "thinking_delta" && block?.type === "thinking") {
-      block.thinking += delta;
-      return { type: "thinking_delta", contentIndex, delta, partial: message };
-    }
-    if (event.type === "toolcall_delta" && block?.type === "toolCall") {
-      const parsed = this.#arguments.get(contentIndex) ?? new ToolCallArgumentsStream();
-      this.#arguments.set(contentIndex, parsed);
-      block.arguments = parsed.append(delta);
-      return { type: "toolcall_delta", contentIndex, delta, partial: message };
-    }
-    throw new Error(`A provider's ${event.type} names no matching block at ${contentIndex}`);
+  get current() {
+    return this.#message;
   }
 
-  /** Takes the worker's message as the current state, keeping the one object callers hold. */
-  settle(message: AssistantMessage): AssistantMessage {
+  apply(event: AssistantMessageEvent): AssistantMessageEvent {
+    if (event.type === "done") return { ...event, message: this.mirror(event.message) };
+    if (event.type === "error") return { ...event, error: this.mirror(event.error) };
+    return { ...event, partial: this.mirror(event.partial) };
+  }
+
+  /** Updates the held message, and its blocks, to `message`, and returns the held one. */
+  mirror(message: AssistantMessage): AssistantMessage {
     const live = (this.#message ??= message);
     if (live === message) return live;
-    for (const key of Object.keys(live))
-      if (!Object.hasOwn(message, key)) Reflect.deleteProperty(live, key);
-    return Object.assign(live, message);
+    const { content, ...fields } = message;
+    const blocks = live.content;
+    replaceFields(live, { ...fields, content: blocks });
+    blocks.length = content.length;
+    content.forEach((block, index) => {
+      const held = blocks[index];
+      if (held?.type === block.type) replaceFields(held, block);
+      else blocks[index] = block;
+    });
+    return live;
   }
+
+  /**
+   * The message an RPC failure ends the request with: what streamed so far, as a provider's own
+   * error message is, or none when nothing did, for lazyStream to make one.
+   */
+  failed(failure: unknown, reason: "aborted" | "error"): AssistantMessage | undefined {
+    if (!this.#message) return undefined;
+    return this.mirror({
+      ...this.#message,
+      stopReason: reason,
+      errorMessage: ensureError(failure).message,
+    });
+  }
+}
+
+function replaceFields(target: object, source: object) {
+  for (const key of Object.keys(target))
+    if (!Object.hasOwn(source, key)) Reflect.deleteProperty(target, key);
+  Object.assign(target, source);
 }
 
 /** Why a request finds no stream to route to, as while a conversation's extensions open again. */

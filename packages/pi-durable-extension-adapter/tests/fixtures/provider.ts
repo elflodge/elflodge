@@ -20,13 +20,6 @@ const queries = new Map<string, AbortSignal | undefined>();
 export default function extension(pi: ExtensionAPI) {
   pi.registerProvider("anthropic", { baseUrl: "https://proxy.example" });
   const faux = createFauxCore({ provider: "fixture", api: "fixture", models: [{ id: "echo" }] });
-  // Paced, so a reader keeps up and sees each delta's message as it was then.
-  const paced = createFauxCore({
-    provider: "fixture",
-    api: "fixture",
-    models: [{ id: "echo" }],
-    tokensPerSecond: 500,
-  });
   const tool = (name: string) =>
     fauxAssistantMessage([fauxToolCall(name, {})], { stopReason: "toolUse" });
   let owner = "";
@@ -41,7 +34,7 @@ export default function extension(pi: ExtensionAPI) {
       const last = transcript.messages.at(-1);
       const text = last?.role === "user" ? contentText(last.content) : "";
       if (text === "write a file") {
-        paced.setResponses([
+        faux.setResponses([
           fauxAssistantMessage(
             [
               fauxThinking("t".repeat(200)),
@@ -51,7 +44,7 @@ export default function extension(pi: ExtensionAPI) {
             { stopReason: "toolUse" },
           ),
         ]);
-        return paced.streamSimple(model, transcript, options);
+        return faux.streamSimple(model, transcript, options);
       }
       faux.setResponses([
         async () => {

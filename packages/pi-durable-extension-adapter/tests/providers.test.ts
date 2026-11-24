@@ -339,26 +339,29 @@ test("a custom stream's message so far is one object that grows, as pi-ai's prov
     { messages: [{ role: "user", content: "write a file", timestamp: Date.now() }] },
     { sessionId: provider?.sessionId },
   );
+  // Unpaced, a provider streams on while the worker sends an earlier event across.
   const partials = new Set<unknown>();
+  const blocks = new Map<number, Set<unknown>>();
   const texts: string[] = [];
   const files: unknown[] = [];
   for await (const event of stream) {
-    if ("partial" in event) partials.add(event.partial);
-    const block = "partial" in event ? event.partial.content.at(-1) : undefined;
-    if (event.type === "text_delta" && block?.type === "text") texts.push(block.text);
-    if (event.type === "toolcall_delta" && block?.type === "toolCall")
-      files.push(block.arguments["content"]);
+    if (!("partial" in event)) continue;
+    partials.add(event.partial);
+    if (!("contentIndex" in event)) continue;
+    const block = event.partial.content[event.contentIndex];
+    blocks.set(event.contentIndex, (blocks.get(event.contentIndex) ?? new Set()).add(block));
+    if (block?.type === "text") texts.push(block.text);
+    if (block?.type === "toolCall") files.push(block.arguments["content"] ?? "");
   }
   const message = await stream.result();
-  // Each delta's message held the block as far as it had grown, tool-call arguments included.
-  expect(new Set(texts).size).toBeGreaterThan(5);
+  // Every event's message held each block as far as it had grown, never further.
+  expect(texts.length).toBeGreaterThan(0);
   for (const text of texts) expect("x".repeat(400).startsWith(text)).toBe(true);
-  const partly = files.filter((file) => typeof file === "string" && file.length < 400);
-  expect(partly.length).toBeGreaterThan(0);
-  for (const file of partly) expect("y".repeat(400).startsWith(String(file))).toBe(true);
-  // The first event's message is the one that grew into the answer.
-  expect([...partials]).toEqual([message]);
+  for (const file of files) expect("y".repeat(400).startsWith(String(file))).toBe(true);
+  // One message, and one object per block, grew into the answer.
+  expect(partials.size).toBe(1);
   expect(partials.has(message)).toBe(true);
+  expect([...blocks.values()].map((each) => each.size)).toEqual([1, 1, 1]);
   expect(message).toMatchObject({
     content: [
       { type: "thinking", thinking: "t".repeat(200) },

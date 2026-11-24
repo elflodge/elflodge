@@ -241,21 +241,9 @@ export type Action =
   | { readonly type: "abort" }
   | { readonly type: "shutdown" };
 
-type StreamDelta = Extract<
-  AssistantMessageEvent,
-  { type: "text_delta" | "thinking_delta" | "toolcall_delta" }
->;
-
-/**
- * A provider's stream event as it crosses to the host. A delta mostly comes without `partial`, the
- * message so far, which the host rebuilds from the deltas: sent with each one, the whole answer
- * would be copied once per piece of it.
- */
-export type ProviderEvent = AssistantMessageEvent | Omit<StreamDelta, "partial">;
-
 /** What the host serves to a worker, asynchronously. */
 export interface HostFunctions {
-  providerEvent(request: number, event: ProviderEvent): void;
+  providerEvent(request: number, event: AssistantMessageEvent): void;
   providerPayload(
     request: number,
     ...args: Parameters<NonNullable<SimpleStreamOptions["onPayload"]>>
