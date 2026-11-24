@@ -306,17 +306,25 @@ class Workers {
 
   /**
    * Reports a failure Pi caught so the conversation goes on: a handler's, or a registration's as
-   * extensions open again. An `onError` that throws fails neither.
+   * extensions open again. An `onError` that throws or rejects fails neither.
    */
   report(error: HandlerError, conversation: ConversationId) {
     if (!this.#options.onError) {
       console.error(`Extension error (${error.source}): ${error.message}`);
       return;
     }
+    // Logged as thrown, with the error it was given: ensure-error assigns to an error's cause,
+    // which throws on a frozen one.
+    const failed = (failure: unknown) => {
+      console.error(`Extension error (${error.source}): ${error.message}`);
+      console.error(failure);
+    };
     try {
-      this.#options.onError(error, conversation);
-    } catch (failed) {
-      console.error(ensureError(failed));
+      const result: unknown = this.#options.onError(error, conversation);
+      // An async reporter's rejection would otherwise end the process.
+      if (result instanceof Promise) result.catch(failed);
+    } catch (failure) {
+      failed(failure);
     }
   }
 
@@ -580,7 +588,8 @@ async function attachConversation(
     await selectExtension(options, installation.conversations(), context);
     const opened = await attached.open(context);
     return {
-      // Without the event and stack a binding failure carries for reporting at a reopening.
+      // As `ExtensionError`s, the attachment's type: a binding failure's event and stack serve
+      // only its report at a reopening.
       errors: opened.errors.map(({ source, message }) => ({ source, message })),
       input: (text, given) => attached.input(text, given),
       close: () => attached.close(),
@@ -967,16 +976,16 @@ class AttachedConversation {
     const reopening = this.#loaded !== undefined;
     const opened = await hosted.rpc.open(route, this.sessionId, cwd, flags ?? {});
     this.#stillOn(hosted);
-    // Opened again, the extensions keep the tools and hooks they registered before, a `tool_call`
-    // gate included, until they are all back: one that loaded before and fails now fails the
-    // reopen. Their providers went at the exit and are registered again as at attach.
-    // At attach these are the attachment's errors. Opened again, nobody reads those, so Pi's
+    // At attach the errors are the attachment's. Opened again, nobody reads those, so Pi's
     // failures binding an extension that loaded, such as a provider registration it refused, are
     // reported as a handler's, also when another extension's failure fails the reopen below.
     if (reopening) {
       for (const error of opened.errors)
         if ("event" in error) this.#workers.report(error, conversation.id);
     }
+    // Opened again, the extensions keep the tools and hooks they registered before, a `tool_call`
+    // gate included, until they are all back: one that loaded before and fails now fails the
+    // reopen. Their providers went at the exit and are registered again as at attach.
     const loaded = new Map(opened.loaded.map((each) => [each.path, each.source]));
     for (const [module, source] of this.#loaded ?? []) {
       if (loaded.has(module)) continue;

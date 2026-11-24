@@ -161,7 +161,7 @@ export interface Compaction {
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;
 
-/** Provider fields the adapter refuses: each holds code that would have to run in the worker. */
+/** Provider fields the adapter refuses: each holds code Pi calls on the host, which stays in the worker. */
 export const unsupportedProviderFields = [
   "oauth",
   "images",

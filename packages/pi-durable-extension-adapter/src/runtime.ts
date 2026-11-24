@@ -188,7 +188,7 @@ export async function createInstance(
   );
   // Binding applies the registrations queued during loading. Pi attributes each failure to its
   // extension and keeps the extension loaded.
-  const stopListening = runner.onError((error) => errors.push(handlerError(error)));
+  const stopListening = runner.onError((error) => errors.push(toHandlerError(error)));
   runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
     registerProvider: bridge.registerProvider,
     registerNativeProvider: () => unsupported("registerNativeProvider"),
@@ -197,7 +197,7 @@ export async function createInstance(
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });
   stopListening();
-  runner.onError((error) => bridge.error(handlerError(error)));
+  runner.onError((error) => bridge.error(toHandlerError(error)));
   runner.setUIContext(undefined, "print");
   return {
     runner,
@@ -230,7 +230,7 @@ function asModelRegistry(facade: ModelRegistryFacade): ModelRegistry {
 }
 
 /** Pi's report of a failure it caught, as the host receives it. */
-function handlerError(error: PiExtensionError): HandlerError {
+function toHandlerError(error: PiExtensionError): HandlerError {
   return {
     source: error.extensionPath,
     event: error.event,
