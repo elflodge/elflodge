@@ -8,7 +8,6 @@ import {
   advance,
   focus,
   historyIndex,
-  isHidden,
   isVisible,
   readAgain,
   runClockUntil,
@@ -141,7 +140,7 @@ test("what a row cannot send is told when it is added and stops Submit before an
   await expect.element(page.getByRole("cell", { name: /^Report: Q3\.pdf \d/ })).toHaveFocus();
   // The alert tells what stands now.
   await page.getByRole("button", { name: "Remove job 1" }).click();
-  await expect.poll(() => isHidden(alert)).toBe(true);
+  await expect.element(alert).toHaveLength(0);
 });
 
 test("Submit again after a stop and after a failed upload uploads only what is missing and creates one Batch", async ({
@@ -363,11 +362,11 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   const dialog = page.getByRole("alertdialog", { name: "Remove all 2 jobs?" });
   await removeAll.click();
   await dialog.getByRole("button", { name: "Keep them" }).click();
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await removeAll.click();
   await expect.element(dialog.getByRole("button", { name: "Keep them" })).toHaveFocus();
   await userEvent.keyboard("{Enter}");
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await expect.element(page.getByLabelText("Custom ID of job 2")).toBeVisible();
   // Pressed without taking focus, as a click does not in Safari.
   await focus(page.getByLabelText("Input of job 2"));
@@ -376,7 +375,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   );
   await expect.element(dialog).toBeVisible();
   await userEvent.keyboard("{Escape}");
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await expect.element(removeAll).toHaveFocus();
   await expect.element(page.getByLabelText("Custom ID of job 2")).toBeVisible();
 
@@ -387,7 +386,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await limits.arrived;
   await removeAll.click();
   await dialog.getByRole("button", { name: "Remove 2 jobs" }).click();
-  await expect.poll(() => isHidden(page.getByLabelText("Custom ID of job 1"))).toBe(true);
+  await expect.element(page.getByLabelText("Custom ID of job 1")).toHaveLength(0);
   await expect.element(await announced(page, "All 2 jobs removed.")).toBeVisible();
   await expect.element(page.getByCSS('[data-slot="alert-dialog-content"]')).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: "Add files" })).toHaveFocus();
@@ -419,7 +418,7 @@ test("a file dropped on the Jobs group adds a job, but not while Remove all asks
   await drop();
   await expect.element(dialog).toBeVisible();
   await userEvent.keyboard("{Escape}");
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: /^Remove job / })).toHaveLength(2);
 });
 
