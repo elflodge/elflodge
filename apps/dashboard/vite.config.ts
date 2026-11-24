@@ -115,12 +115,29 @@ export default defineConfig({
               },
               async consoleMessages(context, text: string, until?: string) {
                 if (until) {
-                  const shown = context.page.waitForEvent("console", {
-                    predicate: (message) => message.type() === until,
-                  });
-                  const messages = await context.page.consoleMessages();
-                  if (messages.some((message) => message.type() === until)) shown.catch(() => {});
-                  else await shown;
+                  // Heard from before the messages are read, so one shown in between is not
+                  // missed, and only while this command runs.
+                  const shown = Promise.withResolvers<void>();
+                  const hear = (message: { type(): string }) => {
+                    if (message.type() === until) shown.resolve();
+                  };
+                  context.page.on("console", hear);
+                  // A message the page has shown reaches Playwright within moments; five seconds,
+                  // a third of a test's time, names one that never shows before the test times out.
+                  const timer = setTimeout(
+                    () =>
+                      shown.reject(
+                        new Error(`No console message of type "${until}" showed in 5 s`),
+                      ),
+                    5_000,
+                  );
+                  try {
+                    const messages = await context.page.consoleMessages();
+                    if (!messages.some((message) => message.type() === until)) await shown.promise;
+                  } finally {
+                    clearTimeout(timer);
+                    context.page.off("console", hear);
+                  }
                 }
                 return Promise.all(
                   (await context.page.consoleMessages()).map(async (message) => ({
