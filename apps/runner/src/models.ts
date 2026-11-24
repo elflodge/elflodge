@@ -25,6 +25,11 @@ export function acquireModelRuntime(
         // No model catalog from pi.dev as a runtime is made, which happens for every job: the
         // Runner's model is one of Pi's built-in ones, and a request would hold up each job's start.
         allowModelNetwork: false,
+        // No availability snapshot as a runtime is made: it reads every provider's credentials, and
+        // only `ModelRuntime`'s own snapshot readers use it (virtual-model routing, sign-in status),
+        // which the Runner, pi-durable and the adapter do not call; they ask for auth and available
+        // models directly, which reads them fresh. Pi's own `auth-check` makes its runtime so too.
+        refreshOnCreate: false,
       }),
     ),
     (models) => Effect.promise(() => models.settleCredentialWrites()),
