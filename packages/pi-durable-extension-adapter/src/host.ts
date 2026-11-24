@@ -77,6 +77,7 @@ import { Guard } from "typebox/guard";
 import { Value } from "typebox/value";
 
 import type { PreparedExtensions } from "./prepare.ts";
+import { serializedFailure } from "./protocol.ts";
 import type {
   Action,
   AgentStartTrigger,
@@ -87,6 +88,7 @@ import type {
   JournalMessage,
   Opened,
   ReadReply,
+  ReadRequest,
   Reads,
   Registrations,
   ToolDescriptor,
@@ -94,6 +96,7 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
+import { ConversationProviders, ProviderRequests } from "./providers.ts";
 
 /** How `startExtensionHost` runs extensions. */
 export interface ExtensionHostOptions {
@@ -112,7 +115,9 @@ export interface ExtensionHostOptions {
   readonly idleTimeout?: number;
   /**
    * Called when an extension's handler fails after it loaded, which Pi catches so the conversation
-   * goes on. Default: written to standard error, as Pi's print mode writes it.
+   * goes on, and when a registration fails as its extensions open again after a worker exit, when
+   * nobody reads the attachment's errors. Default: written to standard error, as Pi's print mode
+   * writes it.
    */
   readonly onError?: (error: HandlerError, conversation: ConversationId) => void;
   /**
@@ -189,7 +194,8 @@ export interface InputOptions {
 export interface AttachedExtensions {
   /**
    * Extensions that failed to load for this conversation, with the reason; the rest run. A flag
-   * value that no extension registered, source `flags`, or of the wrong type is reported here too.
+   * value that no extension registered, source `flags`, or of the wrong type is reported here too,
+   * as is a provider registration the adapter refused, whose extension otherwise runs.
    */
   readonly errors: readonly ExtensionError[];
   /**
@@ -271,12 +277,30 @@ const workerModule = fileURLToPath(
 );
 
 interface HostedWorker {
+  readonly requests: ProviderRequests;
   readonly worker: Worker;
   readonly rpc: BirpcReturn<WorkerFunctions, HostFunctions>;
   readonly conversations: Map<string, AttachedConversation>;
   idle: ReturnType<typeof setTimeout> | undefined;
   /** Keeps the process alive, or lets it exit, for the worker and its channels. */
   hold(held: boolean): void;
+}
+
+/**
+ * Calls one of the app's callbacks. What it throws or rejects with is logged, after `context`, and
+ * fails nothing else: the host runs every other conversation. It is logged as thrown, since
+ * ensure-error assigns to an error's cause, which throws on a frozen one.
+ */
+function callApp(callback: () => unknown, context?: string) {
+  const failed = (failure: unknown) => {
+    if (context !== undefined) console.error(context);
+    console.error(failure);
+  };
+  try {
+    void Promise.resolve(callback()).catch(failed);
+  } catch (failure) {
+    failed(failure);
+  }
 }
 
 /**
@@ -297,6 +321,17 @@ class Workers {
 
   constructor(options: ExtensionHostOptions) {
     this.#options = options;
+  }
+
+  /**
+   * Reports a failure Pi caught so the conversation goes on: a handler's, or a registration's as
+   * extensions open again. An `onError` that throws or rejects fails neither.
+   */
+  report(error: HandlerError, conversation: ConversationId) {
+    const { onError } = this.#options;
+    const message = `Extension error (${error.source}): ${error.message}`;
+    if (onError) callApp(() => onError(error, conversation), message);
+    else console.error(message);
   }
 
   acquire(key: string, conversation: AttachedConversation): HostedWorker {
@@ -366,6 +401,7 @@ class Workers {
             () => false,
           ));
         if (!reopened && !each.closing) {
+          each.providers.close(error);
           if (this.#closed) void each.close();
           else this.#orphans.add(each);
         }
@@ -375,11 +411,7 @@ class Workers {
     for (const { conversation, reopened } of results) {
       if (reopened) continue;
       // One attacher's failing report must not keep the others from theirs.
-      try {
-        conversation.reportLost(error);
-      } catch (failed) {
-        console.error(ensureError(failed));
-      }
+      callApp(() => conversation.reportLost(error));
     }
     const exit: WorkerExit = {
       reopened: results
@@ -389,7 +421,8 @@ class Workers {
         .filter((each) => !each.reopened)
         .map((each) => each.conversation.conversationId),
     };
-    if (this.#options.onWorkerExit) this.#options.onWorkerExit(error, exit);
+    const { onWorkerExit } = this.#options;
+    if (onWorkerExit) callApp(() => onWorkerExit(error, exit));
     else {
       console.error(
         `${error.message}; extensions opened again for ${exit.reopened.length} conversations, lost for ${exit.lost.length}`,
@@ -417,7 +450,9 @@ class Workers {
       if (!found) throw new Error(`No conversation ${key} on this worker`);
       return found;
     };
+    const requests = new ProviderRequests();
     const functions: HostFunctions = {
+      ...requests.callbacks,
       setModel: (key, model) => attached(key).setModel(model),
       exec: (key, id, command, args, options) => attached(key).exec(id, command, args, options),
       cancelExec: (key, id) => conversations.get(key)?.cancelExec(id),
@@ -428,9 +463,7 @@ class Workers {
       changed: (key) => conversations.get(key)?.reloadRegistrations(),
       error: (key, error) => {
         const found = conversations.get(key);
-        if (!found) return;
-        if (this.#options.onError) this.#options.onError(error, found.conversationId);
-        else console.error(`Extension error (${error.source}): ${error.message}`);
+        if (found) this.report(error, found.conversationId);
       },
     };
     const port = rpc.port1;
@@ -441,19 +474,34 @@ class Workers {
       // pending.
       timeout: -1,
       // A notice that needs no answer, so none is left waiting when the worker exits.
-      eventNames: ["cancelTool"],
+      eventNames: ["cancelTool", "cancelProvider"],
+      // A reply that cannot be posted, such as an app hook's result that cannot be copied, goes to
+      // the worker's call as the error instead of ending the process. Other failures, which name
+      // no function, still reach this side's caller.
+      onGeneralError: (_error, functionName) => functionName !== undefined,
+      // A failure goes to the worker as it can be sent.
+      resolver: (_name, fn: ((...args: unknown[]) => unknown) | undefined) =>
+        fn &&
+        async function (this: unknown, ...args: unknown[]) {
+          try {
+            return await fn.apply(this, args);
+          } catch (error) {
+            throw serializedFailure(error);
+          }
+        },
     });
     const reads = new SyncMessagePort(journal.port1);
     const reply = (value: ReadReply) => {
+      const sent: ReadReply =
+        value.type === "error" ? { type: "error", error: serializedFailure(value.error) } : value;
       try {
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-        reads.postMessage(value);
+        reads.postMessage(sent);
       } catch (error) {
-        // A value, or an error's `cause`, that cannot be cloned: the worker waits for an answer all
-        // the same, so it gets the message alone, which can.
-        const message = ensureError("error" in value ? value.error : error).message;
+        // A value that cannot be cloned: the worker waits for an answer all the same, so it gets
+        // why the value could not be sent.
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-        reads.postMessage({ error: new Error(message) } satisfies ReadReply);
+        reads.postMessage({ type: "error", error: serializedFailure(error) } satisfies ReadReply);
       }
     };
     reads.on("message", (message: JournalMessage) => {
@@ -468,15 +516,27 @@ class Workers {
         return;
       }
       if (!found) {
-        reply({ error: new Error(`No conversation ${message.key} on this worker`) });
+        reply({ type: "error", error: new Error(`No conversation ${message.key} on this worker`) });
         return;
       }
-      found.read(message.method, message.args).then(
-        (value) => reply({ value }),
-        (error: unknown) => reply({ error: ensureError(error) }),
+      if (message.type !== "read") {
+        try {
+          if (message.type === "registerProvider")
+            found.providers.register(message.name, message.config, message.customStream);
+          else found.providers.unregister(message.name);
+          reply({ type: "value", value: undefined });
+        } catch (error) {
+          reply({ type: "error", error });
+        }
+        return;
+      }
+      found.read(message).then(
+        (value) => reply({ type: "value", value }),
+        (error: unknown) => reply({ type: "error", error }),
       );
     });
     const hosted: HostedWorker = {
+      requests,
       worker,
       rpc: client,
       conversations,
@@ -509,13 +569,13 @@ class Workers {
         { cause: failure },
       );
       client.$close(error);
-      for (const each of hosting) each.lost();
+      for (const each of hosting) each.lost(error);
       if (this.#closed) return;
       // A report the host cannot deliver, such as an `onWorkerExit` that throws, must not end the
       // process, which runs every other conversation.
-      this.#recover(error, hosting, loading).catch((failed: unknown) => {
-        console.error(ensureError(failed));
-      });
+      this.#recover(error, hosting, loading).catch((failed: unknown) =>
+        console.error(ensureError(failed)),
+      );
     });
     this.#workers.add(hosted);
     return hosted;
@@ -530,16 +590,25 @@ async function attachConversation(
 ): Promise<AttachedExtensions> {
   const { harness, conversation } = options;
   const provider = await harness.snapshot(ProviderDoc, conversation.id, context);
-  // A conversation gets its provider session ID when it is created; one from before that gets
-  // it at its first request, so it uses its own ID until then.
-  const sessionId = provider?.sessionId ?? `${conversation.id}`;
+  // A conversation from before pi-durable gave each one a provider session ID gets its ID at its
+  // first request (`ensureProviderSessionId`, which pi-durable does not export). The same commit
+  // here gives its extensions that ID from the start, whichever models the app passes, so it stays
+  // the same after a restart, and their providers' requests, which carry it, reach them.
+  const sessionId =
+    provider?.sessionId ??
+    (await conversation.commit(
+      async (tx) => (await tx.doc(ProviderDoc, conversation.id)).sessionId,
+      context,
+    ));
   const attached = new AttachedConversation(sessionId, options, installation, workers);
   installation.add(attached);
   try {
     await selectExtension(options, installation.conversations(), context);
     const opened = await attached.open(context);
     return {
-      errors: opened.errors,
+      // As `ExtensionError`s, the attachment's type: a binding failure's event and stack serve
+      // only its report at a reopening.
+      errors: opened.errors.map(({ source, message }) => ({ source, message })),
       input: (text, given) => attached.input(text, given),
       close: () => attached.close(),
     };
@@ -807,6 +876,8 @@ class AttachedConversation {
    * such as one still shutting down after the time limit, never reaches a later one.
    */
   #route = "";
+  /** What the extensions registered as model providers. */
+  readonly providers: ConversationProviders;
   readonly models: Models;
   readonly #options: AttachOptions;
   #hosted: HostedWorker | undefined;
@@ -855,6 +926,12 @@ class AttachedConversation {
     this.#options = options;
     this.#installation = installation;
     this.#workers = workers;
+    this.providers = new ConversationProviders(
+      options.models,
+      sessionId,
+      options.harness,
+      options.conversation.id,
+    );
   }
 
   /** Whether the extensions are loading on a worker. */
@@ -889,6 +966,7 @@ class AttachedConversation {
     const hosted = this.#workers.acquire(route, this);
     this.#route = route;
     this.#hosted = hosted;
+    this.providers.bind({ rpc: hosted.rpc, requests: hosted.requests, route });
     this.#release = () => this.#workers.release(hosted, route, this);
     this.#opening = true;
     // Its own awaits stop at the limit too.
@@ -916,8 +994,16 @@ class AttachedConversation {
     const reopening = this.#loaded !== undefined;
     const opened = await hosted.rpc.open(route, this.sessionId, cwd, flags ?? {});
     this.#stillOn(hosted);
-    // Opened again, the extensions keep what they registered before, a `tool_call` gate included,
-    // until they are all back: one that loaded before and fails now fails the reopen.
+    // At attach the errors are the attachment's. Opened again, nobody reads those, so Pi's
+    // failures binding an extension that loaded, such as a provider registration it refused, are
+    // reported as a handler's, also when another extension's failure fails the reopen below.
+    if (reopening) {
+      for (const error of opened.errors)
+        if ("event" in error) this.#workers.report(error, conversation.id);
+    }
+    // Opened again, the extensions keep the tools and hooks they registered before, a `tool_call`
+    // gate included, until they are all back: one that loaded before and fails now fails the
+    // reopen. Their providers went at the exit and are registered again as at attach.
     const loaded = new Map(opened.loaded.map((each) => [each.path, each.source]));
     for (const [module, source] of this.#loaded ?? []) {
       if (loaded.has(module)) continue;
@@ -952,7 +1038,7 @@ class AttachedConversation {
       // lost as on an exit.
       void this.#hosted?.rpc.close(this.#route).catch(() => {});
       this.#release?.();
-      this.lost();
+      this.lost(ensureError(error));
       throw error;
     }
   }
@@ -1524,58 +1610,65 @@ class AttachedConversation {
     }
   }
 
-  /** Answers a worker's synchronous read, after the writes sent before it. */
-  async read(method: keyof Reads, args: readonly unknown[]): Promise<unknown> {
+  static readonly #reads: {
+    [M in keyof Reads]: (
+      session: AttachedConversation,
+      ...args: Parameters<Reads[M]>
+    ) => ReturnType<Reads[M]> | Promise<ReturnType<Reads[M]>>;
+  } = {
+    flush: () => null,
+    async getBranch(session, fromId) {
+      const entries = await session.#entries();
+      const end = fromId === undefined ? -1 : entries.findIndex((entry) => entry.id === fromId);
+      return end === -1 ? entries : entries.slice(0, end + 1);
+    },
+    getEntries: (session) => session.#entries(),
+    getEntry: async (session, id) => (await session.#entries()).find((entry) => entry.id === id),
+    getLeafId: async (session) => (await session.#entries()).at(-1)?.id ?? null,
+    getModel: (session) => session.#model(),
+    getContextUsage: (session) => session.#contextUsage(),
+    getThinkingLevel: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).thinkingLevel,
+    isIdle: async (session) =>
+      (
+        await session.#options.harness.snapshot(
+          LiveDoc,
+          session.conversation.id,
+          BACKGROUND_CONTEXT,
+        )
+      )?.run === undefined,
+    getActiveTools: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).tools.map((tool) => tool.name),
+    getAllTools: async (session) =>
+      (await session.conversation.agent(BACKGROUND_CONTEXT)).tools.map((tool): ToolInfo => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        exposure: "direct",
+        sourceInfo: {
+          path: "<pi-durable>",
+          source: "pi-durable",
+          scope: "temporary",
+          origin: "top-level",
+        },
+      })),
+    getProvider: (session, name) => session.providers.get(name),
+    async getModels(session) {
+      const available = await session.models.getAvailable().then(
+        (list) => list.map((each) => `${each.provider}/${each.id}`),
+        () => [],
+      );
+      return { models: [...session.models.getModels()], available };
+    },
+  };
+
+  /** Answers a worker's synchronous read after all preceding writes. */
+  async read<M extends keyof Reads>({
+    method,
+    args,
+  }: ReadRequest<M>): Promise<ReturnType<Reads[M]>> {
     await this.#writes;
-    const { conversation, harness } = this.#options;
-    const context = BACKGROUND_CONTEXT;
-    switch (method) {
-      case "flush":
-        return null;
-      case "getBranch": {
-        const entries = await this.#entries();
-        const end = typeof args[0] === "string" ? entries.findIndex((e) => e.id === args[0]) : -1;
-        return end === -1 ? entries : entries.slice(0, end + 1);
-      }
-      case "getEntries":
-        return this.#entries();
-      case "getEntry":
-        return (await this.#entries()).find((entry) => entry.id === args[0]);
-      case "getLeafId":
-        return (await this.#entries()).at(-1)?.id ?? null;
-      case "getModel":
-        return this.#model();
-      case "getContextUsage":
-        return this.#contextUsage();
-      case "getThinkingLevel":
-        return (await conversation.agent(context)).thinkingLevel;
-      case "isIdle":
-        return (await harness.snapshot(LiveDoc, conversation.id, context))?.run === undefined;
-      case "getActiveTools":
-        return (await conversation.agent(context)).tools.map((tool) => tool.name);
-      case "getAllTools":
-        return (await conversation.agent(context)).tools.map((tool): ToolInfo => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-          exposure: "direct",
-          sourceInfo: {
-            path: "<pi-durable>",
-            source: "pi-durable",
-            scope: "temporary",
-            origin: "top-level",
-          },
-        }));
-      case "getModels": {
-        const available = await this.models.getAvailable().then(
-          (list) => list.map((each) => `${each.provider}/${each.id}`),
-          () => [],
-        );
-        return { models: [...this.models.getModels()], available };
-      }
-    }
-    const unknown: never = method;
-    throw new Error(`Unknown read ${String(unknown)}`);
+    return AttachedConversation.#reads[method](this, ...args);
   }
 
   /** The conversation's model, from the `models` given to `attach`. */
@@ -1695,9 +1788,11 @@ class AttachedConversation {
 
   /**
    * The worker exited: until the extensions are opened again, their tools fail, their hooks do
-   * nothing, and a `tool_call` gate blocks.
+   * nothing, and a `tool_call` gate blocks. Their providers go now, as at close, and the reopened
+   * extensions register theirs again.
    */
-  lost() {
+  lost(error: Error) {
+    this.providers.withdraw(error);
     this.#hosted = undefined;
     // Its end can no longer reach them, so `close` waits no longer.
     this.#runEnd?.delivered.resolve();
@@ -1706,9 +1801,12 @@ class AttachedConversation {
     this.#execs.clear();
   }
 
-  /** Tells the attacher that its extensions are gone for good, as `#recover` found. */
-  reportLost(error: Error) {
-    this.#options.onLost?.(error);
+  /**
+   * Tells the attacher that its extensions are gone for good, as `#recover` found. Returns what
+   * `onLost` returns, so a rejection of an async one is caught too.
+   */
+  reportLost(error: Error): unknown {
+    return this.#options.onLost?.(error);
   }
 
   close(): Promise<void> {
@@ -1745,6 +1843,9 @@ class AttachedConversation {
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(this.#ready, limited).catch(() => {});
     this.#installation.remove(this);
+    // Its provider queries end by their IDs first, so a `session_shutdown` handler that hangs
+    // cannot keep them open; their registrations go with them.
+    this.providers.close();
     const hosted = this.#hosted;
     if (hosted) {
       // What `session_shutdown` handlers write is kept, as the worker waits for it before it

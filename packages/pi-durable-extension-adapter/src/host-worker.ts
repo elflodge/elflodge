@@ -4,23 +4,29 @@ import { workerData as startData } from "node:worker_threads";
 
 import type {
   ExecOptions,
+  ProviderConfig,
   SessionBeforeCompactEvent,
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
 import ensureError from "ensure-error";
+import { deserializeError } from "serialize-error";
 import { SyncMessagePort } from "sync-message-port";
+import { Value } from "typebox/value";
 
-import type {
-  Action,
-  ExtensionError,
-  HostFunctions,
-  JournalMessage,
-  Reads,
-  Registrations,
-  ToolResult,
-  WorkerData,
-  WorkerFunctions,
+import {
+  unsupportedProviderFields,
+  type Action,
+  type ExtensionError,
+  type HostFunctions,
+  type JournalMessage,
+  ReadReply,
+  type ReadRequest,
+  type Reads,
+  type Registrations,
+  type ToolResult,
+  type WorkerData,
+  type WorkerFunctions,
 } from "./protocol.ts";
 import type {
   Instance,
@@ -52,6 +58,9 @@ for (const { source, path } of workerData.extensions) {
 interface Opened extends Instance {
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
+  readonly providerStreams: Map<string, NonNullable<ProviderConfig["streamSimple"]>>;
+  /** Model requests the host can still cancel, by the host's request ID. */
+  readonly providerRequests: Map<number, AbortController>;
   readonly running: Map<string, AbortController>;
   /** Calls whose `tool_execution_start` was emitted, with the arguments it gave. */
   readonly started: Map<string, unknown>;
@@ -86,17 +95,21 @@ function read<M extends keyof Reads>(
   method: M,
   ...args: Parameters<Reads[M]>
 ): ReturnType<Reads[M]> {
-  const message: JournalMessage = { type: "read", key, method, args };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
+  return journalRequest<M>({ type: "read", key, method, args }) as ReturnType<Reads[M]>;
+}
+
+/** Registrations and reads wait for a reply, so either succeeds or throws inside the Pi call. */
+function journalRequest<M extends keyof Reads>(
+  message: Exclude<JournalMessage, { type: "act" | "read" }> | ReadRequest<M>,
+): unknown {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   journal.postMessage(message);
   // The next message is the answer to this read (`ReadReply`).
   const reply = journal.receiveMessage();
-  if (typeof reply !== "object" || reply === null)
-    throw new Error("The host's reply is not an object");
-  if ("error" in reply) throw ensureError(reply.error);
-  const value: unknown = "value" in reply ? reply.value : undefined;
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host's answer to `method`, as above
-  return value as ReturnType<Reads[M]>;
+  if (!Value.Check(ReadReply, reply)) throw new Error("The host's reply is not a ReadReply");
+  if (reply.type === "error") throw deserializeError(reply.error);
+  return reply.value;
 }
 
 function instanceFor(key: string): Opened {
@@ -139,9 +152,39 @@ const functions: WorkerFunctions = {
       if (!life.signal.aborted) act(key, action);
     };
     const prompts = new Set<Promise<void>>();
+    const providerStreams: Opened["providerStreams"] = new Map();
     const instance = await runtime.createInstance(extensions, {
       cwd,
       flags,
+      registerProvider(name, config) {
+        life.signal.throwIfAborted();
+        // Refused before anything registers. refreshModels in particular: Pi calls it right after each
+        // registration and when the app refreshes, and the adapter does not bridge those calls to the
+        // worker, so dropping it silently would leave a provider that discovers its models with none.
+        for (const field of unsupportedProviderFields) {
+          if (config[field] !== undefined)
+            throw new Error(
+              `registerProvider: ${field} is not supported by pi-durable-extension-adapter`,
+            );
+        }
+        const { streamSimple, ...settings } = config;
+        if (streamSimple !== undefined && typeof streamSimple !== "function")
+          throw new TypeError("registerProvider: streamSimple must be a function");
+        journalRequest({
+          type: "registerProvider",
+          key,
+          name,
+          config: settings,
+          customStream: !!streamSimple,
+        });
+        // Pi merges defined fields on re-registration. A settings-only change keeps the handler.
+        if (streamSimple) providerStreams.set(name, streamSimple);
+      },
+      unregisterProvider(name) {
+        life.signal.throwIfAborted();
+        journalRequest({ type: "unregisterProvider", key, name });
+        providerStreams.delete(name);
+      },
       actions: {
         sendMessage: (...args) => send({ type: "sendMessage", args }),
         sendUserMessage: (content, options) => {
@@ -216,6 +259,8 @@ const functions: WorkerFunctions = {
     instances.set(key, {
       ...instance,
       life,
+      providerStreams,
+      providerRequests: new Map(),
       running: new Map(),
       started: new Map(),
       durations: new Map(),
@@ -228,6 +273,39 @@ const functions: WorkerFunctions = {
     };
   },
   registrations: (key) => registrations(instanceFor(key)),
+  async streamProvider(key, name, request, model, context, options) {
+    const { providerStreams, providerRequests } = instanceFor(key);
+    // Before anything that waits, so a cancel the host sends after this call finds it.
+    const controller = new AbortController();
+    providerRequests.set(request, controller);
+    let waiting = false;
+    try {
+      const streamSimple = providerStreams.get(name);
+      if (!streamSimple)
+        throw new Error(`No stream handler registered for provider ${name} in this conversation`);
+      const { onPayload, onResponse, onProviderStreamEvent, ...settings } = options;
+      const stream = streamSimple(model, context, {
+        ...settings,
+        signal: controller.signal,
+        ...(onPayload && {
+          onPayload: (...args) => host.providerPayload(request, ...args),
+        }),
+        ...(onResponse && {
+          onResponse: (...args) => host.providerResponse(request, ...args),
+        }),
+        ...(onProviderStreamEvent && {
+          onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
+        }),
+      });
+      for await (const event of stream) await host.providerEvent(request, event);
+      const message = await stream.result();
+      // Its provider may keep its query open for the tools' results, as pi-claude-bridge does.
+      waiting = message.stopReason === "toolUse";
+      return message;
+    } finally {
+      if (!waiting) providerRequests.delete(request);
+    }
+  },
   emit: (key, event) => runnerFor(key).emit(event),
   // In Pi's order: `tool_execution_start` with the arguments as the model sent them, before
   // `tool_call`, as a copy that `tool_call` handlers' edits leave alone; `tool_execution_end` with the result `tool_result` handlers made.
@@ -390,6 +468,16 @@ const functions: WorkerFunctions = {
   cancelTool(key, callId) {
     instances.get(key)?.running.get(callId)?.abort();
   },
+  cancelProvider(request, reason) {
+    // The host numbers requests across the worker, so one instance at most has this one.
+    for (const { providerRequests } of instances.values()) {
+      const controller = providerRequests.get(request);
+      if (!controller) continue;
+      providerRequests.delete(request);
+      controller.abort(deserializeError(reason));
+      return;
+    }
+  },
   async close(key) {
     const found = instances.get(key);
     if (!found) return;
@@ -404,6 +492,8 @@ const functions: WorkerFunctions = {
     } finally {
       instances.delete(key);
       found.life.abort();
+      for (const controller of found.providerRequests.values()) controller.abort();
+      found.providerRequests.clear();
     }
   },
 };
@@ -569,6 +659,7 @@ function modelRegistry(key: string): ModelRegistryFacade {
   const available = (model: { provider: string; id: string }) =>
     models().available.includes(`${model.provider}/${model.id}`);
   return {
+    getProvider: (name) => read(key, "getProvider", name),
     find: (provider, modelId) =>
       models().models.find((m) => m.provider === provider && m.id === modelId),
     getAll: () => models().models,
@@ -594,5 +685,14 @@ const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   // ends this worker, and its calls with it.
   timeout: -1,
   // Notices that need no answer, so none is left waiting when the worker or the host goes.
-  eventNames: ["changed", "cancelExec", "error"],
+  eventNames: ["changed", "cancelExec", "error", "providerEvent"],
+  // A call to the host fails with the Error the host sent as serialize-error's copy. A failure of
+  // this side, such as a closed channel, is an Error already, which deserializeError leaves as is.
+  onRequest: async (request, next) => {
+    try {
+      await next(request);
+    } catch (error) {
+      throw deserializeError(error);
+    }
+  },
 });

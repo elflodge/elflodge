@@ -6,14 +6,16 @@ import {
   type ExecResult,
   type Extension,
   type ExtensionActions,
+  type ExtensionRuntime,
   type ExtensionContextActions,
+  type ExtensionError as PiExtensionError,
   type ModelRegistry,
   type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import ensureError from "ensure-error";
 import { loadExtensionFromFactory } from "pi-extension-loader";
 
-import type { Flags, HandlerError } from "./protocol.ts";
+import type { ExtensionError, Flags, HandlerError, Reads } from "./protocol.ts";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
@@ -26,7 +28,7 @@ import type { Flags, HandlerError } from "./protocol.ts";
 export { convertToLlm, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
 
 /** What an instance needs from its host: the conversation's state and every action that leaves the worker. */
-export interface Bridge {
+export interface Bridge extends Pick<ExtensionRuntime, "registerProvider" | "unregisterProvider"> {
   readonly cwd: string;
   /** Values for the flags extensions register, set once they have loaded, as Pi sets its command line's. */
   readonly flags: Flags;
@@ -76,7 +78,8 @@ export type ModelRegistryFacade = Pick<
   | "getProviderAuth"
   | "getApiKeyForProvider"
   | "getError"
->;
+> &
+  Pick<Reads, "getProvider">;
 
 export interface LoadedExtension {
   /** The source it came from, for reports. */
@@ -90,8 +93,11 @@ export interface LoadedExtension {
 /** One conversation's extensions, loaded and bound. */
 export interface Instance {
   readonly runner: ExtensionRunner;
-  /** Extensions whose factory threw or exported no function, with the reason; the rest run. */
-  readonly errors: readonly { readonly source: string; readonly message: string }[];
+  /**
+   * Extensions whose factory threw or exported no function, with the reason; the rest run. Also
+   * failures Pi caught while binding an extension that loaded, with their event.
+   */
+  readonly errors: readonly (ExtensionError | HandlerError)[];
   /** The extensions that loaded. */
   readonly loaded: readonly { readonly source: string; readonly path: string }[];
   /** The events some extension subscribes to now. */
@@ -106,7 +112,7 @@ export async function createInstance(
   const runtime = createExtensionRuntime();
   const bus = createEventBus();
   const records: Extension[] = [];
-  const errors: { source: string; message: string }[] = [];
+  const errors: (ExtensionError | HandlerError)[] = [];
   const loaded: { source: string; path: string }[] = [];
   for (const { source, path, factory } of extensions) {
     if (typeof factory !== "function") {
@@ -180,27 +186,18 @@ export async function createInstance(
     asSessionManager(bridge.sessionManager),
     asModelRegistry(bridge.modelRegistry),
   );
-  // Binding flushes the providers and virtual models extensions registered while loading, which
-  // fail here as unsupported; Pi reports each as an error of its extension and keeps the extension.
-  const stopListening = runner.onError((error) =>
-    errors.push({ source: error.extensionPath, message: error.error }),
-  );
+  // Binding applies the registrations queued during loading. Pi attributes each failure to its
+  // extension and keeps the extension loaded.
+  const stopListening = runner.onError((error) => errors.push(toHandlerError(error)));
   runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
-    registerProvider: () => unsupported("registerProvider"),
+    registerProvider: bridge.registerProvider,
     registerNativeProvider: () => unsupported("registerNativeProvider"),
-    unregisterProvider: () => unsupported("unregisterProvider"),
+    unregisterProvider: bridge.unregisterProvider,
     registerVirtualModel: () => unsupported("registerVirtualModel"),
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });
   stopListening();
-  runner.onError((error) =>
-    bridge.error({
-      source: error.extensionPath,
-      event: error.event,
-      message: error.error,
-      ...(error.stack !== undefined && { stack: error.stack }),
-    }),
-  );
+  runner.onError((error) => bridge.error(toHandlerError(error)));
   runner.setUIContext(undefined, "print");
   return {
     runner,
@@ -230,4 +227,14 @@ function asSessionManager(facade: ReadonlySessionManager): SessionManager {
 function asModelRegistry(facade: ModelRegistryFacade): ModelRegistry {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the runner only hands it out, as above
   return facade as ModelRegistry;
+}
+
+/** Pi's report of a failure it caught, as the host receives it. */
+function toHandlerError(error: PiExtensionError): HandlerError {
+  return {
+    source: error.extensionPath,
+    event: error.event,
+    message: error.error,
+    ...(error.stack !== undefined && { stack: error.stack }),
+  };
 }

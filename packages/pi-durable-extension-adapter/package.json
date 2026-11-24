@@ -51,6 +51,7 @@
     "ensure-error": "catalog:",
     "is-path-inside": "catalog:",
     "rolldown": "catalog:",
+    "serialize-error": "catalog:",
     "sync-message-port": "catalog:",
     "typebox": "catalog:"
   },

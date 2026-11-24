@@ -1,6 +1,15 @@
 import type { MessagePort } from "node:worker_threads";
 
-import type { Api, Message, Model } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  AssistantMessageEvent,
+  Message,
+  Model,
+  Provider,
+  SimpleStreamOptions,
+  TranscriptContext,
+} from "@earendil-works/pi-ai";
 import type {
   ContextUsage,
   ExecOptions,
@@ -9,11 +18,15 @@ import type {
   ExtensionRunner,
   MessageEndEvent,
   ModelRegistry,
+  ProviderConfig,
   SessionEntry,
   ToolInfo,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { CompactionHooks } from "@earendil-works/pi-durable";
+import ensureError from "ensure-error";
+import { serializeError } from "serialize-error";
+import Type, { type Static } from "typebox";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
 // worker behind names, and the host keeps the pi-durable APIs the worker's calls act on.
@@ -42,7 +55,11 @@ export interface Registrations {
 }
 
 export interface Opened extends Registrations {
-  readonly errors: readonly ExtensionError[];
+  /**
+   * Extensions that failed to load, and failures Pi caught while binding one that loaded, such as
+   * a `registerProvider` it refused, which carry their event.
+   */
+  readonly errors: readonly (ExtensionError | HandlerError)[];
   /**
    * The extensions that loaded, by their module in the bundle, which is unique where a package's
    * source can hold several. Errors cannot tell this: an extension that loaded can report one too,
@@ -147,13 +164,55 @@ export interface Compaction {
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;
 
+/** Provider fields the adapter refuses: Pi calls their code on the host, but it lives in the worker. */
+export const unsupportedProviderFields = [
+  "oauth",
+  "images",
+  "classifiers",
+  "refreshModels",
+] as const;
+
+/** Pi composes these provider settings on the host. Executable implementations stay in the worker. */
+export type ProviderSettings = Omit<
+  ProviderConfig,
+  "streamSimple" | (typeof unsupportedProviderFields)[number]
+>;
+
+type StreamHook = "onPayload" | "onResponse" | "onProviderStreamEvent";
+
+/**
+ * The host serves each requested hook over the same RPC channel, and cancels the request by its ID
+ * (`cancelProvider`).
+ */
+export type WorkerStreamOptions = Omit<
+  SimpleStreamOptions,
+  StreamHook | "fetch" | "telemetry" | "signal"
+> &
+  Partial<Record<StreamHook, boolean>>;
+
 /** What the worker serves to the host. */
 export interface WorkerFunctions extends DispatchFunctions {
   /** `key` names this instance in later calls; `sessionId` is what `ctx.sessionManager` gives. */
   open(key: string, sessionId: string, cwd: string, flags: Flags): Promise<Opened>;
   registrations(key: string): Registrations;
+  /**
+   * Streams a model request through the instance's provider. `request` is unique on the worker
+   * and names it in the host's reverse calls and in `cancelProvider`. A request that asked for tools
+   * stays cancellable after it returns, while its provider may wait for their results, until the
+   * host cancels it or the instance closes.
+   */
+  streamProvider(
+    key: string,
+    name: string,
+    request: number,
+    model: Model<Api>,
+    context: TranscriptContext,
+    options: WorkerStreamOptions,
+  ): Promise<AssistantMessage>;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;
+  /** Aborts the signal a model request's provider was given; a request already done is ignored. */
+  cancelProvider(request: number, reason: unknown): void;
   close(key: string): Promise<void>;
 }
 
@@ -187,8 +246,25 @@ export type Action =
 
 /** What the host serves to a worker, asynchronously. */
 export interface HostFunctions {
+  providerEvent(request: number, event: AssistantMessageEvent): void;
+  providerPayload(
+    request: number,
+    ...args: Parameters<NonNullable<SimpleStreamOptions["onPayload"]>>
+  ): Promise<unknown>;
+  providerResponse(
+    request: number,
+    ...args: Parameters<NonNullable<SimpleStreamOptions["onResponse"]>>
+  ): Promise<void>;
+  providerStreamEvent(
+    request: number,
+    ...args: Parameters<NonNullable<SimpleStreamOptions["onProviderStreamEvent"]>>
+  ): Promise<void>;
   setModel(key: string, model: Model<Api>): Promise<boolean>;
-  /** `pi.exec`; `id` names the command for `cancelExec`, as an `AbortSignal` cannot cross. */
+  /**
+   * `pi.exec`; `id` names the command for `cancelExec`. An `AbortSignal` stays in its thread, so
+   * either side cancels what it asked the other for by its ID, as with `cancelTool` and
+   * `cancelProvider`.
+   */
   exec(
     key: string,
     id: number,
@@ -226,24 +302,37 @@ export interface Reads {
   isIdle(): boolean;
   getActiveTools(): string[];
   getAllTools(): ToolInfo[];
+  /** Public metadata for a provider. Credentials are read through the registry’s auth methods. */
+  getProvider(name: string): Pick<Provider, "id" | "name" | "baseUrl"> | undefined;
   /** The models of the host's catalog, and which of them have credentials, as `provider/id`. */
   getModels(): { models: Model<Api>[]; available: string[] };
   /** Nothing, once the writes sent before it are done. */
   flush(): null;
 }
 
+export type ReadRequest<M extends keyof Reads = keyof Reads> = {
+  readonly type: "read";
+  readonly key: string;
+  readonly method: M;
+  readonly args: Parameters<Reads[M]>;
+};
+
 /**
- * What a worker sends on its journal channel, in order: actions that write to the conversation and
- * reads that wait for an answer, so a read sees every write an extension made before it.
+ * What a worker sends on its journal channel, in order: actions that write to the conversation,
+ * provider registrations, and reads; registrations and reads wait for an answer. So a read sees every
+ * write an extension made before it, and a registration's failure reaches the extension's call.
  */
 export type JournalMessage =
-  | { readonly type: "act"; readonly key: string; readonly action: Action }
   | {
-      readonly type: "read";
+      readonly type: "registerProvider";
       readonly key: string;
-      readonly method: keyof Reads;
-      readonly args: readonly unknown[];
-    };
+      readonly name: string;
+      readonly config: ProviderSettings;
+      readonly customStream: boolean;
+    }
+  | { readonly type: "unregisterProvider"; readonly key: string; readonly name: string }
+  | { readonly type: "act"; readonly key: string; readonly action: Action }
+  | { [M in keyof Reads]: ReadRequest<M> }[keyof Reads];
 
 /**
  * The host's answer to a read. A worker waits on each read before it sends anything else, and
@@ -252,7 +341,11 @@ export type JournalMessage =
  * time limit on the wait, or other messages from the host here, would need IDs: a late answer, or
  * another message, would be taken for the next read's answer.
  */
-export type ReadReply = { readonly value: unknown } | { readonly error: Error };
+export const ReadReply = Type.Union([
+  Type.Object({ type: Type.Literal("value"), value: Type.Unknown() }),
+  Type.Object({ type: Type.Literal("error"), error: Type.Unknown() }),
+]);
+export type ReadReply = Static<typeof ReadReply>;
 
 export interface WorkerData {
   /** The bundle's runtime module and extension modules, in load order. */
@@ -262,4 +355,24 @@ export interface WorkerData {
   readonly journal: MessagePort;
   /** The channel end for everything else. */
   readonly rpc: MessagePort;
+}
+
+/**
+ * A failure as it can cross to the other thread, where `deserializeError` makes it an Error again:
+ * serialize-error's copy, which keeps an error's own fields, such as `code`, and makes a value that
+ * is not an error one, since birpc sends a falsy rejection as a success. When even that copy holds
+ * what cannot be copied, or an error's own `toJSON` made it falsy, an error with its message, since
+ * birpc answers nothing when its error reply cannot be posted.
+ */
+export function serializedFailure(failure: unknown): unknown {
+  try {
+    // The clone is what gets sent, so a getter cannot give the worker another value than checked.
+    const copy: unknown = structuredClone(serializeError(failure));
+    if (copy) return copy;
+  } catch {
+    // A symbol or another value that cannot be copied, or the value's own `toJSON` threw.
+  }
+  // ensure-error only for a value that is not an Error: it assigns to an Error's cause.
+  const message = failure instanceof Error ? failure.message : ensureError(failure).message;
+  return serializeError(new Error(message));
 }
