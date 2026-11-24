@@ -196,7 +196,7 @@ export const test = base
           responseWaiters.delete(waiter);
           waiter.resolve(response.clone());
         }
-        return arrivingUntil(ended.signal, signal, response);
+        return arrivingUntil(ended.signal, response);
       });
       // The stand-in serves none.
       pageWebSocket.mockImplementation(function (url) {
@@ -256,21 +256,15 @@ function never() {
 /**
  * `response`, whose body stops arriving once `ended` aborts: the page reads it as it asks for it, so
  * what an ended test's page had yet to read never arrives, and nothing that waits for it goes on,
- * even should the body fail. Until then, the request's `signal` aborting fails what is left of the
- * body with its reason, as the browser fails it.
+ * even should the body fail. The page aborting the request before then does not fail the body, as
+ * the browser fails it with the abort's reason: `text()` and `json()` of a `Response` built in the
+ * page fail with a `TypeError` instead, as for a network failure, which the page handles otherwise.
  */
-function arrivingUntil(ended: AbortSignal, signal: AbortSignal, response: Response) {
+function arrivingUntil(ended: AbortSignal, response: Response) {
   if (!response.body) return response;
   const reader = response.body.getReader();
   const body = new ReadableStream<Uint8Array>(
     {
-      start(controller) {
-        signal.addEventListener("abort", () => {
-          if (ended.aborted) return;
-          controller.error(signal.reason);
-          void reader.cancel(signal.reason);
-        });
-      },
       async pull(controller) {
         if (ended.aborted) await never();
         let read: ReadableStreamReadResult<Uint8Array>;
