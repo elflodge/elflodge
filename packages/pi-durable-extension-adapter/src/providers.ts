@@ -29,7 +29,7 @@ import type { BirpcReturn } from "birpc";
 import ensureError from "ensure-error";
 
 import {
-  sendable,
+  serializedFailure,
   type HostFunctions,
   type ProviderSettings,
   type WorkerFunctions,
@@ -359,7 +359,9 @@ export class ConversationProviders {
     // The worker's IDs are its own, so a cancel goes only to the worker that has the request.
     const cancel = (reason?: unknown) => {
       if (this.#worker !== worker) return;
-      void worker.rpc.cancelProvider(id, sendable(reason)).catch(() => {});
+      // A cancel without a reason, such as a parked query's, aborts as the platform does by default.
+      const sent = serializedFailure(reason ?? AbortSignal.abort().reason);
+      void worker.rpc.cancelProvider(id, sent).catch(() => {});
     };
     const aborted = () => cancel(signal?.reason);
     const closed = () => cancel(live.reason);

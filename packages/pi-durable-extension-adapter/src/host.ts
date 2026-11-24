@@ -77,7 +77,7 @@ import { Guard } from "typebox/guard";
 import { Value } from "typebox/value";
 
 import type { PreparedExtensions } from "./prepare.ts";
-import { sendable } from "./protocol.ts";
+import { serializedFailure } from "./protocol.ts";
 import type {
   Action,
   AgentStartTrigger,
@@ -486,14 +486,14 @@ class Workers {
           try {
             return await fn.apply(this, args);
           } catch (error) {
-            throw sendable(error);
+            throw serializedFailure(error);
           }
         },
     });
     const reads = new SyncMessagePort(journal.port1);
     const reply = (value: ReadReply) => {
       const sent: ReadReply =
-        value.type === "error" ? { type: "error", error: sendable(value.error) } : value;
+        value.type === "error" ? { type: "error", error: serializedFailure(value.error) } : value;
       try {
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
         reads.postMessage(sent);
@@ -501,7 +501,7 @@ class Workers {
         // A value that cannot be cloned: the worker waits for an answer all the same, so it gets
         // why the value could not be sent.
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-        reads.postMessage({ type: "error", error: sendable(error) } satisfies ReadReply);
+        reads.postMessage({ type: "error", error: serializedFailure(error) } satisfies ReadReply);
       }
     };
     reads.on("message", (message: JournalMessage) => {

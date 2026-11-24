@@ -361,18 +361,18 @@ export interface WorkerData {
  * A failure as it can cross to the other thread, where `deserializeError` makes it an Error again:
  * serialize-error's copy, which keeps an error's own fields, such as `code`, and makes a value that
  * is not an error one, since birpc sends a falsy rejection as a success. When even that copy holds
- * what cannot be copied, an error with its message, since birpc answers nothing when its error
- * reply cannot be posted.
+ * what cannot be copied, or an error's own `toJSON` made it falsy, an error with its message, since
+ * birpc answers nothing when its error reply cannot be posted.
  */
-export function sendable(failure: unknown): unknown {
+export function serializedFailure(failure: unknown): unknown {
   try {
-    const copy = serializeError(failure);
-    structuredClone(copy);
-    return copy;
+    // The clone is what gets sent, so a getter cannot give the worker another value than checked.
+    const copy: unknown = structuredClone(serializeError(failure));
+    if (copy) return copy;
   } catch {
     // A symbol or another value that cannot be copied, or the value's own `toJSON` threw.
-    // ensure-error only for a value that is not an Error: it assigns to an Error's cause.
-    const message = failure instanceof Error ? failure.message : ensureError(failure).message;
-    return serializeError(new Error(message));
   }
+  // ensure-error only for a value that is not an Error: it assigns to an Error's cause.
+  const message = failure instanceof Error ? failure.message : ensureError(failure).message;
+  return serializeError(new Error(message));
 }
