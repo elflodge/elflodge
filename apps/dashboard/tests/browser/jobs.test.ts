@@ -71,7 +71,7 @@ test("filters held in the address go with the list's read and survive a reload, 
   await expect.poll(() => location.search).toMatch(/status=/);
   const filters = page.getByRole("button", { name: "Filters (2 applied)", exact: true });
   await expect.element(filters).toHaveFocus();
-  await expectFocusPastRunnersRead(hub, filters);
+  await expectFocusPastRunnersRead(hub, page, filters);
 
   /** The list, its read and its closed panel show the filters survived submission or reload. */
   async function expectFiltered() {
@@ -105,7 +105,7 @@ test("filters held in the address go with the list's read and survive a reload, 
   read.release();
   await expect.element(apply).toBeEnabled();
   await expect.element(apply).toHaveFocus();
-  await expectFocusPastRunnersRead(hub, apply);
+  await expectFocusPastRunnersRead(hub, page, apply);
   expect(historyIndex()).toBe(entry);
 });
 
@@ -126,15 +126,21 @@ test("on a wide page, Apply keeps the focus while the new list and the Runners a
   await expect.poll(() => location.search).toMatch(/status=/);
   await expect.element(rows(page)).toHaveLength(1);
   await expect.element(apply).toHaveFocus();
-  await expectFocusPastRunnersRead(hub, apply);
+  await expectFocusPastRunnersRead(hub, page, apply);
 });
 
-/** Focus stays where Apply left it once the hub strip has read the Runners, which the form offers. */
-async function expectFocusPastRunnersRead(hub: Hub, focused: Locator) {
-  const reads = hub.runners.list.calls.length;
+/**
+ * Focus stays on the element Apply left it on once the form offers a Runner that connected since,
+ * which the hub strip reads every five seconds.
+ */
+async function expectFocusPastRunnersRead(hub: Hub, page: BrowserPage, focused: Locator) {
+  const element = focused.element();
+  hub.runners.list.answers([aRunner("host-2")]);
   await advance(5_000);
-  expect(hub.runners.list.calls.length).toBeGreaterThan(reads);
-  expect(document.activeElement).toBe(focused.element());
+  await expect
+    .element(page.getByCSS('select[name="runnerId"] option').filter({ hasText: "host-2" }))
+    .toBeInTheDocument();
+  expect(document.activeElement).toBe(element);
 }
 
 test("a link reads the exact Batch a page at a time", async ({ hub, open }) => {
