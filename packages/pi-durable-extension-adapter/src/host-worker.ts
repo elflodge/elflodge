@@ -112,11 +112,6 @@ function journalRequest<M extends keyof Reads>(
   return reply.value;
 }
 
-/** Rethrows the host's failure as the Error it was, for a provider awaiting an app's hook. */
-function rethrowReceived(error: unknown): never {
-  throw received(error);
-}
-
 function instanceFor(key: string): Opened {
   const found = instances.get(key);
   if (!found) throw new Error(`No extensions are open for conversation ${key}`);
@@ -293,14 +288,13 @@ const functions: WorkerFunctions = {
         ...settings,
         signal: controller.signal,
         ...(onPayload && {
-          onPayload: (...args) => host.providerPayload(request, ...args).catch(rethrowReceived),
+          onPayload: (...args) => host.providerPayload(request, ...args),
         }),
         ...(onResponse && {
-          onResponse: (...args) => host.providerResponse(request, ...args).catch(rethrowReceived),
+          onResponse: (...args) => host.providerResponse(request, ...args),
         }),
         ...(onProviderStreamEvent && {
-          onProviderStreamEvent: (...args) =>
-            host.providerStreamEvent(request, ...args).catch(rethrowReceived),
+          onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
         }),
       });
       for await (const event of stream) await host.providerEvent(request, event);
@@ -683,7 +677,7 @@ function modelRegistry(key: string): ModelRegistryFacade {
   };
 }
 
-const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
+const rpc = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   post: (message) => workerData.rpc.postMessage(message),
   on: (handler) => workerData.rpc.on("message", handler),
@@ -692,4 +686,16 @@ const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   timeout: -1,
   // Notices that need no answer, so none is left waiting when the worker or the host goes.
   eventNames: ["changed", "cancelExec", "error", "providerEvent"],
+});
+// The host's calls, failing with the Error the host sent: one it could not copy whole comes as
+// serialize-error's copy, rebuilt here.
+const host = new Proxy(rpc, {
+  get(target, name, receiver) {
+    const value: unknown = Reflect.get(target, name, receiver);
+    if (typeof value !== "function") return value;
+    return (...args: unknown[]) =>
+      Promise.resolve(Reflect.apply(value, target, args)).catch((error: unknown) => {
+        throw received(error);
+      });
+  },
 });

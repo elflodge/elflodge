@@ -77,7 +77,7 @@ import { Guard } from "typebox/guard";
 import { Value } from "typebox/value";
 
 import type { PreparedExtensions } from "./prepare.ts";
-import { sendable } from "./protocol.ts";
+import { sendable, sendableFailure } from "./protocol.ts";
 import type {
   Action,
   AgentStartTrigger,
@@ -479,6 +479,17 @@ class Workers {
       // the worker's call as the error instead of ending the process. Other failures, which name
       // no function, still reach this side's caller.
       onGeneralError: (_error, functionName) => functionName !== undefined,
+      // A failure goes to the worker as it can be sent, since birpc answers nothing when even the
+      // error cannot be posted, and as an Error, since it sends a falsy one as a success.
+      resolver: (_name, fn: ((...args: unknown[]) => unknown) | undefined) =>
+        fn &&
+        async function (this: unknown, ...args: unknown[]) {
+          try {
+            return await fn.apply(this, args);
+          } catch (error) {
+            throw sendableFailure(error);
+          }
+        },
     });
     const reads = new SyncMessagePort(journal.port1);
     const reply = (value: ReadReply) => {
@@ -515,13 +526,13 @@ class Workers {
           else found.providers.unregister(message.name);
           reply({ type: "value", value: undefined });
         } catch (error) {
-          reply({ type: "error", error: ensureError(error) });
+          reply({ type: "error", error });
         }
         return;
       }
       found.read(message).then(
         (value) => reply({ type: "value", value }),
-        (error: unknown) => reply({ type: "error", error: ensureError(error) }),
+        (error: unknown) => reply({ type: "error", error }),
       );
     });
     const hosted: HostedWorker = {

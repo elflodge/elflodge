@@ -77,12 +77,12 @@ export class ProviderRequests {
     "providerEvent" | "providerPayload" | "providerResponse" | "providerStreamEvent"
   > = {
     providerEvent: (id, event) => this.#pending.get(id)?.event(event),
-    providerPayload: (id, payload, model) =>
-      failingWithError(() => this.#pending.get(id)?.options.onPayload?.(payload, model)),
-    providerResponse: (id, response, model) =>
-      failingWithError(() => this.#pending.get(id)?.options.onResponse?.(response, model)),
-    providerStreamEvent: (id, data, model) =>
-      failingWithError(() => this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model)),
+    providerPayload: async (id, payload, model) =>
+      this.#pending.get(id)?.options.onPayload?.(payload, model),
+    providerResponse: async (id, response, model) =>
+      this.#pending.get(id)?.options.onResponse?.(response, model),
+    providerStreamEvent: async (id, data, model) =>
+      this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model),
   };
 
   add(request: PendingRequest) {
@@ -481,17 +481,4 @@ function unrouted(name: string, sessionId: string | undefined) {
   return new Error(
     `No attached conversation with session "${sessionId ?? ""}" has a stream registered for provider "${name}". Extensions whose worker exited register theirs again once they have opened again.`,
   );
-}
-
-/**
- * Runs an app's hook for the worker. birpc sends a rejection only when it is truthy, so one without
- * an Error, even `undefined`, becomes an Error rather than a success.
- */
-async function failingWithError<T>(hook: () => T | Promise<T>): Promise<T> {
-  try {
-    return await hook();
-  } catch (error) {
-    // An Error as it can be sent: ensure-error assigns to an error's cause, which throws when frozen.
-    throw error instanceof Error ? sendable(error) : ensureError(error);
-  }
 }

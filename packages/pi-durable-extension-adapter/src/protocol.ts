@@ -24,7 +24,8 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { CompactionHooks } from "@earendil-works/pi-durable";
-import { deserializeError, isErrorLike, serializeError } from "serialize-error";
+import ensureError from "ensure-error";
+import { deserializeError, serializeError } from "serialize-error";
 import Type, { type Static } from "typebox";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
@@ -356,20 +357,40 @@ export interface WorkerData {
   readonly rpc: MessagePort;
 }
 
-/**
- * `value` as it can cross to the other thread: as it is when it can be copied, which keeps an
- * error's type, else as serialize-error's plain copy of what can be, read without changing it.
- */
-export function sendable(value: unknown): unknown {
+// Marks serialize-error's copy, so the other side rebuilds only what was serialized.
+const serialized = "@elflodge/pi-durable-extension-adapter:serialized";
+
+function copyable(value: unknown) {
   try {
     structuredClone(value);
-    return value;
+    return true;
   } catch {
-    return serializeError(value);
+    return false;
   }
+}
+
+/**
+ * `value` as it can cross to the other thread, never changed: as it is when it can be copied,
+ * which keeps what structured cloning keeps, such as a built-in error's type; else serialize-error's
+ * copy of what can be copied; else, when even that holds what cannot, an error with its message.
+ */
+export function sendable(value: unknown): unknown {
+  if (copyable(value)) return value;
+  const copy = serializeError(value);
+  if (copyable(copy)) return { [serialized]: copy };
+  // ensure-error only for a value that is not an Error: it assigns to an Error's cause.
+  const message = value instanceof Error ? value.message : ensureError(value).message;
+  return { [serialized]: serializeError(new Error(message)) };
 }
 
 /** A value `sendable` gave, with an error it serialized made an Error again. */
 export function received(value: unknown): unknown {
-  return isErrorLike(value) && !(value instanceof Error) ? deserializeError(value) : value;
+  return typeof value === "object" && value !== null && serialized in value
+    ? deserializeError(value[serialized])
+    : value;
+}
+
+/** A failure as it can cross to the other thread: an Error, also for a thrown value that is not. */
+export function sendableFailure(error: unknown): unknown {
+  return sendable(error instanceof Error ? error : ensureError(error));
 }
