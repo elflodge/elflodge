@@ -48,6 +48,7 @@ export default defineConfig({
       {
         extends: false,
         plugins: [solid()],
+        // As for the app below: UI SDK's installation guide asks for it.
         optimizeDeps: { exclude: ["@ui-sdk/core"] },
         resolve: {
           // The app's document, which Solid cannot create in a document that exists already.

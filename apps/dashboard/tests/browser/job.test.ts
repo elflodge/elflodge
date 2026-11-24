@@ -1,5 +1,5 @@
 import { openFailureSchema, type Job } from "contract";
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { userEvent, utils } from "vite-plus/test/browser/context";
 
 import {
@@ -16,7 +16,6 @@ import {
   failedFor,
 } from "../records.ts";
 import {
-  advance,
   focus,
   innerText,
   isVisible,
@@ -63,7 +62,7 @@ test("a member opens a job's tool calls by name, and they stay open as a count g
 
   // By the page's next read, a new tool, and another call of one.
   journal.job = { ...job, toolCalls: { web_search: 2, read: 1, fetch_content: 1 } };
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect
     .poll(() => texts(table.getByRole("rowheader")))
     .toEqual(["fetch_content", "read", "web_search"]);
@@ -106,7 +105,7 @@ test("a member confirms deletion and sees when the job has gone", async ({ hub, 
     .toHaveFocus();
   // No Runner holds its files, so the page's next read of it finds none.
   hub.jobs.get.refuses("NOT_FOUND");
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(page.getByRole("heading", { name: "This job was deleted" })).toBeVisible();
   await expect
     .element(page.getByRole("main").getByRole("link", { name: "Jobs", exact: true }))
@@ -151,7 +150,7 @@ test("an open Cancel's polite explanation follows the job as it starts, changes 
   // Its Runner starts it while the member reads; the page reads it every five seconds.
   journal.job = runningJob("ended-under-cancel");
   journal.events = [aConversation(1), aStart(2)];
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect
     .element(explanation)
     .toHaveTextContent("Cancel asks test-runner to stop it. Not final: it can be resumed.");
@@ -167,7 +166,7 @@ test("an open Cancel's polite explanation follows the job as it starts, changes 
   await expect.element(confirm).toHaveFocus();
   // Another member cancels it.
   journal.job = { ...journal.job, status: "cancelled", endedAt: NOW };
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   const ended = "This job can no longer be cancelled.";
   await expect.element(explanation).toHaveTextContent(ended);
   await expect.element(confirm).toHaveFocus();
@@ -179,7 +178,7 @@ test("an open Cancel's polite explanation follows the job as it starts, changes 
   // Two more reads of the job, which change nothing it says.
   for (const read of [1, 2]) {
     const reads = hub.jobs.events.calls.length;
-    await advance(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await expect
       .poll(() => hub.jobs.events.calls.length, { message: `read ${read}` })
       .toBe(reads + 1);
@@ -266,7 +265,7 @@ test("a job read that answers 404 under an open Cancel leaves its not-found page
   // Nor does the page's next read of it.
   hub.jobs.get.refuses("NOT_FOUND");
   hub.jobs.events.refuses("NOT_FOUND");
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expectNothingLeft();
 
   const answered = waitForResponse((request) => request.url.endsWith(`/jobs/${job.id}/cancel`));
@@ -439,7 +438,7 @@ test("a raised budget keeps a member from resending an older amount after a refu
     modelBudgetUsd: 4,
     usage: journal.job.usage,
   });
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   const reason = dialog.getByText("Its model budget was raised, so it resumes without a new one.");
   await expect.element(reason).toBeVisible();
   sending.release();
@@ -558,7 +557,7 @@ test("following Events resumes automatically after a rate limit", async ({ hub, 
   hub.jobs.events.rateLimits();
   journal.events.push(aMessage(235));
   const refused = waitForResponse((request) => request.url.includes("/events"));
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   expect((await refused).status).toBe(429);
   serve(hub, journal);
   await runClockUntil(1_000, () => isVisible(page.getByCSS("#event-235")));
@@ -574,7 +573,7 @@ test("Latest recovers a refused forward read without dropping the Events already
   await expect.element(count).toHaveTextContent("All 25 read");
   // The page follows new Events every five seconds.
   hub.jobs.events.refuses("FORBIDDEN", { message: "Access refused." });
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect
     .element(page.getByCSS(".tl").getByRole("alert"))
     .toMatchTextContent("Access refused.");
@@ -656,7 +655,7 @@ test("a member reading earlier Events can jump to new ones, and sees the Output 
   (await page.getByCSS("#latest").findElement()).scrollIntoView({ block: "end" });
   // The page follows new Events every five seconds.
   journal.events.push(aMessage(255));
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(page.getByCSS("#event-255")).toBeInViewport();
   // The page counts it as read once its intersection observer reports the end of the list in view,
   // which an observer reports at the browser's next rendering, in the order they were made: one made
@@ -677,7 +676,7 @@ test("a member reading earlier Events can jump to new ones, and sees the Output 
   const jobReads = hub.jobs.get.calls.length;
 
   journal.events.push(aMessage(260), aConversation(264));
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   const notice = page.getByRole("status").filter({ hasText: "2 new Events below" });
   await expect.element(notice).toBeVisible();
   await expect.element(notice.getByCSS("time")).toHaveLength(0);
@@ -687,7 +686,7 @@ test("a member reading earlier Events can jump to new ones, and sees the Output 
 
   journal.events.push(aSuccess(267, 17));
   journal.job = succeededJob("live-events", 17);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(page.getByCSS("ol.timeline .ev-id").last()).toHaveTextContent("267");
   await expect.element(statusWord(page)).toHaveTextContent("Succeeded");
   await expect.element(output(page)).toHaveTextContent("17");
@@ -708,7 +707,7 @@ test("a member following an ended job sees another member resume it before its n
   await expect.element(statusWord(page)).toHaveTextContent("Failed");
   await expect.element(page.getByCSS(".tl-head [role=status]")).toHaveTextContent("All 4 read");
   journal.job = aJob("resumed-elsewhere", STARTED);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(statusWord(page)).toHaveTextContent("Queued");
   await expect.element(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expect.element(page.getByCSS("ol.timeline .ev-id").last()).toHaveTextContent("11");

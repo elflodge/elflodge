@@ -4,7 +4,6 @@ import { userEvent } from "vite-plus/test/browser/context";
 import { InvalidInput } from "../../../hub/src/invalid-input.ts";
 import { anApiKey } from "../records.ts";
 import {
-  advance,
   advanceTo,
   check,
   descriptionOnFocus,
@@ -186,7 +185,7 @@ test("a key listed while another's revocation is pending cannot take over its di
   const revoke = { name: /^Revoke original revocation / };
   await page.getByRole("button", revoke).click();
   // A frame passes once the dialog is open, in which it makes the page beside it inert.
-  await advance(20);
+  await vi.advanceTimersByTimeAsync(20);
   const heading = await innerText(dialog.getByRole("heading"));
   const revocation = hub.apiKeys.revoke.hold();
   await dialog.getByRole("button", revoke).click();

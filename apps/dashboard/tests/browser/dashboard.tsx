@@ -1,10 +1,10 @@
 import { runWithSignal } from "@orpc/shared";
 import { render } from "@solidjs/web";
 import { onlineManager } from "@tanstack/solid-query";
-import { createBrowserHistory, RouterProvider } from "@tanstack/solid-router";
+import { RouterProvider } from "@tanstack/solid-router";
 import { asError } from "contract";
 import { expect, test as base, vi } from "vite-plus/test";
-import { locators, page, userEvent, type Locator } from "vite-plus/test/browser/context";
+import { locators, page, server, type Locator } from "vite-plus/test/browser/context";
 
 import { DASHBOARD_BASE } from "../../../hub/src/dashboard.ts";
 import { getRouter } from "../../src/router.tsx";
@@ -42,12 +42,6 @@ export interface PageOptions {
 
 /** Mounts the dashboard at `path`, such as `"runners"`, in the test's own document. */
 export type Open = (path: string, options?: PageOptions) => Promise<typeof page>;
-
-/**
- * The browser project's viewport, which Vitest sets once for each file: `open` sets it again, as a
- * test may have narrowed it.
- */
-const VIEWPORT = { width: 1280, height: 720 };
 
 /**
  * The test for a dashboard page, mounted in the document the test runs in, against the stand-in
@@ -155,7 +149,8 @@ export const test = base
 
     return async (path, options = {}) => {
       if (mounted) throw new Error("A test opens one page");
-      const viewport = options.viewport ?? VIEWPORT;
+      // Vitest sets the project's viewport once for each file; a test before may have narrowed it.
+      const viewport = options.viewport ?? server.config.browser.viewport;
       await page.viewport(viewport.width, viewport.height);
       // Every timer and clock of the page, as Vitest fakes them by default.
       vi.useFakeTimers({ now: NOW });
@@ -177,7 +172,7 @@ export const test = base
 function mount(address: string) {
   history.replaceState(null, "", address);
   const router = getRouter();
-  router.update({ ...router.options, basepath: DASHBOARD_BASE, history: createBrowserHistory() });
+  router.update({ ...router.options, basepath: DASHBOARD_BASE });
   const dispose = render(() => <RouterProvider router={router} />, document.body);
   return {
     dispose,
@@ -230,11 +225,6 @@ export function mountAgain(path?: string) {
   mountAgainHere(path === undefined ? location.pathname + location.search : DASHBOARD_BASE + path);
 }
 
-/** Runs the page's clock `ms` milliseconds forward, firing each timer due on the way. */
-export async function advance(ms: number) {
-  await vi.advanceTimersByTimeAsync(ms);
-}
-
 /**
  * Where the page stands in its own history, which a push moves on and a replace leaves: `history`'s
  * `length` counts the whole tab's, which the frames of other tests share, and which a push after a
@@ -250,7 +240,7 @@ export function historyIndex() {
 export async function advanceTo(time: number) {
   const ms = time - Date.now();
   if (ms < 0) throw new Error(`The clock is already ${-ms} ms past the time to advance to`);
-  await advance(ms);
+  await vi.advanceTimersByTimeAsync(ms);
 }
 
 const responseWaiters = new Set<{
@@ -277,22 +267,11 @@ export const UNCERTAIN =
 /** Moves the clock `step` milliseconds at a time until `reached` holds. */
 export async function runClockUntil(step: number, reached: () => boolean | Promise<boolean>) {
   await expect
-    .poll(
-      async () => {
-        await advance(step);
-        return reached();
-      },
-      { timeout: 5_000 },
-    )
+    .poll(async () => {
+      await vi.advanceTimersByTimeAsync(step);
+      return reached();
+    })
     .toBe(true);
-}
-
-/** Presses the mouse at `x`, `y` of the viewport, on whatever is there, as Playwright's `mouse.click`. */
-export async function clickAt(x: number, y: number) {
-  const target = document.elementFromPoint(x, y);
-  if (!target) throw new Error(`Nothing at ${x}, ${y}`);
-  const box = target.getBoundingClientRect();
-  await userEvent.click(target, { position: { x: x - box.left, y: y - box.top }, force: true });
 }
 
 /** Checks `box`: presses it, and fails unless it is then checked. */
