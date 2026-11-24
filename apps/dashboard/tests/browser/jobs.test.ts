@@ -49,7 +49,10 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
     )
     .toBeVisible();
   await expect.element(page.getByText("elflodge batches submit")).toBeVisible();
-  await expect.element(page.getByRole("link", { name: "Add Runner" })).toHaveLength(0);
+  // By part of its name, so a control that offers it under a longer name is absent too.
+  await expect
+    .element(page.getByRole("link", { name: "Add Runner", exact: false }))
+    .toHaveLength(0);
 });
 
 test("filters held in the address go with the list's read and survive the app mounting again there, and Apply reads the list again in place", async ({
@@ -169,7 +172,9 @@ test("a link reads the exact Batch a page at a time", async ({ hub, open }) => {
     after: jobs[49]?.id,
     limit: 50,
   });
-  await expect.element(page.getByRole("link", { name: "Older jobs" })).toHaveLength(0);
+  await expect
+    .element(page.getByRole("link", { name: "Older jobs", exact: false }))
+    .toHaveLength(0);
   await page.getByRole("link", { name: "Newest jobs" }).click();
   await expect.poll(() => texts(names)).toEqual(customIds.slice(0, 50));
 });

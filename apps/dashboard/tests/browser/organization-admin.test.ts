@@ -62,10 +62,14 @@ test("an admin changing their own role immediately loses the management controls
   await expect
     .element(page.getByRole("status").filter({ hasText: "You are now a member." }))
     .toHaveFocus();
-  await expect.element(page.getByRole("heading", { name: "Invitations" })).toHaveLength(0);
-  await expect.element(page.getByRole("button", { name: "Invite a member" })).toHaveLength(0);
+  // By part of its name, so a control that offers it under a longer name is absent too.
+  const exact = false;
+  await expect.element(page.getByRole("heading", { name: "Invitations", exact })).toHaveLength(0);
   await expect
-    .element(page.getByRole("button", { name: "Change role for yourself" }))
+    .element(page.getByRole("button", { name: "Invite a member", exact }))
+    .toHaveLength(0);
+  await expect
+    .element(page.getByRole("button", { name: "Change role for yourself", exact }))
     .toHaveLength(0);
   await expect
     .element(
@@ -97,9 +101,15 @@ test("an admin made a member by an owner elsewhere loses the management controls
   hub.auth.organization.listMembers.answers(roster(memberOf(demoted), owner));
   hub.session.answers(demoted);
   readAgain();
-  await expect.element(invite).toHaveLength(0);
-  await expect.element(page.getByRole("heading", { name: "Invitations" })).toHaveLength(0);
-  await expect.element(ownRole).toHaveLength(0);
+  // By part of its name, so a control that offers it under a longer name is absent too.
+  const exact = false;
+  await expect
+    .element(page.getByRole("button", { name: "Invite a member", exact }))
+    .toHaveLength(0);
+  await expect.element(page.getByRole("heading", { name: "Invitations", exact })).toHaveLength(0);
+  await expect
+    .element(page.getByRole("button", { name: "Change role for yourself", exact }))
+    .toHaveLength(0);
 });
 
 test("a failed keys read leaves members and invitations usable and explains the missing counts", async ({

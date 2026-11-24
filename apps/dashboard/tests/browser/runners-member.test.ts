@@ -23,8 +23,9 @@ test("a plain member gets no owner's actions on Runners and API keys", async ({ 
   await expect
     .element(dialog.getByLabelText("The command to run on the machine"))
     .toMatchTextContent("<a registration key>");
+  // By part of its name, so a control that offers it under a longer name is absent too.
   await expect
-    .element(dialog.getByRole("button", { name: "Create a registration key" }))
+    .element(dialog.getByRole("button", { name: "Create a registration key", exact: false }))
     .toHaveLength(0);
   await dialog.getByRole("button", { name: "Close" }).click();
 
@@ -34,5 +35,7 @@ test("a plain member gets no owner's actions on Runners and API keys", async ({ 
     .getByRole("link", { name: "API keys" })
     .click();
   await expect.element(page.getByText(/Only owners and admins see and manage/)).toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Create key" })).toHaveLength(0);
+  await expect
+    .element(page.getByRole("button", { name: "Create key", exact: false }))
+    .toHaveLength(0);
 });
