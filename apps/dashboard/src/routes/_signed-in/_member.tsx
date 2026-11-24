@@ -26,7 +26,11 @@ function Member() {
       when={session().membership.status === "member"}
       fallback={
         <FallbackPage heading="Organization access" focusHeading>
-          <Notice role="alert">This account is no longer a member of the Organization.</Notice>
+          <Notice role="alert">
+            {session().membership.status === "hubNotSetUp"
+              ? "The hub is not set up."
+              : "This account is no longer a member of the Organization."}
+          </Notice>
         </FallbackPage>
       }
     >

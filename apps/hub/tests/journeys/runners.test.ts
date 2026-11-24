@@ -52,8 +52,8 @@ test("a registration key Add Runner creates when asked registers a Runner, which
   const { id } = await system.runnerClient({ "x-api-key": key }).register({ name: "new-host" });
   // The dialog reads the Runners every five seconds.
   await page.clock.fastForward(5_000);
-  await expectBrowser(dialog.getByRole("status").filter({ hasText: "has registered." })).toHaveText(
-    `new-host ${id.slice(0, 8)} has registered.`,
+  await expectBrowser(dialog.getByRole("status").getByRole("listitem")).toHaveText(
+    `new-host ${id.slice(0, 8)}`,
   );
   // Behind the dialog, the page lists it by name and short ID, as host names repeat.
   await dialog.getByRole("button", { name: "Close" }).click();

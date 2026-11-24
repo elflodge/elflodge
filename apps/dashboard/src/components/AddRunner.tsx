@@ -8,7 +8,15 @@ import {
   DialogTrigger,
 } from "@ui-sdk/solid/dialog";
 import type { Runner } from "contract";
-import { Show, createEffect, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  untrack,
+} from "solid-js";
 
 import { version } from "../../package.json";
 import { api, hubWriteFailureMessage, secretAnswerFailure } from "../api-client.ts";
@@ -108,17 +116,16 @@ function Instructions(
 ) {
   // Each opening takes its own baseline and holds its own key until the content unmounts.
   const atOpen = new Set(untrack(() => props.runners).map((runner) => runner.id));
-  const registered = createMemo(() => props.runners.find((runner) => !atOpen.has(runner.id)));
-  // Every heartbeat replaces the Runner's record, with a new last contact. The announcement reads
-  // only its name and short ID, so a heartbeat does not announce the registration again.
-  const registeredName = createMemo(() => registered()?.name);
-  const registeredId = createMemo(() => {
-    const runner = registered();
-    return runner && props.shortId(runner);
-  });
+  // A heartbeat or a change in list order should not repeat a screen reader announcement.
+  const newlyListed = createMemo(() =>
+    props.runners
+      .filter((runner) => !atOpen.has(runner.id))
+      .toSorted((a, b) => a.id.localeCompare(b.id)),
+  );
   const queryClient = useQueryClient();
   const [key, setKey] = createSignal<string>();
   const noteId = createUniqueId();
+  const historyNoteId = createUniqueId();
 
   const { hostname, origin } = window.location;
   // The browser normalizes the URL host first: 127.1 becomes 127.0.0.1 and [0:0::1] becomes [::1].
@@ -204,7 +211,10 @@ function Instructions(
         <p>
           First, in Bash or zsh on that machine, run <code>read -rs MY_KEY</code> on its own. Paste
           your OpenRouter key and press Enter. The shell hides the input and leaves it out of
-          history. The command below saves it in the private <code>runner.env</code>.
+          history. The command below saves it in the private <code>runner.env</code>.{" "}
+          <span id={historyNoteId}>
+            When you run the command, your shell may save the registration key in its history.
+          </span>
         </p>
         <div class="copyable">
           <pre
@@ -221,7 +231,7 @@ function Instructions(
               .map((piece) => piece.text)
               .join("")}
             label="Copy the command"
-            describedBy={key() ? noteId : undefined}
+            describedBy={key() ? `${noteId} ${historyNoteId}` : historyNoteId}
             buttonRef={(button) => {
               copyCommand = button;
             }}
@@ -269,30 +279,36 @@ function Instructions(
           </Button>
           .
         </p>
-        <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
+        <div role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>
             <span
-              class={registeredId() ? "mark mark-succeeded" : "mark mark-pending"}
+              class={newlyListed().length ? "mark mark-succeeded" : "mark mark-pending"}
               aria-hidden="true"
             />
             <Show
-              when={registeredId()}
-              keyed
+              when={newlyListed().length}
               fallback={
                 <span>
                   Waiting for a Runner to register. It will be listed here under its machine's name.
                 </span>
               }
             >
-              {(sid) => (
-                <span>
-                  <span class="mono">{registeredName()}</span> <span class="sid">{sid}</span> has
-                  registered.
-                </span>
-              )}
+              <div>
+                Newly listed since you opened this dialog:
+                <ul>
+                  <For each={newlyListed()} keyed={(runner) => runner.id}>
+                    {(runner) => (
+                      <li>
+                        <span class="mono">{runner().name}</span>{" "}
+                        <span class="sid">{props.shortId(runner())}</span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </div>
             </Show>
           </Show>
-        </p>
+        </div>
       </div>
       <div class="dialog-f">
         <DialogClose

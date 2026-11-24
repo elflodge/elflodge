@@ -89,6 +89,18 @@ test("sign-in returns to the filtered Jobs link that required it", async ({ hub,
   await expectBrowser(page).toHaveURL(new URL(DASHBOARD_BASE + destination, page.url()).href);
 });
 
+test.for([
+  ["hubNotSetUp", "The hub is not set up."],
+  ["notMember", "This account is no longer a member of the Organization."],
+] as const)(
+  "the Organization access notice explains a %s session",
+  async ([status, message], { hub, open }) => {
+    hub.session.answers({ ...signedIn("owner"), membership: { status } });
+    const page = await open("jobs");
+    await expectBrowser(page.getByRole("alert")).toHaveText(message);
+  },
+);
+
 test("the bar leads to the dashboard's pages, and on a phone names the current one", async ({
   hub,
   open,
