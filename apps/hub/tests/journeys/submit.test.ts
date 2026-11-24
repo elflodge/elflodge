@@ -128,13 +128,11 @@ test("after a lost answer, the Batch's link opens the Batch the hub made in a ta
     await route.fetch({ url: route.request().url().replace(system.origin, system.url().origin) });
     await route.abort("connectionreset");
   });
-  const create = page.waitForRequest(
-    (request) =>
-      request.method() === "POST" && new URL(request.url()).pathname.endsWith("/batches"),
-  );
   await page.getByRole("button", { name: "Submit Batch" }).click();
-  const sentId: string = (await create).postDataJSON().id;
   const alert = page.getByRole("alert").filter({ hasText: "may already have a Batch" });
+  await alert.waitFor();
+  // The ID the draft sent, which its field holds once sent.
+  const sentId = await page.getByLabel("Batch ID").inputValue();
   await expectBrowser(alert).toContainText(`under this Batch ID: ${sentId} (opens in a new tab)`);
 
   const [tab] = await Promise.all([
