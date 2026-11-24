@@ -151,7 +151,9 @@ export const test = base
 
     return async (path, options = {}) => {
       if (mounted) throw new Error("A test opens one page");
-      if (offline) throw new Error("A test that takes the page offline needs a file of its own");
+      if (wentOffline) {
+        throw new Error("A test that takes the page offline needs a file of its own");
+      }
       // Vitest sets the project's viewport once for each file; a test before may have narrowed it.
       const viewport = options.viewport ?? server.config.browser.viewport;
       await page.viewport(viewport.width, viewport.height);
@@ -278,6 +280,8 @@ function arrivingUntil(ended: AbortSignal, response: Response) {
 }
 
 let offline = false;
+/** Whether a test of this file took the page offline. */
+let wentOffline = false;
 
 /**
  * Takes the page offline, or back online with `next` false, as the browser tells a page its network
@@ -291,8 +295,10 @@ let offline = false;
 export function setOffline(next: boolean) {
   if (next === offline) return;
   offline = next;
-  if (offline) Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
-  else Reflect.deleteProperty(navigator, "onLine");
+  if (offline) {
+    wentOffline = true;
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+  } else Reflect.deleteProperty(navigator, "onLine");
   window.dispatchEvent(new Event(offline ? "offline" : "online"));
 }
 
