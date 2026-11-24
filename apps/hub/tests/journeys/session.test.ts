@@ -79,12 +79,22 @@ test("an open page returns to sign-in when a background read finds its session e
   await signInAt(system, page, "jobs", member);
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
 
-  /** The page's reads of the counts and of the session as they are answered. */
-  const reads: string[] = [];
+  /**
+   * What the page did, in order: a member read the hub refused, a session read answered, and a
+   * document it started loading, by its path.
+   */
+  const events: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      events.push(`document ${new URL(request.url()).pathname}`);
+    }
+  });
   page.on("response", (response) => {
     const { pathname } = new URL(response.url());
-    if (pathname.endsWith("/jobs/counts")) reads.push(`counts ${response.status()}`);
-    else if (pathname.endsWith("/api/auth/get-session")) reads.push("session");
+    if (pathname === "/api/auth/get-session") events.push("session read");
+    else if (response.status() === 401 && response.request().method() === "GET") {
+      events.push("refused");
+    }
   });
 
   // The session ends at the hub, with no sign-out in this browser and no navigation.
@@ -93,13 +103,15 @@ test("an open page returns to sign-in when a background read finds its session e
     .join("; ");
   await system.authClient(cookie).signOut();
 
-  // The hub strip's next poll of the counts, five seconds on, is refused, and the session read that
-  // follows names no one.
+  // The page's polls of the hub, five seconds on, are refused. The open document then reads the
+  // session, which names no one, before another document loads, which shows sign-in.
   await page.clock.fastForward(5_000);
   await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible();
-  const refused = reads.indexOf("counts 401");
+  const refused = events.indexOf("refused");
   expect(refused).toBeGreaterThanOrEqual(0);
-  expect(reads[refused + 1]).toBe("session");
+  const next = events.slice(refused).filter((event) => event !== "refused");
+  expect(next[0]).toBe("session read");
+  expect(next[1]).toMatch(/^document /);
   expect(new URL(page.url()).searchParams.get("redirect")).toContain("/jobs");
 }, 30_000);
 
@@ -122,9 +134,7 @@ test("a member change in another tab of the browser loads a fresh document", asy
   await otherAccount.click();
   await other.getByRole("button", { name: "Sign out" }).click();
   await other.waitForURL(/\/sign-in/);
-  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible({
-    timeout: 10_000,
-  });
+  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible();
   const signInDocument = await page.evaluate(() => performance.timeOrigin);
   expect(signInDocument).not.toBe(firstDocument);
 
@@ -146,9 +156,7 @@ test("a member change in another tab of the browser loads a fresh document", asy
     .getByRole("navigation", { name: "Destinations" })
     .getByRole("link", { name: "Jobs" })
     .click();
-  await expectBrowser(page.getByRole("button", { name: next.name, exact: true })).toBeVisible({
-    timeout: 10_000,
-  });
+  await expectBrowser(page.getByRole("button", { name: next.name, exact: true })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
   expect(new URL(page.url()).pathname).toBe("/dashboard/jobs");
 }, 60_000);
