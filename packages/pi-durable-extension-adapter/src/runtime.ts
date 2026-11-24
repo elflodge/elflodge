@@ -14,7 +14,7 @@ import {
 import ensureError from "ensure-error";
 import { loadExtensionFromFactory } from "pi-extension-loader";
 
-import type { Flags, HandlerError, Reads } from "./protocol.ts";
+import type { ExtensionError, Flags, HandlerError, Reads } from "./protocol.ts";
 
 // The part of a worker that runs extensions, built into the same bundle as the extensions so they
 // share one copy of Pi's code. Pi's own loader builds each extension's `pi`, which its package does
@@ -92,8 +92,11 @@ export interface LoadedExtension {
 /** One conversation's extensions, loaded and bound. */
 export interface Instance {
   readonly runner: ExtensionRunner;
-  /** Extensions whose factory threw or exported no function, with the reason; the rest run. */
-  readonly errors: readonly { readonly source: string; readonly message: string }[];
+  /**
+   * Extensions whose factory threw or exported no function, with the reason; the rest run. Also
+   * failures Pi caught while binding an extension that loaded, with their event.
+   */
+  readonly errors: readonly (ExtensionError | HandlerError)[];
   /** The extensions that loaded. */
   readonly loaded: readonly { readonly source: string; readonly path: string }[];
   /** The events some extension subscribes to now. */
@@ -108,7 +111,7 @@ export async function createInstance(
   const runtime = createExtensionRuntime();
   const bus = createEventBus();
   const records: Extension[] = [];
-  const errors: { source: string; message: string }[] = [];
+  const errors: (ExtensionError | HandlerError)[] = [];
   const loaded: { source: string; path: string }[] = [];
   for (const { source, path, factory } of extensions) {
     if (typeof factory !== "function") {
@@ -185,7 +188,12 @@ export async function createInstance(
   // Binding applies the registrations queued during loading. Pi attributes each failure to its
   // extension and keeps the extension loaded.
   const stopListening = runner.onError((error) =>
-    errors.push({ source: error.extensionPath, message: error.error }),
+    errors.push({
+      source: error.extensionPath,
+      message: error.error,
+      event: error.event,
+      ...(error.stack !== undefined && { stack: error.stack }),
+    }),
   );
   runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
     registerProvider: bridge.registerProvider,

@@ -114,7 +114,9 @@ export interface ExtensionHostOptions {
   readonly idleTimeout?: number;
   /**
    * Called when an extension's handler fails after it loaded, which Pi catches so the conversation
-   * goes on. Default: written to standard error, as Pi's print mode writes it.
+   * goes on, and when a registration fails as its extensions open again after a worker exit, when
+   * nobody reads the attachment's errors. Default: written to standard error, as Pi's print mode
+   * writes it.
    */
   readonly onError?: (error: HandlerError, conversation: ConversationId) => void;
   /**
@@ -302,6 +304,12 @@ class Workers {
     this.#options = options;
   }
 
+  /** Reports a handler's failure, which Pi catches so the conversation goes on. */
+  report(error: HandlerError, conversation: ConversationId) {
+    if (this.#options.onError) this.#options.onError(error, conversation);
+    else console.error(`Extension error (${error.source}): ${error.message}`);
+  }
+
   acquire(key: string, conversation: AttachedConversation): HostedWorker {
     if (this.#closed) throw new Error("The extension host is closed");
     const max = this.#options.maxWorkers ?? 2;
@@ -434,9 +442,7 @@ class Workers {
       changed: (key) => conversations.get(key)?.reloadRegistrations(),
       error: (key, error) => {
         const found = conversations.get(key);
-        if (!found) return;
-        if (this.#options.onError) this.#options.onError(error, found.conversationId);
-        else console.error(`Extension error (${error.source}): ${error.message}`);
+        if (found) this.report(error, found.conversationId);
       },
     };
     const port = rpc.port1;
@@ -564,7 +570,7 @@ async function attachConversation(
     await selectExtension(options, installation.conversations(), context);
     const opened = await attached.open(context);
     return {
-      errors: opened.errors,
+      errors: opened.errors.map(({ source, message }) => ({ source, message })),
       input: (text, given) => attached.input(text, given),
       close: () => attached.close(),
     };
@@ -961,6 +967,12 @@ class AttachedConversation {
     }
     this.#loaded = loaded;
     if (!reopening) this.update(opened);
+    // At attach these are the attachment's errors; opened again, nobody reads those, so Pi's
+    // failures binding an extension that loaded, such as its providers' registrations, are
+    // reported as a handler's.
+    else
+      for (const error of opened.errors)
+        if ("event" in error) this.#workers.report(error, conversation.id);
     // Opened again after its worker's exit, or a conversation with entries after a restart, as
     // Pi tells extensions about a session it opens again.
     const earlier = await conversation.entries({ order: "ascending" }, 1, undefined, context);

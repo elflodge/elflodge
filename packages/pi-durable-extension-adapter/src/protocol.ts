@@ -52,7 +52,11 @@ export interface Registrations {
 }
 
 export interface Opened extends Registrations {
-  readonly errors: readonly ExtensionError[];
+  /**
+   * Extensions that failed to load, and failures Pi caught while binding one that loaded, such as
+   * a `registerProvider` it refused, which carry their event.
+   */
+  readonly errors: readonly (ExtensionError | HandlerError)[];
   /**
    * The extensions that loaded, by their module in the bundle, which is unique where a package's
    * source can hold several. Errors cannot tell this: an extension that loaded can report one too,
@@ -157,10 +161,18 @@ export interface Compaction {
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;
 
+/** Provider fields the adapter refuses: each is a callback the host would have to call into the worker. */
+export const unsupportedProviderFields = [
+  "oauth",
+  "images",
+  "classifiers",
+  "refreshModels",
+] as const;
+
 /** Pi composes these provider settings on the host. Executable implementations stay in the worker. */
 export type ProviderSettings = Omit<
   ProviderConfig,
-  "streamSimple" | "images" | "classifiers" | "oauth" | "refreshModels"
+  "streamSimple" | (typeof unsupportedProviderFields)[number]
 >;
 
 type StreamHook = "onPayload" | "onResponse" | "onProviderStreamEvent";
