@@ -135,15 +135,21 @@ test("Add Runner shows every newly listed machine even when another registers fi
   const page = await open("runners");
   await page.getByRole("button", { name: "Add Runner" }).click();
   const dialog = page.getByRole("dialog", { name: "Add Runner" });
-  const notice = dialog.getByRole("status").filter({ hasText: "New on this Hub" });
+  const notice = dialog
+    .getByRole("status")
+    .filter({ hasText: "Newly listed since you opened this dialog" });
   hub.runners.list.answers([existing, first]);
   await readAgain(page);
   await expectBrowser(notice).toContainText(first.name);
   hub.runners.list.answers([existing, first, second]);
   await readAgain(page);
-  await expectBrowser(notice).toContainText(second.name);
-  await expectBrowser(notice).toContainText(first.name);
-  await expectBrowser(notice).not.toContainText(existing.name);
+  const entries = notice.getByRole("listitem");
+  await expectBrowser(entries).toHaveCount(2);
+  for (const runner of [first, second]) {
+    await expectBrowser(entries.filter({ hasText: runner.name })).toHaveText(
+      `${runner.name} ${runner.id.slice(0, 8)}`,
+    );
+  }
 });
 
 test("Add Runner cannot be left while its key is created, then shows the key in the command and announces a copy without it", async ({

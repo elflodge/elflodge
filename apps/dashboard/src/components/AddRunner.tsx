@@ -8,7 +8,15 @@ import {
   DialogTrigger,
 } from "@ui-sdk/solid/dialog";
 import type { Runner } from "contract";
-import { Show, createEffect, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  untrack,
+} from "solid-js";
 
 import { version } from "../../package.json";
 import { api, hubWriteFailureMessage, secretAnswerFailure } from "../api-client.ts";
@@ -109,12 +117,10 @@ function Instructions(
   // Each opening takes its own baseline and holds its own key until the content unmounts.
   const atOpen = new Set(untrack(() => props.runners).map((runner) => runner.id));
   // A heartbeat or a change in list order should not repeat a screen reader announcement.
-  const newRunnerNames = createMemo(() =>
+  const newlyListed = createMemo(() =>
     props.runners
       .filter((runner) => !atOpen.has(runner.id))
-      .map((runner) => `${runner.name} ${props.shortId(runner)}`)
-      .toSorted()
-      .join(", "),
+      .toSorted((a, b) => a.id.localeCompare(b.id)),
   );
   const queryClient = useQueryClient();
   const [key, setKey] = createSignal<string>();
@@ -273,27 +279,36 @@ function Instructions(
           </Button>
           .
         </p>
-        <p role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
+        <div role="status" aria-atomic="true" class={props.readFailed ? "vh" : "waiting-line"}>
           <Show when={!props.readFailed}>
             <span
-              class={newRunnerNames() ? "mark mark-succeeded" : "mark mark-pending"}
+              class={newlyListed().length ? "mark mark-succeeded" : "mark mark-pending"}
               aria-hidden="true"
             />
             <Show
-              when={newRunnerNames()}
+              when={newlyListed().length}
               fallback={
                 <span>
                   Waiting for a Runner to register. It will be listed here under its machine's name.
                 </span>
               }
             >
-              <span>
-                New on this Hub since you opened this dialog:{" "}
-                <span class="mono">{newRunnerNames()}</span>
-              </span>
+              <div>
+                Newly listed since you opened this dialog:
+                <ul>
+                  <For each={newlyListed()} keyed={(runner) => runner.id}>
+                    {(runner) => (
+                      <li>
+                        <span class="mono">{runner().name}</span>{" "}
+                        <span class="sid">{props.shortId(runner())}</span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </div>
             </Show>
           </Show>
-        </p>
+        </div>
       </div>
       <div class="dialog-f">
         <DialogClose
