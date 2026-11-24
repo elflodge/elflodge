@@ -89,7 +89,9 @@ test("an open page returns to sign-in when a background read finds its session e
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
   // Answered, body and all, before the session ends: a refusal while that read is under way rightly
   // starts no other.
-  await (await (await sessionWatched).response())?.finished();
+  const watched = await (await sessionWatched).response();
+  expect(watched?.status()).toBe(200);
+  await watched?.finished();
 
   /**
    * What the page did, in order: a member read the hub refused, as its answer arrived, and a session
