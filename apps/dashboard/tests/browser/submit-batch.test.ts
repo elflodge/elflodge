@@ -1,3 +1,4 @@
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { expect, vi } from "vite-plus/test";
 import { commands, userEvent } from "vite-plus/test/browser/context";
 
@@ -20,10 +21,8 @@ import {
 
 /** The digest the hub names a file of `text` by. */
 async function digestOf(text: string) {
-  const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
-  );
-  return `sha256:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return `sha256:${bytesToHex(new Uint8Array(digest))}`;
 }
 
 /** Opens Submit a Batch, with the hub's limits to read. */
