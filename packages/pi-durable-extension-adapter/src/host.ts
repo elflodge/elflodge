@@ -290,6 +290,23 @@ interface HostedWorker {
  * once it has had no conversation for `idleTimeout`. Effect's `Pool` caps the borrowers of an item
  * and makes the rest wait, while a conversation holds its worker for as long as it is attached.
  */
+/**
+ * Calls one of the app's callbacks. What it throws or rejects with is logged, after `context`, and
+ * fails nothing else: the host runs every other conversation. It is logged as thrown, since
+ * ensure-error assigns to an error's cause, which throws on a frozen one.
+ */
+function callApp(callback: () => unknown, context?: string) {
+  const failed = (failure: unknown) => {
+    if (context !== undefined) console.error(context);
+    console.error(failure);
+  };
+  try {
+    void Promise.resolve(callback()).catch(failed);
+  } catch (failure) {
+    failed(failure);
+  }
+}
+
 class Workers {
   readonly #options: ExtensionHostOptions;
   readonly #workers = new Set<HostedWorker>();
@@ -309,23 +326,10 @@ class Workers {
    * extensions open again. An `onError` that throws or rejects fails neither.
    */
   report(error: HandlerError, conversation: ConversationId) {
-    if (!this.#options.onError) {
-      console.error(`Extension error (${error.source}): ${error.message}`);
-      return;
-    }
-    // Logged as thrown, with the error it was given: ensure-error assigns to an error's cause,
-    // which throws on a frozen one.
-    const failed = (failure: unknown) => {
-      console.error(`Extension error (${error.source}): ${error.message}`);
-      console.error(failure);
-    };
-    try {
-      const result: unknown = this.#options.onError(error, conversation);
-      // An async reporter's rejection would otherwise end the process.
-      if (result instanceof Promise) result.catch(failed);
-    } catch (failure) {
-      failed(failure);
-    }
+    const { onError } = this.#options;
+    const message = `Extension error (${error.source}): ${error.message}`;
+    if (onError) callApp(() => onError(error, conversation), message);
+    else console.error(message);
   }
 
   acquire(key: string, conversation: AttachedConversation): HostedWorker {
@@ -405,11 +409,7 @@ class Workers {
     for (const { conversation, reopened } of results) {
       if (reopened) continue;
       // One attacher's failing report must not keep the others from theirs.
-      try {
-        conversation.reportLost(error);
-      } catch (failed) {
-        console.error(ensureError(failed));
-      }
+      callApp(() => conversation.reportLost(error));
     }
     const exit: WorkerExit = {
       reopened: results
@@ -419,7 +419,8 @@ class Workers {
         .filter((each) => !each.reopened)
         .map((each) => each.conversation.conversationId),
     };
-    if (this.#options.onWorkerExit) this.#options.onWorkerExit(error, exit);
+    const { onWorkerExit } = this.#options;
+    if (onWorkerExit) callApp(() => onWorkerExit(error, exit));
     else {
       console.error(
         `${error.message}; extensions opened again for ${exit.reopened.length} conversations, lost for ${exit.lost.length}`,
@@ -555,9 +556,7 @@ class Workers {
       if (this.#closed) return;
       // A report the host cannot deliver, such as an `onWorkerExit` that throws, must not end the
       // process, which runs every other conversation.
-      this.#recover(error, hosting, loading).catch((failed: unknown) => {
-        console.error(ensureError(failed));
-      });
+      this.#recover(error, hosting, loading).catch((failed: unknown) => console.error(failed));
     });
     this.#workers.add(hosted);
     return hosted;
@@ -1783,9 +1782,12 @@ class AttachedConversation {
     this.#execs.clear();
   }
 
-  /** Tells the attacher that its extensions are gone for good, as `#recover` found. */
-  reportLost(error: Error) {
-    this.#options.onLost?.(error);
+  /**
+   * Tells the attacher that its extensions are gone for good, as `#recover` found. Returns what
+   * `onLost` returns, so a rejection of an async one is caught too.
+   */
+  reportLost(error: Error): unknown {
+    return this.#options.onLost?.(error);
   }
 
   close(): Promise<void> {
