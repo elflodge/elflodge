@@ -19,10 +19,10 @@ declare module "vite-plus/test/browser" {
     /** Forgets the messages the browser's console has shown. */
     clearConsole(): Promise<void>;
     /**
-     * The messages the browser's console has shown since `clearConsole`, with their type, and
-     * whether any of their arguments holds `text`.
+     * The messages the browser's console has shown since `clearConsole`, once one of type `until`
+     * has, with their type, and whether their text or any of their arguments holds `text`.
      */
-    consoleMessages(text: string): Promise<{ type: string; holds: boolean }[]>;
+    consoleMessages(text: string, until?: string): Promise<{ type: string; holds: boolean }[]>;
     /** Drops `entries` on `locator`'s element through the browser's own hit test. */
     drop(locator: Locator, entries: Dropped): Promise<void>;
   }
