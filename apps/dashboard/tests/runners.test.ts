@@ -1,6 +1,6 @@
 import { expect } from "vite-plus/test";
 
-import { expectBrowser, liveRegions, runClockUntil, test } from "./dashboard.ts";
+import { expectBrowser, liveRegions, readAgain, runClockUntil, test } from "./dashboard.ts";
 import { anApiKey, aRunner, signedIn } from "./records.ts";
 
 // The Runners page: removing a Runner, adding one, and what a member who may not remove one sees.
@@ -124,6 +124,28 @@ test("a Runner a read drops while its dialog is open is still named there, and i
   expect(hub.runners.delete.calls).toEqual([{ id: former.id }]);
 });
 
+test("Add Runner shows every newly listed machine even when another registers first", async ({
+  hub,
+  open,
+}) => {
+  const existing = aRunner("existing-host");
+  const first = aRunner("other-host");
+  const second = aRunner("my-host");
+  hub.runners.list.answers([existing]);
+  const page = await open("runners");
+  await page.getByRole("button", { name: "Add Runner" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Runner" });
+  const notice = dialog.getByRole("status").filter({ hasText: "New on this Hub" });
+  hub.runners.list.answers([existing, first]);
+  await readAgain(page);
+  await expectBrowser(notice).toContainText(first.name);
+  hub.runners.list.answers([existing, first, second]);
+  await readAgain(page);
+  await expectBrowser(notice).toContainText(second.name);
+  await expectBrowser(notice).toContainText(first.name);
+  await expectBrowser(notice).not.toContainText(existing.name);
+});
+
 test("Add Runner cannot be left while its key is created, then shows the key in the command and announces a copy without it", async ({
   hub,
   open,
@@ -183,7 +205,9 @@ test("Add Runner cannot be left while its key is created, then shows the key in 
   const copyLine = dialog.locator("p.copy");
   const copy = copyLine.getByRole("button", { name: "Copy the command" });
   await expectBrowser(copy).toBeFocused();
-  await expectBrowser(copy).toHaveAccessibleDescription(/^Shown this once: the registration key/);
+  await expectBrowser(copy).toHaveAccessibleDescription(
+    /^Shown this once: the registration key.*your shell may save the registration key in its history\./,
+  );
   await expectBrowser(command.locator("mark.key")).toHaveText(answer.key);
   expect(hub.apiKeys.create.calls).toHaveLength(1);
 
