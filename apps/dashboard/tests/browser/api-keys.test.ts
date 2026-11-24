@@ -1,5 +1,5 @@
 import { expect, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser/context";
+import { commands, userEvent } from "vite-plus/test/browser/context";
 
 import { InvalidInput } from "../../../hub/src/invalid-input.ts";
 import { anApiKey } from "../records.ts";
@@ -287,9 +287,7 @@ test.for(["Create key", "Add Runner"] as const)(
       await check(dialog.getByRole("group", { name: "Jobs" }).getByLabelText("read"));
       hub.apiKeys.list.answers([anApiKey("unconfirmed")]);
     }
-    // Every method of the console, as the browser's console shows them all.
-    const consoleMethods = CONSOLE_METHODS.map((name) => vi.spyOn(console, name));
-    const errors = vi.spyOn(console, "error");
+    await commands.clearConsole();
     const answered = waitForResponse(
       (request) => request.method === "POST" && new URL(request.url).pathname === "/api-keys",
     );
@@ -306,18 +304,9 @@ test.for(["Create key", "Add Runner"] as const)(
         .element(page.getByCSS("tbody tr").filter({ hasText: "unconfirmed" }))
         .toHaveLength(1);
     }
-    expect(errors.mock.calls).toHaveLength(1);
-    const seen = new Set<object>();
-    const holdsKey = (value: unknown): boolean => {
-      if (typeof value === "string") return value.includes(key);
-      if (typeof value !== "object" || value === null || seen.has(value)) return false;
-      seen.add(value);
-      // Error.message, stack and cause can all be non-enumerable.
-      return Reflect.ownKeys(value).some(
-        (name) => String(name).includes(key) || holdsKey(Reflect.get(value, name)),
-      );
-    };
-    expect(consoleMethods.flatMap((method) => method.mock.calls.flat()).some(holdsKey)).toBe(false);
+    const messages = await commands.consoleMessages(key);
+    expect(messages.filter(({ type }) => type === "error")).toHaveLength(1);
+    expect(messages.filter((message) => message.holds)).toEqual([]);
   },
 );
 
@@ -387,20 +376,3 @@ test("a member can correct a refused key name and keep the permissions they chos
 });
 
 /** The methods of the console, as the Console Standard names them. */
-const CONSOLE_METHODS = [
-  "assert",
-  "count",
-  "countReset",
-  "debug",
-  "dir",
-  "dirxml",
-  "error",
-  "group",
-  "groupCollapsed",
-  "info",
-  "log",
-  "table",
-  "timeLog",
-  "trace",
-  "warn",
-] as const;

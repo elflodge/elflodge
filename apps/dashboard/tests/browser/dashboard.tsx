@@ -21,6 +21,13 @@ declare module "vite-plus/test/browser" {
      * opens, which it closes.
      */
     openedTab(locator: Locator): Promise<string>;
+    /** Forgets the messages the browser's console has shown. */
+    clearConsole(): Promise<void>;
+    /**
+     * The messages the browser's console has shown since `clearConsole`, with their type, and
+     * whether any of their arguments holds `text`.
+     */
+    consoleMessages(text: string): Promise<{ type: string; holds: boolean }[]>;
     /** Drops `entries` on `locator`'s element through the browser's own hit test. */
     drop(locator: Locator, entries: Dropped): Promise<void>;
   }
