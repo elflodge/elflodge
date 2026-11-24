@@ -50,18 +50,9 @@ export default defineConfig({
         plugins: [solid()],
         // As for the app below: UI SDK's installation guide asks for it.
         optimizeDeps: { exclude: ["@ui-sdk/core"] },
-        resolve: {
-          // The app's document, which Solid cannot create in a document that exists already.
-          alias: [
-            {
-              find: /^.*\/components\/RootDocument\.tsx$/,
-              replacement: `${import.meta.dirname}/tests/browser/RootDocument.tsx`,
-            },
-          ],
-        },
         test: {
           name: "browser",
-          setupFiles: ["tests/browser/network.ts"],
+          setupFiles: ["tests/browser/setup.ts"],
           include: ["tests/browser/**/*.test.ts"],
           browser: {
             enabled: true,

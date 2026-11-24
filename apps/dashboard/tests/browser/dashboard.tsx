@@ -180,7 +180,7 @@ function mount(address: string) {
   };
 }
 
-/** The page's `fetch` and `WebSocket`, which `network.ts` makes spies. */
+/** The page's `fetch` and `WebSocket`, which `setup.ts` makes spies. */
 const pageFetch = vi.mocked(fetch);
 const pageWebSocket = vi.mocked(WebSocket);
 
