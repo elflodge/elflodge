@@ -16,7 +16,7 @@ import { Field } from "../../../components/Field.tsx";
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
 import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
 import { memberPageHead } from "../../../page-title.ts";
-import { availableRunners, orpc } from "../../../query.ts";
+import { orpc } from "../../../query.ts";
 import { optionalText } from "../../../search-form.ts";
 import { shortIds } from "../../../short-ids.ts";
 
@@ -66,7 +66,11 @@ function Jobs() {
     select: (matches) => matches.some((match) => match.status === "error"),
   });
   const runners = useQuery(() => orpc.runners.list.queryOptions());
-  const roster = createMemo(() => latest(() => deep(availableRunners(runners))));
+  // `deep` takes a store, which the Runners are not before their first answer. Thrown here, the
+  // error would leave the route's error boundary set to rebuild this layout at each navigation.
+  const roster = createMemo(() =>
+    runners.dataUpdatedAt ? latest(() => deep(runners.data)) : undefined,
+  );
   return (
     <>
       <div hidden={listFailed()}>
