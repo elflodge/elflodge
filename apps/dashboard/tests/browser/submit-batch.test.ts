@@ -1,4 +1,4 @@
-import { expect, onTestFinished } from "vite-plus/test";
+import { expect } from "vite-plus/test";
 import { commands, userEvent } from "vite-plus/test/browser/context";
 
 import { InvalidInput } from "../../../hub/src/invalid-input.ts";
@@ -403,8 +403,7 @@ test("a file dropped on the Jobs group adds a job, but not while Remove all asks
   const group = page.getByRole("group", { name: "Jobs" });
   // Dropped at the group's start, beside where a dialog shows.
   async function drop() {
-    const folder = await commands.drop(group, { "dropped.txt": "Dropped." });
-    onTestFinished(() => commands.removeDropped(folder));
+    await commands.drop(group, { "dropped.txt": "Dropped." });
   }
   await drop();
   await expect.element(page.getByLabelText("Custom ID of job 2")).toBeVisible();
@@ -432,8 +431,7 @@ test("a dropped folder past what is read says some of its files may not have bee
     Array.from({ length: 1_001 }, (_, at) => [`${at}.txt`, `${at}`]),
   );
   // A folder and a file beside it.
-  const folder = await commands.drop(group, { scans, "loose.txt": "Loose." });
-  onTestFinished(() => commands.removeDropped(folder));
+  await commands.drop(group, { scans, "loose.txt": "Loose." });
   const words =
     "A dropped folder is read up to 1,000 files, so some of its files may not have been added.";
   await expect.element(page.getByLabelText("Custom ID of job 1000")).toBeInTheDocument();

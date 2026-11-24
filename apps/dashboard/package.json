@@ -36,6 +36,7 @@
     "@orpc/shared": "catalog:",
     "@solidjs/vite-plugin": "catalog:",
     "@vitest/browser-playwright": "catalog:",
+    "fs-fixture": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
