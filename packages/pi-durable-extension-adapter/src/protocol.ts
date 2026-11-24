@@ -182,7 +182,7 @@ type StreamHook = "onPayload" | "onResponse" | "onProviderStreamEvent";
  * The host serves each requested hook over the same RPC channel, and cancels the request by its ID
  * (`cancelProvider`).
  */
-export type ProviderStreamOptions = Omit<
+export type WorkerStreamOptions = Omit<
   SimpleStreamOptions,
   StreamHook | "fetch" | "telemetry" | "signal"
 > &
@@ -205,7 +205,7 @@ export interface WorkerFunctions extends DispatchFunctions {
     request: number,
     model: Model<Api>,
     context: TranscriptContext,
-    options: ProviderStreamOptions,
+    options: WorkerStreamOptions,
   ): Promise<AssistantMessage>;
   executeTool(key: string, callId: string, name: string, args: unknown): Promise<ToolResult>;
   cancelTool(key: string, callId: string): void;

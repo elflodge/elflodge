@@ -193,7 +193,8 @@ export interface InputOptions {
 export interface AttachedExtensions {
   /**
    * Extensions that failed to load for this conversation, with the reason; the rest run. A flag
-   * value that no extension registered, source `flags`, or of the wrong type is reported here too.
+   * value that no extension registered, source `flags`, or of the wrong type is reported here too,
+   * as is a provider registration the adapter refused, whose extension otherwise runs.
    */
   readonly errors: readonly ExtensionError[];
   /**
@@ -285,12 +286,6 @@ interface HostedWorker {
 }
 
 /**
- * The workers, each with its conversations. A conversation goes to an idle worker, else to a new
- * one while fewer than `maxWorkers` run, else to the least busy, and stays there; a worker exits
- * once it has had no conversation for `idleTimeout`. Effect's `Pool` caps the borrowers of an item
- * and makes the rest wait, while a conversation holds its worker for as long as it is attached.
- */
-/**
  * Calls one of the app's callbacks. What it throws or rejects with is logged, after `context`, and
  * fails nothing else: the host runs every other conversation. It is logged as thrown, since
  * ensure-error assigns to an error's cause, which throws on a frozen one.
@@ -307,6 +302,12 @@ function callApp(callback: () => unknown, context?: string) {
   }
 }
 
+/**
+ * The workers, each with its conversations. A conversation goes to an idle worker, else to a new
+ * one while fewer than `maxWorkers` run, else to the least busy, and stays there; a worker exits
+ * once it has had no conversation for `idleTimeout`. Effect's `Pool` caps the borrowers of an item
+ * and makes the rest wait, while a conversation holds its worker for as long as it is attached.
+ */
 class Workers {
   readonly #options: ExtensionHostOptions;
   readonly #workers = new Set<HostedWorker>();
@@ -556,7 +557,9 @@ class Workers {
       if (this.#closed) return;
       // A report the host cannot deliver, such as an `onWorkerExit` that throws, must not end the
       // process, which runs every other conversation.
-      this.#recover(error, hosting, loading).catch((failed: unknown) => console.error(failed));
+      this.#recover(error, hosting, loading).catch((failed: unknown) =>
+        console.error(ensureError(failed)),
+      );
     });
     this.#workers.add(hosted);
     return hosted;

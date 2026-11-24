@@ -30,7 +30,7 @@ import ensureError from "ensure-error";
 
 import type { HostFunctions, ProviderSettings, WorkerFunctions } from "./protocol.ts";
 
-type Runtime = Pick<
+type ProviderRuntime = Pick<
   ModelRuntime,
   | "registerProvider"
   | "unregisterProvider"
@@ -40,7 +40,7 @@ type Runtime = Pick<
 
 // Duck-typed, not `instanceof ModelRuntime`: the app's ModelRuntime comes from its own copy of the
 // coding agent, which can differ from the exact version this package pins.
-export function supportsProviders(models: Models): models is Models & Runtime {
+function supportsProviders(models: Models): models is Models & ProviderRuntime {
   return (
     "registerProvider" in models &&
     typeof models.registerProvider === "function" &&
@@ -72,12 +72,12 @@ export class ProviderRequests {
     "providerEvent" | "providerPayload" | "providerResponse" | "providerStreamEvent"
   > = {
     providerEvent: (id, event) => this.#pending.get(id)?.event(event),
-    providerPayload: async (id, payload, model) =>
-      this.#pending.get(id)?.options.onPayload?.(payload, model),
-    providerResponse: async (id, response, model) =>
-      this.#pending.get(id)?.options.onResponse?.(response, model),
-    providerStreamEvent: async (id, data, model) =>
-      this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model),
+    providerPayload: (id, payload, model) =>
+      sendable(() => this.#pending.get(id)?.options.onPayload?.(payload, model)),
+    providerResponse: (id, response, model) =>
+      sendable(() => this.#pending.get(id)?.options.onResponse?.(response, model)),
+    providerStreamEvent: (id, data, model) =>
+      sendable(() => this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model)),
   };
 
   add(request: PendingRequest) {
@@ -116,7 +116,7 @@ interface Parking {
   unwatch(): void;
 }
 
-const catalogs = new WeakMap<Runtime, Map<string, InstalledProvider>>();
+const catalogs = new WeakMap<ProviderRuntime, Map<string, InstalledProvider>>();
 
 /**
  * The providers one attached conversation's extensions registered. A worker's exit withdraws them
@@ -126,7 +126,7 @@ export class ConversationProviders {
   readonly #catalog: Map<string, InstalledProvider>;
   readonly #models: Models;
   /** The app's model runtime, when its models are one. */
-  readonly #runtime: (Models & Runtime) | undefined;
+  readonly #runtime: (Models & ProviderRuntime) | undefined;
   readonly #sessionId: string;
   readonly #harness: Harness;
   readonly #conversation: ConversationId;
@@ -204,7 +204,7 @@ export class ConversationProviders {
     return this.#runtime;
   }
 
-  #createRegistration(name: string, runtime: Runtime): InstalledProvider {
+  #createRegistration(name: string, runtime: ProviderRuntime): InstalledProvider {
     // Pi drops a native provider when the name is registered with settings, and with it the
     // provider's models, until the registration goes.
     if (runtime.getRegisteredNativeProvider(name))
@@ -264,8 +264,13 @@ export class ConversationProviders {
       const streaming = [...entry.sessions.values()].some(Boolean);
       if (streaming || entry.current?.streamSimple !== entry.dispatch) return;
       const { streamSimple: _, ...settings } = entry.current;
+      // An app's own stream for the same API serves them again, as before the extensions came.
+      const own = entry.previous?.streamSimple;
       runtime.unregisterProvider(name);
-      runtime.registerProvider(name, settings);
+      runtime.registerProvider(
+        name,
+        own && entry.previous?.api === settings.api ? { ...settings, streamSimple: own } : settings,
+      );
       entry.current = runtime.getRegisteredProviderConfig(name);
       return;
     }
@@ -479,6 +484,29 @@ function cloneable(reason: unknown) {
     structuredClone(reason);
     return reason;
   } catch {
-    return new Error(ensureError(reason).message);
+    // Not through ensure-error, which assigns to an error's cause and throws on a frozen one.
+    return new Error(reason instanceof Error ? reason.message : String(reason));
   }
+}
+
+/**
+ * Runs an app's hook for the worker, giving it what can be copied there: birpc fails outside any
+ * caller, ending the host's process, when a reply cannot be posted.
+ */
+async function sendable<T>(hook: () => T | Promise<T>): Promise<T> {
+  let result: T;
+  try {
+    result = await hook();
+  } catch (error) {
+    throw cloneable(error);
+  }
+  try {
+    structuredClone(result);
+  } catch (error) {
+    throw new Error(
+      `A provider hook's result cannot be sent to the extension worker: ${ensureError(error).message}`,
+      { cause: error },
+    );
+  }
+  return result;
 }
