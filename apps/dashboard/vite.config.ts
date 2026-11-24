@@ -122,19 +122,6 @@ export default defineConfig({
                   })),
                 );
               },
-              // Nor a tab a click opens: the address it opens at, before it closes. What it shows is
-              // outside the document the test answers the network in.
-              async openedTab(context, locator: SerializedLocator) {
-                const [tab] = await Promise.all([
-                  // Short of the test's own timeout, to fail as no tab opened.
-                  context.page.context().waitForEvent("page", { timeout: 5_000 }),
-                  (await context.frame()).locator(locator.selector).click(),
-                ]);
-                await tab.waitForURL((url) => url.href !== "about:blank", { waitUntil: "commit" });
-                const address = tab.url();
-                await tab.close();
-                return address;
-              },
               // Nor a drop of files: written to disk and dropped through Chromium's own hit test, as
               // a person drops them, 10 pixels into the start of the element, which shows first.
               // Playwright's `locator.drop()` builds the data in the page, which carries no folders,

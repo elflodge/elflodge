@@ -117,6 +117,38 @@ test("the hub's refusals stand at the field or row concerned, with every value k
   expect(jobs.map((job) => job.customId)).toEqual(["job-1"]);
 });
 
+test("after a lost answer, the Batch's link opens the Batch the hub made in a tab beside the draft, which stays", async () => {
+  const page = await signedInAt("batches/-/new");
+  await page.getByRole("button", { name: "Add a job" }).click();
+  await page.getByLabel("Input of job 1").fill("Receipt 3: 4.20 EUR.");
+  await page.route("**/batches", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    // The hub makes the Batch; its answer never reaches the page. The browser alone resolves the
+    // hub's name, so the request goes to the hub's address.
+    await route.fetch({ url: route.request().url().replace(system.origin, system.url().origin) });
+    await route.abort("connectionreset");
+  });
+  const create = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && new URL(request.url()).pathname.endsWith("/batches"),
+  );
+  await page.getByRole("button", { name: "Submit Batch" }).click();
+  const sentId: string = (await create).postDataJSON().id;
+  const alert = page.getByRole("alert").filter({ hasText: "may already have a Batch" });
+  await expectBrowser(alert).toContainText(`under this Batch ID: ${sentId} (opens in a new tab)`);
+
+  const [tab] = await Promise.all([
+    page.context().waitForEvent("page"),
+    alert.getByRole("link", { name: sentId }).click(),
+  ]);
+  onTestFinished(() => tab.close());
+  await expectBrowser(tab.getByRole("heading", { level: 1 })).toContainText(sentId);
+  await expectBrowser(tab.getByRole("row", { name: /All its jobs/ })).toContainText("1");
+  await expectBrowser(page.getByRole("heading", { level: 1 })).toHaveText("Submit a Batch");
+  await expectBrowser(page.getByLabel("Batch ID")).toHaveValue(sentId);
+  await expectBrowser(page.getByLabel("Input of job 1")).toHaveValue("Receipt 3: 4.20 EUR.");
+});
+
 test("after a lost answer the Custom ID field holds the ID sent: an edit cannot make a second job, and another ID says one may exist", async () => {
   const page = await signedInAt("jobs/new");
   const input = page.getByLabel("Input", { exact: true });

@@ -260,12 +260,7 @@ test("after a lost answer the Batch ID field holds the ID sent: an edit cannot m
     );
   // The ID the page made, which the field now holds.
   await expect.element(batchId).toHaveValue(sentId);
-  // The link opens the Batch in a tab beside the draft, which stays as it is. The tab is outside the
-  // test's document, so where it opens is checked, not the Batch it shows.
-  const link = alert.getByRole("link", { name: sentId });
-  expect(await commands.openedTab(link)).toBe(`${location.origin}/dashboard/batches/${sentId}`);
-  await expect.element(page.getByRole("heading", { level: 1 })).toHaveTextContent("Submit a Batch");
-  await expect.element(batchId).toHaveValue(sentId);
+  // What its link opens, in a second tab, is in tests/journeys.
   // Removing rows here would remove nothing from that Batch, and the dialog does not say otherwise.
   await page.getByRole("button", { name: "Remove all" }).click();
   const dialog = page.getByRole("alertdialog", { name: "Remove the job?" });
