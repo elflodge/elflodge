@@ -24,6 +24,7 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { CompactionHooks } from "@earendil-works/pi-durable";
+import Type, { type Static } from "typebox";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
 // worker behind names, and the host keeps the pi-durable APIs the worker's calls act on.
@@ -338,7 +339,11 @@ export type JournalMessage =
  * time limit on the wait, or other messages from the host here, would need IDs: a late answer, or
  * another message, would be taken for the next read's answer.
  */
-export type ReadReply = { readonly value: unknown } | { readonly error: Error };
+export const ReadReply = Type.Union([
+  Type.Object({ type: Type.Literal("value"), value: Type.Unknown() }),
+  Type.Object({ type: Type.Literal("error"), error: Type.Unknown() }),
+]);
+export type ReadReply = Static<typeof ReadReply>;
 
 export interface WorkerData {
   /** The bundle's runtime module and extension modules, in load order. */

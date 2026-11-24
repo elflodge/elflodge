@@ -11,6 +11,7 @@ import type {
 import { createBirpc } from "birpc";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
+import { Value } from "typebox/value";
 
 import {
   unsupportedProviderFields,
@@ -18,6 +19,7 @@ import {
   type ExtensionError,
   type HostFunctions,
   type JournalMessage,
+  ReadReply,
   type ReadRequest,
   type Reads,
   type Registrations,
@@ -104,10 +106,9 @@ function journalRequest<M extends keyof Reads>(
   journal.postMessage(message);
   // The next message is the answer to this read (`ReadReply`).
   const reply = journal.receiveMessage();
-  if (typeof reply !== "object" || reply === null)
-    throw new Error("The host's reply is not an object");
-  if ("error" in reply) throw ensureError(reply.error);
-  return "value" in reply ? reply.value : undefined;
+  if (!Value.Check(ReadReply, reply)) throw new Error("The host's reply is not a ReadReply");
+  if (reply.type === "error") throw ensureError(reply.error);
+  return reply.value;
 }
 
 function instanceFor(key: string): Opened {

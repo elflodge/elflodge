@@ -482,9 +482,9 @@ class Workers {
       } catch (error) {
         // A value, or an error's `cause`, that cannot be cloned: the worker waits for an answer all
         // the same, so it gets the message alone, which can.
-        const message = ensureError("error" in value ? value.error : error).message;
+        const message = ensureError(value.type === "error" ? value.error : error).message;
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-        reads.postMessage({ error: new Error(message) } satisfies ReadReply);
+        reads.postMessage({ type: "error", error: new Error(message) } satisfies ReadReply);
       }
     };
     reads.on("message", (message: JournalMessage) => {
@@ -499,7 +499,7 @@ class Workers {
         return;
       }
       if (!found) {
-        reply({ error: new Error(`No conversation ${message.key} on this worker`) });
+        reply({ type: "error", error: new Error(`No conversation ${message.key} on this worker`) });
         return;
       }
       if (message.type !== "read") {
@@ -507,15 +507,15 @@ class Workers {
           if (message.type === "registerProvider")
             found.providers.register(message.name, message.config, message.customStream);
           else found.providers.unregister(message.name);
-          reply({ value: undefined });
+          reply({ type: "value", value: undefined });
         } catch (error) {
-          reply({ error: ensureError(error) });
+          reply({ type: "error", error: ensureError(error) });
         }
         return;
       }
       found.read(message).then(
-        (value) => reply({ value }),
-        (error: unknown) => reply({ error: ensureError(error) }),
+        (value) => reply({ type: "value", value }),
+        (error: unknown) => reply({ type: "error", error: ensureError(error) }),
       );
     });
     const hosted: HostedWorker = {
