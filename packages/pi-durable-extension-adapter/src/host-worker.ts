@@ -155,14 +155,13 @@ const functions: WorkerFunctions = {
       flags,
       registerProvider(name, config) {
         life.signal.throwIfAborted();
-        for (const field of ["oauth", "images", "classifiers"] as const) {
+        for (const field of ["oauth", "images", "classifiers", "refreshModels"] as const) {
           if (config[field] !== undefined)
             throw new Error(
               `registerProvider: ${field} is not supported by pi-durable-extension-adapter`,
             );
         }
         const { streamSimple, ...settings } = config;
-        delete settings.refreshModels;
         if (streamSimple !== undefined && typeof streamSimple !== "function")
           throw new TypeError("registerProvider: streamSimple must be a function");
         journalRequest({
@@ -174,13 +173,6 @@ const functions: WorkerFunctions = {
         });
         // Pi merges defined fields on re-registration. A settings-only change keeps the handler.
         if (streamSimple) providerStreams.set(name, streamSimple);
-        // Pi calls it when the app refreshes its runtime, which the adapter does not bridge to the
-        // worker; the provider keeps the models it registered. Reported as other unsupported calls
-        // are: while loading, Pi's runner lists the error in `errors`; later, the call throws.
-        if (config.refreshModels !== undefined)
-          throw new Error(
-            `registerProvider: refreshModels is not supported by pi-durable-extension-adapter; "${name}" was registered without it`,
-          );
       },
       unregisterProvider(name) {
         life.signal.throwIfAborted();
