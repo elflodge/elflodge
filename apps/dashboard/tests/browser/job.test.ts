@@ -671,7 +671,10 @@ test("a member reading earlier Events can jump to new ones, and sees the Output 
   });
   // The new Event may be visible while the end of the list is still below the viewport.
   (await page.getByCSS("#latest").findElement()).scrollIntoView({ block: "center" });
-  await expect.element(page.getByRole("button", { name: "Go to them" })).toHaveLength(0);
+  // By part of its name, so a control that offers it under a longer name is absent too.
+  await expect
+    .element(page.getByRole("button", { name: "Go to them", exact: false }))
+    .toHaveLength(0);
   const first = page.getByCSS("#event-20");
   (await first.findElement()).scrollIntoView({ block: "center" });
   const top = (await first.findElement()).getBoundingClientRect().top;

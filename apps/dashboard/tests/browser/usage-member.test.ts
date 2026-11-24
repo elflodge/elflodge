@@ -17,5 +17,8 @@ test("a member learns where to read Batch usage without requesting the report", 
   await expect
     .element(page.getByText(/Each Batch's page shows what that Batch has used/))
     .toBeVisible();
-  await expect.element(page.getByRole("form", { name: "Usage report" })).toHaveLength(0);
+  // By part of its name, so a control that offers it under a longer name is absent too.
+  await expect
+    .element(page.getByRole("form", { name: "Usage report", exact: false }))
+    .toHaveLength(0);
 });
