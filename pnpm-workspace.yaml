@@ -73,6 +73,8 @@ catalog:
   "@types/ws": ^8.18.2
   "@ui-sdk/core": 0.1.0-beta.14
   "@ui-sdk/solid": 0.1.0-beta.14
+  # At the Vitest version Vite+ bundles, which it takes as a peer.
+  "@vitest/browser-playwright": 5.1.0
   atomically: ^2.1.1
   auth: 1.7.26
   birpc: ^4.2.0

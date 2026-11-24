@@ -78,7 +78,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - Assert through the interface under test. Read the database only for a persistence invariant that no public interface exposes.
 - Set up state through typed APIs where one exists, and through SQL only when none does or the scenario needs internal state.
 - Choose failure and recovery cases by likelihood and impact; no elaborate tests for speculative edges.
-- A test of what the dashboard does with the hub's answers goes in `apps/dashboard/tests`, where the `hub` fixture stands in for the hub and the page's clock is paused until the test moves it (`tests/dashboard.ts`); `vp test` in `apps/dashboard` runs them. A test whose claim is what the hub accepted, stored or refused through a page goes in `apps/hub/tests/journeys/`, which `vp test --project journeys` in `apps/hub` runs against the Node hub only.
+- A test of what the dashboard does with the hub's answers goes in `apps/dashboard/tests/browser`, which mounts the app in Vitest's Browser Mode, in one document for each file; there the `hub` fixture stands in for the hub and the page's clock is faked, moving when the test or Vitest moves it (`tests/browser/dashboard.tsx`); `vp test` in `apps/dashboard` runs them. A test whose claim is what the hub accepted, stored or refused through a page goes in `apps/hub/tests/journeys/`, which `vp test --project journeys` in `apps/hub` runs against the Node hub only, as does one that needs a second document, such as a reload or another tab.
 - No test waits on real time unless time is the behaviour it tests, and then a comment says why.
 
 ## Review

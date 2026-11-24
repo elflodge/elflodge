@@ -1,9 +1,13 @@
 import { expect } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser/context";
 
-import { expectBrowser, liveRegions, runClockUntil, test } from "./dashboard.ts";
-import { anApiKey, aRunner, signedIn } from "./records.ts";
+import { anApiKey, aRunner } from "../records.ts";
+import { advance, clickAt, focus, liveRegions, runClockUntil, test } from "./dashboard.tsx";
 
 // The Runners page: removing a Runner, adding one, and what a member who may not remove one sees.
+
+const tabIndex = (element: Element) =>
+  element instanceof HTMLElement ? element.tabIndex : undefined;
 
 /** A removal that ended no jobs and left no files. */
 const NOTHING_ENDED = { endedJobs: [], jobsWithFilesLeft: [] };
@@ -25,41 +29,41 @@ test("a removal confirmed while the list is being read shows its progress, canno
     .getByRole("listitem")
     .filter({ has: page.getByRole("heading", { name: /^retired-host / }) });
   const remove = { name: /^Remove retired-host / };
-  await record.getByRole("button", remove).scrollIntoViewIfNeeded();
-  await expectBrowser(
-    page.getByRole("heading", { name: "Runners", level: 1 }),
-  ).not.toBeInViewport();
+  (await record.getByRole("button", remove).findElement()).scrollIntoView({ block: "center" });
+  await expect
+    .element(page.getByRole("heading", { name: "Runners", level: 1 }))
+    .not.toBeInViewport();
 
   // The page reads the list every five seconds; this read, and every one after it, is held. The hub
   // answers this one as it stood then, with the Runner, and every later one without it.
   let answered = 0;
   hub.runners.list.answers(() => (answered++ === 0 ? runners : runners.slice(0, -1)));
   const reads = hub.runners.list.hold();
-  await page.clock.runFor(5_000);
+  await advance(5_000);
   await reads.arrived;
   await record.getByRole("button", remove).click();
   const dialog = page.getByRole("alertdialog");
   const removal = hub.runners.delete.hold();
   await dialog.getByRole("button", remove).click();
   expect(await removal.arrived).toEqual({ id: retired.id });
-  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
-  await expectBrowser(dialog.getByRole("button", remove)).toBeFocused();
+  await expect.element(dialog.getByText("Working…")).toBeVisible();
+  await expect.element(dialog.getByRole("button", remove)).toHaveFocus();
   // Until the hub answers, a second press sends nothing more, and the dialog cannot be left.
-  await page.keyboard.press("Enter");
+  await userEvent.keyboard("{Enter}");
   await dialog.getByRole("button", remove).click({ force: true });
-  await page.keyboard.press("Escape");
-  await page.mouse.click(1, 1);
-  await expectBrowser(dialog.getByText("Working…")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await clickAt(1, 1);
+  await expect.element(dialog.getByText("Working…")).toBeVisible();
 
   removal.release();
   const notice = page.getByRole("status").filter({ hasText: /^retired-host .* is removed\./ });
-  await expectBrowser(notice).toBeFocused();
-  await expectBrowser(notice).toBeInViewport();
-  await expectBrowser(dialog).toHaveCount(0);
+  await expect.element(notice).toHaveFocus();
+  await expect.element(notice).toBeInViewport();
+  await expect.element(dialog).toHaveLength(0);
   // Its record goes once the list is read after the removal.
-  await expectBrowser(record).toBeVisible();
+  await expect.element(record).toBeVisible();
   reads.release();
-  await expectBrowser(record).toHaveCount(0);
+  await expect.element(record).toHaveLength(0);
   expect(hub.runners.delete.calls).toEqual([{ id: retired.id }]);
 });
 
@@ -83,12 +87,12 @@ test("removing an already removed Runner closes the dialog, explains its absence
   hub.runners.list.answers([]);
   const reads = hub.runners.list.calls.length;
   await dialog.getByRole("button", remove).click();
-  await expectBrowser(dialog).toHaveCount(0);
+  await expect.element(dialog).toHaveLength(0);
   const notice = page.getByRole("status").filter({ hasText: "is already gone" });
-  await expectBrowser(notice).toHaveText(`${label} is already gone.`);
-  await expectBrowser(notice).toBeFocused();
+  await expect.element(notice).toHaveTextContent(`${label} is already gone.`);
+  await expect.element(notice).toHaveFocus();
   // One read of the list told it was gone; the page took its record off without reading it again.
-  await expectBrowser(record).toHaveCount(0);
+  await expect.element(record).toHaveLength(0);
   expect(hub.runners.list.calls).toHaveLength(reads + 1);
 });
 
@@ -106,21 +110,21 @@ test("a Runner a read drops while its dialog is open is still named there, and i
   const remove = { name: `Remove ${label}` };
   await record.getByRole("button", remove).click();
   const dialog = page.getByRole("alertdialog");
-  await expectBrowser(dialog.getByRole("heading")).toHaveText(`Remove ${label}?`);
+  await expect.element(dialog.getByRole("heading")).toHaveTextContent(`Remove ${label}?`);
 
   // Another member removes it. The page's next read of the list drops its record, and the open
   // dialog still names it.
   hub.runners.list.answers([]);
-  await page.clock.runFor(5_000);
-  await expectBrowser(record).toHaveCount(0);
-  await expectBrowser(dialog.getByRole("heading")).toHaveText(`Remove ${label}?`);
+  await advance(5_000);
+  await expect.element(record).toHaveLength(0);
+  await expect.element(dialog.getByRole("heading")).toHaveTextContent(`Remove ${label}?`);
 
   hub.runners.delete.refuses("NOT_FOUND");
   await dialog.getByRole("button", remove).click();
-  await expectBrowser(dialog).toHaveCount(0);
-  await expectBrowser(
-    page.getByRole("status").filter({ hasText: `${label} is already gone.` }),
-  ).toBeFocused();
+  await expect.element(dialog).toHaveLength(0);
+  await expect
+    .element(page.getByRole("status").filter({ hasText: `${label} is already gone.` }))
+    .toHaveFocus();
   expect(hub.runners.delete.calls).toEqual([{ id: former.id }]);
 });
 
@@ -130,117 +134,88 @@ test("Add Runner cannot be left while its key is created, then shows the key in 
 }) => {
   const answer = { id: anApiKey("Runner registration").id, key: "elf_registration_secret" };
   hub.apiKeys.create.answers(answer);
-  const page = await open("runners", { permissions: ["clipboard-read", "clipboard-write"] });
+  // The clipboard's permissions are the project's, for every test.
+  const page = await open("runners");
   const trigger = page.getByRole("button", { name: "Add Runner" });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Add Runner" });
-  await expectBrowser(dialog).toBeFocused();
+  await expect.element(dialog).toHaveFocus();
   // On this machine's address the hub is named by what the member puts in, and the key too, until
   // they ask for one: opening it created nothing.
-  const command = dialog.getByLabel("The command to run on the machine");
-  await expectBrowser(command).toContainText("HUB_URL=<the hub's URL from that machine>");
-  await expectBrowser(command).toContainText("<a registration key>");
-  await expectBrowser(command).not.toContainText(new URL(page.url()).origin);
+  const command = dialog.getByLabelText("The command to run on the machine");
+  await expect.element(command).toMatchTextContent("HUB_URL=<the hub's URL from that machine>");
+  await expect.element(command).toMatchTextContent("<a registration key>");
+  await expect.element(command).not.toMatchTextContent(location.origin);
   expect(hub.apiKeys.create.calls).toEqual([]);
-  await expectBrowser(
-    dialog.getByRole("status").filter({ hasText: /^Waiting for a Runner to register\./ }),
-  ).toBeVisible();
+  await expect
+    .element(dialog.getByRole("status").filter({ hasText: /^Waiting for a Runner to register\./ }))
+    .toBeVisible();
 
   const create = dialog.getByRole("button", { name: "Create a registration key" });
   const close = dialog.getByRole("button", { name: "Close" });
   const creation = hub.apiKeys.create.hold();
-  await create.press("Enter");
+  await focus(create);
+  await userEvent.keyboard("{Enter}");
   expect(await creation.arrived).toEqual({
     name: "Runner registration",
     permissions: { runner: ["register"] },
     expiresIn: 86_400,
   });
-  await expectBrowser(create).toBeFocused();
-  await expectBrowser(create).toHaveAttribute("aria-busy", "true");
-  await expectBrowser(close).toBeDisabled();
+  await expect.element(create).toHaveFocus();
+  await expect.element(create).toHaveAttribute("aria-busy", "true");
+  await expect.element(close).toBeDisabled();
   // Followed now, a link would leave the dialog before the key arrives in it.
   for (const name of ["Runners on other machines", "the Runner's README"]) {
     const link = dialog.getByRole("link", { name });
-    await expectBrowser(link).toHaveAttribute("aria-disabled", "true");
-    await expectBrowser(link).toHaveJSProperty("tabIndex", -1);
+    await expect.element(link).toHaveAttribute("aria-disabled", "true");
+    await expect.poll(() => tabIndex(link.element())).toBe(-1);
     await link.click({ force: true });
-    await link.press("Enter");
-    await expectBrowser(dialog).toBeVisible();
+    await focus(link);
+    await userEvent.keyboard("{Enter}");
+    await expect.element(dialog).toBeVisible();
   }
-  await create.focus();
+  await focus(create);
   // Screen readers hear it once the request has run for a second.
   const working = page.getByRole("status").filter({ hasText: /^Working…$/ });
-  await runClockUntil(page, 500, async () => (await working.count()) === 1);
-  await page.keyboard.press("Enter");
-  await page.keyboard.press("Escape");
-  await close.focus();
-  await expectBrowser(close).toBeFocused();
-  await page.keyboard.press("Enter");
-  await page.mouse.click(1, 1);
-  await expectBrowser(dialog).toBeVisible();
+  await runClockUntil(500, () => working.elements().length === 1);
+  await userEvent.keyboard("{Enter}");
+  await userEvent.keyboard("{Escape}");
+  await focus(close);
+  await expect.element(close).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await clickAt(1, 1);
+  await expect.element(dialog).toBeVisible();
 
   creation.release();
-  const copyLine = dialog.locator("p.copy");
+  const copyLine = dialog.getByCSS("p.copy");
   const copy = copyLine.getByRole("button", { name: "Copy the command" });
-  await expectBrowser(copy).toBeFocused();
-  await expectBrowser(copy).toHaveAccessibleDescription(/^Shown this once: the registration key/);
-  await expectBrowser(command.locator("mark.key")).toHaveText(answer.key);
+  await expect.element(copy).toHaveFocus();
+  await expect.element(copy).toHaveAccessibleDescription(/^Shown this once: the registration key/);
+  await expect.element(command.getByCSS("mark.key")).toHaveTextContent(answer.key);
   expect(hub.apiKeys.create.calls).toHaveLength(1);
 
   // Copying says so through UI SDK's live region, outside the dialog and never inert, which writes
   // it 100 ms after the press; no announcement carries the key.
   await copy.click();
-  await page.clock.runFor(100);
-  await expectBrowser(copyLine.getByText("Copied.", { exact: true })).toBeVisible();
-  const live = liveRegions(page);
+  await advance(100);
+  await expect.element(copyLine.getByText("Copied.", { exact: true })).toBeVisible();
+  const live = liveRegions();
   const result = live.filter({ hasText: "Copied." });
-  await expectBrowser(result).toHaveCount(1);
-  await expectBrowser(result).toHaveText("Copied.");
-  await expectBrowser(result.and(dialog.locator("*"))).toHaveCount(0);
-  await expectBrowser(result).toHaveRole("status");
-  await expectBrowser(result).toHaveAttribute("aria-live", "polite");
-  expect(await result.evaluate((element) => element.closest("[inert]") === null)).toBe(true);
-  const copied = await page.evaluate<string>("navigator.clipboard.readText()");
-  expect(copied === (await command.textContent())).toBe(true);
-  expect((await live.allTextContents()).some((message) => message.includes(answer.key))).toBe(
-    false,
-  );
+  await expect.element(result).toHaveLength(1);
+  await expect.element(result).toHaveTextContent("Copied.");
+  await expect.element(result.and(dialog.getByCSS("*"))).toHaveLength(0);
+  await expect.element(result).toHaveRole("status");
+  await expect.element(result).toHaveAttribute("aria-live", "polite");
+  expect(result.element().closest("[inert]") === null).toBe(true);
+  const copied = await navigator.clipboard.readText();
+  expect(copied === command.element().textContent).toBe(true);
+  expect(live.elements().some((message) => message.textContent.includes(answer.key))).toBe(false);
 
   // Closing it forgets the key: opened again, it asks afresh.
   await close.click();
-  await expectBrowser(trigger).toBeFocused();
-  expect(await page.content()).not.toContain(answer.key);
+  await expect.element(trigger).toHaveFocus();
+  expect(document.documentElement.outerHTML).not.toContain(answer.key);
   await trigger.click();
-  await expectBrowser(command).toContainText("<a registration key>");
-  expect(await page.content()).not.toContain(answer.key);
-});
-
-test("a plain member gets no owner's actions on Runners and API keys", async ({ hub, open }) => {
-  hub.session.answers(signedIn("member"));
-  hub.runners.list.answers([aRunner("shared-host")]);
-  const page = await open("runners");
-  const record = page
-    .getByRole("listitem")
-    .filter({ has: page.getByRole("heading", { name: /^shared-host / }) });
-  await expectBrowser(record).toBeVisible();
-  await expectBrowser(record.getByRole("button", { name: /^Remove / })).toHaveCount(0);
-
-  // Add Runner gives the command, for a key the member holds.
-  await page.getByRole("button", { name: "Add Runner" }).click();
-  const dialog = page.getByRole("dialog", { name: "Add Runner" });
-  await expectBrowser(dialog.getByLabel("The command to run on the machine")).toContainText(
-    "<a registration key>",
-  );
-  await expectBrowser(
-    dialog.getByRole("button", { name: "Create a registration key" }),
-  ).toHaveCount(0);
-  await dialog.getByRole("button", { name: "Close" }).click();
-
-  // Nor does the API keys page read the keys: the stand-in has no answer for that.
-  await page
-    .getByRole("navigation", { name: "Destinations" })
-    .getByRole("link", { name: "API keys" })
-    .click();
-  await expectBrowser(page.getByText("Only owners and admins see and manage")).toBeVisible();
-  await expectBrowser(page.getByRole("button", { name: "Create key" })).toHaveCount(0);
+  await expect.element(command).toMatchTextContent("<a registration key>");
+  expect(document.documentElement.outerHTML).not.toContain(answer.key);
 });

@@ -86,7 +86,7 @@ jobs:
       - run: vp test --project workers
         working-directory: apps/hub
 
-  # The dashboard's own tests, which drive its build in a browser against a stand-in for the hub,
+  # The dashboard's own tests, which mount its pages in a browser against a stand-in for the hub,
   # then the journeys through its pages, against one hub: the hub's suite checks on each hub what a
   # page takes from it (ADR 0003).
   dashboard:
