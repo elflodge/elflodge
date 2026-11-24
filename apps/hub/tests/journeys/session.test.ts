@@ -80,21 +80,19 @@ test("an open page returns to sign-in when a background read finds its session e
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
 
   /**
-   * What the page did, in order: a member read the hub refused, a session read answered, and a
-   * document it started loading, by its path.
+   * What the page did, in order: a member read the hub refused, as its answer arrived, and a session
+   * read and a document it started loading, by its path, as each started.
    */
   const events: string[] = [];
   page.on("request", (request) => {
     if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
       events.push(`document ${new URL(request.url()).pathname}`);
+    } else if (new URL(request.url()).pathname === "/api/auth/get-session") {
+      events.push("session read");
     }
   });
   page.on("response", (response) => {
-    const { pathname } = new URL(response.url());
-    if (pathname === "/api/auth/get-session") events.push("session read");
-    else if (response.status() === 401 && response.request().method() === "GET") {
-      events.push("refused");
-    }
+    if (response.status() === 401 && response.request().method() === "GET") events.push("refused");
   });
 
   // The session ends at the hub, with no sign-out in this browser and no navigation.
