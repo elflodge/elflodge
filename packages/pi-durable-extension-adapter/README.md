@@ -137,10 +137,7 @@ A registry serves one Harness and one host, and a conversation can be attached o
 A conversation created from an attached one, such as a subagent's or a fork, starts with its selection, so it is offered those tools and its calls to them fail. Its requests to a provider its creator's extensions serve with a custom stream fail too, since a fork gets a provider session of its own. Either attach it, which replaces the inherited extension with its own, or give it the default selection back and, when its model is one those extensions serve, a model of your app's, here for a conversation `child` that is not attached:
 
 ```ts
-await child.configure(
-  { extensions: null, model: { provider: "anthropic", modelId: "claude-sonnet-5-5" } },
-  context,
-);
+await child.configure({ extensions: null, model }, context);
 ```
 
 ## Options
