@@ -557,9 +557,9 @@ test("following Events resumes automatically after a rate limit", async ({ hub, 
   // The page follows new Events every five seconds; the next read is refused for its rate.
   hub.jobs.events.rateLimits();
   journal.events.push(aMessage(235));
-  const reads = hub.jobs.events.calls.length;
+  const refused = waitForResponse((request) => request.url.includes("/events"));
   await advance(5_000);
-  await expect.poll(() => hub.jobs.events.calls.length).toBeGreaterThan(reads);
+  expect((await refused).status).toBe(429);
   serve(hub, journal);
   await runClockUntil(1_000, () => isVisible(page.getByCSS("#event-235")));
 });

@@ -95,8 +95,9 @@ export interface Procedure<Input, Output, Errors extends ErrorMap> extends Endpo
    */
   answersUnchecked(body: unknown): void;
   /**
-   * Refuses every call with a 429, as a hub or a proxy in front of it answers a client that sends
-   * too many requests: a refusal the contract does not declare, which asking again later can clear.
+   * Refuses every call with a 429, as a proxy in front of the hub answers a client that sends too
+   * many requests, with Problem Details that say no more than the status: a refusal the contract
+   * does not declare, which asking again later can clear.
    */
   rateLimits(): void;
   /**
@@ -155,7 +156,8 @@ export type Hub = Procedures<typeof apiContract> & {
 /** The stand-in as the page's `fetch` reaches it. */
 export interface HubNetwork {
   /**
-   * Answers `request` as the hub would: a `Response.error()` for an answer lost on its way back,
+   * Answers `request` as the hub would, or as the test arranged what stands between them to: a
+   * `Response.error()` for an answer lost on its way back, a proxy's refusal,
    * and nothing for a request that is not one of the hub's, which fails the test as a stray.
    */
   handle(request: Request): Promise<Response | undefined>;
@@ -229,8 +231,11 @@ function isAnswerFunction<Input, Output, Errors>(
 
 /** What the stand-in learns of one request while the hub's handler serves it. */
 interface Exchange {
-  /** Whether the answer is to be lost on its way back. */
-  lost: boolean;
+  /**
+   * What reaches the page in place of the hub's answer: a `Response.error()` for an answer lost on
+   * its way back, or what something between the hub and the page answers instead.
+   */
+  replacement?: Response;
   /** The call a procedure took, by its name and input, once one took it. */
   call?: string;
   /** Whether what the procedure throws is the answer the test arranged. */
@@ -327,9 +332,13 @@ class ContractProcedure<
       case "unchecked":
         throw new UncheckedAnswer(answer.body);
       case "rateLimit":
-        throw new ORPCError("TOO_MANY_REQUESTS");
+        context.exchange.replacement = Response.json(
+          { type: "about:blank", status: 429, title: "Too Many Requests" },
+          { status: 429, headers: { "content-type": "application/problem+json" } },
+        );
+        throw new Error(`${this.#name} is refused by a proxy, as the test arranged`);
       case "loss":
-        context.exchange.lost = true;
+        context.exchange.replacement = Response.error();
         throw new Error(`${this.#name}'s answer is lost, as the test arranged`);
       default:
         throw new Error(`${this.#name} fails, as the test arranged`);
@@ -550,11 +559,11 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     if (url.pathname.startsWith(`${AUTH_BASE}/`)) {
       return serveAuth(request, url.pathname.slice(AUTH_BASE.length));
     }
-    const exchange: Exchange = { lost: false, arranged: false };
+    const exchange: Exchange = { arranged: false };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
     if (exchange.failure !== undefined) failures.push(exchange.failure);
     if (!matched) return undefined;
-    return exchange.lost ? Response.error() : response;
+    return exchange.replacement ?? response;
   }
 
   const network: HubNetwork = {
