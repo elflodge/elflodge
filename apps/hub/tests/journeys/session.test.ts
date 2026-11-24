@@ -73,9 +73,19 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
 test("an open page returns to sign-in when a background read finds its session ended elsewhere", async () => {
   const page = await browser.newPage();
   onTestFinished(() => page.close());
+  // Installed first, so the test can move the page's clock to the hub strip's next poll.
+  await page.clock.install();
   const member = await newMember(system, "Ended Elsewhere");
   await signInAt(system, page, "jobs", member);
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
+
+  /** The page's reads of the counts and of the session as they are answered. */
+  const reads: string[] = [];
+  page.on("response", (response) => {
+    const { pathname } = new URL(response.url());
+    if (pathname.endsWith("/jobs/counts")) reads.push(`counts ${response.status()}`);
+    else if (pathname.endsWith("/api/auth/get-session")) reads.push("session");
+  });
 
   // The session ends at the hub, with no sign-out in this browser and no navigation.
   const cookie = (await page.context().cookies())
@@ -83,11 +93,13 @@ test("an open page returns to sign-in when a background read finds its session e
     .join("; ");
   await system.authClient(cookie).signOut();
 
-  // The hub strip's next poll of the counts, within five seconds, is refused, and the session read
-  // that follows names no one.
-  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible({
-    timeout: 10_000,
-  });
+  // The hub strip's next poll of the counts, five seconds on, is refused, and the session read that
+  // follows names no one.
+  await page.clock.fastForward(5_000);
+  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible();
+  const refused = reads.indexOf("counts 401");
+  expect(refused).toBeGreaterThanOrEqual(0);
+  expect(reads[refused + 1]).toBe("session");
   expect(new URL(page.url()).searchParams.get("redirect")).toContain("/jobs");
 }, 30_000);
 
