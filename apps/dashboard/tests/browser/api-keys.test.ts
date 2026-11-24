@@ -10,7 +10,6 @@ import {
   descriptionOnFocus,
   focus,
   innerText,
-  isHidden,
   isVisible,
   mountAgain,
   readAgain,
@@ -52,7 +51,7 @@ test.for(["lists no keys", "fails"] as const)(
     await page.getByRole("alertdialog").getByRole("button", revoke).click();
     await reads.arrived;
     expect(hub.apiKeys.revoke.calls).toEqual([{ id: key.id }]);
-    await expect.poll(() => isHidden(page.getByRole("alertdialog"))).toBe(true);
+    await expect.element(page.getByRole("alertdialog")).toHaveLength(0);
     const notice = page.getByRole("status").filter({ hasText: /^old script .* is revoked\.$/ });
     await expect.element(notice).toHaveFocus();
 
@@ -121,7 +120,7 @@ test("a revocation the hub never answers ends on its own after 30 seconds, sayin
   // while any assertion retries.
   const arrivedAt = await arrival;
   await advanceTo(arrivedAt + 29_000);
-  expect(isVisible(dialog.getByText("Working…"))).toBe(true);
+  expect(dialog.getByText("Working…").element()).toBeVisible();
   expect(dialog.getByRole("alert").elements()).toHaveLength(0);
   await advanceTo(arrivedAt + 30_000);
   expect(texts(dialog.getByRole("alert"))).toEqual([UNCERTAIN]);
@@ -260,7 +259,7 @@ test("Create key cannot be left while the hub answers, then shows the key with C
   // Once the hub has answered, Escape closes it, and the key is gone with it: opened again, the
   // dialog asks afresh, and a reload does not bring it back.
   await userEvent.keyboard("{Escape}");
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   expect(document.documentElement.outerHTML).not.toContain(answer.key);
   await page.getByRole("button", { name: "Create key" }).click();
   await expect.element(dialog.getByRole("heading")).toHaveTextContent("Create an API key");

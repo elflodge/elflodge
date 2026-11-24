@@ -2,14 +2,7 @@ import { expect } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser/context";
 
 import { aBatch, aJob, JOB_LIMITS, jobsCounted, NO_JOBS_LISTED } from "../records.ts";
-import {
-  historyIndex,
-  advance,
-  descriptionOnFocus,
-  isHidden,
-  liveRegions,
-  test,
-} from "./dashboard.tsx";
+import { historyIndex, advance, descriptionOnFocus, liveRegions, test } from "./dashboard.tsx";
 
 // Submit a job: the hub's refusals at their fields, and leaving a draft. What the hub does with the
 // job is in tests/journeys.
@@ -102,22 +95,22 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   await jobs.click();
   await expect.element(stay).toHaveFocus();
   await userEvent.keyboard("{Escape}");
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await expect.element(input).toHaveValue("Still writing.");
   await jobs.click();
   await stay.click();
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await expect.element(jobs).toHaveFocus();
   history.back();
   await stay.click();
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   await expect.poll(() => location.pathname).toMatch(/\/jobs\/new$/);
   await expect.element(input).toHaveValue("Still writing.");
   const entry = historyIndex();
   await jobs.click();
   await dialog.getByRole("button", { name: "Leave the page" }).click();
   await expect.element(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
-  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(dialog).toHaveLength(0);
   expect(historyIndex()).toBe(entry + 1);
   await expect.element(page.getByCSS("[inert]")).toHaveLength(0);
   await expect.element(page.getByCSS('[data-slot="alert-dialog-content"]')).toHaveLength(0);

@@ -7,7 +7,6 @@ import {
   advance,
   advanceTo,
   focus,
-  isHidden,
   isVisible,
   mountAgain,
   runClockUntil,
@@ -50,7 +49,7 @@ test("the bar leads to the dashboard's pages, and on a phone names the current o
 
   // On a phone the current destination is named even while the account menu is closed.
   await page.viewport(390, 844);
-  await expect.poll(() => isHidden(jobs)).toBe(true);
+  await expect.element(jobs).toHaveLength(0);
   await expect
     .poll(() => isVisible(page.getByRole("banner").getByText("Jobs", { exact: true })))
     .toBe(true);
@@ -65,7 +64,7 @@ test("the bar leads to the dashboard's pages, and on a phone names the current o
   await destinations.getByRole("link", { name: "Runners" }).click();
   await expect.poll(() => location.pathname).toBe(`${DASHBOARD_BASE}runners`);
   await expect.element(page.getByRole("heading", { name: "Runners", level: 1 })).toBeVisible();
-  await expect.poll(() => isHidden(menu)).toBe(true);
+  await expect.element(menu).toHaveLength(0);
 });
 
 test("a refused sign-out keeps the member signed in and says why", async ({ hub, open }) => {
@@ -92,7 +91,7 @@ test("a refused sign-out keeps the member signed in and says why", async ({ hub,
   signingOut.release();
   // The menu closes to show the notice under it, and focus returns to the member's name.
   await expect.element(page.getByRole("alert")).toBeVisible();
-  await expect.poll(() => isHidden(menu)).toBe(true);
+  await expect.element(menu).toHaveLength(0);
   await expect.element(account).toHaveFocus();
   expect(hub.auth.signOut.calls).toHaveLength(1);
 });
@@ -128,7 +127,7 @@ test.for([
     await expect.element(page.getByRole("banner")).toBeVisible();
     await expect.element(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     session.release();
-    await expect.poll(() => isHidden(retry)).toBe(true);
+    await expect.element(retry).toHaveLength(0);
     await expect.element(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     // The list read again, shown.
     await expect
@@ -247,10 +246,10 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
   // has moved since. Checked without retrying, since Vitest moves the clock while any assertion retries.
   const reads = hub.jobs.counts.hold();
   await advanceTo(shownAt + 14_000);
-  expect(isVisible(queued)).toBe(true);
+  expect(queued.element()).toBeVisible();
   await advanceTo(shownAt + 15_000);
   const lastAnswer = strip.getByText(/^The job counts have not been read since /);
-  expect(isVisible(lastAnswer)).toBe(true);
+  expect(lastAnswer.element()).toBeVisible();
   // The time of the answer the page opened with, which came as it opened.
   const answeredAt = Date.parse(
     lastAnswer.getByCSS("time").element().getAttribute("datetime") ?? "",

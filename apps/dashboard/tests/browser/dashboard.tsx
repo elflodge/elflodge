@@ -338,14 +338,19 @@ export function texts(locator: Locator) {
     .map((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim());
 }
 
-/** Whether `locator` has an element that renders, as Playwright's `isVisible`. */
+/**
+ * Whether `locator` has an element a member can see, as `toBeVisible` judges one: read once, where
+ * `expect.element` would retry, and so move the clock, until it is.
+ */
 export function isVisible(locator: Locator) {
-  return locator.elements().some((element) => element.checkVisibility());
-}
-
-/** Whether `locator` has no element that renders, as Playwright's `toBeHidden`. */
-export function isHidden(locator: Locator) {
-  return !isVisible(locator);
+  return locator.elements().some((element) => {
+    try {
+      expect(element).toBeVisible();
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
