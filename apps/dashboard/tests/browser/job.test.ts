@@ -1,6 +1,6 @@
 import { openFailureSchema, type Job } from "contract";
 import { expect } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser/context";
+import { userEvent, utils } from "vite-plus/test/browser/context";
 
 import {
   NOW,
@@ -392,16 +392,9 @@ test("a member can correct a refused budget and resume the job, which the jobs l
     .element(page.getByCSS('[aria-label="Delete the job"]'))
     .toHaveAttribute("aria-disabled", "true");
   await expect.element(dialog.getByRole("status")).toHaveTextContent("Working…");
-  // LOSS: Vitest gives no aria snapshot as text; the words a screen reader can reach stand in: text
-  // that is rendered, and neither hidden from the accessibility tree nor inert.
-  expect(
-    page
-      .getByText("Working…")
-      .elements()
-      .filter(
-        (element) => !element.closest('[aria-hidden="true"], [inert]') && element.checkVisibility(),
-      ),
-  ).toHaveLength(1);
+  // Once, in what a screen reader reaches of the page.
+  const accessible = utils.aria.renderAriaTree(utils.aria.generateAriaTree(document.body));
+  expect(accessible.match(/Working…/g)).toHaveLength(1);
 
   // The dialog closes as the resumed job shows, without waiting for the counts it reads again.
   journal.job = resumed;
