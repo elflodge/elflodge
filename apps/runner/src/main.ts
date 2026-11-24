@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
+import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
@@ -308,6 +309,17 @@ const authSettings = Config.all({
   provider: Config.NonEmptyString("RUNNER_MODEL_PROVIDER"),
 });
 
+/**
+ * Whether `error` is Pi's report that a login or logout changed the saved credentials, after which
+ * only updating this command's own models failed. The change stands, and every job makes its models
+ * afresh, reading it, so the command succeeds with a note; Pi's own `pi auth login` and `logout`
+ * fail instead.
+ */
+const isUnsynchronizedChange = (error: Error) => error instanceof CredentialSynchronizationError;
+
+const noteUnsynchronizedChange = () =>
+  console.log("Pi saved the change but could not update this command's own list of models.");
+
 /** The same login operation serves explicit login and confirmed first-start setup. */
 function loginProvider(
   auth: ReturnType<typeof createRunnerAuth>,
@@ -339,6 +351,7 @@ function loginProvider(
         getDeviceId: () => id,
       })
       .pipe(
+        Effect.catchIf(isUnsynchronizedChange, () => Effect.sync(noteUnsynchronizedChange)),
         Effect.catch((error) =>
           Terminal.isQuitError(error)
             ? refuse("Login cancelled.")
@@ -366,9 +379,10 @@ const login = (withApiKey: boolean) =>
 const logout = Effect.gen(function* () {
   const { dataDir, provider } = yield* authSettings;
   const { auth } = yield* runnerAuth(dataDir);
-  yield* auth
-    .logout(provider)
-    .pipe(Effect.catch(() => refuse("Could not remove saved provider authentication.")));
+  yield* auth.logout(provider).pipe(
+    Effect.catchIf(isUnsynchronizedChange, () => Effect.sync(noteUnsynchronizedChange)),
+    Effect.catch(() => refuse("Could not remove saved provider authentication.")),
+  );
   console.log(
     `Saved authentication removed for "${provider}". Environment authentication, if configured, still applies.`,
   );

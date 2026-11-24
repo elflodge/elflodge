@@ -8,7 +8,6 @@ import {
   type Models,
   ModelsError,
 } from "@earendil-works/pi-ai";
-import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import * as NodeStream from "@effect/platform-node-shared/NodeStream";
 import { Effect } from "effect";
 import ensureError from "ensure-error";
@@ -45,15 +44,6 @@ export const readApiKey = (input: Readable) =>
         : Effect.succeed(key),
     ),
   );
-
-/**
- * Whether `error` is Pi's report that a login or logout changed the stored credentials, after
- * which only updating the runtime's own copy of its models failed. The change is done: the copy
- * serves at most the command's own check after it, which reads the credentials afresh, and every
- * job makes models of its own. Pi's own CLI fails such a login, as its session goes on with the
- * copy.
- */
-const isSaved = (error: Error) => error instanceof CredentialSynchronizationError;
 
 /**
  * Provider authentication for startup and credential commands. Pi owns credential resolution,
@@ -267,10 +257,7 @@ export function createRunnerAuth(models: Models, credentials: CredentialStore) {
           );
         },
         catch: ensureError,
-      }).pipe(
-        Effect.asVoid,
-        Effect.catchIf(isSaved, () => Effect.void),
-      );
+      }).pipe(Effect.asVoid);
     }),
 
     /** Configuration only: no OAuth refresh, token validation or credential values. */
@@ -298,7 +285,7 @@ export function createRunnerAuth(models: Models, credentials: CredentialStore) {
         yield* Effect.tryPromise({
           try: (signal) => models.logout(provider, { signal }),
           catch: ensureError,
-        }).pipe(Effect.catchIf(isSaved, () => Effect.void));
+        });
       }
     }),
   };

@@ -9,6 +9,7 @@ import path from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { it } from "@effect/vitest";
 import {
+  createJsonRpcServer,
   HEARTBEAT_PING,
   HEARTBEAT_PONG,
   JOB_FAILED,
@@ -17,7 +18,7 @@ import {
   registeredRunnerSchema,
   runnerRequests,
 } from "contract";
-import { ConfigProvider, Deferred, Effect, Layer, Stdio } from "effect";
+import { ConfigProvider, Deferred, Effect, Fiber, Layer, Stdio } from "effect";
 import { assert, expect, onTestFinished, vi } from "vite-plus/test";
 import { WebSocketServer } from "ws";
 import * as z from "zod/mini";
@@ -86,36 +87,42 @@ const ChatRequest = z.object({
  * submits an output.
  */
 const standInModel = (jobs: number) =>
-  Effect.promise(async () => {
-    const requests: ModelRequest[] = [];
-    const allAsked = Promise.withResolvers<void>();
-    const firsts = new Set<string>();
-    const server = createServer(async (request: IncomingMessage, response) => {
-      const body = ChatRequest.parse(JSON.parse(await new Response(request).text()));
-      const user = body.messages.find((message) => message.role === "user");
-      const input =
-        typeof user?.content === "string" ? user.content : JSON.stringify(user?.content);
-      requests.push({
-        path: request.url ?? "",
-        input,
-        authorization: request.headers.authorization,
-      });
-      const answered = body.messages.some((message) => message.role === "tool");
-      if (!answered) {
-        firsts.add(input);
-        if (firsts.size === jobs) allAsked.resolve();
-        await allAsked.promise;
-      }
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      response.end(callSubmitOutput(answered ? { value: {} } : {}));
-    });
-    server.listen(0, "127.0.0.1");
-    await once(server, "listening");
-    onTestFinished(() => {
-      server.close();
-    });
-    return { url: urlOf(server), requests };
+  Effect.gen(function* () {
+    const failed = yield* Deferred.make<never, Error>();
+    const { url, requests } = yield* Effect.promise(() => serveModel(jobs, failed));
+    return { url, requests, failed: Deferred.await(failed) };
   });
+
+async function serveModel(jobs: number, failed: Deferred.Deferred<never, Error>) {
+  const requests: ModelRequest[] = [];
+  const allAsked = Promise.withResolvers<void>();
+  const firsts = new Set<string>();
+  const server = createServer(async (request: IncomingMessage, response) => {
+    const body = ChatRequest.parse(JSON.parse(await new Response(request).text()));
+    const user = body.messages.find((message) => message.role === "user");
+    const input = typeof user?.content === "string" ? user.content : JSON.stringify(user?.content);
+    requests.push({
+      path: request.url ?? "",
+      input,
+      authorization: request.headers.authorization,
+    });
+    const answered = body.messages.some((message) => message.role === "tool");
+    if (!answered) {
+      firsts.add(input);
+      if (firsts.size === jobs) allAsked.resolve();
+      await allAsked.promise;
+    }
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.end(callSubmitOutput(answered ? { value: {} } : {}));
+  });
+  server.on("error", (error) => Deferred.doneUnsafe(failed, Effect.fail(error)));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  onTestFinished(() => {
+    server.close();
+  });
+  return { url: urlOf(server), requests };
+}
 
 /** A job the stand-in hub places, with its own input and instructions, so none waits on another. */
 const job = (input: string) => ({
@@ -135,27 +142,15 @@ const job = (input: string) => ({
 const standInHub = (runs: ReturnType<typeof job>[]) =>
   Effect.gen(function* () {
     const ended = yield* Deferred.make<Map<string, string>>();
+    const failed = yield* Deferred.make<never, Error>();
+    const fail = (error: Error) => Deferred.doneUnsafe(failed, Effect.fail(error));
     const ends = new Map<string, string>();
-    const hub = new WebSocketServer({ port: 0, host: "127.0.0.1" });
-    yield* Effect.promise(() => once(hub, "listening"));
-    onTestFinished(() => {
-      hub.close();
-    });
     const open = () => runs.filter((run) => !ends.has(run.jobId));
-    hub.on("connection", (socket) => {
-      socket.addEventListener("message", ({ data: text }) => {
-        assert(typeof text === "string", "the Runner sent a binary message");
-        if (text === HEARTBEAT_PING) return socket.send(HEARTBEAT_PONG);
-        const request = z.parse(
-          z.object({ id: z.number(), method: z.string(), params: z.unknown() }),
-          JSON.parse(text),
-        );
-        const reply = (result: unknown) =>
-          socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
-        if (request.method === "hello") return reply({ syncIntervalMs: 200, reportIntervalMs: 50 });
-        if (request.method === "sync") return reply({ runs: open(), deletions: [] });
-        if (request.method !== "report") return;
-        for (const report of z.parse(runnerRequests.report.params, request.params).jobs) {
+    const answer = createJsonRpcServer(runnerRequests, {
+      hello: async () => ({ syncIntervalMs: 200, reportIntervalMs: 50 }),
+      sync: async () => ({ runs: open(), deletions: [] }),
+      report: async ({ jobs }) => {
+        for (const report of jobs) {
           for (const event of z.parse(jobReportSchema, report).events) {
             if (
               event.type === "entry" &&
@@ -165,14 +160,31 @@ const standInHub = (runs: ReturnType<typeof job>[]) =>
             }
           }
         }
-        reply({ runs: open(), deletions: [], refused: [] });
         if (ends.size === runs.length) Deferred.doneUnsafe(ended, Effect.succeed(ends));
+        return { runs: open(), deletions: [], refused: [] };
+      },
+    });
+    const hub = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    hub.on("error", fail);
+    yield* Effect.promise(() => once(hub, "listening"));
+    onTestFinished(() => {
+      hub.close();
+    });
+    hub.on("connection", (socket) => {
+      socket.on("error", fail);
+      socket.addEventListener("message", ({ data: text }) => {
+        assert(typeof text === "string", "the Runner sent a binary message");
+        if (text === HEARTBEAT_PING) return socket.send(HEARTBEAT_PONG);
+        void answer(text, undefined).then((reply) => reply && socket.send(reply), fail);
       });
     });
-    return { url: urlOf(hub), ended: Deferred.await(ended) };
+    return { url: urlOf(hub), ended: Deferred.await(ended), failed: Deferred.await(failed) };
   });
 
-/** Runs a Runner with `env` and a Groq API key saved by `login`, until the test ends. */
+/**
+ * Starts a Runner with `env` and a Groq API key saved by `login`, which runs until the test ends.
+ * Gives back an Effect that fails when the Runner does, as when it refuses to start.
+ */
 const startRunner = (env: Record<string, string>) =>
   Effect.gen(function* () {
     const dataDir = yield* Effect.promise(() => mkdtemp(path.join(tmpdir(), "runner-models-")));
@@ -187,7 +199,7 @@ const startRunner = (env: Record<string, string>) =>
         JSON.stringify({ [PROVIDER]: { type: "api_key", key: "fake-key" } }),
       );
     });
-    yield* runnerCli.pipe(
+    const runner = yield* runnerCli.pipe(
       Effect.provide(
         Layer.mergeAll(
           Stdio.layerTest({ args: Effect.succeed([]) }),
@@ -213,7 +225,15 @@ const startRunner = (env: Record<string, string>) =>
       ),
       Effect.forkScoped,
     );
+    return Fiber.join(runner).pipe(Effect.andThen(Effect.die(new Error("The Runner stopped"))));
   });
+
+/** Waits for every job to end, failing at once when the Runner or a stand-in fails first. */
+const untilEnded = (
+  hub: Effect.Success<ReturnType<typeof standInHub>>,
+  model: Effect.Success<ReturnType<typeof standInModel>>,
+  runner: Effect.Effect<never, unknown>,
+) => Effect.raceAllFirst([hub.ended, hub.failed, model.failed, runner]);
 
 /** Refuses every request the Runner's process makes to an address other than this host. */
 function refuseOtherHosts() {
@@ -243,9 +263,9 @@ it.live(
       const alpha = job("alpha");
       const beta = job("beta");
       const hub = yield* standInHub([alpha, beta]);
-      yield* startRunner({ HUB_URL: hub.url });
+      const runner = yield* startRunner({ HUB_URL: hub.url });
 
-      const ended = yield* hub.ended;
+      const ended = yield* untilEnded(hub, model, runner);
 
       expect(ended.get(alpha.jobId)).toBe(JOB_SUCCEEDED);
       expect(ended.get(beta.jobId)).toBe(JOB_SUCCEEDED);
@@ -276,9 +296,12 @@ it.live(
       });
       const alpha = job("alpha");
       const hub = yield* standInHub([alpha]);
-      yield* startRunner({ HUB_URL: hub.url, RUNNER_MODEL_BASE_URL: `${model.url}/base/v1` });
+      const runner = yield* startRunner({
+        HUB_URL: hub.url,
+        RUNNER_MODEL_BASE_URL: `${model.url}/base/v1`,
+      });
 
-      const ended = yield* hub.ended;
+      const ended = yield* untilEnded(hub, model, runner);
 
       expect(ended.get(alpha.jobId)).toBe(JOB_SUCCEEDED);
       expect(model.requests.map((request) => request.path)).toEqual([
