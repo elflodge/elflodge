@@ -208,7 +208,7 @@ export function openAndCheckJournal(
     const found = yield* Effect.gen(function* () {
       // A read-only Harness runs no model, but takes models all the same.
       const models = yield* settings.jobModels;
-      return yield* Effect.acquireUseRelease(
+      const journal = yield* Effect.acquireRelease(
         Effect.promise(async () =>
           Harness.open(
             await openNodeSqliteStorage(paths.journal),
@@ -216,9 +216,9 @@ export function openAndCheckJournal(
             context,
           ),
         ),
-        (journal) => Effect.promise(() => holdsRecord(journal, position)),
-        (journal) => Effect.promise(() => journal.close(context)),
+        (opened) => Effect.promise(() => opened.close(context)),
       );
+      return yield* Effect.promise(() => holdsRecord(journal, position));
     }).pipe(Effect.scoped);
     if (found.held) return true;
     // In the words callers read: the journal's records are the job's events, known by their IDs.

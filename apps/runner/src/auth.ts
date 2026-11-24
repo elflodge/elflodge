@@ -8,9 +8,9 @@ import {
   type Models,
   ModelsError,
 } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import * as NodeStream from "@effect/platform-node-shared/NodeStream";
-import { Effect, type Scope } from "effect";
+import { Effect } from "effect";
 import ensureError from "ensure-error";
 
 /**
@@ -47,64 +47,13 @@ export const readApiKey = (input: Readable) =>
   );
 
 /**
- * Pi's coding-agent models with the Runner's credential store, so a key or sign-in `login` saves,
- * and a sign-in Pi renews, reach every holder at its next model call.
+ * Whether `error` is Pi's report that a login or logout changed the stored credentials, after
+ * which only updating the runtime's own copy of its models failed. The change is done: the copy
+ * serves at most the command's own check after it, which reads the credentials afresh, and every
+ * job makes models of its own. Pi's own CLI fails such a login, as its session goes on with the
+ * copy.
  */
-export function createModelRuntime(credentials: CredentialStore): Promise<ModelRuntime> {
-  return ModelRuntime.create({
-    credentials,
-    // No `models.json` from Pi's agent directory in the operator's home: the Runner is configured
-    // by its environment, and a file Pi's own agent reads would change the Runner's providers
-    // unseen. Without the file, Pi keeps its model catalog cache in memory too.
-    modelsPath: null,
-    // No model catalog from pi.dev as a runtime is made, which happens for every job: the
-    // Runner's model is one of Pi's built-in ones, and a request would hold up each job's start.
-    allowModelNetwork: false,
-  });
-}
-
-/**
- * Has `models` call `provider`'s models at `baseUrl`, with its API key only: a sign-in, as one
- * `login` saves while the Runner runs, never reaches that URL. The startup check refuses what the
- * URL cannot serve, such as a saved sign-in or Azure.
- */
-export function callModelsAt(models: ModelRuntime, provider: string, baseUrl: URL) {
-  const definition = models.getProvider(provider);
-  const apiKey = definition?.auth.apiKey;
-  if (!definition || !apiKey) return;
-  const url = baseUrl.href;
-  const atUrl = <M extends { baseUrl: string }>(model: M): M => ({ ...model, baseUrl: url });
-  // A native provider rather than settings through `registerProvider`: settings would keep the
-  // provider's sign-in, and the extension adapter lets a job's extension replace settings for every
-  // provider but a native one, which keeps the job's requests at this URL.
-  models.registerNativeProvider({
-    ...definition,
-    baseUrl: url,
-    auth: { apiKey },
-    getModels: () => definition.getModels().map(atUrl),
-    getAllModels: definition.getAllModels && (() => definition.getAllModels?.().map(atUrl) ?? []),
-  });
-}
-
-/**
- * Makes the models one job runs on, its own, so the providers its Pi extensions register reach no
- * other job, as Pi gives each session a runtime of its own; with `baseUrl`, they call `provider`'s
- * models there. Kept until the scope closes, which waits for the credential writes they started,
- * such as a renewed sign-in's, so a Runner that stops keeps the new tokens.
- */
-export function acquireJobModels(
-  credentials: CredentialStore,
-  { provider, baseUrl }: Pick<ModelAuthSettings, "provider" | "baseUrl">,
-): Effect.Effect<ModelRuntime, never, Scope.Scope> {
-  return Effect.acquireRelease(
-    Effect.promise(async () => {
-      const models = await createModelRuntime(credentials);
-      if (baseUrl) callModelsAt(models, provider, baseUrl);
-      return models;
-    }),
-    (models) => Effect.promise(() => models.settleCredentialWrites()),
-  );
-}
+const isSaved = (error: Error) => error instanceof CredentialSynchronizationError;
 
 /**
  * Provider authentication for startup and credential commands. Pi owns credential resolution,
@@ -127,8 +76,8 @@ export function createRunnerAuth(models: Models, credentials: CredentialStore) {
   return {
     /**
      * Resolve authentication before startup, renewing OAuth through Pi. Only absent credentials
-     * invite onboarding; saved credentials Pi cannot resolve or renew require repair. Each job's
-     * models then apply the model URL override (`callModelsAt`).
+     * invite onboarding; saved credentials Pi cannot resolve or renew require repair. The model
+     * URL override itself applies to each job's models (`acquireJobModels`).
      */
     prepareModel: Effect.fn(
       function* ({
@@ -318,7 +267,10 @@ export function createRunnerAuth(models: Models, credentials: CredentialStore) {
           );
         },
         catch: ensureError,
-      }).pipe(Effect.asVoid);
+      }).pipe(
+        Effect.asVoid,
+        Effect.catchIf(isSaved, () => Effect.void),
+      );
     }),
 
     /** Configuration only: no OAuth refresh, token validation or credential values. */
@@ -346,7 +298,7 @@ export function createRunnerAuth(models: Models, credentials: CredentialStore) {
         yield* Effect.tryPromise({
           try: (signal) => models.logout(provider, { signal }),
           catch: ensureError,
-        });
+        }).pipe(Effect.catchIf(isSaved, () => Effect.void));
       }
     }),
   };

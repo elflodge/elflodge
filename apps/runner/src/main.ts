@@ -34,9 +34,10 @@ import { Command, Flag } from "effect/cli";
 import * as Prompt from "effect/cli/Prompt";
 
 import packageJson from "../package.json" with { type: "json" };
-import { acquireJobModels, createModelRuntime, createRunnerAuth, readApiKey } from "./auth.ts";
+import { createRunnerAuth, readApiKey } from "./auth.ts";
 import { fileCredentialStore } from "./credentials.ts";
 import { DEFAULT_NETWORK_SETTINGS, DEFAULT_SANDBOX_SETTINGS, runRunner } from "./index.ts";
+import { acquireJobModels, acquireModelRuntime } from "./models.ts";
 import { formatException, NETWORK_MODES, NetworkException, parseException } from "./network.ts";
 
 // Runs a Runner from the environment; `register` discards its own key and registers it again, and
@@ -214,14 +215,14 @@ function refuse(message: string) {
 }
 
 /**
- * The Runner's credential store, and its startup check and credential commands on models made as a
- * job's are, without the model URL override: the check refuses what the URL cannot serve, such as
- * a saved sign-in, which the override would hide from it.
+ * The Runner's credential store, and its startup check and credential commands, kept until the
+ * scope closes. They run on Pi's models as a job's are made, but without the model URL override,
+ * which would hide from the check a saved sign-in it must refuse.
  */
 const runnerAuth = (dataDir: string) =>
-  Effect.promise(async () => {
+  Effect.gen(function* () {
     const credentials = fileCredentialStore(path.join(dataDir, CREDENTIALS_FILE));
-    const models = await createModelRuntime(credentials);
+    const models = yield* acquireModelRuntime(credentials);
     return { credentials, auth: createRunnerAuth(models, credentials) };
   });
 
@@ -360,7 +361,7 @@ const login = (withApiKey: boolean) =>
     const baseUrl = Option.getOrUndefined(yield* modelBaseUrlSetting);
     const { auth } = yield* runnerAuth(settings.dataDir);
     yield* loginProvider(auth, { ...settings, baseUrl }, withApiKey);
-  });
+  }).pipe(Effect.scoped);
 
 const logout = Effect.gen(function* () {
   const { dataDir, provider } = yield* authSettings;
@@ -371,7 +372,7 @@ const logout = Effect.gen(function* () {
   console.log(
     `Saved authentication removed for "${provider}". Environment authentication, if configured, still applies.`,
   );
-});
+}).pipe(Effect.scoped);
 
 const authStatus = Effect.gen(function* () {
   const { dataDir, provider } = yield* authSettings;
@@ -386,7 +387,7 @@ const authStatus = Effect.gen(function* () {
       ? `Provider ${status.provider}: configured (${status.type}; source: ${status.source ?? "unspecified"}). Not validated.`
       : `Provider ${status.provider}: no authentication configured.`,
   );
-});
+}).pipe(Effect.scoped);
 
 const authCheck = (offerLogin: boolean) =>
   Effect.gen(function* () {
@@ -409,7 +410,7 @@ const authCheck = (offerLogin: boolean) =>
       }
     }
     if (problem) yield* refuse(problem.message);
-  });
+  }).pipe(Effect.scoped);
 
 const run = (options: { register: boolean; healthcheck: boolean }) =>
   Effect.gen(function* () {
@@ -483,7 +484,7 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
       return yield* server.run((socket) => socket.reader.pipe(Effect.asVoid, Effect.scoped));
     }).pipe(Effect.scoped);
     return yield* Effect.all([running, healthcheck], { concurrency: "unbounded", discard: true });
-  });
+  }).pipe(Effect.scoped);
 
 // Declared on both the Runner and `register`: effect/cli does not pass a command's flags to its
 // subcommands.
