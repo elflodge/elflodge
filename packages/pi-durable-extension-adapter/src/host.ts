@@ -474,6 +474,10 @@ class Workers {
       timeout: -1,
       // A notice that needs no answer, so none is left waiting when the worker exits.
       eventNames: ["cancelTool", "cancelProvider"],
+      // A reply that cannot be posted, such as an app hook's result that cannot be copied, goes to
+      // the worker's call as the error instead of ending the process. Other failures, which name
+      // no function, still reach this side's caller.
+      onGeneralError: (_error, functionName) => functionName !== undefined,
     });
     const reads = new SyncMessagePort(journal.port1);
     const reply = (value: ReadReply) => {

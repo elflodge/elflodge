@@ -73,11 +73,11 @@ export class ProviderRequests {
   > = {
     providerEvent: (id, event) => this.#pending.get(id)?.event(event),
     providerPayload: (id, payload, model) =>
-      sendable(() => this.#pending.get(id)?.options.onPayload?.(payload, model)),
+      failingWithError(() => this.#pending.get(id)?.options.onPayload?.(payload, model)),
     providerResponse: (id, response, model) =>
-      sendable(() => this.#pending.get(id)?.options.onResponse?.(response, model)),
+      failingWithError(() => this.#pending.get(id)?.options.onResponse?.(response, model)),
     providerStreamEvent: (id, data, model) =>
-      sendable(() => this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model)),
+      failingWithError(() => this.#pending.get(id)?.options.onProviderStreamEvent?.(data, model)),
   };
 
   add(request: PendingRequest) {
@@ -259,12 +259,12 @@ export class ConversationProviders {
       return;
     }
     if (entry.sessions.size) {
-      // The last stream went: the conversations left registered settings alone, which Pi's
-      // built-in stream serves, while the stand-in would find no conversation to route to.
+      // The last stream went: the conversations left registered settings alone, which the app's own
+      // stream for that API serves, else Pi's built-in one, while the stand-in would find no
+      // conversation to route to.
       const streaming = [...entry.sessions.values()].some(Boolean);
       if (streaming || entry.current?.streamSimple !== entry.dispatch) return;
       const { streamSimple: _, ...settings } = entry.current;
-      // An app's own stream for the same API serves them again, as before the extensions came.
       const own = entry.previous?.streamSimple;
       runtime.unregisterProvider(name);
       runtime.registerProvider(
@@ -485,28 +485,24 @@ function cloneable(reason: unknown) {
     return reason;
   } catch {
     // Not through ensure-error, which assigns to an error's cause and throws on a frozen one.
-    return new Error(reason instanceof Error ? reason.message : String(reason));
+    if (reason instanceof Error) return new Error(reason.message);
+    try {
+      return new Error(String(reason));
+    } catch {
+      return new Error("The abort reason cannot be sent to the extension worker");
+    }
   }
 }
 
 /**
- * Runs an app's hook for the worker, giving it what can be copied there: birpc fails outside any
- * caller, ending the host's process, when a reply cannot be posted.
+ * Runs an app's hook for the worker. birpc sends a rejection only when it is truthy, so one without
+ * an Error, even `undefined`, becomes an Error rather than a success.
  */
-async function sendable<T>(hook: () => T | Promise<T>): Promise<T> {
-  let result: T;
+async function failingWithError<T>(hook: () => T | Promise<T>): Promise<T> {
   try {
-    result = await hook();
+    return await hook();
   } catch (error) {
-    throw cloneable(error);
+    // Not through ensure-error for an Error, which it may change, and throws on when frozen.
+    throw error instanceof Error ? error : ensureError(error);
   }
-  try {
-    structuredClone(result);
-  } catch (error) {
-    throw new Error(
-      `A provider hook's result cannot be sent to the extension worker: ${ensureError(error).message}`,
-      { cause: error },
-    );
-  }
-  return result;
 }
