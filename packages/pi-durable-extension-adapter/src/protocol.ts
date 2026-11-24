@@ -25,7 +25,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { CompactionHooks } from "@earendil-works/pi-durable";
 import ensureError from "ensure-error";
-import { deserializeError, serializeError } from "serialize-error";
+import { serializeError } from "serialize-error";
 import Type, { type Static } from "typebox";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
@@ -357,40 +357,22 @@ export interface WorkerData {
   readonly rpc: MessagePort;
 }
 
-// Marks serialize-error's copy, so the other side rebuilds only what was serialized.
-const serialized = "@elflodge/pi-durable-extension-adapter:serialized";
-
-function copyable(value: unknown) {
-  try {
-    structuredClone(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * `value` as it can cross to the other thread, never changed: as it is when it can be copied,
- * which keeps what structured cloning keeps, such as a built-in error's type; else serialize-error's
- * copy of what can be copied; else, when even that holds what cannot, an error with its message.
+ * A failure as it can cross to the other thread, where `deserializeError` makes it an Error again:
+ * serialize-error's copy, which keeps an error's own fields, such as `code`, and makes a value that
+ * is not an error one, since birpc sends a falsy rejection as a success. When even that copy holds
+ * what cannot be copied, an error with its message, since birpc answers nothing when its error
+ * reply cannot be posted.
  */
-export function sendable(value: unknown): unknown {
-  if (copyable(value)) return value;
-  const copy = serializeError(value);
-  if (copyable(copy)) return { [serialized]: copy };
-  // ensure-error only for a value that is not an Error: it assigns to an Error's cause.
-  const message = value instanceof Error ? value.message : ensureError(value).message;
-  return { [serialized]: serializeError(new Error(message)) };
-}
-
-/** A value `sendable` gave, with an error it serialized made an Error again. */
-export function received(value: unknown): unknown {
-  return typeof value === "object" && value !== null && serialized in value
-    ? deserializeError(value[serialized])
-    : value;
-}
-
-/** A failure as it can cross to the other thread: an Error, also for a thrown value that is not. */
-export function sendableFailure(error: unknown): unknown {
-  return sendable(error instanceof Error ? error : ensureError(error));
+export function sendable(failure: unknown): unknown {
+  try {
+    const copy = serializeError(failure);
+    structuredClone(copy);
+    return copy;
+  } catch {
+    // A symbol or another value that cannot be copied, or the value's own `toJSON` threw.
+    // ensure-error only for a value that is not an Error: it assigns to an Error's cause.
+    const message = failure instanceof Error ? failure.message : ensureError(failure).message;
+    return serializeError(new Error(message));
+  }
 }

@@ -10,11 +10,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createBirpc } from "birpc";
 import ensureError from "ensure-error";
+import { deserializeError } from "serialize-error";
 import { SyncMessagePort } from "sync-message-port";
 import { Value } from "typebox/value";
 
 import {
-  received,
   unsupportedProviderFields,
   type Action,
   type ExtensionError,
@@ -108,7 +108,7 @@ function journalRequest<M extends keyof Reads>(
   // The next message is the answer to this read (`ReadReply`).
   const reply = journal.receiveMessage();
   if (!Value.Check(ReadReply, reply)) throw new Error("The host's reply is not a ReadReply");
-  if (reply.type === "error") throw ensureError(received(reply.error));
+  if (reply.type === "error") throw deserializeError(reply.error);
   return reply.value;
 }
 
@@ -474,7 +474,7 @@ const functions: WorkerFunctions = {
       const controller = providerRequests.get(request);
       if (!controller) continue;
       providerRequests.delete(request);
-      controller.abort(received(reason));
+      controller.abort(deserializeError(reason));
       return;
     }
   },
@@ -677,7 +677,7 @@ function modelRegistry(key: string): ModelRegistryFacade {
   };
 }
 
-const rpc = createBirpc<HostFunctions, WorkerFunctions>(functions, {
+const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
   post: (message) => workerData.rpc.postMessage(message),
   on: (handler) => workerData.rpc.on("message", handler),
@@ -686,16 +686,13 @@ const rpc = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   timeout: -1,
   // Notices that need no answer, so none is left waiting when the worker or the host goes.
   eventNames: ["changed", "cancelExec", "error", "providerEvent"],
-});
-// The host's calls, failing with the Error the host sent: one it could not copy whole comes as
-// serialize-error's copy, rebuilt here.
-const host = new Proxy(rpc, {
-  get(target, name, receiver) {
-    const value: unknown = Reflect.get(target, name, receiver);
-    if (typeof value !== "function") return value;
-    return (...args: unknown[]) =>
-      Promise.resolve(Reflect.apply(value, target, args)).catch((error: unknown) => {
-        throw received(error);
-      });
+  // A call to the host fails with the Error the host sent as serialize-error's copy. A failure of
+  // this side, such as a closed channel, is an Error already, which deserializeError leaves as is.
+  onRequest: async (request, next) => {
+    try {
+      await next(request);
+    } catch (error) {
+      throw deserializeError(error);
+    }
   },
 });
