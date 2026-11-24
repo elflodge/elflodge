@@ -50,14 +50,17 @@ export type Open = (path: string, options?: PageOptions) => Promise<typeof page>
 
 /**
  * The test for a dashboard page, mounted in the document the test runs in, against the stand-in
- * for the hub, which answers the page's `fetch` in the same document. These fail the test, which
- * names them: a call it has no answer for; a `fetch` the stand-in does not answer, or a WebSocket;
- * an arranged answer that throws, other than a procedure's declared refusal, or that the contract
- * refuses. A test's stand-in answers nothing once the test ends, and the network refuses what the
- * page sends from then until the next test opens a page, so no request of one test reaches the
- * next one's stand-in. `open` mounts the app at an address of the dashboard. Its timers and clock start at `NOW` and move when a test moves them, and as Vitest moves them
- * while an action or a retrying assertion waits, by as much real time as that wait takes: a test
- * cannot hold the clock to the millisecond, so it asserts what a member would notice instead.
+ * for the hub, which answers the page's `fetch` in the same document. Every request the page sends
+ * is recorded for the test as it is sent. These fail the test, which names them: a call it has no
+ * answer for; a `fetch` the stand-in does not answer, or a WebSocket; an arranged answer that
+ * throws, other than a procedure's declared refusal, or that the contract refuses; and a request
+ * whose body the page was still sending as the test ended. Once a test ends, its page's work goes
+ * no further through the network: its stand-in answers nothing more, an answer the page has not yet
+ * read stops arriving, and nothing answers what the page sends from then until the next test opens
+ * a page. `open` mounts the app at an address of the dashboard. Its timers and clock start at `NOW`
+ * and move when a test moves them, and as Vitest moves them while an action or a retrying assertion
+ * waits, by as much real time as that wait takes: a test cannot hold the clock to the millisecond,
+ * so it asserts what a member would notice instead.
  */
 export const test = base
   .extend("standIn", async () => {
@@ -72,18 +75,21 @@ export const test = base
     const { network } = standIn;
     const strays: string[] = [];
     const failures: string[] = [];
-    sent = [];
+    // This test's, which a request records itself in as it is sent, even should it go on after.
+    const log: Request[] = [];
+    sent = log;
     responseWaiters.clear();
-    let mounted: { dispose(): void; destroy(): void } | undefined;
+    const outgoing = new Set<Outgoing>();
+    let mounted: ReturnType<typeof mount> | undefined;
     // Aborted as the test ends, which ends every answer the stand-in is still giving.
     const ended = new AbortController();
 
-    onCleanup(() => {
-      // Nothing the test started is answered from here: what the page is still waiting for stays
-      // unanswered, so no work of this test goes on into the next, and the network refuses any
-      // request sent from now until the next test opens a page.
+    onCleanup(async () => {
+      // Nothing the test started is answered from here, nor goes on: what the page is still waiting
+      // for stays unanswered, an answer it is still reading stops arriving, and nothing answers a
+      // request it sends from now until the next test opens a page.
       ended.abort();
-      pageFetch.mockImplementation(refuseLate);
+      pageFetch.mockImplementation(never);
       pageWebSocket.mockImplementation(refuseWebSocket);
       mountAgainHere = undefined;
       mounted?.dispose();
@@ -93,6 +99,13 @@ export const test = base
       // and keeps what it last heard for the next test's.
       onlineManager.setOnline(true);
       vi.useRealTimers();
+      // Every request sent before the test ended is the test's to have arranged, so the stand-in
+      // records each before the checks below. One whose body the page was still sending is named
+      // as such instead: a body need not ever end.
+      const sending = [...outgoing].filter((request) => request.sending);
+      await Promise.all(
+        [...outgoing].filter((request) => !request.sending).map(({ taken }) => taken.promise),
+      );
       const unarranged = [...network.unarranged, ...strays];
       const failed = [...network.failures, ...failures];
       const problems = [
@@ -102,61 +115,84 @@ export const test = base
         ...(failed.length > 0
           ? [`Requests the stand-in failed to answer:\n${failed.join("\n")}`]
           : []),
+        ...(sending.length > 0
+          ? [
+              `Requests the page was still sending as the test ended:\n${sending.map(({ described }) => described).join("\n")}`,
+            ]
+          : []),
       ];
       if (problems.length > 0) throw new Error(problems.join("\n"));
     });
 
-    // Every fetch goes to the stand-in. One it does not answer fails the test as a stray, and one
-    // whose answer throws out of it fails the test with the error; each fails in the page as the
-    // network fails a request. A request the page aborts, as a deadline does, stops waiting.
-    pageFetch.mockImplementation(async (input, init) => {
-      const request = new Request(input, init);
-      const { signal } = request;
-      // The browser's network stack adds Content-Length from the body, which the hub's upload reads;
-      // a Request built in the page drops it, but a plain Headers holds it.
-      if (request.body) {
-        const headers = new Headers(request.headers);
-        headers.set("content-length", String((await request.clone().arrayBuffer()).byteLength));
-        Object.defineProperty(request, "headers", { value: headers });
-      }
-      signal.throwIfAborted();
-      if (offline) throw new TypeError("Failed to fetch");
-      const described = `${request.method} ${request.url}`;
-      sent.push(request.clone());
-      let response: Response | undefined;
+    /**
+     * Takes `request` to the stand-in, which records it before the test may end, whatever becomes of
+     * its answer: a stray or a failure, when its answer has none or throws.
+     */
+    async function takeToStandIn(request: Request, entry: Outgoing) {
       try {
-        response = await runWithSignal(AbortSignal.any([signal, ended.signal]), () =>
-          network.handle(request),
-        );
+        // The browser's network stack adds Content-Length from the body, which the hub's upload
+        // reads; a Request built in the page drops it, but a plain Headers holds it.
+        if (request.body) {
+          const headers = new Headers(request.headers);
+          headers.set("content-length", String((await request.clone().arrayBuffer()).byteLength));
+          Object.defineProperty(request, "headers", { value: headers });
+        }
+        entry.sending = false;
+        const response = await network.handle(request, () => entry.taken.resolve());
+        if (!response) strays.push(entry.described);
+        return { response };
       } catch (error) {
-        if (ended.signal.aborted) return new Promise<never>(() => {});
-        if (signal.aborted) throw signal.reason;
-        failures.push(`${described}: ${asError(error).message}`);
-        throw new TypeError("Failed to fetch", { cause: error });
+        if (!request.signal.aborted) failures.push(`${entry.described}: ${asError(error).message}`);
+        return { error };
+      } finally {
+        entry.sending = false;
+        entry.taken.resolve();
       }
-      if (!response) {
-        strays.push(described);
-        throw new TypeError("Failed to fetch");
-      }
-      if (response.type === "error") throw new TypeError("Failed to fetch");
-      for (const waiter of responseWaiters) {
-        if (!waiter.match(request)) continue;
-        responseWaiters.delete(waiter);
-        waiter.resolve(response.clone());
-      }
-      return response;
-    });
-    // The stand-in serves none.
-    pageWebSocket.mockImplementation(function (url) {
-      strays.push(`WebSocket ${String(url)}`);
-      return refuseWebSocket();
-    });
+    }
 
     return async (path, options = {}) => {
       if (mounted) throw new Error("A test opens one page");
       // Vitest sets the project's viewport once for each file; a test before may have narrowed it.
       const viewport = options.viewport ?? server.config.browser.viewport;
       await page.viewport(viewport.width, viewport.height);
+      // Every fetch goes to the stand-in. One it does not answer fails the test as a stray, and one
+      // whose answer throws out of it fails the test with the error; each fails in the page as the
+      // network fails a request. A request the page aborts, as a deadline does, stops waiting.
+      pageFetch.mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        const { signal } = request;
+        signal.throwIfAborted();
+        if (offline) throw new TypeError("Failed to fetch");
+        log.push(request.clone());
+        const entry: Outgoing = {
+          described: `${request.method} ${request.url}`,
+          sending: true,
+          taken: Promise.withResolvers(),
+        };
+        outgoing.add(entry);
+        const answer = takeToStandIn(request, entry);
+        let outcome: Awaited<typeof answer>;
+        try {
+          outcome = await runWithSignal(AbortSignal.any([signal, ended.signal]), () => answer);
+        } catch (error) {
+          if (ended.signal.aborted) return never();
+          throw error;
+        }
+        const { response } = outcome;
+        if (!response) throw new TypeError("Failed to fetch", { cause: outcome.error });
+        if (response.type === "error") throw new TypeError("Failed to fetch");
+        for (const waiter of responseWaiters) {
+          if (!waiter.match(request)) continue;
+          responseWaiters.delete(waiter);
+          waiter.resolve(response.clone());
+        }
+        return arrivingUntil(ended.signal, response);
+      });
+      // The stand-in serves none.
+      pageWebSocket.mockImplementation(function (url) {
+        strays.push(`WebSocket ${String(url)}`);
+        return refuseWebSocket();
+      });
       // Every timer and clock of the page, as Vitest fakes them by default.
       vi.useFakeTimers({ now: NOW });
       mounted = mount(DASHBOARD_BASE + path);
@@ -168,6 +204,15 @@ export const test = base
       return page;
     };
   });
+
+/** A request of a test's page on its way through the stand-in. */
+interface Outgoing {
+  readonly described: string;
+  /** Whether its body is still being read, before the stand-in can take it. */
+  sending: boolean;
+  /** Settled once the stand-in has recorded the request, or done with it. */
+  readonly taken: PromiseWithResolvers<void>;
+}
 
 /**
  * Mounts the app at `address` with a router and a Query client of its own, as Start's client does on
@@ -193,13 +238,34 @@ function refuseWebSocket(): never {
   throw new DOMException("The test serves no WebSocket", "SecurityError");
 }
 
+/** What never settles, so nothing waiting for it goes on. */
+function never() {
+  return new Promise<never>(() => {});
+}
+
 /**
- * Refuses a request sent after its test ended, as the network refuses one it cannot reach: one the
- * page sends as the fixture brings it back online, say, which Better Auth's client follows with a
- * session read.
+ * `response`, whose body stops arriving once `ended` aborts: the page reads it as it asks for it, so
+ * what an ended test's page had yet to read never arrives, and nothing that waits for it goes on.
  */
-async function refuseLate(): Promise<Response> {
-  throw new TypeError("Failed to fetch: sent after its test ended");
+function arrivingUntil(ended: AbortSignal, response: Response) {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (ended.aborted) await never();
+        const { done, value } = await reader.read();
+        if (ended.aborted) await never();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      },
+      cancel: (reason) => reader.cancel(reason),
+    },
+    // Read only as the page reads.
+    { highWaterMark: 0 },
+  );
+  const { status, statusText, headers } = response;
+  return new Response(body, { status, statusText, headers });
 }
 
 let offline = false;
