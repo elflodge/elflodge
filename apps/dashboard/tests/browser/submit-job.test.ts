@@ -48,7 +48,7 @@ test("a member can correct the limits the hub refused without retyping the job",
   for (const [label, value] of values)
     await expect
       .element(page.getByLabelText(label, { exact: label === "Input" }))
-      .toHaveValue(label === "Model budget" || label === "Run timeout" ? Number(value) : value);
+      .toHaveDisplayValue(value);
 
   // An edit ends the refusal at its own field only.
   await budget.fill(".5");
@@ -104,7 +104,7 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   history.back();
   await stay.click();
   await expect.element(dialog).toHaveLength(0);
-  await expect.poll(() => location.pathname).toMatch(/\/jobs\/new$/);
+  await expect.poll(() => location.href).toMatch(/\/jobs\/new$/);
   await expect.element(input).toHaveValue("Still writing.");
   const entry = historyIndex();
   await jobs.click();

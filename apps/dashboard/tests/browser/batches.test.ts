@@ -7,7 +7,7 @@ import { check, mountAgain, setOffline, test, texts, UNCERTAIN } from "./dashboa
 // The Batches list and a Batch's page: its filters and pages, its controls, and the ledger of its
 // jobs. Which Batches match a filter is the hub's (batches.test.ts).
 
-test("a member pages through Batches matching a status and a Label, including after a reload", async ({
+test("a member pages through Batches matching a status and a Label, including once the app mounts again at their address", async ({
   hub,
   open,
 }) => {
@@ -66,7 +66,8 @@ test("a member pages through Batches matching a status and a Label, including af
   // the filters; a status applied then asks without a Label.
   await page.getByRole("button", { name: "Filters (2 applied)" }).click();
   await page.getByLabelText("Label value").fill("unapplied");
-  await expect.element(page.getByLabelText("Label key")).toBeRequired();
+  // Required as the browser checks a form, which aria-required alone is not.
+  await expect.element(page.getByLabelText("Label key")).toHaveAttribute("required");
   await page.getByRole("link", { name: "Clear" }).click();
   const filters = page.getByRole("button", { name: "Filters" });
   await expect.element(filters).toHaveFocus();

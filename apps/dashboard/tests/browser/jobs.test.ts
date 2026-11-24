@@ -22,7 +22,7 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
 }) => {
   hub.jobs.list.answers(NO_JOBS_LISTED);
   const page = await open("");
-  await expect.poll(() => location.pathname).toBe("/dashboard/jobs");
+  await expect.poll(() => location.href).toBe(`${location.origin}/dashboard/jobs`);
   await expect.element(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
   await expect.element(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
   await expect
@@ -52,7 +52,7 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
   await expect.element(page.getByRole("link", { name: "Add Runner" })).toHaveLength(0);
 });
 
-test("filters held in the address go with the list's read and survive a reload, and Apply reads the list again in place", async ({
+test("filters held in the address go with the list's read and survive the app mounting again there, and Apply reads the list again in place", async ({
   hub,
   open,
 }) => {
@@ -73,7 +73,7 @@ test("filters held in the address go with the list's read and survive a reload, 
   await expect.element(filters).toHaveFocus();
   await expectFocusPastRunnersRead(hub, page, filters);
 
-  /** The list, its read and its closed panel show the filters survived submission or reload. */
+  /** The list, its read and its closed panel show the filters survived submission or a new mount. */
   async function expectFiltered() {
     await expect.element(rows(page)).toHaveLength(1);
     expect(hub.jobs.list.calls.at(-1)).toEqual({

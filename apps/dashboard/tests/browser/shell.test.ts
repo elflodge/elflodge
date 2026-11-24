@@ -40,7 +40,7 @@ test("the bar leads to the dashboard's pages, and on a phone names the current o
     Object.values(pages).map((path) => DASHBOARD_BASE + path),
   );
   await destinations.getByRole("link", { name: "Jobs" }).click();
-  await expect.poll(() => location.pathname).toBe(`${DASHBOARD_BASE}jobs`);
+  await expect.poll(() => location.href).toBe(`${location.origin}${DASHBOARD_BASE}jobs`);
   const jobs = destinations.getByRole("link", { name: "Jobs" });
   // Opened at an address with a filter, the app mounted again there.
   mountAgain("jobs?statusUnknown=true");
@@ -59,7 +59,7 @@ test("the bar leads to the dashboard's pages, and on a phone names the current o
   await expect.element(menu).toBeVisible();
   // Following a link from the menu closes it, so it does not cover the page it leads to.
   await destinations.getByRole("link", { name: "Runners" }).click();
-  await expect.poll(() => location.pathname).toBe(`${DASHBOARD_BASE}runners`);
+  await expect.poll(() => location.href).toBe(`${location.origin}${DASHBOARD_BASE}runners`);
   await expect.element(page.getByRole("heading", { name: "Runners", level: 1 })).toBeVisible();
   await expect.element(menu).toHaveLength(0);
 });

@@ -256,7 +256,7 @@ test("Create key cannot be left while the hub answers, then shows the key with C
   reads.release();
 
   // Once the hub has answered, Escape closes it, and the key is gone with it: opened again, the
-  // dialog asks afresh, and a reload does not bring it back.
+  // dialog asks afresh, and the app mounting again does not bring it back.
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).toHaveLength(0);
   expect(document.documentElement.outerHTML).not.toContain(answer.key);
