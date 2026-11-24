@@ -12,17 +12,18 @@ import { createBirpc } from "birpc";
 import ensureError from "ensure-error";
 import { SyncMessagePort } from "sync-message-port";
 
-import type {
-  Action,
-  ExtensionError,
-  HostFunctions,
-  JournalMessage,
-  ReadRequest,
-  Reads,
-  Registrations,
-  ToolResult,
-  WorkerData,
-  WorkerFunctions,
+import {
+  unsupportedProviderFields,
+  type Action,
+  type ExtensionError,
+  type HostFunctions,
+  type JournalMessage,
+  type ReadRequest,
+  type Reads,
+  type Registrations,
+  type ToolResult,
+  type WorkerData,
+  type WorkerFunctions,
 } from "./protocol.ts";
 import type {
   Instance,
@@ -158,7 +159,7 @@ const functions: WorkerFunctions = {
         // Refused before anything registers. refreshModels in particular: Pi calls it right after each
         // registration and when the app refreshes, and the adapter does not bridge those calls to the
         // worker, so dropping it silently would leave a provider that discovers its models with none.
-        for (const field of ["oauth", "images", "classifiers", "refreshModels"] as const) {
+        for (const field of unsupportedProviderFields) {
           if (config[field] !== undefined)
             throw new Error(
               `registerProvider: ${field} is not supported by pi-durable-extension-adapter`,
@@ -290,7 +291,7 @@ const functions: WorkerFunctions = {
           onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
         }),
       });
-      for await (const event of stream) await host.providerEvent.asEvent(request, event);
+      for await (const event of stream) await host.providerEvent(request, event);
       const message = await stream.result();
       // Its provider may keep its query open for the tools' results, as pi-claude-bridge does.
       waiting = message.stopReason === "toolUse";
@@ -678,5 +679,5 @@ const host = createBirpc<HostFunctions, WorkerFunctions>(functions, {
   // ends this worker, and its calls with it.
   timeout: -1,
   // Notices that need no answer, so none is left waiting when the worker or the host goes.
-  eventNames: ["changed", "cancelExec", "error"],
+  eventNames: ["changed", "cancelExec", "error", "providerEvent"],
 });

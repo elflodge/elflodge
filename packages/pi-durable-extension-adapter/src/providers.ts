@@ -110,9 +110,9 @@ interface InstalledProvider {
 interface Parking {
   readonly cancels: Set<(reason?: unknown) => void>;
   /** Cancels them and stops watching the run. */
-  release(): void;
+  cancel(): void;
   /** Stops watching the run without cancelling, once their worker is gone. */
-  drop(): void;
+  unwatch(): void;
 }
 
 const catalogs = new WeakMap<Runtime, Map<string, InstalledProvider>>();
@@ -138,7 +138,7 @@ export class ConversationProviders {
    * Requests of callers other than pi-durable that asked for tools, open until their caller aborts
    * its signal, if it gave one, or the conversation closes; a worker's exit ended them already.
    */
-  readonly #held = new Set<{ end(reason?: unknown): void; stop(): void }>();
+  readonly #held = new Set<{ cancel(reason?: unknown): void; unwatch(): void }>();
 
   constructor(models: Models, sessionId: string, harness: Harness, conversation: ConversationId) {
     this.#models = models;
@@ -163,8 +163,8 @@ export class ConversationProviders {
   withdraw(error: Error) {
     this.#worker = undefined;
     this.#gone = error;
-    for (const parking of this.#parked.values()) parking.drop();
-    for (const held of this.#held) held.stop();
+    for (const parking of this.#parked.values()) parking.unwatch();
+    for (const held of this.#held) held.unwatch();
     for (const name of this.#catalog.keys()) this.unregister(name);
   }
 
@@ -280,8 +280,8 @@ export class ConversationProviders {
   close(reason?: Error) {
     if (this.#life.signal.aborted) return;
     this.#life.abort(reason);
-    for (const parking of this.#parked.values()) parking.release();
-    for (const held of this.#held) held.end();
+    for (const parking of this.#parked.values()) parking.cancel();
+    for (const held of this.#held) held.cancel();
     for (const name of this.#catalog.keys()) this.unregister(name);
     this.#worker = undefined;
   }
@@ -325,8 +325,9 @@ export class ConversationProviders {
       if (message.stopReason !== "toolUse") return;
       if (submission !== undefined) this.#park(submission, cancel);
       // A caller other than pi-durable runs the tools itself and ends the query by its signal, or
-      // by closing the conversation. pi-durable's own requests always have an input; a run without
-      // one has answered and runs only its afterRun tasks, whose direct requests are held the same.
+      // by closing the conversation. pi-durable's generation requests always have an input; a run
+      // without one has answered and runs only its afterRun tasks, whose direct requests are held
+      // the same. pi-durable's other requests, such as a compaction summary, offer no tools.
       else if (!signal?.aborted) this.#hold(signal, cancel);
     };
     const id = worker.requests.add({
@@ -387,18 +388,18 @@ export class ConversationProviders {
     const watching = withCancel(withAbortSignal(this.#life.signal, BACKGROUND_CONTEXT));
     const parking: Parking = {
       cancels: new Set([cancel]),
-      release: () => {
-        parking.drop();
+      cancel: () => {
+        parking.unwatch();
         for (const each of parking.cancels) each();
       },
-      drop: () => {
+      unwatch: () => {
         if (this.#parked.get(submission) === parking) this.#parked.delete(submission);
         watching.cancel();
       },
     };
     this.#parked.set(submission, parking);
-    const release = () => {
-      if (this.#parked.get(submission) === parking) parking.release();
+    const cancelParked = () => {
+      if (this.#parked.get(submission) === parking) parking.cancel();
     };
     const abortedRun = (graph: TaskGraph) =>
       Object.values(graph.tasks).some(
@@ -410,29 +411,29 @@ export class ConversationProviders {
     void this.#harness
       .submission(submission, watching.context)
       .then((input) => input?.wait(watching.context))
-      .then(release, release);
+      .then(cancelParked, cancelParked);
     void this.#harness
       .watchTaskGraph(watching.context)
       .then((watch) => {
         // Released while the watch was acquired, or aborted already: a stopped watch cannot start.
         if (this.#parked.get(submission) !== parking) return;
-        if (abortedRun(watch.value)) return release();
+        if (abortedRun(watch.value)) return cancelParked();
         watch.start(async (call) => {
-          if (call.kind === "value" && abortedRun(call.value)) release();
+          if (call.kind === "value" && abortedRun(call.value)) cancelParked();
         });
       })
-      // Without the watch, the input's settling still releases them.
+      // Without the watch, the input's settling still cancels them.
       .catch(() => {});
   }
 
   #hold(signal: AbortSignal | undefined, cancel: (reason?: unknown) => void) {
-    const aborted = () => held.end(signal?.reason);
+    const aborted = () => held.cancel(signal?.reason);
     const held = {
-      end: (reason?: unknown) => {
-        held.stop();
+      cancel: (reason?: unknown) => {
+        held.unwatch();
         cancel(reason);
       },
-      stop: () => {
+      unwatch: () => {
         this.#held.delete(held);
         signal?.removeEventListener("abort", aborted);
       },
