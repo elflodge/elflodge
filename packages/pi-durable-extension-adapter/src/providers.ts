@@ -325,9 +325,9 @@ export class ConversationProviders {
       if (message.stopReason !== "toolUse") return;
       if (submission !== undefined) this.#park(submission, cancel);
       // A caller other than pi-durable runs the tools itself and ends the query by its signal, or
-      // by closing the conversation. pi-durable aborts each step's signal, so a run without inputs
-      // keeps its request until close.
-      else if (run === undefined && !signal?.aborted) this.#hold(signal, cancel);
+      // by closing the conversation. pi-durable's own requests always have an input; a run without
+      // one has answered and runs only its afterRun tasks, whose direct requests are held the same.
+      else if (!signal?.aborted) this.#hold(signal, cancel);
     };
     const id = worker.requests.add({
       options,
