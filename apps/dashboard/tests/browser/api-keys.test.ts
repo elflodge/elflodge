@@ -289,6 +289,8 @@ test.for(["Create key", "Add Runner"] as const)(
       await check(dialog.getByRole("group", { name: "Jobs" }).getByLabelText("read"));
       hub.apiKeys.list.answers([anApiKey("unconfirmed")]);
     }
+    // Every method of the console, as the browser's console shows them all.
+    const consoleMethods = CONSOLE_METHODS.map((name) => vi.spyOn(console, name));
     const errors = vi.spyOn(console, "error");
     const answered = waitForResponse(
       (request) => request.method === "POST" && new URL(request.url).pathname === "/api-keys",
@@ -317,7 +319,7 @@ test.for(["Create key", "Add Runner"] as const)(
         (name) => String(name).includes(key) || holdsKey(Reflect.get(value, name)),
       );
     };
-    expect(errors.mock.calls.flat().some(holdsKey)).toBe(false);
+    expect(consoleMethods.flatMap((method) => method.mock.calls.flat()).some(holdsKey)).toBe(false);
   },
 );
 
@@ -385,3 +387,22 @@ test("a member can correct a refused key name and keep the permissions they chos
     permissions: { job: ["read"] },
   });
 });
+
+/** The methods of the console, as the Console Standard names them. */
+const CONSOLE_METHODS = [
+  "assert",
+  "count",
+  "countReset",
+  "debug",
+  "dir",
+  "dirxml",
+  "error",
+  "group",
+  "groupCollapsed",
+  "info",
+  "log",
+  "table",
+  "timeLog",
+  "trace",
+  "warn",
+] as const;
