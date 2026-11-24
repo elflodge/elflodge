@@ -1,8 +1,6 @@
 import { runWithSignal } from "@orpc/shared";
 import { render } from "@solidjs/web";
-import { onlineManager } from "@tanstack/solid-query";
 import { RouterProvider } from "@tanstack/solid-router";
-import { kOnlineManager, type OnlineManager } from "better-auth/client";
 import { asError } from "contract";
 import { expect, test as base, vi } from "vite-plus/test";
 import { locators, page, server, type Locator } from "vite-plus/test/browser/context";
@@ -98,15 +96,6 @@ export const test = base
       mountAgainHere = undefined;
       mounted?.dispose();
       mounted?.destroy();
-      // Online for the next test, in what the libraries keep of what they last heard, without the
-      // `online` event: on it Better Auth reads the session, a read nothing answers now, and the app
-      // reads the session again on a refusal only once no read is under way. Query's `onlineManager`
-      // hears the browser's events only while an app subscribes to it.
-      offline = false;
-      Reflect.deleteProperty(navigator, "onLine");
-      onlineManager.setOnline(true);
-      const betterAuthOnline: OnlineManager | undefined = Reflect.get(globalThis, kOnlineManager);
-      if (betterAuthOnline) betterAuthOnline.isOnline = true;
       vi.useRealTimers();
       // Every request sent before the test ended is the test's to have arranged, so the stand-in
       // records each before the checks below. One whose body the page was still
@@ -162,6 +151,7 @@ export const test = base
 
     return async (path, options = {}) => {
       if (mounted) throw new Error("A test opens one page");
+      if (offline) throw new Error("A test that takes the page offline needs a file of its own");
       // Vitest sets the project's viewport once for each file; a test before may have narrowed it.
       const viewport = options.viewport ?? server.config.browser.viewport;
       await page.viewport(viewport.width, viewport.height);
@@ -294,6 +284,9 @@ let offline = false;
  * went or came back: `navigator.onLine` says so, and `window` hears `offline` or `online`, the
  * events TanStack Query's `onlineManager` follows. While offline, every request fails here, as the
  * network fails it. Whether the browser itself tells the page, when its network goes, is not tested.
+ * A test that takes the page offline has a file of its own, as the page's libraries keep what they
+ * heard for as long as the document lasts: Better Auth reads the session once back online, and
+ * a read that a test's end leaves unanswered keeps it from reading again on the next refusal.
  */
 export function setOffline(next: boolean) {
   if (next === offline) return;
