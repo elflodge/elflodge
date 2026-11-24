@@ -1,4 +1,6 @@
+import { runWithSignal } from "@orpc/shared";
 import { render } from "@solidjs/web";
+import { onlineManager } from "@tanstack/solid-query";
 import { createBrowserHistory, RouterProvider } from "@tanstack/solid-router";
 import { asError } from "contract";
 import { expect, test as base, vi } from "vite-plus/test";
@@ -9,7 +11,6 @@ import { getRouter } from "../../src/router.tsx";
 import type { Dropped } from "../../vite.config.ts";
 import { createHub } from "../hub.ts";
 import { NO_JOBS, NOW, signedIn } from "../records.ts";
-import { respondWith } from "./fetch.ts";
 
 declare module "vite-plus/test/browser" {
   interface BrowserCommands {
@@ -57,8 +58,9 @@ const VIEWPORT = { width: 1280, height: 720 };
  * for the hub, which answers the page's `fetch` in the same document. These fail the test, which
  * names them: a call it has no answer for; a `fetch` the stand-in does not answer, or a WebSocket;
  * an arranged answer that throws, other than a procedure's declared refusal, or that the contract
- * refuses; a request sent after the test. `open` mounts the app at an address of the dashboard.
- * Its timers and clock start at `NOW` and move when a test moves them, and as Vitest moves them
+ * refuses. A test's stand-in answers nothing once the test ends, and the network refuses what the
+ * page sends from then until the next test opens a page, so no request of one test reaches the
+ * next one's stand-in. `open` mounts the app at an address of the dashboard. Its timers and clock start at `NOW` and move when a test moves them, and as Vitest moves them
  * while an action or a retrying assertion waits, by as much real time as that wait takes: a test
  * cannot hold the clock to the millisecond, so it asserts what a member would notice instead.
  */
@@ -78,32 +80,26 @@ export const test = base
     sent = [];
     responseWaiters.clear();
     let mounted: { dispose(): void; destroy(): void } | undefined;
+    // Aborted as the test ends, which ends every answer the stand-in is still giving.
+    const ended = new AbortController();
 
-    onCleanup(async () => {
+    onCleanup(() => {
+      // Nothing the test started is answered from here: what the page is still waiting for stays
+      // unanswered, so no work of this test goes on into the next, and the network refuses any
+      // request sent from now until the next test opens a page.
+      ended.abort();
+      pageFetch.mockImplementation(refuseLate);
+      pageWebSocket.mockImplementation(refuseWebSocket);
       mountAgainHere = undefined;
-      // Back online while the app still listens: Query's `onlineManager` hears the browser's events
-      // only while something subscribes to it, and keeps what it last heard for the next test.
-      setOffline(false);
       mounted?.dispose();
       mounted?.destroy();
-      vi.unstubAllGlobals();
+      setOffline(false);
+      // Query's `onlineManager` hears the browser's events only while an app subscribes to it,
+      // and keeps what it last heard for the next test's.
+      onlineManager.setOnline(true);
       vi.useRealTimers();
-      // The tests of a file share the document and its `fetch`, so work a test leaves running, such
-      // as the reads of a navigation it started, would reach the next test's stand-in: it gets a task
-      // to reach this one's. Calls the test still holds stay unanswered, so nothing waiting on them
-      // goes on.
-      await new Promise((resolve) => setTimeout(resolve, 0));
       const unarranged = [...network.unarranged, ...strays];
       const failed = [...network.failures, ...failures];
-      // From here a request is late: the network fails it, and it fails this test.
-      const late: string[] = [];
-      respondWith(async (input, init) => {
-        const request = new Request(input, init);
-        late.push(`${request.method} ${request.url}`);
-        throw new TypeError("Failed to fetch");
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      respondWith(undefined);
       const problems = [
         ...(unarranged.length > 0
           ? [`Requests the test arranged no answer for:\n${unarranged.join("\n")}`]
@@ -111,7 +107,6 @@ export const test = base
         ...(failed.length > 0
           ? [`Requests the stand-in failed to answer:\n${failed.join("\n")}`]
           : []),
-        ...(late.length > 0 ? [`Requests sent after the test ended:\n${late.join("\n")}`] : []),
       ];
       if (problems.length > 0) throw new Error(problems.join("\n"));
     });
@@ -119,7 +114,7 @@ export const test = base
     // Every fetch goes to the stand-in. One it does not answer fails the test as a stray, and one
     // whose answer throws out of it fails the test with the error; each fails in the page as the
     // network fails a request. A request the page aborts, as a deadline does, stops waiting.
-    respondWith(async (input, init) => {
+    pageFetch.mockImplementation(async (input, init) => {
       const request = new Request(input, init);
       const { signal } = request;
       // The browser's network stack adds Content-Length from the body, which the hub's upload reads;
@@ -135,8 +130,11 @@ export const test = base
       sent.push(request.clone());
       let response: Response | undefined;
       try {
-        response = await untilAborted(network.handle(request), signal);
+        response = await runWithSignal(AbortSignal.any([signal, ended.signal]), () =>
+          network.handle(request),
+        );
       } catch (error) {
+        if (ended.signal.aborted) return new Promise<never>(() => {});
         if (signal.aborted) throw signal.reason;
         failures.push(`${described}: ${asError(error).message}`);
         throw new TypeError("Failed to fetch", { cause: error });
@@ -154,15 +152,10 @@ export const test = base
       return response;
     });
     // The stand-in serves none.
-    vi.stubGlobal(
-      "WebSocket",
-      new Proxy(WebSocket, {
-        construct(_, [url]: [string | URL]) {
-          strays.push(`WebSocket ${String(url)}`);
-          throw new DOMException("The test serves no WebSocket", "SecurityError");
-        },
-      }),
-    );
+    pageWebSocket.mockImplementation(function (url) {
+      strays.push(`WebSocket ${String(url)}`);
+      return refuseWebSocket();
+    });
 
     return async (path, options = {}) => {
       if (mounted) throw new Error("A test opens one page");
@@ -194,6 +187,23 @@ function mount(address: string) {
     dispose,
     destroy: () => router.history.destroy(),
   };
+}
+
+/** The page's `fetch` and `WebSocket`, which `network.ts` makes spies. */
+const pageFetch = vi.mocked(fetch);
+const pageWebSocket = vi.mocked(WebSocket);
+
+function refuseWebSocket(): never {
+  throw new DOMException("The test serves no WebSocket", "SecurityError");
+}
+
+/**
+ * Refuses a request sent after its test ended, as the network refuses one it cannot reach: one the
+ * page sends as the fixture brings it back online, say, which Better Auth's client follows with a
+ * session read.
+ */
+async function refuseLate(): Promise<Response> {
+  throw new TypeError("Failed to fetch: sent after its test ended");
 }
 
 let offline = false;
@@ -262,14 +272,6 @@ let sent: Request[] = [];
 /** Every request the page sent in this test, in order. */
 export function sentRequests(): readonly Request[] {
   return sent;
-}
-
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal) {
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
-  });
 }
 
 /** What a page says when it could not confirm a write the hub may have made. */

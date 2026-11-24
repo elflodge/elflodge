@@ -73,7 +73,7 @@ export default defineConfig({
         },
         test: {
           name: "browser",
-          setupFiles: ["tests/browser/fetch.ts"],
+          setupFiles: ["tests/browser/network.ts"],
           include: ["tests/browser/**/*.test.ts"],
           browser: {
             enabled: true,
