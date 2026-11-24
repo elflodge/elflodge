@@ -484,13 +484,8 @@ function cloneable(reason: unknown) {
     structuredClone(reason);
     return reason;
   } catch {
-    // Not through ensure-error, which assigns to an error's cause and throws on a frozen one.
-    if (reason instanceof Error) return new Error(reason.message);
-    try {
-      return new Error(String(reason));
-    } catch {
-      return new Error("The abort reason cannot be sent to the extension worker");
-    }
+    // An Error's message alone: ensure-error assigns to an error's cause, which throws when frozen.
+    return new Error(reason instanceof Error ? reason.message : ensureError(reason).message);
   }
 }
 
@@ -502,7 +497,7 @@ async function failingWithError<T>(hook: () => T | Promise<T>): Promise<T> {
   try {
     return await hook();
   } catch (error) {
-    // Not through ensure-error for an Error, which it may change, and throws on when frozen.
+    // An Error as it is: ensure-error assigns to an error's cause, which throws when frozen.
     throw error instanceof Error ? error : ensureError(error);
   }
 }
