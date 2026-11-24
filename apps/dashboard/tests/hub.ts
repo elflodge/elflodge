@@ -95,6 +95,11 @@ export interface Procedure<Input, Output, Errors extends ErrorMap> extends Endpo
    */
   answersUnchecked(body: unknown): void;
   /**
+   * Refuses every call with a 429, as a hub or a proxy in front of it answers a client that sends
+   * too many requests: a refusal the contract does not declare, which asking again later can clear.
+   */
+  rateLimits(): void;
+  /**
    * The input of every call received, in order. A request the hub's API handler refuses before the
    * procedure runs, such as one whose body is too large or whose input the contract refuses, gets
    * the hub's refusal, whatever the test arranged, and is not among them.
@@ -147,12 +152,11 @@ export type Hub = Procedures<typeof apiContract> & {
   readonly auth: AuthRoutes<typeof authClient>;
 };
 
-/** The stand-in as the browser's network serves it. */
+/** The stand-in as the page's `fetch` reaches it. */
 export interface HubNetwork {
   /**
    * Answers `request` as the hub would: a `Response.error()` for an answer lost on its way back,
-   * and nothing for a request that is not one of the hub's, which goes on to the build or fails the
-   * test as a stray.
+   * and nothing for a request that is not one of the hub's, which fails the test as a stray.
    */
   handle(request: Request): Promise<Response | undefined>;
   /** The calls the test arranged no answer for, each with its input. */
@@ -162,8 +166,6 @@ export interface HubNetwork {
    * answer that threw, or one the contract refused.
    */
   readonly failures: readonly string[];
-  /** Lets every held call go on, so that nothing waits once the test is over. */
-  releaseAll(): void;
 }
 
 type Answer<Input, Output, Refuse, Errors> =
@@ -172,7 +174,8 @@ type Answer<Input, Output, Refuse, Errors> =
   | { kind: "failure" }
   | { kind: "loss" }
   | { kind: "invalidInput"; problems: readonly InputProblem[] }
-  | { kind: "unchecked"; body: unknown };
+  | { kind: "unchecked"; body: unknown }
+  | { kind: "rateLimit" };
 
 /** What one endpoint was arranged to answer, and the calls it received. */
 class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Input, Output> {
@@ -203,11 +206,6 @@ class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Inpu
         hold.gate.resolve();
       },
     };
-  }
-
-  release() {
-    this.#hold?.gate.resolve();
-    this.#hold = undefined;
   }
 
   /** Records a call, waits while calls are held, and returns the answer that stands then. */
@@ -291,6 +289,10 @@ class ContractProcedure<
     this.answer = { kind: "unchecked", body };
   }
 
+  rateLimits() {
+    this.answer = { kind: "rateLimit" };
+  }
+
   /** Answers a call whose input the contract accepted, as the test arranged. */
   async serve({
     input,
@@ -324,6 +326,8 @@ class ContractProcedure<
         throw invalidInput(errors, input, answer.problems);
       case "unchecked":
         throw new UncheckedAnswer(answer.body);
+      case "rateLimit":
+        throw new ORPCError("TOO_MANY_REQUESTS");
       case "loss":
         context.exchange.lost = true;
         throw new Error(`${this.#name}'s answer is lost, as the test arranged`);
@@ -367,13 +371,12 @@ function describeFailure(caught: unknown) {
 }
 
 /**
- * One `ContractProcedure` for each procedure of `contract`, at its path, gathered in `procedures`,
- * and the router that serves them.
+ * One `ContractProcedure` for each procedure of `contract`, at its path, and the router that serves
+ * them.
  */
 function arrange<Contract>(
   contract: Contract,
   path: string[],
-  procedures: AnyProcedure[],
   unarranged: string[],
 ): { hub: Procedures<Contract>; router: Router<StandInContext> };
 // The contract's tree is walked at run time, which no type can follow; the overload above states
@@ -381,7 +384,6 @@ function arrange<Contract>(
 function arrange(
   contract: unknown,
   path: string[],
-  procedures: AnyProcedure[],
   unarranged: string[],
 ): { hub: unknown; router: unknown } {
   if (contract instanceof ProcedureContract) {
@@ -390,7 +392,6 @@ function arrange(
       throw new Error(`The implementer has no procedure at ${path.join(".")}`);
     }
     const procedure: AnyProcedure = new ContractProcedure(path.join("."), unarranged);
-    procedures.push(procedure);
     return {
       hub: procedure,
       router: procedureImplementer.handler((options) => procedure.serve(options)),
@@ -400,7 +401,7 @@ function arrange(
     throw new Error(`The contract has no procedure at ${path.join(".")}`);
   }
   const children = Object.entries(contract).map(
-    ([key, child]) => [key, arrange(child, [...path, key], procedures, unarranged)] as const,
+    ([key, child]) => [key, arrange(child, [...path, key], unarranged)] as const,
   );
   return {
     hub: Object.fromEntries(children.map(([key, { hub }]) => [key, hub])),
@@ -488,10 +489,9 @@ async function sentInput(request: Request) {
 export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
   const session = new Arrangement<void, Session, never>();
   const auth = new Map<string, BetterAuthRoute>();
-  const procedures: AnyProcedure[] = [];
   const unarranged: string[] = [];
   const failures: string[] = [];
-  const { hub: api, router } = arrange(apiContract, [], procedures, unarranged);
+  const { hub: api, router } = arrange(apiContract, [], unarranged);
   const apiHandler = createApiHandler(router);
 
   const hub: Hub = { ...api, session, auth: authRoutes(auth) };
@@ -561,11 +561,6 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     handle,
     unarranged,
     failures,
-    releaseAll() {
-      session.release();
-      for (const route of auth.values()) route.release();
-      for (const procedure of procedures) procedure.release();
-    },
   };
   return { hub, network };
 }

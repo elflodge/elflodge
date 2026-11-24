@@ -35,6 +35,7 @@
     "@orpc/server": "catalog:",
     "@orpc/shared": "catalog:",
     "@solidjs/vite-plugin": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"

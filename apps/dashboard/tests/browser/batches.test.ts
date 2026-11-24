@@ -1,7 +1,8 @@
 import { expect } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser/context";
 
-import { expectBrowser, setOffline, test, UNCERTAIN } from "./dashboard.ts";
-import { aBatch, aJob, aListedJob, jobsCounted, NOW } from "./records.ts";
+import { aBatch, aJob, aListedJob, jobsCounted, NOW } from "../records.ts";
+import { advance, check, mountAgain, setOffline, test, texts, UNCERTAIN } from "./dashboard.tsx";
 
 // The Batches list and a Batch's page: its filters and pages, its controls, and the ledger of its
 // jobs. Which Batches match a filter is the hub's (batches.test.ts).
@@ -28,52 +29,53 @@ test("a member pages through Batches matching a status and a Label, including af
   const page = await open("batches", { viewport: { width: 390, height: 844 } });
   const asked = () => hub.batches.list.calls.at(-1);
   await page.getByRole("button", { name: "Filters", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Active" }).check();
-  await page.getByLabel("Label key").fill("example.com/team");
-  await page.getByLabel("Label value").fill("East & West");
+  await check(page.getByRole("checkbox", { name: "Active" }));
+  await page.getByLabelText("Label key").fill("example.com/team");
+  await page.getByLabelText("Label value").fill("East & West");
   await page.getByRole("button", { name: "Apply" }).click();
-  await expectBrowser(page.getByRole("button", { name: "Filters (2 applied)" })).toBeFocused();
+  await expect.element(page.getByRole("button", { name: "Filters (2 applied)" })).toHaveFocus();
   const links = page.getByRole("table", { name: "Batches" }).getByRole("link");
-  await expectBrowser(links).toHaveCount(50);
-  await expectBrowser(links.first()).toHaveText("statements-50");
+  await expect.element(links).toHaveLength(50);
+  await expect.element(links.first()).toHaveTextContent("statements-50");
   expect(asked()).toEqual({ status: ["active"], labels: team, limit: 50 });
   await page.getByRole("link", { name: "Older Batches" }).click();
-  await expectBrowser(links).toHaveText(["statements-0"]);
+  await expect.poll(() => texts(links)).toEqual(["statements-0"]);
   const older = { status: ["active"], labels: team, after: "statements-1", limit: 50 };
   expect(asked()).toEqual(older);
+  // What a reload keeps is the address: the app mounted again there, with nothing it read before.
   let reads = hub.batches.list.calls.length;
-  await page.reload();
-  await expectBrowser(links).toHaveText(["statements-0"]);
+  mountAgain();
+  await expect.poll(() => texts(links)).toEqual(["statements-0"]);
   await expect.poll(() => hub.batches.list.calls.slice(reads)).toEqual([older]);
   await page.getByRole("link", { name: "Newest Batches" }).click();
-  await expectBrowser(links.first()).toHaveText("statements-50");
+  await expect.element(links.first()).toHaveTextContent("statements-50");
 
   // An empty value is a value: the Label's key with no text.
   await page.getByRole("button", { name: "Filters (2 applied)" }).click();
-  await page.getByLabel("Label value").fill("");
+  await page.getByLabelText("Label value").fill("");
   await page.getByRole("button", { name: "Apply" }).click();
-  await expectBrowser(links).toHaveText(["other-team"]);
+  await expect.poll(() => texts(links)).toEqual(["other-team"]);
   const empty = { status: ["active"], labels: { "example.com/team": "" }, limit: 50 };
   expect(asked()).toEqual(empty);
   reads = hub.batches.list.calls.length;
-  await page.reload();
-  await expectBrowser(links).toHaveText(["other-team"]);
+  mountAgain();
+  await expect.poll(() => texts(links)).toEqual(["other-team"]);
   await expect.poll(() => hub.batches.list.calls.slice(reads)).toEqual([empty]);
 
   // A Label value typed and not applied makes its key required, until Clear drops the draft with
   // the filters; a status applied then asks without a Label.
   await page.getByRole("button", { name: "Filters (2 applied)" }).click();
-  await page.getByLabel("Label value").fill("unapplied");
-  await expectBrowser(page.getByLabel("Label key")).toHaveJSProperty("required", true);
+  await page.getByLabelText("Label value").fill("unapplied");
+  await expect.element(page.getByLabelText("Label key")).toBeRequired();
   await page.getByRole("link", { name: "Clear", exact: true }).click();
   const filters = page.getByRole("button", { name: "Filters", exact: true });
-  await expectBrowser(filters).toBeFocused();
+  await expect.element(filters).toHaveFocus();
   await filters.click();
-  await expectBrowser(page.getByLabel("Label key")).toHaveValue("");
-  await expectBrowser(page.getByLabel("Label value")).toHaveValue("");
-  await page.getByRole("checkbox", { name: "Active" }).check();
+  await expect.element(page.getByLabelText("Label key")).toHaveValue("");
+  await expect.element(page.getByLabelText("Label value")).toHaveValue("");
+  await check(page.getByRole("checkbox", { name: "Active" }));
   await page.getByRole("button", { name: "Apply" }).click();
-  await expectBrowser(page.getByRole("button", { name: "Filters (1 applied)" })).toBeFocused();
+  await expect.element(page.getByRole("button", { name: "Filters (1 applied)" })).toHaveFocus();
   await expect.poll(asked).toEqual({ status: ["active"], limit: 50 });
 });
 
@@ -98,24 +100,23 @@ test("a member sees a Batch control in flight and its result on the record and l
   hub.batches.pause.answers({ ...paused, jobCounts: jobsCounted({ queued: 1, succeeded: 1 }) });
   await pause.click();
   expect(await pausing.arrived).toEqual({ id });
-  await expectBrowser(pause).toBeDisabled();
-  await expectBrowser(cancel).toBeDisabled();
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toBeVisible();
+  await expect.element(pause).toBeDisabled();
+  await expect.element(cancel).toBeDisabled();
+  await expect.element(page.getByRole("status").filter({ hasText: "Working…" })).toBeVisible();
   // Kept out of the status region's text: the pressed button tells a screen reader it waits.
-  await expectBrowser(page.locator("#batch-status").getByText("Working…")).toHaveAttribute(
-    "aria-hidden",
-    "true",
-  );
+  await expect
+    .element(page.getByCSS("#batch-status").getByText("Working…"))
+    .toHaveAttribute("aria-hidden", "true");
 
   // A pause from elsewhere lands first: the next read withdraws Pause's note, and Pause stays
   // while its own request runs, described by the status.
   hub.batches.get.answers(paused);
-  await page.clock.runFor(5_000);
-  await expectBrowser(page.getByRole("button", { name: "Resume" })).toBeVisible();
-  await expectBrowser(page.locator("#pause-note")).toHaveCount(0);
-  await expectBrowser(pause).toBeFocused();
-  await expectBrowser(pause).toHaveAttribute("aria-busy", "true");
-  await expectBrowser(pause).toHaveAccessibleDescription(/By a caller/);
+  await advance(5_000);
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await expect.element(page.getByCSS("#pause-note")).toHaveLength(0);
+  await expect.element(pause).toHaveFocus();
+  await expect.element(pause).toHaveAttribute("aria-busy", "true");
+  await expect.element(pause).toHaveAccessibleDescription(/By a caller/);
 
   // The hub answers while the counts the pause changes are read again: the page shows the answer,
   // the status takes the focus and the controls are free without waiting for them.
@@ -124,15 +125,17 @@ test("a member sees a Batch control in flight and its result on the record and l
   pausing.release();
   await counts.arrived;
   const ledger = page.getByRole("table", { name: "Jobs by status" });
-  await expectBrowser(
-    ledger.getByRole("row").filter({ hasText: "Succeeded" }).locator("td.num"),
-  ).toHaveText("1");
+  await expect
+    .element(ledger.getByRole("row").filter({ hasText: "Succeeded" }).getByCSS("td.num"))
+    .toHaveTextContent("1");
   expect(hub.batches.get.calls).toHaveLength(reads);
-  await expectBrowser(page.getByRole("status").filter({ hasText: "By a caller" })).toBeFocused();
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Working…" })).toHaveCount(0);
-  await expectBrowser(pause).toHaveCount(0);
-  await expectBrowser(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
-  await expectBrowser(cancel).toBeEnabled();
+  await expect.element(page.getByRole("status").filter({ hasText: "By a caller" })).toHaveFocus();
+  // The Batch's status no longer waits. UI SDK's shared announcer keeps the "Working…" it announced
+  // once the press had waited a second, as it keeps every announcement until the next.
+  await expect.element(page.getByCSS("#batch-status").getByText("Working…")).toHaveLength(0);
+  await expect.element(pause).toHaveLength(0);
+  await expect.element(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+  await expect.element(cancel).toBeEnabled();
   counts.release();
 
   hub.batches.list.answers({ batches: [paused], hasMore: false });
@@ -140,11 +143,11 @@ test("a member sees a Batch control in flight and its result on the record and l
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
     .click();
-  await expectBrowser(row).toContainText("by a caller");
+  await expect.element(row).toMatchTextContent("by a caller");
   await row.getByRole("link").click();
   hub.batches.resume.answers(active);
   await page.getByRole("button", { name: "Resume" }).click();
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Active" })).toBeFocused();
+  await expect.element(page.getByRole("status").filter({ hasText: "Active" })).toHaveFocus();
   expect(hub.batches.resume.calls).toEqual([{ id }]);
 
   // The list was read just before, with no time passed since, so only the answer makes it stale.
@@ -153,8 +156,8 @@ test("a member sees a Batch control in flight and its result on the record and l
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Batches" })
     .click();
-  await expectBrowser(row).not.toContainText("by a caller");
-  await expectBrowser(row).toContainText("Active");
+  await expect.element(row).not.toMatchTextContent("by a caller");
+  await expect.element(row).toMatchTextContent("Active");
 });
 
 test("cancelling a Batch asks first and removes its controls once final", async ({ hub, open }) => {
@@ -165,12 +168,14 @@ test("cancelling a Batch asks first and removes its controls once final", async 
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const dialog = page.getByRole("alertdialog");
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Cancelled" })).toBeFocused();
-  await expectBrowser(
-    page
-      .getByRole("main")
-      .getByRole("button", { name: /^(Pause|Resume|Cancel(?: the Batch .+)?)$/ }),
-  ).toHaveCount(0);
+  await expect.element(page.getByRole("status").filter({ hasText: "Cancelled" })).toHaveFocus();
+  await expect
+    .element(
+      page
+        .getByRole("main")
+        .getByRole("button", { name: /^(Pause|Resume|Cancel(?: the Batch .+)?)$/ }),
+    )
+    .toHaveLength(0);
   expect(hub.batches.cancel.calls).toEqual([{ id }]);
 });
 
@@ -184,15 +189,15 @@ test("a cancel confirmed offline fails at once and is not sent once back online"
   const page = await open(`batches/${id}`);
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const dialog = page.getByRole("alertdialog");
-  await setOffline(page, true);
+  setOffline(true);
   await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
-  await expectBrowser(dialog.getByRole("alert")).toHaveText(UNCERTAIN);
+  await expect.element(dialog.getByRole("alert")).toHaveTextContent(UNCERTAIN);
 
   // Back online, Query would send a cancel it held before it reads the shown Batch again, at the
   // next poll.
   const reads = hub.batches.get.calls.length;
-  await setOffline(page, false);
-  await page.clock.runFor(5_000);
+  setOffline(false);
+  await advance(5_000);
   await expect.poll(() => hub.batches.get.calls.length).toBeGreaterThan(reads);
 });
 
@@ -210,19 +215,19 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
   await cancel.click();
   const dialog = page.getByRole("alertdialog");
   const atPress = ["It has 2 unfinished jobs.", "1 of its jobs has status unknown"];
-  for (const words of atPress) await expectBrowser(dialog).toContainText(words);
+  for (const words of atPress) await expect.element(dialog).toMatchTextContent(words);
   const confirm = dialog.getByRole("button", { name: "Cancel the Batch", exact: true });
-  await page.keyboard.press("Tab");
-  await expectBrowser(confirm).toBeFocused();
+  await userEvent.tab();
+  await expect.element(confirm).toHaveFocus();
 
   // Polls move the page's counts, and not the dialog's.
   hub.batches.get.answers(
     aBatch(id, { jobCounts: jobsCounted({ queued: 2, running: 1 }), statusUnknownJobs: 2 }),
   );
-  await page.clock.runFor(5_000);
-  await expectBrowser(page.locator("#cancel-note")).toContainText("3 unfinished jobs");
-  await expectBrowser(page.locator("main")).toContainText("2 of these have status unknown");
-  for (const words of atPress) await expectBrowser(dialog).toContainText(words);
+  await advance(5_000);
+  await expect.element(page.getByCSS("#cancel-note")).toMatchTextContent("3 unfinished jobs");
+  await expect.element(page.getByCSS("main")).toMatchTextContent("2 of these have status unknown");
+  for (const words of atPress) await expect.element(dialog).toMatchTextContent(words);
 
   // Another caller cancels it: the dialog says so and sends nothing.
   hub.batches.get.answers(
@@ -232,14 +237,14 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
       pendingControl: { type: "cancel", requestedAt: NOW },
     }),
   );
-  await page.clock.runFor(5_000);
-  await expectBrowser(dialog).toContainText("Cancel has already been asked.");
-  await expectBrowser(confirm).toBeFocused();
-  await page.keyboard.press("Enter");
+  await advance(5_000);
+  await expect.element(dialog).toMatchTextContent("Cancel has already been asked.");
+  await expect.element(confirm).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
   await confirm.click({ force: true });
-  await page.keyboard.press("Escape");
-  await expectBrowser(dialog).toHaveCount(0);
-  await expectBrowser(cancel).toBeFocused();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).toHaveLength(0);
+  await expect.element(cancel).toHaveFocus();
 });
 
 test("a Batch ledger opens the jobs it counts and a job links back to the Batch", async ({
@@ -262,24 +267,23 @@ test("a Batch ledger opens the jobs it counts and a job links back to the Batch"
   hub.jobs.get.answers(keep);
   hub.jobs.events.answers({ events: [], hasMore: false, status: keep.status, job: keep });
   const page = await open(`batches/${id}`);
-  await expectBrowser(page.getByRole("status").filter({ hasText: "Active" })).toContainText(
-    "1 job waiting for its Canary",
-  );
-  await expectBrowser(page.getByRole("complementary")).toContainText("Canary of 1 job only");
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "Active" }))
+    .toMatchTextContent("1 job waiting for its Canary");
+  await expect.element(page.getByRole("complementary")).toMatchTextContent("Canary of 1 job only");
 
   await page.getByRole("link", { name: /See them.*its queued jobs/ }).click();
   const table = page.getByRole("table", { name: "Jobs" });
   await expect
     .poll(() => hub.jobs.list.calls.at(-1))
     .toMatchObject({ batchId: id, status: ["queued"] });
-  await expectBrowser(table.getByRole("link", { name: id }).first()).toHaveAttribute(
-    "href",
-    `/dashboard/batches/${id}`,
-  );
+  await expect
+    .element(table.getByRole("link", { name: id }).first())
+    .toHaveAttribute("href", `/dashboard/batches/${id}`);
   await table.getByRole("link", { name: "keep" }).click();
   await page
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: id })
     .click();
-  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText(id);
+  await expect.element(page.getByRole("heading", { level: 1 })).toMatchTextContent(id);
 });

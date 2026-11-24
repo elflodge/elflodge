@@ -1,7 +1,15 @@
 import { expect } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser/context";
 
-import { descriptionOnFocus, expectBrowser, liveRegions, test } from "./dashboard.ts";
-import { aBatch, aJob, JOB_LIMITS, jobsCounted, NO_JOBS_LISTED } from "./records.ts";
+import { aBatch, aJob, JOB_LIMITS, jobsCounted, NO_JOBS_LISTED } from "../records.ts";
+import {
+  historyIndex,
+  advance,
+  descriptionOnFocus,
+  isHidden,
+  liveRegions,
+  test,
+} from "./dashboard.tsx";
 
 // Submit a job: the hub's refusals at their fields, and leaving a draft. What the hub does with the
 // job is in tests/journeys.
@@ -26,31 +34,33 @@ test("a member can correct the limits the hub refused without retyping the job",
     ["Run timeout", "90000"],
   ] as const;
   for (const [label, value] of values)
-    await page.getByLabel(label, { exact: label === "Input" }).fill(value);
-  const budget = page.getByLabel("Model budget");
-  const timeout = page.getByLabel("Run timeout");
-  const words = await descriptionOnFocus(budget);
+    await page.getByLabelText(label, { exact: label === "Input" }).fill(value);
+  const budget = page.getByLabelText("Model budget");
+  const timeout = page.getByLabelText("Run timeout");
+  const words = descriptionOnFocus(budget);
   await page.getByRole("button", { name: "Submit job" }).click();
-  await expectBrowser(budget).toBeFocused();
-  expect(await words.jsonValue()).toEqual([
+  await expect.element(budget).toHaveFocus();
+  expect(words).toEqual([
     expect.stringContaining("At most"),
     expect.stringContaining("Must be at most 5, the hub's maximum"),
   ]);
-  await expectBrowser(budget).toHaveAccessibleDescription(/Must be at most 5, the hub's maximum/);
-  await expectBrowser(timeout).toHaveAccessibleDescription(
-    /Must be at most 86400, the hub's maximum/,
-  );
+  await expect.element(budget).toHaveAccessibleDescription(/Must be at most 5, the hub's maximum/);
+  await expect
+    .element(timeout)
+    .toHaveAccessibleDescription(/Must be at most 86400, the hub's maximum/);
   // Long enough for a queued polite announcement to reach its region: focus already describes the
   // refusal (ADR 0053).
-  await page.clock.runFor(500);
-  await expectBrowser(liveRegions(page).filter({ hasText: "the hub's maximum" })).toHaveCount(0);
+  await advance(500);
+  await expect.element(liveRegions().filter({ hasText: "the hub's maximum" })).toHaveLength(0);
   for (const [label, value] of values)
-    await expectBrowser(page.getByLabel(label, { exact: label === "Input" })).toHaveValue(value);
+    await expect
+      .element(page.getByLabelText(label, { exact: label === "Input" }))
+      .toHaveValue(label === "Model budget" || label === "Run timeout" ? Number(value) : value);
 
   // An edit ends the refusal at its own field only.
   await budget.fill(".5");
-  await expectBrowser(budget).not.toHaveAttribute("aria-invalid", "true");
-  await expectBrowser(timeout).toHaveAttribute("aria-invalid", "true");
+  await expect.element(budget).not.toHaveAttribute("aria-invalid", "true");
+  await expect.element(timeout).toHaveAttribute("aria-invalid", "true");
   await timeout.fill("60");
   const job = aJob("invoice-17", { batchId: "invoice-17" });
   hub.batches.create.answers({
@@ -60,7 +70,7 @@ test("a member can correct the limits the hub refused without retyping the job",
   hub.jobs.get.answers(job);
   hub.jobs.events.answers({ events: [], hasMore: false, status: job.status, job });
   await page.getByRole("button", { name: "Submit job" }).click();
-  await expectBrowser(page.getByRole("heading", { level: 1 })).toContainText("invoice-17");
+  await expect.element(page.getByRole("heading", { level: 1 })).toMatchTextContent("invoice-17");
   expect(hub.batches.create.calls.at(-1)).toMatchObject({
     id: "invoice-17",
     agent: {
@@ -82,7 +92,7 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   // From the Jobs list, so Back has somewhere to go.
   const page = await open("jobs");
   await page.getByRole("link", { name: "Submit a job", exact: true }).click();
-  const input = page.getByLabel("Input", { exact: true });
+  const input = page.getByLabelText("Input", { exact: true });
   const jobs = page
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Jobs" });
@@ -90,25 +100,25 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   const stay = dialog.getByRole("button", { name: "Stay" });
   await input.fill("Still writing.");
   await jobs.click();
-  await expectBrowser(stay).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expectBrowser(dialog).toBeHidden();
-  await expectBrowser(input).toHaveValue("Still writing.");
+  await expect.element(stay).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(input).toHaveValue("Still writing.");
   await jobs.click();
   await stay.click();
-  await expectBrowser(dialog).toBeHidden();
-  await expectBrowser(jobs).toBeFocused();
-  await page.goBack();
+  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.element(jobs).toHaveFocus();
+  history.back();
   await stay.click();
-  await expectBrowser(dialog).toBeHidden();
-  await expectBrowser(page).toHaveURL(/\/jobs\/new$/);
-  await expectBrowser(input).toHaveValue("Still writing.");
-  const entries = await page.evaluate(() => history.length);
+  await expect.poll(() => isHidden(dialog)).toBe(true);
+  await expect.poll(() => location.pathname).toMatch(/\/jobs\/new$/);
+  await expect.element(input).toHaveValue("Still writing.");
+  const entry = historyIndex();
   await jobs.click();
   await dialog.getByRole("button", { name: "Leave the page" }).click();
-  await expectBrowser(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
-  await expectBrowser(dialog).toBeHidden();
-  expect(await page.evaluate(() => history.length)).toBe(entries + 1);
-  await expectBrowser(page.locator("[inert]")).toHaveCount(0);
-  await expectBrowser(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
+  await expect.element(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+  await expect.poll(() => isHidden(dialog)).toBe(true);
+  expect(historyIndex()).toBe(entry + 1);
+  await expect.element(page.getByCSS("[inert]")).toHaveLength(0);
+  await expect.element(page.getByCSS('[data-slot="alert-dialog-content"]')).toHaveLength(0);
 });
