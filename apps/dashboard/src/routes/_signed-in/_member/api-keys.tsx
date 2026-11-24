@@ -21,7 +21,6 @@ import {
   createUniqueId,
   latest,
   onFlush,
-  onSettled,
 } from "solid-js";
 
 import { api, hubFailureDetail, readFromHub, secretAnswerFailure } from "../../../api-client.ts";
@@ -32,7 +31,7 @@ import { Field, FieldGroup } from "../../../components/Field.tsx";
 import { FormDialog } from "../../../components/FormDialog.tsx";
 import { Instant } from "../../../components/Instant.tsx";
 import { Notice } from "../../../components/Notice.tsx";
-import { fieldText, formRefusal } from "../../../form.ts";
+import { fieldText, formRefusal, settledRef } from "../../../form.ts";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
 import { PAGE_LOAD, orpc, writeAbsence } from "../../../query.ts";
@@ -362,9 +361,7 @@ function CreateKey(props: { controller: DialogController }) {
             label="Permissions"
             hint="Choose at least one action."
             error={fields.refused("permissions")}
-            ref={(group) => {
-              onSettled(() => validatePermissions(group));
-            }}
+            ref={settledRef(validatePermissions)}
             onChange={(event) => validatePermissions(event.currentTarget)}
           >
             <For each={GRANTABLE}>

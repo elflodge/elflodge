@@ -1,7 +1,7 @@
 import type { JSX } from "@solidjs/web";
-import { createContext, onSettled, useContext } from "solid-js";
+import { createContext, useContext } from "solid-js";
 
-import { focusIfLost } from "../form.ts";
+import { focusIfLost, settledRef } from "../form.ts";
 import { BrandMark } from "./BrandMark.tsx";
 
 /** Whether what reads it is drawn inside the shell, which then has the bar and `main` around it. */
@@ -19,9 +19,9 @@ export function FallbackPage(props: {
   const heading = (
     <h1
       tabindex={props.focusHeading ? -1 : undefined}
-      ref={(element) => {
-        if (props.focusHeading) onSettled(() => focusIfLost(element));
-      }}
+      ref={settledRef((element: HTMLHeadingElement) => {
+        if (props.focusHeading) focusIfLost(element);
+      })}
     >
       {props.heading}
     </h1>
