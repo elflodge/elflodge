@@ -178,7 +178,8 @@ test("a Change role for a member who left meanwhile says so and sends nothing", 
   await focus(admin);
   await userEvent.keyboard("{Enter}");
   await expect.element(dialog).toBeVisible();
-  await expect.element(dialog.getByText("Working…")).toHaveLength(0);
+  // By part of its text, so a longer line that still says it is absent too.
+  await expect.element(dialog.getByText("Working…", { exact: false })).toHaveLength(0);
 });
 
 test("a Leave refused for the only owner says so, is withdrawn once the members are read, and works once another owner is back", async ({
