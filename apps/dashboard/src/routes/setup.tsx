@@ -3,7 +3,7 @@ import { Link, createFileRoute, redirect, useLocation, useNavigate } from "@tans
 import { Button } from "@ui-sdk/solid/button";
 import { FieldControl } from "@ui-sdk/solid/field";
 import { Input } from "@ui-sdk/solid/input";
-import { Show, createSignal, onSettled } from "solid-js";
+import { Show, createSignal } from "solid-js";
 
 import { api, failureDetailSuffix, hubFailureDetail, readFromHub } from "../api-client.ts";
 import { authClient } from "../auth-client.ts";
@@ -17,6 +17,7 @@ import {
   fieldText,
   focusIfLost,
   formRefusal,
+  settledRef,
 } from "../form.ts";
 import { pageHead } from "../page-title.ts";
 
@@ -90,12 +91,8 @@ function Setup() {
               This hub is set up.{" "}
               <Link
                 to="/sign-in"
-                ref={(link) =>
-                  onSettled(() => {
-                    // The completed form and its focused control have been replaced by this link.
-                    focusIfLost(link);
-                  })
-                }
+                // The completed form and its focused control have been replaced by this link.
+                ref={settledRef<HTMLAnchorElement>(focusIfLost)}
               >
                 Sign in
               </Link>
