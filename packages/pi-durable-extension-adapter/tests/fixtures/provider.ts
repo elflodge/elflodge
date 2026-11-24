@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import ensureError from "ensure-error";
 
 // The queries of the conversations on this worker, by owner, which a neighbour can report.
 const queries = new Map<string, AbortSignal | undefined>();
@@ -125,7 +126,7 @@ export default function extension(pi: ExtensionAPI) {
       } catch (error) {
         return {
           action: "transform",
-          text: error instanceof Error ? error.message : String(error),
+          text: ensureError(error).message,
         };
       }
     }
