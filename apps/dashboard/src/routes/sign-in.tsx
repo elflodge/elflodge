@@ -21,8 +21,10 @@ export const Route = createFileRoute("/sign-in")({
         z.pipe(
           z.string().check(z.startsWith("/")),
           z.transform((target) => {
-            const origin = location.origin;
-            if (!URL.canParse(target, origin)) return undefined;
+            // Vite's development server matches routes on the server too, where there is no
+            // `location`: what it renders there is only the shell, and the browser checks again.
+            const origin = globalThis.location?.origin;
+            if (origin === undefined || !URL.canParse(target, origin)) return undefined;
             const url = new URL(target, origin);
             // The router takes a path. Removing the origin must still leave a path on this hub.
             if (url.origin !== origin || url.pathname.startsWith("//")) return undefined;
