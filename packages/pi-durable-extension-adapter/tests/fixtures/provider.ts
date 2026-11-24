@@ -6,6 +6,8 @@ import { setTimeout } from "node:timers/promises";
 import {
   createFauxCore,
   fauxAssistantMessage,
+  fauxText,
+  fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
@@ -18,6 +20,13 @@ const queries = new Map<string, AbortSignal | undefined>();
 export default function extension(pi: ExtensionAPI) {
   pi.registerProvider("anthropic", { baseUrl: "https://proxy.example" });
   const faux = createFauxCore({ provider: "fixture", api: "fixture", models: [{ id: "echo" }] });
+  // Paced, so a reader keeps up and sees each delta's message as it was then.
+  const paced = createFauxCore({
+    provider: "fixture",
+    api: "fixture",
+    models: [{ id: "echo" }],
+    tokensPerSecond: 500,
+  });
   const tool = (name: string) =>
     fauxAssistantMessage([fauxToolCall(name, {})], { stopReason: "toolUse" });
   let owner = "";
@@ -31,6 +40,19 @@ export default function extension(pi: ExtensionAPI) {
     streamSimple(model, transcript, options) {
       const last = transcript.messages.at(-1);
       const text = last?.role === "user" ? contentText(last.content) : "";
+      if (text === "write a file") {
+        paced.setResponses([
+          fauxAssistantMessage(
+            [
+              fauxThinking("t".repeat(200)),
+              fauxText("x".repeat(400)),
+              fauxToolCall("receipt", { path: "notes.txt", content: "y".repeat(400) }),
+            ],
+            { stopReason: "toolUse" },
+          ),
+        ]);
+        return paced.streamSimple(model, transcript, options);
+      }
       faux.setResponses([
         async () => {
           // As a provider that keeps its query open while tools run: only the instance that

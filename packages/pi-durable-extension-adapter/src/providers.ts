@@ -15,6 +15,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { lazyStream } from "@earendil-works/pi-ai/api/lazy";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
+import { ToolCallArgumentsStream } from "@earendil-works/pi-ai/utils/streaming-json";
 import type { ModelRuntime, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import {
   GenerationTask,
@@ -27,7 +28,12 @@ import {
 import type { BirpcReturn } from "birpc";
 import ensureError from "ensure-error";
 
-import type { HostFunctions, ProviderSettings, WorkerFunctions } from "./protocol.ts";
+import type {
+  HostFunctions,
+  ProviderEvent,
+  ProviderSettings,
+  WorkerFunctions,
+} from "./protocol.ts";
 
 type Runtime = Pick<
   ModelRuntime,
@@ -54,7 +60,7 @@ export function supportsProviders(models: Models): models is Models & Runtime {
 
 type WorkerRpc = BirpcReturn<WorkerFunctions, HostFunctions>;
 type PendingRequest = {
-  event(event: AssistantMessageEvent): void;
+  event(event: ProviderEvent): void;
   options: SimpleStreamOptions;
 };
 
@@ -315,6 +321,7 @@ export class ConversationProviders {
     live.throwIfAborted();
     signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
+    const partial = new LivePartial();
     let terminal = false;
     const ended = (message: AssistantMessage) => {
       if (terminal) return;
@@ -332,7 +339,8 @@ export class ConversationProviders {
     };
     const id = worker.requests.add({
       options,
-      event: (event) => {
+      event: (received) => {
+        const event = partial.event(received);
         if (event.type === "done") ended(event.message);
         if (event.type === "error") ended(event.error);
         events.push(event);
@@ -357,7 +365,8 @@ export class ConversationProviders {
     signal?.addEventListener("abort", aborted, { once: true });
     live.addEventListener("abort", closed, { once: true });
     const result = awaitWithContext(call, bound)
-      .then((message) => {
+      .then((answer) => {
+        const message = partial.settle(answer);
         ended(message);
         events.end(message);
         return message;
@@ -441,6 +450,52 @@ export class ConversationProviders {
     };
     this.#held.add(held);
     signal?.addEventListener("abort", aborted, { once: true });
+  }
+}
+
+/**
+ * A provider's message so far, rebuilt on the host as one object that grows, as pi-ai's own
+ * `partial` is "the shared live response-so-far helper, not an event-time snapshot". Deltas arrive
+ * without it and are applied as pi-ai's contract says blocks grow: text and thinking only through
+ * their deltas, tool-call arguments through the parser pi-ai's providers use. Every other event
+ * brings the worker's message, which replaces what was rebuilt.
+ */
+class LivePartial {
+  #message: AssistantMessage | undefined;
+  readonly #arguments = new Map<number, ToolCallArgumentsStream>();
+
+  event(event: ProviderEvent): AssistantMessageEvent {
+    if (event.type === "done") return { ...event, message: this.settle(event.message) };
+    if (event.type === "error") return { ...event, error: this.settle(event.error) };
+    if ("partial" in event) return { ...event, partial: this.settle(event.partial) };
+    const message = this.#message;
+    if (!message) throw new Error("A provider's stream sent a delta before its start");
+    const { contentIndex, delta } = event;
+    const block = message.content[contentIndex];
+    if (event.type === "text_delta" && block?.type === "text") {
+      block.text += delta;
+      return { type: "text_delta", contentIndex, delta, partial: message };
+    }
+    if (event.type === "thinking_delta" && block?.type === "thinking") {
+      block.thinking += delta;
+      return { type: "thinking_delta", contentIndex, delta, partial: message };
+    }
+    if (event.type === "toolcall_delta" && block?.type === "toolCall") {
+      const parsed = this.#arguments.get(contentIndex) ?? new ToolCallArgumentsStream();
+      this.#arguments.set(contentIndex, parsed);
+      block.arguments = parsed.append(delta);
+      return { type: "toolcall_delta", contentIndex, delta, partial: message };
+    }
+    throw new Error(`A provider's ${event.type} names no matching block at ${contentIndex}`);
+  }
+
+  /** Takes the worker's message as the current state, keeping the one object callers hold. */
+  settle(message: AssistantMessage): AssistantMessage {
+    const live = (this.#message ??= message);
+    if (live === message) return live;
+    for (const key of Object.keys(live))
+      if (!Object.hasOwn(message, key)) Reflect.deleteProperty(live, key);
+    return Object.assign(live, message);
   }
 }
 

@@ -328,6 +328,46 @@ test("a custom stream receives its caller's payload, response and stream event h
   expect(streamed).toEqual([{ owner: "alice" }]);
 });
 
+test("a custom stream's message so far is one object that grows, as pi-ai's providers give it", async () => {
+  const { attach, models } = await setup();
+  const alice = await attach("alice");
+  const model = models.getModel("fixture", "echo");
+  if (!model) throw new Error("The fixture's model is missing");
+  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
+  const stream = models.streamSimple(
+    model,
+    { messages: [{ role: "user", content: "write a file", timestamp: Date.now() }] },
+    { sessionId: provider?.sessionId },
+  );
+  const partials = new Set<unknown>();
+  const texts: string[] = [];
+  const files: unknown[] = [];
+  for await (const event of stream) {
+    if ("partial" in event) partials.add(event.partial);
+    const block = "partial" in event ? event.partial.content.at(-1) : undefined;
+    if (event.type === "text_delta" && block?.type === "text") texts.push(block.text);
+    if (event.type === "toolcall_delta" && block?.type === "toolCall")
+      files.push(block.arguments["content"]);
+  }
+  const message = await stream.result();
+  // Each delta's message held the block as far as it had grown, tool-call arguments included.
+  expect(new Set(texts).size).toBeGreaterThan(5);
+  for (const text of texts) expect("x".repeat(400).startsWith(text)).toBe(true);
+  const partly = files.filter((file) => typeof file === "string" && file.length < 400);
+  expect(partly.length).toBeGreaterThan(0);
+  for (const file of partly) expect("y".repeat(400).startsWith(String(file))).toBe(true);
+  // The first event's message is the one that grew into the answer.
+  expect([...partials]).toEqual([message]);
+  expect(partials.has(message)).toBe(true);
+  expect(message).toMatchObject({
+    content: [
+      { type: "thinking", thinking: "t".repeat(200) },
+      { type: "text", text: "x".repeat(400) },
+      { type: "toolCall", arguments: { path: "notes.txt", content: "y".repeat(400) } },
+    ],
+  });
+});
+
 test("a shared catalog can gain models while each conversation keeps its own provider", async () => {
   const { attach, models } = await setup();
   models.registerProvider("anthropic", { baseUrl: "https://app.example" });
