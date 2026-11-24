@@ -6,8 +6,6 @@ import { setTimeout } from "node:timers/promises";
 import {
   createFauxCore,
   fauxAssistantMessage,
-  fauxText,
-  fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
@@ -33,19 +31,6 @@ export default function extension(pi: ExtensionAPI) {
     streamSimple(model, transcript, options) {
       const last = transcript.messages.at(-1);
       const text = last?.role === "user" ? contentText(last.content) : "";
-      if (text === "write a file") {
-        faux.setResponses([
-          fauxAssistantMessage(
-            [
-              fauxThinking("t".repeat(200)),
-              fauxText("x".repeat(400)),
-              fauxToolCall("receipt", { path: "notes.txt", content: "y".repeat(400) }),
-            ],
-            { stopReason: "toolUse" },
-          ),
-        ]);
-        return faux.streamSimple(model, transcript, options);
-      }
       faux.setResponses([
         async () => {
           // As a provider that keeps its query open while tools run: only the instance that

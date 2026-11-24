@@ -315,7 +315,6 @@ export class ConversationProviders {
     live.throwIfAborted();
     signal?.throwIfAborted();
     const events = createAssistantMessageEventStream();
-    const partial = new LivePartial();
     let terminal = false;
     const ended = (message: AssistantMessage) => {
       if (terminal) return;
@@ -331,10 +330,13 @@ export class ConversationProviders {
       // the same. pi-durable's other requests, such as a compaction summary, offer no tools.
       else if (!signal?.aborted) this.#hold(signal, cancel);
     };
+    // The answer so far, as the worker's last event carried it.
+    let latest: AssistantMessage | undefined;
     const id = worker.requests.add({
       options,
-      event: (received) => {
-        const event = partial.apply(received);
+      event: (event) => {
+        latest =
+          "partial" in event ? event.partial : event.type === "done" ? event.message : event.error;
         if (event.type === "done") ended(event.message);
         if (event.type === "error") ended(event.error);
         events.push(event);
@@ -359,20 +361,20 @@ export class ConversationProviders {
     signal?.addEventListener("abort", aborted, { once: true });
     live.addEventListener("abort", closed, { once: true });
     const result = awaitWithContext(call, bound)
-      .then(
-        // Once the answer's last event has come, Pi has resolved `result()` with the held message,
-        // which callers may have changed since, as pi-durable sets `thinkingLevel` on it.
-        (answer) => (terminal && partial.current) || partial.mirror(answer),
-        (failure: unknown) => {
-          // The worker may have sent the answer's last event before the call failed.
-          if (terminal && partial.current) return partial.current;
-          const reason = signal?.aborted ? "aborted" : "error";
-          const message = partial.markFailed(failure, reason);
-          if (!message) throw failure;
-          events.push({ type: "error", reason, error: message });
-          return message;
-        },
-      )
+      .then(undefined, (failure: unknown) => {
+        // The worker may have sent the answer's last event before the call failed.
+        if (terminal && latest) return latest;
+        if (!latest) throw failure;
+        // pi-ai's error message carries what streamed so far.
+        const reason = signal?.aborted ? "aborted" : "error";
+        const message: AssistantMessage = {
+          ...latest,
+          stopReason: reason,
+          errorMessage: ensureError(failure).message,
+        };
+        events.push({ type: "error", reason, error: message });
+        return message;
+      })
       .then((message) => {
         ended(message);
         events.end(message);
@@ -383,8 +385,8 @@ export class ConversationProviders {
         signal?.removeEventListener("abort", aborted);
         worker.requests.delete(id);
       });
-    // An RPC failure must also wake the iterator. lazyStream then reads result() and emits
-    // Pi's error message, including when the worker exited before it could send an event.
+    // An RPC failure before any event must also wake the iterator. lazyStream then reads result()
+    // and emits Pi's error message.
     void result.catch(() => events.end());
     return { [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](), result: () => result };
   }
@@ -458,68 +460,6 @@ export class ConversationProviders {
     this.#held.add(held);
     signal?.addEventListener("abort", aborted, { once: true });
   }
-}
-
-/**
- * A provider's message so far as one object that grows, as pi-ai's own `partial` is "the shared
- * live response-so-far helper, not an event-time snapshot". Each event brings a copy of the
- * worker's live message as it was when the event was sent, which a delta cannot stand in for: by
- * then the provider may have streamed further. The copy goes into the object and blocks callers
- * already hold.
- */
-class LivePartial {
-  #message: AssistantMessage | undefined;
-
-  get current() {
-    return this.#message;
-  }
-
-  apply(event: AssistantMessageEvent): AssistantMessageEvent {
-    if (event.type === "done") return { ...event, message: this.mirror(event.message) };
-    if (event.type === "error") return { ...event, error: this.mirror(event.error) };
-    const partial = this.mirror(event.partial);
-    // pi-ai's Anthropic provider ends a tool call with the block itself, as its message holds it.
-    if (event.type === "toolcall_end") {
-      const block = partial.content[event.contentIndex];
-      const same = event.toolCall === event.partial.content[event.contentIndex];
-      if (same && block?.type === "toolCall") return { ...event, toolCall: block, partial };
-    }
-    return { ...event, partial };
-  }
-
-  /** Updates the held message, and its blocks, to `message`, and returns the held one. */
-  mirror(message: AssistantMessage): AssistantMessage {
-    const live = (this.#message ??= message);
-    if (live === message) return live;
-    const { content, ...fields } = message;
-    const blocks = live.content;
-    replaceFields(live, { ...fields, content: blocks });
-    blocks.length = content.length;
-    content.forEach((block, index) => {
-      const held = blocks[index];
-      if (held?.type === block.type) replaceFields(held, block);
-      else blocks[index] = block;
-    });
-    return live;
-  }
-
-  /**
-   * Ends the held message for an RPC failure, keeping what streamed so far, as a provider's own
-   * error message does. Returns none when nothing streamed, for lazyStream to make one.
-   */
-  markFailed(failure: unknown, reason: "aborted" | "error"): AssistantMessage | undefined {
-    const message = this.#message;
-    if (!message) return undefined;
-    message.stopReason = reason;
-    message.errorMessage = ensureError(failure).message;
-    return message;
-  }
-}
-
-function replaceFields(target: object, source: object) {
-  for (const key of Object.keys(target))
-    if (!Object.hasOwn(source, key)) Reflect.deleteProperty(target, key);
-  Object.assign(target, source);
 }
 
 /** Why a request finds no stream to route to, as while a conversation's extensions open again. */
