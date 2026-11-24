@@ -22,6 +22,7 @@
     "@anthropic-ai/sandbox-runtime": "catalog:",
     "@earendil-works/chord": "catalog:",
     "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-durable": "catalog:",
     "@earendil-works/pi-env": "catalog:",
     "@earendil-works/pi-schema": "catalog:",

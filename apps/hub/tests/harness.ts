@@ -541,7 +541,7 @@ export function startSystem(
         hubUrl: url,
         registrationKey: await createRegistrationKey(),
         dataDir: runnerDataDir,
-        models: scripted.models,
+        jobModels: scripted.jobModels,
         model: scripted.model,
         heartbeatIntervalMs: options.heartbeatIntervalMs,
         ...runnerOptions,

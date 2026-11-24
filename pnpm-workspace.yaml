@@ -38,6 +38,7 @@ catalog:
   "@commitlint/config-conventional": ^21.2.4
   "@earendil-works/chord": ^1.6.0
   "@earendil-works/pi-ai": ^1.6.0
+  "@earendil-works/pi-coding-agent": ^1.6.0
   "@earendil-works/pi-durable": ^1.6.0
   "@earendil-works/pi-env": ^1.6.0
   "@earendil-works/pi-schema": ^1.6.0

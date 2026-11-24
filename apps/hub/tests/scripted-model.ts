@@ -17,6 +17,7 @@ import {
   fauxText,
   fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
+import { Effect } from "effect";
 
 // The scripted model Runners run on in tests. It imports nothing of the test runner, so a Runner in
 // a process of its own can use it too.
@@ -50,7 +51,12 @@ export function scriptedModel() {
     }),
   );
   const { provider, id } = faux.getModel();
-  return { faux, models, model: { provider, modelId: id, thinkingLevel: "off" as const } };
+  return {
+    faux,
+    // Every job runs on these same models, as the script is shared across jobs.
+    jobModels: Effect.succeed(models),
+    model: { provider, modelId: id, thinkingLevel: "off" as const },
+  };
 }
 
 /** `stream` with each finished call priced at its model's prices, with pi-ai's `calculateCost`. */

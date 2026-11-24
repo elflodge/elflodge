@@ -276,11 +276,11 @@ it.live(
 );
 
 it.live(
-  "a replacement endpoint refuses saved OAuth before refreshing and keeps rejecting a sign-in saved after startup",
+  "a replacement endpoint refuses saved OAuth before refreshing, and accepts an API key saved for it",
   () =>
     Effect.gen(function* () {
       const refresh = vi.fn(async () => signIn());
-      const { auth, models, credentials, selection } = fixture({ refresh });
+      const { auth, credentials, selection } = fixture({ refresh });
       const baseUrl = new URL("http://localhost:4000/v1");
       yield* Effect.promise(() => credentials.modify("test", async () => signIn(0)));
       expect((yield* auth.prepareModel({ ...selection, baseUrl }))?.message).toContain(
@@ -290,9 +290,6 @@ it.live(
 
       yield* auth.login("test", noPrompt, { apiKey: "fake-key", baseUrl });
       expect(yield* auth.prepareModel({ ...selection, baseUrl })).toBeUndefined();
-      expect(models.getModel("test", "model")?.baseUrl).toBe(baseUrl.href);
-      yield* Effect.promise(() => credentials.modify("test", async () => signIn()));
-      expect(yield* Effect.promise(() => models.getAuth("test"))).toBeUndefined();
     }),
 );
 

@@ -16,7 +16,7 @@ const [hubUrl, registrationKey, dataDir, phase] = process.argv.slice(2);
 if (!hubUrl || !registrationKey || !dataDir) {
   throw new Error("Usage: runner-restart.runner.ts <hub URL> <key> <data dir> <phase>");
 }
-const { faux, models, model } = scriptedModel();
+const { faux, jobModels, model } = scriptedModel();
 faux.setResponses(
   phase === "before"
     ? [
@@ -49,7 +49,7 @@ await startRunner({
   hubUrl,
   registrationKey,
   dataDir,
-  models,
+  jobModels,
   model,
   network: phase === "before" ? undefined : { mode: "none", exceptions: [] },
 });

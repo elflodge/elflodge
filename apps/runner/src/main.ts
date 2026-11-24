@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { AuthInteraction } from "@earendil-works/pi-ai";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
@@ -35,7 +34,7 @@ import { Command, Flag } from "effect/cli";
 import * as Prompt from "effect/cli/Prompt";
 
 import packageJson from "../package.json" with { type: "json" };
-import { createRunnerAuth, readApiKey } from "./auth.ts";
+import { acquireJobModels, createModelRuntime, createRunnerAuth, readApiKey } from "./auth.ts";
 import { fileCredentialStore } from "./credentials.ts";
 import { DEFAULT_NETWORK_SETTINGS, DEFAULT_SANDBOX_SETTINGS, runRunner } from "./index.ts";
 import { formatException, NETWORK_MODES, NetworkException, parseException } from "./network.ts";
@@ -214,12 +213,17 @@ function refuse(message: string) {
   return Effect.sync(() => console.error(message)).pipe(Effect.andThen(Effect.fail(new Refused())));
 }
 
-/** The same Pi models and credential store serve startup and credential commands. */
-function runnerAuth(dataDir: string) {
-  const credentials = fileCredentialStore(path.join(dataDir, CREDENTIALS_FILE));
-  const models = builtinModels({ credentials });
-  return { models, auth: createRunnerAuth(models, credentials) };
-}
+/**
+ * The Runner's credential store, and its startup check and credential commands on models made as a
+ * job's are, without the model URL override: the check refuses what the URL cannot serve, such as
+ * a saved sign-in, which the override would hide from it.
+ */
+const runnerAuth = (dataDir: string) =>
+  Effect.promise(async () => {
+    const credentials = fileCredentialStore(path.join(dataDir, CREDENTIALS_FILE));
+    const models = await createModelRuntime(credentials);
+    return { credentials, auth: createRunnerAuth(models, credentials) };
+  });
 
 /**
  * The ID a provider knows this installation by, such as OpenAI's agent host ID: made on the first
@@ -354,13 +358,15 @@ const login = (withApiKey: boolean) =>
   Effect.gen(function* () {
     const settings = yield* authSettings;
     const baseUrl = Option.getOrUndefined(yield* modelBaseUrlSetting);
-    yield* loginProvider(runnerAuth(settings.dataDir).auth, { ...settings, baseUrl }, withApiKey);
+    const { auth } = yield* runnerAuth(settings.dataDir);
+    yield* loginProvider(auth, { ...settings, baseUrl }, withApiKey);
   });
 
 const logout = Effect.gen(function* () {
   const { dataDir, provider } = yield* authSettings;
-  yield* runnerAuth(dataDir)
-    .auth.logout(provider)
+  const { auth } = yield* runnerAuth(dataDir);
+  yield* auth
+    .logout(provider)
     .pipe(Effect.catch(() => refuse("Could not remove saved provider authentication.")));
   console.log(
     `Saved authentication removed for "${provider}". Environment authentication, if configured, still applies.`,
@@ -369,8 +375,9 @@ const logout = Effect.gen(function* () {
 
 const authStatus = Effect.gen(function* () {
   const { dataDir, provider } = yield* authSettings;
-  const status = yield* runnerAuth(dataDir)
-    .auth.status(provider)
+  const { auth } = yield* runnerAuth(dataDir);
+  const status = yield* auth
+    .status(provider)
     .pipe(
       Effect.catch(() => refuse(`Could not inspect authentication for provider "${provider}".`)),
     );
@@ -386,7 +393,7 @@ const authCheck = (offerLogin: boolean) =>
     const settings = yield* authSettings;
     const modelId = yield* Config.NonEmptyString("RUNNER_MODEL_ID");
     const baseUrl = Option.getOrUndefined(yield* modelBaseUrlSetting);
-    const { auth } = runnerAuth(settings.dataDir);
+    const { auth } = yield* runnerAuth(settings.dataDir);
     const selection = { provider: settings.provider, modelId, baseUrl };
     let problem = yield* auth.prepareModel(selection);
     if (problem?.kind === "missing" && offerLogin && hasTerminal()) {
@@ -417,19 +424,20 @@ const run = (options: { register: boolean; healthcheck: boolean }) =>
         "RUNNER_NETWORK_EXCEPTIONS is set with RUNNER_NETWORK=none, which gives jobs no network to open ranges in.",
       );
     }
-    const { models, auth } = runnerAuth(settings.dataDir);
-    const problem = yield* auth.prepareModel({
+    const { credentials, auth } = yield* runnerAuth(settings.dataDir);
+    const selection = {
       provider: settings.provider,
       modelId: settings.modelId,
       baseUrl: Option.getOrUndefined(settings.modelBaseUrl),
-    });
+    };
+    const problem = yield* auth.prepareModel(selection);
     if (problem) return yield* refuse(problem.message);
     const ready = yield* Latch.make(false);
     const running = runRunner({
       hubUrl: settings.hubUrl,
       registrationKey: Redacted.value(settings.registrationKey),
       dataDir: settings.dataDir,
-      models,
+      jobModels: acquireJobModels(credentials, selection),
       model: {
         provider: settings.provider,
         modelId: settings.modelId,
