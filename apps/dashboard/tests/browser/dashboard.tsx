@@ -198,7 +198,7 @@ export const test = base
       // Every timer and clock of the page, as Vitest fakes them by default.
       vi.useFakeTimers({ now: NOW });
       mounted = mount(DASHBOARD_BASE + path);
-      mountAgainHere = (address) => {
+      mountAgainHere = (address?: string) => {
         mounted?.dispose();
         mounted?.destroy();
         mounted = mount(address);
@@ -221,8 +221,8 @@ interface Outgoing {
  * loading a document: at the base the hub serves it under, into the body, as the app's document
  * renders it, where a dialog makes what is beside it inert.
  */
-function mount(address: string) {
-  history.replaceState(null, "", address);
+function mount(address?: string) {
+  if (address !== undefined) history.replaceState(null, "", address);
   const router = getRouter();
   router.update({ ...router.options, basepath: DASHBOARD_BASE });
   const dispose = render(() => <RouterProvider router={router} />, document.body);
@@ -302,16 +302,16 @@ export function setOffline(next: boolean) {
   window.dispatchEvent(new Event(offline ? "offline" : "online"));
 }
 
-let mountAgainHere: ((address: string) => void) | undefined;
+let mountAgainHere: ((address?: string) => void) | undefined;
 
 /**
- * Mounts the app again at `path`, by default the address it shows, with a new router and Query
- * client, which is what of a reload the document keeps for a test: modules, and the state they hold,
- * stay as they were.
+ * Mounts the app again at `path`, by default where it stands, its fragment and history state with
+ * it, with a new router and Query client, which is what of a reload the document keeps for a test:
+ * modules, and the state they hold, stay as they were.
  */
 export function mountAgain(path?: string) {
   if (!mountAgainHere) throw new Error("The page is not open");
-  mountAgainHere(path === undefined ? location.pathname + location.search : DASHBOARD_BASE + path);
+  mountAgainHere(path === undefined ? undefined : DASHBOARD_BASE + path);
 }
 
 /**
