@@ -16,6 +16,11 @@ declare module "vite-plus/test/browser" {
   interface BrowserCommands {
     /** Taps `locator`'s element with Playwright, in a browser with touch. */
     tap(locator: Locator): Promise<void>;
+    /**
+     * Clicks `locator`'s element with Playwright, and returns the address of the tab the click
+     * opens, which it closes.
+     */
+    openedTab(locator: Locator): Promise<string>;
     /** Drops `entries` on `locator`'s element through the browser's own hit test. */
     drop(locator: Locator, entries: Dropped): Promise<void>;
   }
