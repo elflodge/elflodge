@@ -124,6 +124,8 @@ export default defineConfig({
                   context.page.on("console", hear);
                   // A message the page has shown reaches Playwright within moments; five seconds,
                   // a third of a test's time, names one that never shows before the test times out.
+                  // Handled here as well, since it can reject while the messages are still being read.
+                  shown.promise.catch(() => undefined);
                   const timer = setTimeout(
                     () =>
                       shown.reject(
