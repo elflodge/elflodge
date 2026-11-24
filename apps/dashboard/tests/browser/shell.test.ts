@@ -2,7 +2,7 @@ import { expect } from "vite-plus/test";
 import { page as testPage, userEvent } from "vite-plus/test/browser/context";
 
 import { DASHBOARD_BASE } from "../../../hub/src/dashboard.ts";
-import { NO_JOBS, NO_JOBS_LISTED, NOW, signedIn } from "../records.ts";
+import { NO_JOBS, NO_JOBS_LISTED, signedIn } from "../records.ts";
 import {
   advance,
   advanceTo,
@@ -238,7 +238,12 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
     }
   });
   showing.observe(document.body, { childList: true, subtree: true, characterData: true });
+  // The first answer lands three seconds after the page opens, so that its time is not the page's.
+  const first = hub.jobs.counts.hold();
   await open("change-password");
+  await first.arrived;
+  await advance(3_000);
+  first.release();
   await expect.element(queued).toBeVisible();
   if (shownAt === undefined) throw new Error("The figures showed unobserved");
   // The expiry runs from the answer the figures show, and these steps go to fixed times after they
@@ -250,12 +255,12 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
   await advanceTo(shownAt + 15_000);
   const lastAnswer = strip.getByText(/^The job counts have not been read since /);
   expect(lastAnswer.element()).toBeVisible();
-  // The time of the answer the page opened with, which came as it opened.
+  // The time of the answer the figures showed, which landed as they first showed.
   const answeredAt = Date.parse(
     lastAnswer.getByCSS("time").element().getAttribute("datetime") ?? "",
   );
-  expect(answeredAt - NOW.getTime()).toBeGreaterThanOrEqual(0);
-  expect(answeredAt - NOW.getTime()).toBeLessThan(1_000);
+  expect(answeredAt).toBeLessThanOrEqual(shownAt);
+  expect(shownAt - answeredAt).toBeLessThan(1_000);
   await expect.element(queued).toHaveLength(0);
   await expect.element(strip.getByText("No Runners")).toBeVisible();
   reads.release();
