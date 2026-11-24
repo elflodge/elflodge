@@ -75,6 +75,20 @@ test("sign-in allows keyboard retry, takes only one submit during navigation and
   ]);
 });
 
+test("sign-in returns to the filtered Jobs link that required it", async ({ hub, open }) => {
+  const owner = signedIn("owner");
+  hub.session.answers(null);
+  acceptSignIn(hub, owner);
+  hub.jobs.list.answers(NO_JOBS_LISTED);
+  const destination = "jobs?status=failed#recent";
+  const page = await open(destination);
+  await expectBrowser(page.getByLabel("Email")).toBeVisible();
+  hub.session.answers(owner);
+  await signIn(page, owner);
+  await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
+  await expectBrowser(page).toHaveURL(new URL(DASHBOARD_BASE + destination, page.url()).href);
+});
+
 test("the bar leads to the dashboard's pages, and on a phone names the current one", async ({
   hub,
   open,

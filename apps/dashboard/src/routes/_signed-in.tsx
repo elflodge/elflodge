@@ -28,7 +28,7 @@ export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ location }) => {
     const session = await readFromHub("The session", getSession);
     await reloadAndWaitIfMemberChanged(session?.user.id ?? null);
-    if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.href } });
+    if (!session) throw redirect({ to: "/sign-in", search: { redirect: location.publicHref } });
     return { user: session.user, membership: session.membership };
   },
   // Pending routes lose beforeLoad context (TanStack/router#8115). Keep the last completed

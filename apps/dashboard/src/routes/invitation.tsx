@@ -326,7 +326,7 @@ function AcceptInvitation(props: {
   });
 
   const join = () => `Join ${props.invitation.organizationName}`;
-  const signInSearch = { redirect: "/invitation" };
+  const signInSearch = { redirect: window.location.pathname };
   return (
     <InvitationPage heading={differentAccount() ? "Invitation" : join()}>
       {props.children}
