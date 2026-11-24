@@ -211,13 +211,13 @@ test("going offline immediately replaces all the strip's figures with one untime
   const page = await open("change-password");
   const strip = page.getByRole("region", { name: "The hub now" });
   await expect.element(strip.getByText(/ queued$/)).toBeVisible();
-  const at = Date.now();
   setOffline(true);
-  // Polled, which leaves the clock where it is.
-  await expect
-    .poll(() => texts(strip.getByRole("listitem")))
-    .toEqual(["The hub cannot be read: this browser is offline."]);
-  expect(Date.now()).toBe(at);
+  // Once the page has handled the event, with no time passing: what is due now runs, and the clock
+  // stays where it is, where a retrying assertion would move it.
+  await vi.advanceTimersByTimeAsync(0);
+  expect(texts(strip.getByRole("listitem"))).toEqual([
+    "The hub cannot be read: this browser is offline.",
+  ]);
 });
 
 test("when a counts read stalls, its figures give way at expiry to the time of the last answer", async ({
