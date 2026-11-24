@@ -28,7 +28,12 @@ import {
 import type { BirpcReturn } from "birpc";
 import ensureError from "ensure-error";
 
-import type { HostFunctions, ProviderSettings, WorkerFunctions } from "./protocol.ts";
+import {
+  sendable,
+  type HostFunctions,
+  type ProviderSettings,
+  type WorkerFunctions,
+} from "./protocol.ts";
 
 type ProviderRuntime = Pick<
   ModelRuntime,
@@ -354,7 +359,7 @@ export class ConversationProviders {
     // The worker's IDs are its own, so a cancel goes only to the worker that has the request.
     const cancel = (reason?: unknown) => {
       if (this.#worker !== worker) return;
-      void worker.rpc.cancelProvider(id, cloneable(reason)).catch(() => {});
+      void worker.rpc.cancelProvider(id, sendable(reason)).catch(() => {});
     };
     const aborted = () => cancel(signal?.reason);
     const closed = () => cancel(live.reason);
@@ -478,17 +483,6 @@ function unrouted(name: string, sessionId: string | undefined) {
   );
 }
 
-/** `reason` as it can cross to the worker: a value that cannot be copied goes as its message. */
-function cloneable(reason: unknown) {
-  try {
-    structuredClone(reason);
-    return reason;
-  } catch {
-    // An Error's message alone: ensure-error assigns to an error's cause, which throws when frozen.
-    return new Error(reason instanceof Error ? reason.message : ensureError(reason).message);
-  }
-}
-
 /**
  * Runs an app's hook for the worker. birpc sends a rejection only when it is truthy, so one without
  * an Error, even `undefined`, becomes an Error rather than a success.
@@ -497,7 +491,7 @@ async function failingWithError<T>(hook: () => T | Promise<T>): Promise<T> {
   try {
     return await hook();
   } catch (error) {
-    // An Error as it is: ensure-error assigns to an error's cause, which throws when frozen.
-    throw error instanceof Error ? error : ensureError(error);
+    // An Error as it can be sent: ensure-error assigns to an error's cause, which throws when frozen.
+    throw error instanceof Error ? sendable(error) : ensureError(error);
   }
 }

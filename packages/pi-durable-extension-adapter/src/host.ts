@@ -77,6 +77,7 @@ import { Guard } from "typebox/guard";
 import { Value } from "typebox/value";
 
 import type { PreparedExtensions } from "./prepare.ts";
+import { sendable } from "./protocol.ts";
 import type {
   Action,
   AgentStartTrigger,
@@ -486,10 +487,10 @@ class Workers {
         reads.postMessage(value);
       } catch (error) {
         // A value, or an error's `cause`, that cannot be cloned: the worker waits for an answer all
-        // the same, so it gets the message alone, which can.
-        const message = ensureError(value.type === "error" ? value.error : error).message;
+        // the same, so it gets the error, or why the value could not be sent, as it can be.
+        const failure = sendable(value.type === "error" ? value.error : error);
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker port, not a window
-        reads.postMessage({ type: "error", error: new Error(message) } satisfies ReadReply);
+        reads.postMessage({ type: "error", error: failure } satisfies ReadReply);
       }
     };
     reads.on("message", (message: JournalMessage) => {

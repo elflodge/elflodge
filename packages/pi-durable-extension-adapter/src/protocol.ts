@@ -24,6 +24,7 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { CompactionHooks } from "@earendil-works/pi-durable";
+import { deserializeError, isErrorLike, serializeError } from "serialize-error";
 import Type, { type Static } from "typebox";
 
 // What crosses between the host thread and an extension worker. Values only: functions stay in the
@@ -353,4 +354,22 @@ export interface WorkerData {
   readonly journal: MessagePort;
   /** The channel end for everything else. */
   readonly rpc: MessagePort;
+}
+
+/**
+ * `value` as it can cross to the other thread: as it is when it can be copied, which keeps an
+ * error's type, else as serialize-error's plain copy of what can be, read without changing it.
+ */
+export function sendable(value: unknown): unknown {
+  try {
+    structuredClone(value);
+    return value;
+  } catch {
+    return serializeError(value);
+  }
+}
+
+/** A value `sendable` gave, with an error it serialized made an Error again. */
+export function received(value: unknown): unknown {
+  return isErrorLike(value) && !(value instanceof Error) ? deserializeError(value) : value;
 }

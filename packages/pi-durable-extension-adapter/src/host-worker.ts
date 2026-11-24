@@ -14,6 +14,7 @@ import { SyncMessagePort } from "sync-message-port";
 import { Value } from "typebox/value";
 
 import {
+  received,
   unsupportedProviderFields,
   type Action,
   type ExtensionError,
@@ -107,8 +108,13 @@ function journalRequest<M extends keyof Reads>(
   // The next message is the answer to this read (`ReadReply`).
   const reply = journal.receiveMessage();
   if (!Value.Check(ReadReply, reply)) throw new Error("The host's reply is not a ReadReply");
-  if (reply.type === "error") throw ensureError(reply.error);
+  if (reply.type === "error") throw ensureError(received(reply.error));
   return reply.value;
+}
+
+/** Rethrows the host's failure as the Error it was, for a provider awaiting an app's hook. */
+function rethrowReceived(error: unknown): never {
+  throw received(error);
 }
 
 function instanceFor(key: string): Opened {
@@ -286,10 +292,15 @@ const functions: WorkerFunctions = {
       const stream = streamSimple(model, context, {
         ...settings,
         signal: controller.signal,
-        ...(onPayload && { onPayload: (...args) => host.providerPayload(request, ...args) }),
-        ...(onResponse && { onResponse: (...args) => host.providerResponse(request, ...args) }),
+        ...(onPayload && {
+          onPayload: (...args) => host.providerPayload(request, ...args).catch(rethrowReceived),
+        }),
+        ...(onResponse && {
+          onResponse: (...args) => host.providerResponse(request, ...args).catch(rethrowReceived),
+        }),
         ...(onProviderStreamEvent && {
-          onProviderStreamEvent: (...args) => host.providerStreamEvent(request, ...args),
+          onProviderStreamEvent: (...args) =>
+            host.providerStreamEvent(request, ...args).catch(rethrowReceived),
         }),
       });
       for await (const event of stream) await host.providerEvent(request, event);
@@ -469,7 +480,7 @@ const functions: WorkerFunctions = {
       const controller = providerRequests.get(request);
       if (!controller) continue;
       providerRequests.delete(request);
-      controller.abort(reason);
+      controller.abort(received(reason));
       return;
     }
   },
