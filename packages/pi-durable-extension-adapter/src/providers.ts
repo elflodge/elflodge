@@ -10,7 +10,6 @@ import type {
   AssistantMessageEvent,
   Model,
   Models,
-  Provider,
   SimpleStreamOptions,
   TranscriptContext,
 } from "@earendil-works/pi-ai";
@@ -36,9 +35,10 @@ type Runtime = Pick<
   | "unregisterProvider"
   | "getRegisteredProviderConfig"
   | "getRegisteredNativeProvider"
-  | "registerNativeProvider"
 >;
 
+// Duck-typed, not `instanceof ModelRuntime`: the app's ModelRuntime comes from its own copy of the
+// coding agent, which can differ from the exact version this package pins.
 export function supportsProviders(models: Models): models is Models & Runtime {
   return (
     "registerProvider" in models &&
@@ -48,9 +48,7 @@ export function supportsProviders(models: Models): models is Models & Runtime {
     "getRegisteredProviderConfig" in models &&
     typeof models.getRegisteredProviderConfig === "function" &&
     "getRegisteredNativeProvider" in models &&
-    typeof models.getRegisteredNativeProvider === "function" &&
-    "registerNativeProvider" in models &&
-    typeof models.registerNativeProvider === "function"
+    typeof models.getRegisteredNativeProvider === "function"
   );
 }
 
@@ -100,13 +98,11 @@ export interface ProviderWorker {
 }
 
 interface InstalledProvider {
-  readonly runtime: Runtime;
   /** The app's registration, found when an extension first registered the name. */
   readonly previous: ProviderConfig | undefined;
-  readonly native: Provider | undefined;
   current: ProviderConfig | undefined;
   /** The conversations that registered the provider, each with whether it registered a stream. */
-  readonly sessions: Map<ProviderSession, boolean>;
+  readonly sessions: Map<ConversationProviders, boolean>;
   readonly dispatch: NonNullable<ProviderConfig["streamSimple"]>;
 }
 
@@ -119,15 +115,17 @@ interface Parking {
   drop(): void;
 }
 
-const catalogs = new WeakMap<Models, Map<string, InstalledProvider>>();
+const catalogs = new WeakMap<Runtime, Map<string, InstalledProvider>>();
 
 /**
  * The providers one attached conversation's extensions registered. A worker's exit withdraws them
  * as a close does, and the reopened extensions register theirs again as at attach.
  */
-export class ProviderSession {
+export class ConversationProviders {
   readonly #catalog: Map<string, InstalledProvider>;
   readonly #models: Models;
+  /** The app's model runtime, when its models are one. */
+  readonly #runtime: (Models & Runtime) | undefined;
   readonly #sessionId: string;
   readonly #harness: Harness;
   readonly #conversation: ConversationId;
@@ -144,8 +142,10 @@ export class ProviderSession {
 
   constructor(models: Models, sessionId: string, harness: Harness, conversation: ConversationId) {
     this.#models = models;
-    this.#catalog = catalogs.get(models) ?? new Map();
-    catalogs.set(models, this.#catalog);
+    this.#runtime = supportsProviders(models) ? models : undefined;
+    // Without a runtime nothing registers, so the catalog stays empty.
+    this.#catalog = (this.#runtime && catalogs.get(this.#runtime)) ?? new Map();
+    if (this.#runtime) catalogs.set(this.#runtime, this.#catalog);
     this.#sessionId = sessionId;
     this.#harness = harness;
     this.#conversation = conversation;
@@ -160,7 +160,7 @@ export class ProviderSession {
    * The worker exited: the requests on it fail with its error, and the registrations go as at
    * close, since their streams went with the worker. The reopened extensions register again.
    */
-  unbind(error: Error) {
+  withdraw(error: Error) {
     this.#worker = undefined;
     this.#gone = error;
     for (const parking of this.#parked.values()) parking.drop();
@@ -171,11 +171,7 @@ export class ProviderSession {
   register(name: string, settings: ProviderSettings, customStream: boolean) {
     this.#life.signal.throwIfAborted();
     if (!this.#worker) throw new Error("The conversation's extension worker exited");
-    const models = this.#models;
-    if (!supportsProviders(models))
-      throw new Error(
-        "registerProvider is not supported by these Harness models; supply a Pi ModelRuntime",
-      );
+    const models = this.#requireRuntime("registerProvider");
     const entry = this.#catalog.get(name) ?? this.#createRegistration(name, models);
     if (models.getRegisteredProviderConfig(name) !== entry.current)
       throw new Error(`Provider "${name}" was replaced outside the extension host`);
@@ -201,14 +197,24 @@ export class ProviderSession {
     this.#catalog.set(name, entry);
   }
 
+  #requireRuntime(call: string) {
+    if (!this.#runtime)
+      throw new Error(`${call} is not supported by these Harness models; supply a Pi ModelRuntime`);
+    return this.#runtime;
+  }
+
   #createRegistration(name: string, runtime: Runtime): InstalledProvider {
+    // Pi drops a native provider when the name is registered with settings, and with it the
+    // provider's models, until the registration goes.
+    if (runtime.getRegisteredNativeProvider(name))
+      throw new Error(
+        `Provider "${name}" is a native provider of the app; register the extension's under a name of its own`,
+      );
     const previous = runtime.getRegisteredProviderConfig(name);
     const catalog = this.#catalog;
     return {
-      runtime,
       previous,
       current: previous,
-      native: runtime.getRegisteredNativeProvider(name),
       sessions: new Map(),
       dispatch: (model, context, options = {}) =>
         lazyStream(
@@ -236,7 +242,7 @@ export class ProviderSession {
     if (
       !provider ||
       (entry &&
-        entry.runtime.getRegisteredProviderConfig(name)?.streamSimple === entry.dispatch &&
+        this.#runtime?.getRegisteredProviderConfig(name)?.streamSimple === entry.dispatch &&
         entry.sessions.get(this) !== true)
     )
       return undefined;
@@ -244,13 +250,10 @@ export class ProviderSession {
   }
 
   unregister(name: string) {
-    if (!supportsProviders(this.#models))
-      throw new Error(
-        "unregisterProvider is not supported by these Harness models; supply a Pi ModelRuntime",
-      );
+    const runtime = this.#requireRuntime("unregisterProvider");
     const entry = this.#catalog.get(name);
     if (!entry || !entry.sessions.delete(this)) return;
-    if (entry.runtime.getRegisteredProviderConfig(name) !== entry.current) {
+    if (runtime.getRegisteredProviderConfig(name) !== entry.current) {
       if (!entry.sessions.size) this.#catalog.delete(name);
       return;
     }
@@ -260,15 +263,14 @@ export class ProviderSession {
       const streaming = [...entry.sessions.values()].some(Boolean);
       if (streaming || entry.current?.streamSimple !== entry.dispatch) return;
       const { streamSimple: _, ...settings } = entry.current;
-      entry.runtime.unregisterProvider(name);
-      entry.runtime.registerProvider(name, settings);
-      entry.current = entry.runtime.getRegisteredProviderConfig(name);
+      runtime.unregisterProvider(name);
+      runtime.registerProvider(name, settings);
+      entry.current = runtime.getRegisteredProviderConfig(name);
       return;
     }
     this.#catalog.delete(name);
-    entry.runtime.unregisterProvider(name);
-    if (entry.native) entry.runtime.registerNativeProvider(entry.native);
-    else if (entry.previous) entry.runtime.registerProvider(name, entry.previous);
+    runtime.unregisterProvider(name);
+    if (entry.previous) runtime.registerProvider(name, entry.previous);
   }
 
   /**

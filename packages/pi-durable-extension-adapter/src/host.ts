@@ -95,7 +95,7 @@ import type {
   WorkerData,
   WorkerFunctions,
 } from "./protocol.ts";
-import { ProviderRequests, ProviderSession } from "./providers.ts";
+import { ConversationProviders, ProviderRequests } from "./providers.ts";
 
 /** How `startExtensionHost` runs extensions. */
 export interface ExtensionHostOptions {
@@ -833,7 +833,7 @@ class AttachedConversation {
    */
   #route = "";
   /** What the extensions registered as model providers. */
-  readonly providers: ProviderSession;
+  readonly providers: ConversationProviders;
   readonly models: Models;
   readonly #options: AttachOptions;
   #hosted: HostedWorker | undefined;
@@ -882,7 +882,7 @@ class AttachedConversation {
     this.#options = options;
     this.#installation = installation;
     this.#workers = workers;
-    this.providers = new ProviderSession(
+    this.providers = new ConversationProviders(
       options.models,
       sessionId,
       options.harness,
@@ -1741,7 +1741,7 @@ class AttachedConversation {
    * extensions register theirs again.
    */
   lost(error: Error) {
-    this.providers.unbind(error);
+    this.providers.withdraw(error);
     this.#hosted = undefined;
     // Its end can no longer reach them, so `close` waits no longer.
     this.#runEnd?.delivered.resolve();
