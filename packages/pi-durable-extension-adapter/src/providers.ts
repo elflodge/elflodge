@@ -415,7 +415,7 @@ export class ConversationProviders {
     void this.#harness
       .watchTaskGraph(watching.context)
       .then((watch) => {
-        // Released while the watch was acquired, or aborted already: a stopped watch cannot start.
+        // Cancelled while the watch was acquired, or aborted already: a stopped watch cannot start.
         if (this.#parked.get(submission) !== parking) return;
         if (abortedRun(watch.value)) return cancelParked();
         watch.start(async (call) => {

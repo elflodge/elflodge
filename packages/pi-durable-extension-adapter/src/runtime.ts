@@ -8,6 +8,7 @@ import {
   type ExtensionActions,
   type ExtensionRuntime,
   type ExtensionContextActions,
+  type ExtensionError as PiExtensionError,
   type ModelRegistry,
   type SessionManager,
 } from "@earendil-works/pi-coding-agent";
@@ -187,14 +188,7 @@ export async function createInstance(
   );
   // Binding applies the registrations queued during loading. Pi attributes each failure to its
   // extension and keeps the extension loaded.
-  const stopListening = runner.onError((error) =>
-    errors.push({
-      source: error.extensionPath,
-      message: error.error,
-      event: error.event,
-      ...(error.stack !== undefined && { stack: error.stack }),
-    }),
-  );
+  const stopListening = runner.onError((error) => errors.push(handlerError(error)));
   runner.bindCore({ ...bridge.actions, refreshTools: () => bridge.changed() }, bridge.context, {
     registerProvider: bridge.registerProvider,
     registerNativeProvider: () => unsupported("registerNativeProvider"),
@@ -203,14 +197,7 @@ export async function createInstance(
     unregisterVirtualModel: () => unsupported("unregisterVirtualModel"),
   });
   stopListening();
-  runner.onError((error) =>
-    bridge.error({
-      source: error.extensionPath,
-      event: error.event,
-      message: error.error,
-      ...(error.stack !== undefined && { stack: error.stack }),
-    }),
-  );
+  runner.onError((error) => bridge.error(handlerError(error)));
   runner.setUIContext(undefined, "print");
   return {
     runner,
@@ -240,4 +227,14 @@ function asSessionManager(facade: ReadonlySessionManager): SessionManager {
 function asModelRegistry(facade: ModelRegistryFacade): ModelRegistry {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the runner only hands it out, as above
   return facade as ModelRegistry;
+}
+
+/** Pi's report of a failure it caught, as the host receives it. */
+function handlerError(error: PiExtensionError): HandlerError {
+  return {
+    source: error.extensionPath,
+    event: error.event,
+    message: error.error,
+    ...(error.stack !== undefined && { stack: error.stack }),
+  };
 }
