@@ -8,7 +8,7 @@ import { orpc } from "./query.ts";
 
 /**
  * Starts reading the hub's limits from a route's loader. Not awaited: the form works without them,
- * as they only fill two hints. Preloading on intent starts the read before the page shows.
+ * as they only fill two hints.
  */
 export function preloadJobLimits(context: { member?: unknown; queryClient: QueryClient }) {
   if (context.member)

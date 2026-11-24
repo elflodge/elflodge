@@ -8,6 +8,7 @@ import {
   JOB_SUCCEEDED,
 } from "contract";
 
+import { LOCAL_ISO_DATE } from "./format.ts";
 import type { ReadJobEvent } from "./job-event-record.ts";
 import type { JobLifecycle } from "./job-lifecycle.ts";
 import { shortIds } from "./short-ids.ts";
@@ -36,7 +37,7 @@ export function groupJobEvents(events: ReadJobEvent[], firstHeadEventId: number 
     if (row.runId) runIds.add(row.runId);
     if (row.ownerId !== undefined) subAgents.add(row.id);
     if (row.at) {
-      const day = row.at.toDateString();
+      const day = LOCAL_ISO_DATE.format(row.at);
       if (previousDay && previousDay !== day) dayLines.add(row.id);
       previousDay = day;
     }

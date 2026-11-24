@@ -2,7 +2,14 @@ import { openFailureSchema, type Job, type JobEvent, type JobEventsPage } from "
 import type { Page } from "playwright";
 import { expect } from "vite-plus/test";
 
-import { expectBrowser, test, type BrowserOptions, type Open, UNCERTAIN } from "./dashboard.ts";
+import {
+  expectBrowser,
+  runClockUntil,
+  test,
+  type BrowserOptions,
+  type Open,
+  UNCERTAIN,
+} from "./dashboard.ts";
 import type { Hub } from "./hub.ts";
 import {
   NOW,
@@ -648,6 +655,35 @@ test("a member can retry a refused earlier page from its own box", async ({ hub,
   expect(hub.jobs.events.calls.slice(before)).toEqual([
     { id: journal.job.id, order: "desc", after: 30, limit: 100 },
   ]);
+});
+
+test("following Events resumes automatically after a rate limit", async ({ hub, open }) => {
+  const journal = { job: runningJob("transient-events"), events: history(23) };
+  const page = await openJob(hub, open, journal);
+  await expectBrowser(page.locator(".tl-head [role=status]")).toHaveText("All 25 read");
+
+  const events = (url: URL) => url.pathname.endsWith(`/jobs/${journal.job.id}/events`);
+  await page.route(
+    events,
+    (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: "application/problem+json",
+        json: {
+          type: "about:blank",
+          status: 429,
+          title: "Too Many Requests",
+        },
+      }),
+    { times: 1 },
+  );
+  journal.events.push(aMessage(235));
+  const failedRead = page.waitForResponse(
+    (response) => events(new URL(response.url())) && response.status() === 429,
+  );
+  await page.clock.runFor(5_000);
+  await failedRead;
+  await runClockUntil(page, 1_000, () => page.locator("#event-235").isVisible());
 });
 
 test("Latest recovers a refused forward read without dropping the Events already shown", async ({

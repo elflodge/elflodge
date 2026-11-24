@@ -21,7 +21,7 @@ import {
   timeZoneNote,
 } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { orpc, REFRESH_INTERVAL_MS } from "../../../query.ts";
+import { PAGE_LOAD, orpc, REFRESH_INTERVAL_MS } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
 export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
@@ -35,7 +35,7 @@ export const Route = createFileRoute("/_signed-in/_member/batches_/$id")({
     if (!batchRefSchema.safeParse(params).success) throw notFound({ data: params.id });
     try {
       await context.queryClient.query(
-        orpc.batches.get.queryOptions({ input: params, staleTime: "static" }),
+        orpc.batches.get.queryOptions({ input: params, ...PAGE_LOAD }),
       );
     } catch (error) {
       if (problemOf(error)?.status === 404) throw notFound({ data: params.id });

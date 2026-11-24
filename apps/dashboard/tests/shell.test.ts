@@ -75,6 +75,20 @@ test("sign-in allows keyboard retry, takes only one submit during navigation and
   ]);
 });
 
+test("sign-in returns to the filtered Jobs link that required it", async ({ hub, open }) => {
+  const owner = signedIn("owner");
+  hub.session.answers(null);
+  acceptSignIn(hub, owner);
+  hub.jobs.list.answers(NO_JOBS_LISTED);
+  const destination = "jobs?status=failed#recent";
+  const page = await open(destination);
+  await expectBrowser(page.getByLabel("Email")).toBeVisible();
+  hub.session.answers(owner);
+  await signIn(page, owner);
+  await expectBrowser(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
+  await expectBrowser(page).toHaveURL(new URL(DASHBOARD_BASE + destination, page.url()).href);
+});
+
 test("the bar leads to the dashboard's pages, and on a phone names the current one", async ({
   hub,
   open,
@@ -179,7 +193,7 @@ test.for([
 ] as const)(
   "retrying a failed %s read keeps the dashboard while the session is checked",
   async ([path, heading], { hub, open }) => {
-    if (path === "jobs") hub.jobs.list.refuses("BAD_REQUEST");
+    if (path === "jobs") hub.jobs.list.fails();
     else hub.apiKeys.list.refuses("BAD_REQUEST");
     const page = await open(path);
     const retry = page.getByRole("button", { name: "Try again" });
@@ -362,8 +376,7 @@ test("a member change in another tab loads a fresh document", async ({ hub, open
   expect(await signInDocument()).toBe(true);
 
   // Signed in as the next member in the other tab, over this one's session, this one shows the next
-  // member at its next session read, such as the one the router's preload of a link the pointer
-  // rests on makes after a moment.
+  // member at its next session read, when it opens another page.
   await other.getByRole("button", { name: "Sign out" }).waitFor({ state: "detached" });
   acceptSignIn(hub, next);
   hub.session.answers(next);
@@ -371,9 +384,8 @@ test("a member change in another tab loads a fresh document", async ({ hub, open
   await page
     .getByRole("navigation", { name: "Destinations" })
     .getByRole("link", { name: "Jobs" })
-    .hover();
-  await page.clock.runFor(1_000);
+    .click();
   await expectBrowser(page.getByRole("button", { name: next.user.name })).toBeVisible();
   expect(await signInDocument()).toBe(false);
-  expect(new URL(page.url()).pathname).toBe(`${DASHBOARD_BASE}change-password`);
+  expect(new URL(page.url()).pathname).toBe(`${DASHBOARD_BASE}jobs`);
 });

@@ -164,10 +164,7 @@ const retryTransient = {
   while: isTransient,
 };
 
-/**
- * A call of the hub's API, its failure kept as it is for `isTransient`: ensure-error would replace
- * the Problem Details an error from the hub keeps as its cause with an `Error`.
- */
+/** Keep the original failure so the retry policy can recognize the Hub's response or a network error. */
 function hubCall<A>(call: (signal: AbortSignal) => Promise<A>) {
   return Effect.tryPromise({ try: call, catch: (error) => error });
 }
@@ -201,7 +198,7 @@ function connectionFailure(cause: unknown): string {
 /**
  * A command's failure as an `Error` whose message the command prints: trpc-cli prints only an
  * `Error`'s, and reports some by their cause. An error the hub answered prints its Problem Details,
- * which the contract's link keeps as its cause; missing settings say which to set.
+ * from the response body; missing settings say which to set.
  */
 function commandError(error: unknown): Error {
   if (error instanceof ORPCError) {

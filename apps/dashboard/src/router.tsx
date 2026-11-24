@@ -23,7 +23,6 @@ export function getRouter() {
     Wrap: (props) => (
       <QueryClientProvider client={queryClient}>{props.children}</QueryClientProvider>
     ),
-    defaultPreload: "intent",
     // Preloaded route data is immediately stale. Query decides when to refresh page data.
     defaultPreloadStaleTime: 0,
     defaultErrorComponent: DefaultCatchBoundary,

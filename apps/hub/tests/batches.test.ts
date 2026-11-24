@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, onTestFinished, test } from "vite-plus/tes
 import * as z from "zod/mini";
 
 import {
+  problemResponse,
   type ApiClient,
   type JobInput,
   protocolClient,
@@ -98,7 +99,7 @@ test("an ID used again with the same content returns what it named, whoever repe
   expect(await member.batches.create(creation)).toMatchObject({ id: batch.id, submitter: byKey });
   await expect(client.batches.create({ ...creation, breaker: true })).rejects.toMatchObject({
     code: "UNPROCESSABLE_CONTENT",
-    cause: { errors: [{ pointer: "/id" }] },
+    cause: problemResponse({ errors: [{ pointer: "/id" }] }),
   });
   // An ID differing only in case names another Batch.
   expect((await client.batches.create({ ...creation, id: "Invoices-2026-10" })).id).toBe(
@@ -192,7 +193,7 @@ test("a refused creation leaves the Batch ID free, including when a job names an
     }),
   ];
   await expect(client.batches.create({ id, agent: AGENT, jobs })).rejects.toMatchObject({
-    cause: { status: 400, errors: [{ pointer: "/jobs/1/files/0/digest" }] },
+    cause: problemResponse({ status: 400, errors: [{ pointer: "/jobs/1/files/0/digest" }] }),
   });
   await expect(client.batches.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   const response = await post("/batches", {
@@ -215,10 +216,10 @@ test(`a request creates up to ${MAX_JOBS_PER_REQUEST} jobs together, and one mor
     jobNamed(`job-${index}`, { files: [{ path: "rates.csv", ...rates }] }),
   );
   await expect(client.batches.create({ id, agent: AGENT, jobs })).rejects.toMatchObject({
-    cause: {
+    cause: problemResponse({
       status: 400,
       errors: [{ pointer: "/jobs", detail: `Must have at most ${MAX_JOBS_PER_REQUEST} jobs` }],
-    },
+    }),
   });
   await expect(client.batches.get({ id })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
@@ -275,7 +276,9 @@ test("an add with an invalid job adds none, and each refusal names its problems 
     expect.stringContaining("jobs[2].input"),
     expect.not.stringContaining("jobs[0]"),
   ]) {
-    await expect(pendingJobAdd).rejects.toMatchObject({ cause: { status: 400, detail } });
+    await expect(pendingJobAdd).rejects.toMatchObject({
+      cause: problemResponse({ status: 400, detail }),
+    });
   }
 
   // Files whose content the Organization never uploaded, or of a size other than its content's.
@@ -295,7 +298,9 @@ test("an add with an invalid job adds none, and each refusal names its problems 
     expect.stringContaining("jobs[2].files[0].sizeBytes"),
     expect.not.stringContaining("jobs[0]"),
   ]) {
-    await expect(pendingFileAdd).rejects.toMatchObject({ cause: { status: 400, detail } });
+    await expect(pendingFileAdd).rejects.toMatchObject({
+      cause: problemResponse({ status: 400, detail }),
+    });
   }
 
   // The wire pointer escapes each token. The client restores even an invalid Label key verbatim.
@@ -305,7 +310,7 @@ test("an add with an invalid job adds none, and each refusal names its problems 
       jobs: [jobNamed("d", { labels: { "team/~name": "ok" } })],
     }),
   ).rejects.toMatchObject({
-    cause: { errors: [{ pointer: "/jobs/0/labels/team~1~0name" }] },
+    cause: problemResponse({ errors: [{ pointer: "/jobs/0/labels/team~1~0name" }] }),
     data: { issues: [{ path: ["jobs", "0", "labels", "team/~name"] }] },
   });
 
@@ -483,7 +488,7 @@ test("Batches are listed newest first, by status and label, in pages", async () 
 
   // A Batch's ID tells nothing of its order, so an `after` naming no Batch cannot be read on from.
   await expect(client.batches.list({ after: "no-such-batch" })).rejects.toMatchObject({
-    cause: { status: 400, detail: expect.stringContaining("after") },
+    cause: problemResponse({ status: 400, detail: expect.stringContaining("after") }),
   });
 });
 
@@ -541,7 +546,7 @@ test("a cancel is final: the Batch takes no new jobs and resumes none, even with
       submit([jobNamed("b"), jobNamed("a", { input: "Changed." })]),
     ).rejects.toMatchObject({
       code: "UNPROCESSABLE_CONTENT",
-      cause: { errors: [{ pointer: "/jobs/1/customId" }] },
+      cause: problemResponse({ errors: [{ pointer: "/jobs/1/customId" }] }),
     });
     await expect(submit([jobNamed("a"), jobNamed("b")])).rejects.toMatchObject({
       code: "CONFLICT",

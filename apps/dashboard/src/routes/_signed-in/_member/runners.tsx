@@ -17,7 +17,7 @@ import { LoadingRunners } from "../../../components/LoadingRunners.tsx";
 import { Notice } from "../../../components/Notice.tsx";
 import { formatCount, plural, timeZoneNote } from "../../../format.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { REFRESH_INTERVAL_MS, orpc, writeAbsence } from "../../../query.ts";
+import { PAGE_LOAD, REFRESH_INTERVAL_MS, orpc, writeAbsence } from "../../../query.ts";
 import { shortIds } from "../../../short-ids.ts";
 
 /** A Runner to remove, named as the member saw it when they pressed Remove. */
@@ -31,7 +31,7 @@ export const Route = createFileRoute("/_signed-in/_member/runners")({
   loader: async ({ context }) => {
     if (!context.member) return;
     await readFromHub("The Runners", () =>
-      context.queryClient.query(orpc.runners.list.queryOptions({ staleTime: "static" })),
+      context.queryClient.query(orpc.runners.list.queryOptions(PAGE_LOAD)),
     );
   },
   pendingComponent: LoadingRunners,

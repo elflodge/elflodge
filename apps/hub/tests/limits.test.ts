@@ -2,7 +2,7 @@ import { ConfigProvider } from "effect";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
 import { hubSettings, readConfig } from "../src/settings.ts";
-import { type OneJob, startSystem, submitJob, untilStatus } from "./harness.ts";
+import { problemResponse, type OneJob, startSystem, submitJob, untilStatus } from "./harness.ts";
 import { callTool, untilAborted } from "./scripted-model.ts";
 
 // Batch creation applies the hub's defaults. Added jobs inherit their Batch's limits, and a resume
@@ -51,7 +51,7 @@ test("the hub applies the defaults and accepts limits up to the maxima it report
   await expect(
     client.batches.create({ agent: { ...agent, runTimeoutSeconds: runTimeoutSeconds.max + 1 } }),
   ).rejects.toMatchObject({
-    cause: { status: 400, detail: expect.stringContaining("runTimeoutSeconds") },
+    cause: problemResponse({ status: 400, detail: expect.stringContaining("runTimeoutSeconds") }),
   });
   await expect(
     client.batches.create({
@@ -61,10 +61,10 @@ test("the hub applies the defaults and accepts limits up to the maxima it report
       },
     }),
   ).rejects.toMatchObject({
-    cause: {
+    cause: problemResponse({
       status: 400,
       errors: [{ pointer: "/agent/outputContract/schema" }, { pointer: "/agent/modelBudgetUsd" }],
-    },
+    }),
   });
 });
 
@@ -82,17 +82,17 @@ test("a repeat keeps the limits accepted for a Batch before the maximum was lowe
   try {
     const client = lowered.owner();
     await expect(client.batches.create({ agent })).rejects.toMatchObject({
-      cause: { status: 400 },
+      cause: problemResponse({ status: 400 }),
     });
     await expect(
       client.batches.create({ id: created.id, agent, jobs: [{ customId: "no-input" }] }),
     ).rejects.toMatchObject({
-      cause: { status: 400, errors: [{ pointer: "/jobs/0/input" }] },
+      cause: problemResponse({ status: 400, errors: [{ pointer: "/jobs/0/input" }] }),
     });
     await expect(
       client.batches.create({ id: created.id, agent: { ...agent, modelBudgetUsd: 6 } }),
     ).rejects.toMatchObject({
-      cause: { status: 422, errors: [{ pointer: "/id" }] },
+      cause: problemResponse({ status: 422, errors: [{ pointer: "/id" }] }),
     });
     expect(await client.batches.create({ id: created.id, agent })).toMatchObject({
       id: created.id,

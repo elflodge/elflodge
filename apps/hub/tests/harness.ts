@@ -41,6 +41,11 @@ import { GONE_AFTER_MS } from "../src/runners.ts";
 import { setUpOrganization } from "../src/setup.ts";
 import { scriptedModel } from "./scripted-model.ts";
 
+/** Match the fields a caller reads from the body of an oRPC error response. */
+export function problemResponse(body: object) {
+  return { response: { body } };
+}
+
 /**
  * A Runner's side of the protocol over `socket`, a socket the test opens itself, sending each
  * message as `rewrite` changes it.

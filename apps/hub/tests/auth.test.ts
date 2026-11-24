@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, inject, test } from "vite-plus/test";
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { ApikeyId, type ApikeyUpdate } from "../src/db/types.ts";
 import { resetPassword, setUpOrganization } from "../src/setup.ts";
-import { OWNER, startSystem } from "./harness.ts";
+import { problemResponse, OWNER, startSystem } from "./harness.ts";
 
 const system = startSystem();
 
@@ -104,10 +104,10 @@ test("key management refusals tell a member which permission their role needs", 
     name: "Member",
   });
   await expect(member.apiKeys.list()).rejects.toMatchObject({
-    cause: { status: 403, detail: expect.stringContaining("apiKey:read") },
+    cause: problemResponse({ status: 403, detail: expect.stringContaining("apiKey:read") }),
   });
   await expect(member.runners.delete({ id: crypto.randomUUID() })).rejects.toMatchObject({
-    cause: { status: 403, detail: expect.stringContaining("apiKey:delete") },
+    cause: problemResponse({ status: 403, detail: expect.stringContaining("apiKey:delete") }),
   });
 });
 
@@ -237,7 +237,10 @@ test("a name over the key limit locates the submitted name", async () => {
   await expect(
     system.owner().apiKeys.create({ name: "🌲".repeat(17), permissions: { job: ["read"] } }),
   ).rejects.toMatchObject({
-    cause: { status: 400, errors: [{ pointer: "/name", detail: expect.any(String) }] },
+    cause: problemResponse({
+      status: 400,
+      errors: [{ pointer: "/name", detail: expect.any(String) }],
+    }),
     data: { issues: [{ path: ["name"], message: expect.any(String) }] },
   });
 });

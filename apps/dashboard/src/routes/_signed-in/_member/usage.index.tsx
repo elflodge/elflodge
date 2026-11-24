@@ -9,18 +9,15 @@ import { Instant } from "../../../components/Instant.tsx";
 import { UsageLedgers } from "../../../components/UsageLedgers.tsx";
 import { focusAfterLinkDrops } from "../../../form.ts";
 import { TIME_SECONDS_ZONED, TIME_ZONED, UTC_DAY, UTC_DAY_YEAR } from "../../../format.ts";
+import { PAGE_LOAD } from "../../../query.ts";
 import { rangeOf, rangeName, reportDefaults, reportOptions, refusedReport } from "./usage.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/usage/")({
-  // Read on activation, on Show and when a stale report becomes visible. A 30-day report by
-  // Batch over 100,000 job ends took 93 ms, against 0.25 ms for the first Jobs page and
-  // 21 ms for Batches (medians of five warm reads). Hovering a link should not incur that read.
-  preload: false,
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     if (!context.readsUsage) return;
     await readFromHub("Usage", () =>
-      context.queryClient.query({ ...reportOptions(deps), staleTime: "static" }),
+      context.queryClient.query({ ...reportOptions(deps), ...PAGE_LOAD }),
     );
   },
   pendingComponent: () => {

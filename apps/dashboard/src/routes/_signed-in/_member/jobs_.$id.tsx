@@ -29,7 +29,7 @@ import { readJobEvent } from "../../../job-event-record.ts";
 import { useJobEvents } from "../../../job-events.ts";
 import { groupJobEvents } from "../../../job-runs.ts";
 import { memberPageHead } from "../../../page-title.ts";
-import { REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
+import { PAGE_LOAD, REFRESH_INTERVAL_MS, orpc } from "../../../query.ts";
 import { browserOnline, readIsFresh } from "../../../read-freshness.ts";
 
 // UUIDs in addresses accept either case. The hub returns them in lowercase, including on a control.
@@ -55,7 +55,7 @@ export const Route = createFileRoute("/_signed-in/_member/jobs_/$id")({
     if (!context.member) return;
     if (!jobRefSchema.safeParse(params).success) throw notFound({ data: params.id });
     try {
-      await context.queryClient.query({ ...jobQuery(params.id), staleTime: "static" });
+      await context.queryClient.query({ ...jobQuery(params.id), ...PAGE_LOAD });
     } catch (error) {
       if (problemOf(error)?.status === 404) throw notFound({ data: params.id });
       throw new HubReadError("The job", error);

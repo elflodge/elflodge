@@ -61,16 +61,10 @@ function SignIn() {
       await router.navigate({ to: "/" });
       return;
     }
-    // A return address can have its own query and fragment. Otherwise keep the fragment the
-    // sign-in link carried separately, outside the HTTP request.
-    const destination = router.parseLocation(
-      Object.assign(new URL(target, location.origin), { state: router.history.location.state }),
-    );
-    await router.navigate({
-      to: destination.pathname,
-      search: destination.search,
-      hash: destination.hash || true,
-    });
+    // Invitation links carry their private ID in the sign-in page's fragment, outside the request.
+    // Await navigation so the form stays pending until the destination has loaded.
+    const href = target.includes("#") ? target : target + window.location.hash;
+    await router.navigate({ href });
   });
 
   return (

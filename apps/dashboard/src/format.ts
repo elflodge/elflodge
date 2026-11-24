@@ -13,7 +13,7 @@ export const DATE_TIME = new Intl.DateTimeFormat(LANGUAGE, {
   timeStyle: "short",
 });
 
-/** The local calendar date in the YYYY-MM-DD form HTML time elements take. */
+/** The reader’s calendar day, also the YYYY-MM-DD form HTML time elements take. */
 export const LOCAL_ISO_DATE = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" });
 
 /** A local creation day in the year of the read. */

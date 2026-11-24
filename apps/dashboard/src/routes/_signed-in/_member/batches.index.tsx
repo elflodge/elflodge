@@ -13,7 +13,7 @@ import { EmptyList, ListEnd, PagingLink } from "../../../components/ListEnd.tsx"
 import { ClearFiltersLink } from "../../../components/ListFilters.tsx";
 import { formatCount, timeZoneNote } from "../../../format.ts";
 import { listPages } from "../../../list-pages.ts";
-import { REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
+import { PAGE_LOAD, REFRESH_INTERVAL_MS, availableRunners, orpc } from "../../../query.ts";
 import { filterCount, listInput, batchesSearchSchema } from "./batches.tsx";
 
 export const Route = createFileRoute("/_signed-in/_member/batches/")({
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_signed-in/_member/batches/")({
     if (!context.member) return;
     await readFromHub("The Batches", () =>
       context.queryClient.query(
-        orpc.batches.list.queryOptions({ input: listInput(deps), staleTime: "static" }),
+        orpc.batches.list.queryOptions({ input: listInput(deps), ...PAGE_LOAD }),
       ),
     );
   },

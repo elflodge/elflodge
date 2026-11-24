@@ -11,7 +11,7 @@ import * as z from "zod/mini";
 
 import { DB_SCHEMA, openDatabase } from "../src/db/database.ts";
 import { JobId } from "../src/db/types.ts";
-import { blobRef, startSystem, submitJob, uploadContent } from "./harness.ts";
+import { problemResponse, blobRef, startSystem, submitJob, uploadContent } from "./harness.ts";
 
 const system = startSystem();
 
@@ -229,7 +229,7 @@ test("an invalid Output contract or Input file path is refused with 400", async 
   ] as const) {
     await expect(
       client.batches.addJobs({ id: batch.id, jobs: [{ ...JOB, files: paths.map(fileAt) }] }),
-    ).rejects.toMatchObject({ cause: { status: 400, errors } });
+    ).rejects.toMatchObject({ cause: problemResponse({ status: 400, errors }) });
   }
 
   // The answer names the problem, so a caller can correct the request.
