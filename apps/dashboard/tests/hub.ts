@@ -159,9 +159,10 @@ export interface HubNetwork {
    * Answers `request` as the hub would, or as the test arranged what stands between them to: a
    * `Response.error()` for an answer lost on its way back, a proxy's refusal,
    * and nothing for a request that is not one of the hub's, which fails the test as a stray.
-   * `taken` is called once a procedure or route has recorded the call, before a hold keeps it.
+   * `held` is called once a hold keeps a call a procedure or route has recorded, or its answer is a
+   * promise: what the test may never give.
    */
-  handle(request: Request, taken?: () => void): Promise<Response | undefined>;
+  handle(request: Request, held?: () => void): Promise<Response | undefined>;
   /** The calls the test arranged no answer for, each with its input. */
   readonly unarranged: readonly string[];
   /**
@@ -212,19 +213,28 @@ class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Inpu
   }
 
   /**
-   * Records a call, says so to `taken`, waits while calls are held, and returns the answer that
+   * Records a call, waits while calls are held, saying so to `held`, and returns the answer that
    * stands then.
    */
-  async receive(input: Input, taken?: () => void) {
+  async receive(input: Input, held?: () => void) {
     this.calls.push(input);
-    taken?.();
     const hold = this.#hold;
     if (hold) {
+      held?.();
       hold.arrived.resolve(input);
       await hold.gate.promise;
     }
     return this.answer;
   }
+}
+
+/**
+ * `output`, saying so to `held` should it be a promise: an answer still to come is the test's to
+ * give, as a held call's is, and the test may never give it.
+ */
+function later<Output>(output: Output | Promise<Output>, held?: () => void) {
+  if (output instanceof Promise) held?.();
+  return output;
 }
 
 // What a procedure answers is JSON, never a function.
@@ -236,8 +246,8 @@ function isAnswerFunction<Input, Output, Errors>(
 
 /** What the stand-in learns of one request while the hub's handler serves it. */
 interface Exchange {
-  /** Called once the procedure has recorded the call. */
-  taken?: () => void;
+  /** Called once a hold keeps the call the procedure has recorded, or its answer is a promise. */
+  held?: () => void;
   /**
    * What reaches the page in place of the hub's answer: a `Response.error()` for an answer lost on
    * its way back, or what something between the hub and the page answers instead.
@@ -319,14 +329,14 @@ class ContractProcedure<
       this.#unarranged.push(`${this.#name} with ${JSON.stringify(input)}`);
       throw new Error(`The test arranged no answer for ${this.#name}`);
     }
-    const answer = await this.receive(input, context.exchange.taken);
+    const answer = await this.receive(input, context.exchange.held);
     context.exchange.call = `${this.#name} with ${JSON.stringify(input)}`;
     // What any other arrangement throws is its answer.
     context.exchange.arranged = answer?.kind !== "output";
     switch (answer?.kind) {
       case "output":
         try {
-          return await answer.answer(input, errors);
+          return await later(answer.answer(input, errors), context.exchange.held);
         } catch (error) {
           // A refusal the contract declares, made with `errors`, is the answer the test arranged.
           if (error instanceof ORPCError && error.defined) context.exchange.arranged = true;
@@ -512,11 +522,11 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
 
   const hub: Hub = { ...api, session, auth: authRoutes(auth) };
 
-  async function serveSession(taken?: () => void) {
-    const answer = await session.receive(undefined, taken);
+  async function serveSession(held?: () => void) {
+    const answer = await session.receive(undefined, held);
     switch (answer?.kind) {
       case "output":
-        return Response.json(await answer.answer());
+        return Response.json(await later(answer.answer(), held));
       case "loss":
         return Response.error();
       default:
@@ -524,7 +534,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     }
   }
 
-  async function serveAuth(request: Request, address: string, taken?: () => void) {
+  async function serveAuth(request: Request, address: string, held?: () => void) {
     const methods = AUTH_METHODS.get(address);
     if (!methods?.includes(request.method)) {
       unarranged.push(
@@ -542,10 +552,10 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
       return Response.json(null, { status: 500 });
     }
     const input: unknown = await authInput(request);
-    const answer = await route.receive(input, taken);
+    const answer = await route.receive(input, held);
     switch (answer?.kind) {
       case "output":
-        return Response.json((await answer.answer(input)) ?? null);
+        return Response.json((await later(answer.answer(input), held)) ?? null);
       case "refusal":
         return Response.json(answer.refuse.body, { status: answer.refuse.statusCode });
       case "loss":
@@ -557,16 +567,16 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
 
   // Better Auth's routes first; every other request on the origin goes to the hub's API handler,
   // whose router decides whether it is a call of the API.
-  async function handle(request: Request, taken?: () => void) {
+  async function handle(request: Request, held?: () => void) {
     const url = new URL(request.url);
     if (url.origin !== origin) return undefined;
     if (url.pathname === `${AUTH_BASE}/get-session` && request.method === "GET") {
-      return serveSession(taken);
+      return serveSession(held);
     }
     if (url.pathname.startsWith(`${AUTH_BASE}/`)) {
-      return serveAuth(request, url.pathname.slice(AUTH_BASE.length), taken);
+      return serveAuth(request, url.pathname.slice(AUTH_BASE.length), held);
     }
-    const exchange: Exchange = { arranged: false, taken };
+    const exchange: Exchange = { arranged: false, held };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
     if (exchange.failure !== undefined) failures.push(exchange.failure);
     if (!matched) return undefined;
