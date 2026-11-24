@@ -1,29 +1,16 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-
 import solid from "@solidjs/vite-plugin";
 import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
+import { createFixture, type FileTree } from "fs-fixture";
 import type { BrowserContext } from "playwright";
 import { configDefaults, defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
+import type { SerializedLocator } from "vite-plus/test/browser/context";
 
 import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../hub/src/dashboard.ts";
 
 /** Files and folders to drop, by name: a text is a file's, and an object a folder's entries. */
 export interface Dropped {
   [name: string]: string | Dropped;
-}
-
-async function writeDropped(folder: string, entries: Dropped) {
-  await Promise.all(
-    Object.entries(entries).map(async ([name, entry]) => {
-      const at = path.join(folder, name);
-      if (typeof entry === "string") return writeFile(at, entry);
-      await mkdir(at);
-      await writeDropped(at, entry);
-    }),
-  );
 }
 
 /**
@@ -111,19 +98,22 @@ export default defineConfig({
             locators: { exact: false },
             commands: {
               // Vitest has no tap: Playwright's, in the frame the tests run in.
-              async tap(context, locator: { selector: string }) {
+              async tap(context, locator: SerializedLocator) {
                 await (await context.frame()).locator(locator.selector).tap();
               },
               // Nor a drop of files: written to disk and dropped through Chromium's own hit test, as
               // a person drops them, 10 pixels into the start of the element, which shows first.
-              async drop(context, locator: { selector: string }, entries: Dropped) {
-                const folder = await mkdtemp(path.join(tmpdir(), "dropped-"));
-                await writeDropped(folder, entries);
+              // Playwright's `locator.drop()` builds the data in the page, which carries no folders,
+              // and dispatches its events on the element, past what covers it.
+              async drop(context, locator: SerializedLocator, entries: Dropped) {
+                const browser = context.page.context();
+                // On disk until the browser closes, as the page reads the files after the drop.
+                const folder = await createFixture(entries satisfies FileTree);
+                browser.once("close", () => void folder.rm());
                 const target = (await context.frame()).locator(locator.selector);
                 await target.scrollIntoViewIfNeeded();
                 const box = await target.boundingBox();
                 if (!box) throw new Error(`Nothing to drop on: ${locator.selector}`);
-                const browser = context.page.context();
                 if (!refusingFiles.has(browser)) {
                   refusingFiles.add(browser);
                   // Refused, as the network refuses what it cannot reach.
@@ -135,17 +125,13 @@ export default defineConfig({
                 const input = await browser.newCDPSession(context.page);
                 try {
                   const at = { x: box.x + 10, y: box.y + box.height / 2 };
-                  const files = Object.keys(entries).map((name) => path.join(folder, name));
+                  const files = Object.keys(entries).map((name) => folder.getPath(name));
                   const data = { items: [], files, dragOperationsMask: 1 };
                   for (const type of ["dragEnter", "dragOver", "drop"] as const)
                     await input.send("Input.dispatchDragEvent", { type, ...at, data });
                 } finally {
                   await input.detach();
                 }
-                return folder;
-              },
-              async removeDropped(_context, folder: string) {
-                await rm(folder, { recursive: true });
               },
             },
           },

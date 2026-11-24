@@ -335,6 +335,9 @@ catalogs:
     folder-hash:
       specifier: ^4.1.4
       version: 4.1.4
+    fs-fixture:
+      specifier: ^2.16.2
+      version: 2.16.2
     generate-license-file:
       specifier: ^4.2.5
       version: 4.2.5
@@ -562,6 +565,9 @@ importers:
       '@vitest/browser-playwright':
         specifier: 'catalog:'
         version: 5.1.0(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(playwright@1.65.1)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
+      fs-fixture:
+        specifier: 'catalog:'
+        version: 2.16.2
       playwright:
         specifier: 'catalog:'
         version: 1.65.1
@@ -4384,6 +4390,10 @@ packages:
 
   fs-constants@1.0.0:
     resolution: {integrity: sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==}
+
+  fs-fixture@2.16.2:
+    resolution: {integrity: sha512-X0IYcTb6cZt42nlVZEk0cvFdITmlqhkxxfjqMZyUkApvRrDa7HORInQ9EEU29SM2nlJ33eB47H7pos/hbzgz+w==}
+    engines: {node: '>=18.0.0'}
 
   fs-minipass@3.0.3:
     resolution: {integrity: sha512-XUBA9XClHbnJWSfBzjkm6RvPsyg3sryZt06BEQoXcF7EK/xpGaQYJgQKDJSUH5SGZ76Y7pFx1QBnXz09rU5Fbw==}
@@ -9763,6 +9773,8 @@ snapshots:
       fetch-blob: 3.2.0
 
   fs-constants@1.0.0: {}
+
+  fs-fixture@2.16.2: {}
 
   fs-minipass@3.0.3:
     dependencies:

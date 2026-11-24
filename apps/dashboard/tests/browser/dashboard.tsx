@@ -16,12 +16,8 @@ declare module "vite-plus/test/browser" {
   interface BrowserCommands {
     /** Taps `locator`'s element with Playwright, in a browser with touch. */
     tap(locator: Locator): Promise<void>;
-    /**
-     * Drops `entries` on `locator`'s element through the browser's own hit test, and returns the
-     * folder they were written to, for `removeDropped`.
-     */
-    drop(locator: Locator, entries: Dropped): Promise<string>;
-    removeDropped(folder: string): Promise<void>;
+    /** Drops `entries` on `locator`'s element through the browser's own hit test. */
+    drop(locator: Locator, entries: Dropped): Promise<void>;
   }
 }
 
