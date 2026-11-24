@@ -51,10 +51,10 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
   hub.usage.get.answers(byBatch(1));
   const meter = group.getByCSS("meter").first();
   await expect.element(meter).toHaveAttribute("max", "0.125");
-  const link = page.getByRole("link", { name: "statements", exact: true });
+  const link = page.getByRole("link", { name: "statements" });
   await focus(link);
   // A click that does not move focus, as Playwright's `dispatchEvent` sends it.
-  (await page.getByRole("button", { name: "Show", exact: true }).findElement()).dispatchEvent(
+  (await page.getByRole("button", { name: "Show" }).findElement()).dispatchEvent(
     new MouseEvent("click", { bubbles: true, cancelable: true, composed: true }),
   );
   await expect.element(meter).toHaveAttribute("max", "1");
@@ -63,7 +63,7 @@ test("an owner sees a range's job ends, tokens and cost by Batch and by day, inc
   // Another grouping asks for the same window.
   hub.usage.get.answers(byStatus);
   await page.getByLabelText("Grouped by").selectOptions("status");
-  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await page.getByRole("button", { name: "Show" }).click();
   const statuses = page.getByRole("table", { name: "By status" });
   await expect
     .poll(() => texts(statuses.getByRole("rowheader")))
@@ -89,7 +89,7 @@ test("a Label report reopens from its address with the chosen range and key", as
   await page.getByLabelText("Grouped by").selectOptions("label");
   await page.getByLabelText("Label key").fill("customer");
   hub.usage.get.answers(byLabel);
-  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await page.getByRole("button", { name: "Show" }).click();
   const labels = page.getByRole("table", { name: "By the Label customer" });
   await expect.poll(() => texts(labels.getByRole("rowheader"))).toEqual(['"Acme"', "Total"]);
   const asked = { period: "7d", groupBy: "label:customer" };
@@ -115,15 +115,15 @@ test("a member can correct a refused range and leave the end open through today"
   const days = page.getByRole("table", { name: "By day" }).getByCSS("tbody time");
   await expect.element(days).toHaveLength(7);
   await page.getByLabelText("Range").selectOptions("custom");
-  const from = page.getByLabelText("From", { exact: true });
-  const to = page.getByLabelText("To", { exact: true });
+  const from = page.getByLabelText("From");
+  const to = page.getByLabelText("To");
   await expect.element(from).toHaveValue(week.from);
   await expect.element(to).toHaveValue(TODAY);
 
   // Longer than the hub reads: the browser refuses it, and nothing is asked.
   await from.fill("2000-01-01");
   await to.fill("");
-  const show = page.getByRole("button", { name: "Show", exact: true });
+  const show = page.getByRole("button", { name: "Show" });
   const reads = hub.usage.get.calls.length;
   await show.click();
   await expect.element(from).toHaveFocus();

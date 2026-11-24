@@ -95,8 +95,7 @@ export async function openJob(hub: Hub, open: Open, journal: Journal, options?: 
 export const statusWord = (page: BrowserPage) => page.getByCSS(".status-lg");
 
 /** The Output the page shows, as code. */
-export const output = (page: BrowserPage) =>
-  page.getByLabelText("Output", { exact: true }).getByCSS("code");
+export const output = (page: BrowserPage) => page.getByLabelText("Output").getByCSS("code");
 
 /** A job that failed when its model calls' cost reached its budget, and its journal. */
 export function spentBudget(customId: string): Journal {

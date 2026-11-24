@@ -28,7 +28,7 @@ test("a member pages through Batches matching a status and a Label, including af
   // Narrow, where the filters fold behind their toggle.
   const page = await open("batches", { viewport: { width: 390, height: 844 } });
   const asked = () => hub.batches.list.calls.at(-1);
-  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByRole("button", { name: "Filters" }).click();
   await check(page.getByRole("checkbox", { name: "Active" }));
   await page.getByLabelText("Label key").fill("example.com/team");
   await page.getByLabelText("Label value").fill("East & West");
@@ -67,8 +67,8 @@ test("a member pages through Batches matching a status and a Label, including af
   await page.getByRole("button", { name: "Filters (2 applied)" }).click();
   await page.getByLabelText("Label value").fill("unapplied");
   await expect.element(page.getByLabelText("Label key")).toBeRequired();
-  await page.getByRole("link", { name: "Clear", exact: true }).click();
-  const filters = page.getByRole("button", { name: "Filters", exact: true });
+  await page.getByRole("link", { name: "Clear" }).click();
+  const filters = page.getByRole("button", { name: "Filters" });
   await expect.element(filters).toHaveFocus();
   await filters.click();
   await expect.element(page.getByLabelText("Label key")).toHaveValue("");
@@ -92,7 +92,7 @@ test("a member sees a Batch control in flight and its result on the record and l
   const page = await open("batches");
   const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: id }) });
   await row.getByRole("link").click();
-  const pause = page.getByRole("button", { name: "Pause", exact: true });
+  const pause = page.getByRole("button", { name: "Pause" });
   const cancel = page.getByRole("button", { name: `Cancel the Batch ${id}` });
   const pausing = hub.batches.pause.hold();
   // The hub answers with the Batch as it stands then, one of its jobs succeeded since the page's
@@ -134,7 +134,7 @@ test("a member sees a Batch control in flight and its result on the record and l
   // once the press had waited a second, as it keeps every announcement until the next.
   await expect.element(page.getByCSS("#batch-status").getByText("Working…")).toHaveLength(0);
   await expect.element(pause).toHaveLength(0);
-  await expect.element(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeEnabled();
   await expect.element(cancel).toBeEnabled();
   counts.release();
 
@@ -167,7 +167,7 @@ test("cancelling a Batch asks first and removes its controls once final", async 
   const page = await open(`batches/${id}`);
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const dialog = page.getByRole("alertdialog");
-  await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
+  await dialog.getByRole("button", { name: "Cancel the Batch" }).click();
   await expect.element(page.getByRole("status").filter({ hasText: "Cancelled" })).toHaveFocus();
   await expect
     .element(
@@ -190,7 +190,7 @@ test("a cancel confirmed offline fails at once and is not sent once back online"
   await page.getByRole("button", { name: `Cancel the Batch ${id}` }).click();
   const dialog = page.getByRole("alertdialog");
   setOffline(true);
-  await dialog.getByRole("button", { name: "Cancel the Batch", exact: true }).click();
+  await dialog.getByRole("button", { name: "Cancel the Batch" }).click();
   await expect.element(dialog.getByRole("alert")).toHaveTextContent(UNCERTAIN);
 
   // Back online, Query would send a cancel it held before it reads the shown Batch again, at the
@@ -216,7 +216,7 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
   const dialog = page.getByRole("alertdialog");
   const atPress = ["It has 2 unfinished jobs.", "1 of its jobs has status unknown"];
   for (const words of atPress) await expect.element(dialog).toMatchTextContent(words);
-  const confirm = dialog.getByRole("button", { name: "Cancel the Batch", exact: true });
+  const confirm = dialog.getByRole("button", { name: "Cancel the Batch" });
   await userEvent.tab();
   await expect.element(confirm).toHaveFocus();
 

@@ -95,8 +95,6 @@ export default defineConfig({
             ],
             // Playwright's default.
             viewport: { width: 1280, height: 720 },
-            // A name matches part of an element's text unless a test asks for an exact match.
-            locators: { exact: false },
             commands: {
               // Vitest has no tap: Playwright's, in the frame the tests run in.
               async tap(context, locator: SerializedLocator) {

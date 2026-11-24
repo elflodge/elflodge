@@ -13,7 +13,7 @@ test("a member learns where to read Batch usage without requesting the report", 
   // The stand-in has no answer for the report: a request for it fails the test.
   hub.session.answers(signedIn("member"));
   const page = await open("change-password");
-  await page.getByRole("link", { name: "Usage", exact: true }).click();
+  await page.getByRole("link", { name: "Usage" }).click();
   await expect
     .element(page.getByText(/Each Batch's page shows what that Batch has used/))
     .toBeVisible();

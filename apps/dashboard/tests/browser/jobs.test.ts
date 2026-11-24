@@ -62,14 +62,14 @@ test("filters held in the address go with the list's read and survive a reload, 
   hub.jobs.list.answers({ jobs: [a, cancelled, c], hasMore: false });
   const page = await open("jobs", { viewport: { width: 390, height: 844 } });
   await expect.element(rows(page)).toHaveLength(3);
-  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByRole("button", { name: "Filters" }).click();
   await check(page.getByRole("checkbox", { name: "Cancelled" }));
   await page.getByLabelText("Batch").fill("march");
   // Which jobs match is the hub's to say.
   hub.jobs.list.answers({ jobs: [cancelled], hasMore: false });
   await page.getByRole("button", { name: "Apply" }).click();
   await expect.poll(() => location.search).toMatch(/status=/);
-  const filters = page.getByRole("button", { name: "Filters (2 applied)", exact: true });
+  const filters = page.getByRole("button", { name: "Filters (2 applied)" });
   await expect.element(filters).toHaveFocus();
   await expectFocusPastRunnersRead(hub, page, filters);
 
@@ -94,7 +94,7 @@ test("filters held in the address go with the list's read and survive a reload, 
   // Wide enough that the form shows without its toggle, Apply again reads the list in place: it
   // keeps the focus and adds no entry to the history.
   await page.viewport(1280, 800);
-  const apply = page.getByRole("button", { name: "Apply", exact: true });
+  const apply = page.getByRole("button", { name: "Apply" });
   const entry = historyIndex();
   const read = hub.jobs.list.hold();
   await focus(apply);
@@ -121,7 +121,7 @@ test("on a wide page, Apply keeps the focus while the new list and the Runners a
   await expect.element(rows(page)).toHaveLength(2);
   await check(page.getByRole("checkbox", { name: "Cancelled" }));
   hub.jobs.list.answers({ jobs: [cancelled], hasMore: false });
-  const apply = page.getByRole("button", { name: "Apply", exact: true });
+  const apply = page.getByRole("button", { name: "Apply" });
   await apply.click();
   await expect.poll(() => location.search).toMatch(/status=/);
   await expect.element(rows(page)).toHaveLength(1);
@@ -183,7 +183,7 @@ test("a count in the strip opens the list of the jobs it counts", async ({ hub, 
   });
   hub.jobs.list.answers({ jobs: [queued, cancelled], hasMore: false });
   const page = await open("jobs");
-  await expect.element(rows(page).getByText("strip-cancelled", { exact: true })).toBeVisible();
+  await expect.element(rows(page).getByText("strip-cancelled")).toBeVisible();
 
   hub.jobs.list.answers({ jobs: [queued], hasMore: false });
   await page

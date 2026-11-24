@@ -16,7 +16,7 @@ test("a cancelled Batch withdraws Resume while the member is editing the budget"
   hub.batches.get.answers(aBatch("april"));
   hub.jobs.resume.answers(journal.job);
   const page = await openJob(hub, open, journal);
-  await commands.tap(page.getByRole("button", { name: "Resume", exact: true }));
+  await commands.tap(page.getByRole("button", { name: "Resume" }));
   const dialog = page.getByRole("dialog", { name: "Resume the job" });
   await expect.element(dialog).toHaveFocus();
   const field = dialog.getByLabelText("New model budget USD");
@@ -37,7 +37,7 @@ test("a cancelled Batch withdraws Resume while the member is editing the budget"
   await userEvent.keyboard("{Enter}");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).toHaveLength(0);
-  await expect.element(page.getByRole("button", { name: "Resume", exact: true })).toHaveLength(0);
+  await expect.element(page.getByRole("button", { name: "Resume" })).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: "Delete the job" })).toHaveFocus();
   expect(hub.jobs.resume.calls).toEqual([]);
 });

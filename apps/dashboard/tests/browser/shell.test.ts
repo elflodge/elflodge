@@ -49,9 +49,7 @@ test("the bar leads to the dashboard's pages, and on a phone names the current o
   // On a phone the current destination is named even while the account menu is closed.
   await page.viewport(390, 844);
   await expect.element(jobs).toHaveLength(0);
-  await expect
-    .poll(() => isVisible(page.getByRole("banner").getByText("Jobs", { exact: true })))
-    .toBe(true);
+  await expect.poll(() => isVisible(page.getByRole("banner").getByText("Jobs"))).toBe(true);
   const name = signedIn("owner").user.name;
   await page.getByRole("button", { name }).click();
   await expect.element(jobs).toHaveAttribute("aria-current", "page");
@@ -71,7 +69,7 @@ test("a refused sign-out keeps the member signed in and says why", async ({ hub,
   const signingOut = hub.auth.signOut.hold();
   const page = await open("change-password");
   const name = signedIn("owner").user.name;
-  const account = page.getByRole("button", { name, exact: true });
+  const account = page.getByRole("button", { name });
   await account.click();
   const menu = page.getByRole("dialog", { name });
   await expect.element(menu).toBeVisible();
@@ -124,10 +122,10 @@ test.for([
       await userEvent.keyboard("{Enter}");
     }
     await expect.element(page.getByRole("banner")).toBeVisible();
-    await expect.element(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: heading })).toBeVisible();
     session.release();
     await expect.element(retry).toHaveLength(0);
-    await expect.element(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: heading })).toBeVisible();
     // The list read again, shown.
     await expect
       .element(
@@ -157,7 +155,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
   });
   const page = await open("change-password");
   const strip = page.getByRole("region", { name: "The hub now" });
-  await expect.element(strip.getByText("7 queued", { exact: true })).toBeVisible();
+  await expect.element(strip.getByText("7 queued")).toBeVisible();
   await expect.element(strip.getByText("0 agents running")).toBeVisible();
   await expect.element(strip.getByText("No Runners")).toBeVisible();
 
@@ -172,7 +170,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
   await expect.element(running).not.toHaveClass("hub-unknown");
   await expect.element(running.getByCSS(".mark-running")).toBeVisible();
   await expect.element(running.getByCSS(".mark-running")).not.toHaveClass("is-out");
-  await expect.element(strip.getByText("5 status unknown", { exact: true })).toBeVisible();
+  await expect.element(strip.getByText("5 status unknown")).toBeVisible();
 
   hub.jobs.counts.answers({
     jobCounts: { queued: 4, running: 3, paused: 0 },
@@ -182,7 +180,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
   await expect.element(running).toHaveTextContent("3 agents running, status unknown");
   await expect.element(running).toHaveClass("hub-unknown");
   await expect.element(running.getByCSS(".mark-unknown")).toBeVisible();
-  await expect.element(strip.getByText("7 status unknown", { exact: true })).toBeVisible();
+  await expect.element(strip.getByText("7 status unknown")).toBeVisible();
 });
 
 test("the strip keeps the last failure visible while the hub is being asked again", async ({
