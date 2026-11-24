@@ -76,8 +76,19 @@ test("an open page returns to sign-in when a background read finds its session e
   // Installed first, so the test can move the page's clock to the hub strip's next poll.
   await page.clock.install();
   const member = await newMember(system, "Ended Elsewhere");
+  // The open document's own session read, which Better Auth starts once the page has mounted, after
+  // the page's first read of the jobs.
+  let listed = false;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/jobs") listed = true;
+  });
+  const sessionWatched = page.waitForRequest(
+    (request) => listed && new URL(request.url()).pathname === "/api/auth/get-session",
+  );
   await signInAt(system, page, "jobs", member);
   await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
+  // Answered before the session ends: a refusal while that read is under way rightly starts no other.
+  await (await sessionWatched).response();
 
   /**
    * What the page did, in order: a member read the hub refused, as its answer arrived, and a session
