@@ -14,6 +14,7 @@ import type {
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { lazyStream } from "@earendil-works/pi-ai/api/lazy";
+import { withCauseDetail } from "@earendil-works/pi-ai/utils/error-body";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { ModelRuntime, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import {
@@ -335,8 +336,11 @@ export class ConversationProviders {
     const id = worker.requests.add({
       options,
       event: (event) => {
-        latest =
-          "partial" in event ? event.partial : event.type === "done" ? event.message : event.error;
+        if (!terminal) {
+          if (event.type === "done") latest = event.message;
+          else if (event.type === "error") latest = event.error;
+          else latest = event.partial;
+        }
         if (event.type === "done") ended(event.message);
         if (event.type === "error") ended(event.error);
         events.push(event);
@@ -370,7 +374,7 @@ export class ConversationProviders {
         const message: AssistantMessage = {
           ...latest,
           stopReason: reason,
-          errorMessage: ensureError(failure).message,
+          errorMessage: withCauseDetail(ensureError(failure)),
         };
         events.push({ type: "error", reason, error: message });
         return message;
