@@ -13,6 +13,20 @@ export interface Dropped {
   [name: string]: string | Dropped;
 }
 
+/** Whether `value` holds `text`, in any property, enumerable or not, as deep as it goes. */
+function holds(value: unknown, text: string) {
+  const seen = new Set<object>();
+  const search = (part: unknown): boolean => {
+    if (typeof part === "string") return part.includes(text);
+    if (typeof part !== "object" || part === null || seen.has(part)) return false;
+    seen.add(part);
+    return Reflect.ownKeys(part).some(
+      (name) => String(name).includes(text) || search(Reflect.get(part, name)),
+    );
+  };
+  return search(value);
+}
+
 /**
  * The browser contexts that refuse to open a file: dropped where nothing takes it, a file is the
  * browser's to open in the tab, which would replace the tests' page.
@@ -90,6 +104,23 @@ export default defineConfig({
               // Vitest has no tap: Playwright's, in the frame the tests run in.
               async tap(context, locator: SerializedLocator) {
                 await (await context.frame()).locator(locator.selector).tap();
+              },
+              // Nor the console as the browser shows it: the messages it has shown since
+              // `clearConsole`, each with its type and whether any of its arguments holds `text`,
+              // searched where the page holds them, in properties a copy would leave out, such as an
+              // error's cause.
+              async clearConsole(context) {
+                await context.page.clearConsoleMessages();
+              },
+              async consoleMessages(context, text: string) {
+                return Promise.all(
+                  (await context.page.consoleMessages()).map(async (message) => ({
+                    type: message.type(),
+                    holds: (
+                      await Promise.all(message.args().map((arg) => arg.evaluate(holds, text)))
+                    ).some(Boolean),
+                  })),
+                );
               },
               // Nor a tab a click opens: the address it opens at, before it closes. What it shows is
               // outside the document the test answers the network in.
