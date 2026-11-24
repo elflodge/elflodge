@@ -1,10 +1,9 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { page as testPage, userEvent } from "vite-plus/test/browser/context";
 
 import { DASHBOARD_BASE } from "../../../hub/src/dashboard.ts";
 import { NO_JOBS, NO_JOBS_LISTED, signedIn } from "../records.ts";
 import {
-  advance,
   advanceTo,
   focus,
   isVisible,
@@ -167,7 +166,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
     jobCounts: { queued: 4, running: 3, paused: 0 },
     statusUnknownJobCounts: { queued: 4, running: 1 },
   });
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   const running = strip.getByRole("listitem").filter({ hasText: "agents running" });
   await expect.element(running).toHaveTextContent("3 agents running");
   await expect.element(running).not.toHaveClass("hub-unknown");
@@ -179,7 +178,7 @@ test("the strip counts the Organization's jobs and lights the lamp while any run
     jobCounts: { queued: 4, running: 3, paused: 0 },
     statusUnknownJobCounts: { queued: 4, running: 3 },
   });
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(running).toHaveTextContent("3 agents running, status unknown");
   await expect.element(running).toHaveClass("hub-unknown");
   await expect.element(running.getByCSS(".mark-unknown")).toBeVisible();
@@ -242,7 +241,7 @@ test("when a counts read stalls, its figures give way at expiry to the time of t
   const first = hub.jobs.counts.hold();
   await open("change-password");
   await first.arrived;
-  await advance(3_000);
+  await vi.advanceTimersByTimeAsync(3_000);
   first.release();
   await expect.element(queued).toBeVisible();
   if (shownAt === undefined) throw new Error("The figures showed unobserved");

@@ -1,11 +1,10 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { commands, userEvent } from "vite-plus/test/browser/context";
 
 import { InvalidInput } from "../../../hub/src/invalid-input.ts";
 import type { Hub } from "../hub.ts";
 import { aBatch, JOB_LIMITS, jobsCounted } from "../records.ts";
 import {
-  advance,
   focus,
   historyIndex,
   isVisible,
@@ -57,7 +56,7 @@ const pageAlert = (page: Awaited<ReturnType<Open>>) => page.getByRole("main").ge
  * after the page asks.
  */
 async function announced(page: Awaited<ReturnType<Open>>, words: string) {
-  await advance(100);
+  await vi.advanceTimersByTimeAsync(100);
   return page.getByRole("status").filter({ hasText: words });
 }
 
@@ -412,7 +411,7 @@ test("a file dropped on the Jobs group adds a job, but not while Remove all asks
   await expect.element(dialog).toBeVisible();
   // UI SDK makes the page behind the dialog inert after the next paint, through an animation frame
   // and then a timer: two frames' time.
-  await advance(32);
+  await vi.advanceTimersByTimeAsync(32);
   expect(group.element().closest("[inert]")).not.toBeNull();
   await drop();
   await expect.element(dialog).toBeVisible();

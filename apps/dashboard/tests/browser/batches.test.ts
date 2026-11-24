@@ -1,8 +1,8 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser/context";
 
 import { aBatch, aJob, aListedJob, jobsCounted, NOW } from "../records.ts";
-import { advance, check, mountAgain, setOffline, test, texts, UNCERTAIN } from "./dashboard.tsx";
+import { check, mountAgain, setOffline, test, texts, UNCERTAIN } from "./dashboard.tsx";
 
 // The Batches list and a Batch's page: its filters and pages, its controls, and the ledger of its
 // jobs. Which Batches match a filter is the hub's (batches.test.ts).
@@ -111,7 +111,7 @@ test("a member sees a Batch control in flight and its result on the record and l
   // A pause from elsewhere lands first: the next read withdraws Pause's note, and Pause stays
   // while its own request runs, described by the status.
   hub.batches.get.answers(paused);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
   await expect.element(page.getByCSS("#pause-note")).toHaveLength(0);
   await expect.element(pause).toHaveFocus();
@@ -197,7 +197,7 @@ test("a cancel confirmed offline fails at once and is not sent once back online"
   // next poll.
   const reads = hub.batches.get.calls.length;
   setOffline(false);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.poll(() => hub.batches.get.calls.length).toBeGreaterThan(reads);
 });
 
@@ -224,7 +224,7 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
   hub.batches.get.answers(
     aBatch(id, { jobCounts: jobsCounted({ queued: 2, running: 1 }), statusUnknownJobs: 2 }),
   );
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(page.getByCSS("#cancel-note")).toMatchTextContent("3 unfinished jobs");
   await expect.element(page.getByCSS("main")).toMatchTextContent("2 of these have status unknown");
   for (const words of atPress) await expect.element(dialog).toMatchTextContent(words);
@@ -237,7 +237,7 @@ test("an open Cancel keeps the counts of its press, and shows when another calle
       pendingControl: { type: "cancel", requestedAt: NOW },
     }),
   );
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(dialog).toMatchTextContent("Cancel has already been asked.");
   await expect.element(confirm).toHaveFocus();
   await userEvent.keyboard("{Enter}");

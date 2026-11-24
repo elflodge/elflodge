@@ -1,8 +1,8 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { commands, userEvent } from "vite-plus/test/browser/context";
 
 import { aBatch } from "../records.ts";
-import { advance, focus, test } from "./dashboard.tsx";
+import { focus, test } from "./dashboard.tsx";
 import { openJob, spentBudget } from "./journal.ts";
 
 // A test of job.test.ts in a file of its own: a tap needs a browser with touch, which the project
@@ -26,7 +26,7 @@ test("a cancelled Batch withdraws Resume while the member is editing the budget"
   // is in the field.
   await expect.element(field).toHaveFocus();
   hub.batches.get.answers(aBatch("april", { status: "cancelled" }));
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect
     .element(dialog.getByText("Its Batch was cancelled, so it cannot be resumed."))
     .toBeVisible();

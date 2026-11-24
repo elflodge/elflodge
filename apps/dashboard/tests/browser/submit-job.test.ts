@@ -1,8 +1,8 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser/context";
 
 import { aBatch, aJob, JOB_LIMITS, jobsCounted, NO_JOBS_LISTED } from "../records.ts";
-import { historyIndex, advance, descriptionOnFocus, liveRegions, test } from "./dashboard.tsx";
+import { historyIndex, descriptionOnFocus, liveRegions, test } from "./dashboard.tsx";
 
 // Submit a job: the hub's refusals at their fields, and leaving a draft. What the hub does with the
 // job is in tests/journeys.
@@ -43,7 +43,7 @@ test("a member can correct the limits the hub refused without retyping the job",
     .toHaveAccessibleDescription(/Must be at most 86400, the hub's maximum/);
   // Long enough for a queued polite announcement to reach its region: focus already describes the
   // refusal (ADR 0053).
-  await advance(500);
+  await vi.advanceTimersByTimeAsync(500);
   await expect.element(liveRegions().filter({ hasText: "the hub's maximum" })).toHaveLength(0);
   for (const [label, value] of values)
     await expect

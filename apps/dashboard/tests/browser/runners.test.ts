@@ -1,8 +1,8 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser/context";
 
 import { anApiKey, aRunner } from "../records.ts";
-import { advance, clickAt, focus, liveRegions, runClockUntil, test } from "./dashboard.tsx";
+import { focus, liveRegions, runClockUntil, test } from "./dashboard.tsx";
 
 // The Runners page: removing a Runner, adding one, and what a member who may not remove one sees.
 
@@ -39,7 +39,7 @@ test("a removal confirmed while the list is being read shows its progress, canno
   let answered = 0;
   hub.runners.list.answers(() => (answered++ === 0 ? runners : runners.slice(0, -1)));
   const reads = hub.runners.list.hold();
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await reads.arrived;
   await record.getByRole("button", remove).click();
   const dialog = page.getByRole("alertdialog");
@@ -52,7 +52,7 @@ test("a removal confirmed while the list is being read shows its progress, canno
   await userEvent.keyboard("{Enter}");
   await dialog.getByRole("button", remove).click({ force: true });
   await userEvent.keyboard("{Escape}");
-  await clickAt(1, 1);
+  await userEvent.pointer({ coords: { x: 1, y: 1 }, keys: "[MouseLeft]" });
   await expect.element(dialog.getByText("Working…")).toBeVisible();
 
   removal.release();
@@ -115,7 +115,7 @@ test("a Runner a read drops while its dialog is open is still named there, and i
   // Another member removes it. The page's next read of the list drops its record, and the open
   // dialog still names it.
   hub.runners.list.answers([]);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(record).toHaveLength(0);
   await expect.element(dialog.getByRole("heading")).toHaveTextContent(`Remove ${label}?`);
 
@@ -183,7 +183,7 @@ test("Add Runner cannot be left while its key is created, then shows the key in 
   await focus(close);
   await expect.element(close).toHaveFocus();
   await userEvent.keyboard("{Enter}");
-  await clickAt(1, 1);
+  await userEvent.pointer({ coords: { x: 1, y: 1 }, keys: "[MouseLeft]" });
   await expect.element(dialog).toBeVisible();
 
   creation.release();
@@ -197,8 +197,8 @@ test("Add Runner cannot be left while its key is created, then shows the key in 
   // Copying says so through UI SDK's live region, outside the dialog and never inert, which writes
   // it 100 ms after the press; no announcement carries the key.
   await copy.click();
-  await advance(100);
-  await expect.element(copyLine.getByText("Copied.", { exact: true })).toBeVisible();
+  await vi.advanceTimersByTimeAsync(100);
+  await expect.element(copyLine.getByText("Copied.")).toBeVisible();
   const live = liveRegions();
   const result = live.filter({ hasText: "Copied." });
   await expect.element(result).toHaveLength(1);

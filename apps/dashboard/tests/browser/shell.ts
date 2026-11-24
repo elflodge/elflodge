@@ -1,4 +1,3 @@
-import { expect } from "vite-plus/test";
 import type { BrowserPage } from "vite-plus/test/browser/context";
 
 import type { Hub, Session } from "../hub.ts";
@@ -22,9 +21,4 @@ export async function signIn(page: BrowserPage, session: NonNullable<Session>) {
   await page.getByLabelText("Email").fill(session.user.email);
   await page.getByLabelText("Password").fill("a member's password");
   await page.getByRole("button", { name: "Sign in" }).click();
-}
-
-/** Waits for the document's title to be `title`, as Playwright's `toHaveTitle`. */
-export async function expectTitle(title: string) {
-  await expect.poll(() => document.title).toBe(title);
 }

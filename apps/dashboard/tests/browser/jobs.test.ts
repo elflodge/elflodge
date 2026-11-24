@@ -1,9 +1,9 @@
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { userEvent, type BrowserPage, type Locator } from "vite-plus/test/browser/context";
 
 import type { Hub } from "../hub.ts";
 import { NOW, NO_JOBS_LISTED, aListedJob, aRunner } from "../records.ts";
-import { advance, check, focus, historyIndex, mountAgain, test, texts } from "./dashboard.tsx";
+import { check, focus, historyIndex, mountAgain, test, texts } from "./dashboard.tsx";
 
 // The jobs list, which the dashboard opens on: what an empty hub says to do, the filters and pages
 // it reads, held in the address, and the hub strip's counts that lead to it.
@@ -35,12 +35,12 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
   // Focus and the pointer on a link start no read of its page.
   await focus(batches);
   await batches.hover();
-  await advance(100);
+  await vi.advanceTimersByTimeAsync(100);
   expect(hub.batches.list.calls).toHaveLength(0);
 
   // A Runner connects. The hub strip reads the Runners every five seconds, and the advice follows.
   hub.runners.list.answers([aRunner("host-1")]);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect
     .element(
       page
@@ -136,7 +136,7 @@ test("on a wide page, Apply keeps the focus while the new list and the Runners a
 async function expectFocusPastRunnersRead(hub: Hub, page: BrowserPage, focused: Locator) {
   const element = focused.element();
   hub.runners.list.answers([aRunner("host-2")]);
-  await advance(5_000);
+  await vi.advanceTimersByTimeAsync(5_000);
   await expect
     .element(page.getByCSS('select[name="runnerId"] option').filter({ hasText: "host-2" }))
     .toBeInTheDocument();
