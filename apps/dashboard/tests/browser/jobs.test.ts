@@ -74,7 +74,7 @@ test("filters held in the address go with the list's read and survive the app mo
   await expect.poll(() => location.search).toMatch(/status=/);
   const filters = page.getByRole("button", { name: "Filters (2 applied)" });
   await expect.element(filters).toHaveFocus();
-  await expectFocusPastRunnersRead(hub, page, filters);
+  await expectFocusPastRunnersRead(hub, page, filters, "host-2");
 
   /** The list, its read and its closed panel show the filters survived submission or a new mount. */
   async function expectFiltered() {
@@ -108,7 +108,7 @@ test("filters held in the address go with the list's read and survive the app mo
   read.release();
   await expect.element(apply).toBeEnabled();
   await expect.element(apply).toHaveFocus();
-  await expectFocusPastRunnersRead(hub, page, apply);
+  await expectFocusPastRunnersRead(hub, page, apply, "host-3");
   expect(historyIndex()).toBe(entry);
 });
 
@@ -129,19 +129,25 @@ test("on a wide page, Apply keeps the focus while the new list and the Runners a
   await expect.poll(() => location.search).toMatch(/status=/);
   await expect.element(rows(page)).toHaveLength(1);
   await expect.element(apply).toHaveFocus();
-  await expectFocusPastRunnersRead(hub, page, apply);
+  await expectFocusPastRunnersRead(hub, page, apply, "host-2");
 });
 
 /**
- * Focus stays on the element Apply left it on once the form offers a Runner that connected since,
- * which the hub strip reads every five seconds.
+ * Focus stays on the element Apply left it on once the form offers `runner`, a Runner that connected
+ * since, and that no earlier read of the Runners listed, which the hub strip reads every five
+ * seconds.
  */
-async function expectFocusPastRunnersRead(hub: Hub, page: BrowserPage, focused: Locator) {
+async function expectFocusPastRunnersRead(
+  hub: Hub,
+  page: BrowserPage,
+  focused: Locator,
+  runner: string,
+) {
   const element = focused.element();
-  hub.runners.list.answers([aRunner("host-2")]);
+  hub.runners.list.answers([aRunner(runner)]);
   await vi.advanceTimersByTimeAsync(5_000);
   await expect
-    .element(page.getByCSS('select[name="runnerId"] option').filter({ hasText: "host-2" }))
+    .element(page.getByCSS('select[name="runnerId"] option').filter({ hasText: runner }))
     .toBeInTheDocument();
   expect(document.activeElement).toBe(element);
 }
