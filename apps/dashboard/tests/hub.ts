@@ -159,8 +159,9 @@ export interface HubNetwork {
    * Answers `request` as the hub would, or as the test arranged what stands between them to: a
    * `Response.error()` for an answer lost on its way back, a proxy's refusal,
    * and nothing for a request that is not one of the hub's, which fails the test as a stray.
+   * `taken` is called once a procedure or route has recorded the call, before a hold keeps it.
    */
-  handle(request: Request): Promise<Response | undefined>;
+  handle(request: Request, taken?: () => void): Promise<Response | undefined>;
   /** The calls the test arranged no answer for, each with its input. */
   readonly unarranged: readonly string[];
   /**
@@ -210,9 +211,13 @@ class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Inpu
     };
   }
 
-  /** Records a call, waits while calls are held, and returns the answer that stands then. */
-  async receive(input: Input) {
+  /**
+   * Records a call, says so to `taken`, waits while calls are held, and returns the answer that
+   * stands then.
+   */
+  async receive(input: Input, taken?: () => void) {
     this.calls.push(input);
+    taken?.();
     const hold = this.#hold;
     if (hold) {
       hold.arrived.resolve(input);
@@ -231,6 +236,8 @@ function isAnswerFunction<Input, Output, Errors>(
 
 /** What the stand-in learns of one request while the hub's handler serves it. */
 interface Exchange {
+  /** Called once the procedure has recorded the call. */
+  taken?: () => void;
   /**
    * What reaches the page in place of the hub's answer: a `Response.error()` for an answer lost on
    * its way back, or what something between the hub and the page answers instead.
@@ -312,7 +319,7 @@ class ContractProcedure<
       this.#unarranged.push(`${this.#name} with ${JSON.stringify(input)}`);
       throw new Error(`The test arranged no answer for ${this.#name}`);
     }
-    const answer = await this.receive(input);
+    const answer = await this.receive(input, context.exchange.taken);
     context.exchange.call = `${this.#name} with ${JSON.stringify(input)}`;
     // What any other arrangement throws is its answer.
     context.exchange.arranged = answer?.kind !== "output";
@@ -505,8 +512,8 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
 
   const hub: Hub = { ...api, session, auth: authRoutes(auth) };
 
-  async function serveSession() {
-    const answer = await session.receive();
+  async function serveSession(taken?: () => void) {
+    const answer = await session.receive(undefined, taken);
     switch (answer?.kind) {
       case "output":
         return Response.json(await answer.answer());
@@ -517,7 +524,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     }
   }
 
-  async function serveAuth(request: Request, address: string) {
+  async function serveAuth(request: Request, address: string, taken?: () => void) {
     const methods = AUTH_METHODS.get(address);
     if (!methods?.includes(request.method)) {
       unarranged.push(
@@ -535,7 +542,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
       return Response.json(null, { status: 500 });
     }
     const input: unknown = await authInput(request);
-    const answer = await route.receive(input);
+    const answer = await route.receive(input, taken);
     switch (answer?.kind) {
       case "output":
         return Response.json((await answer.answer(input)) ?? null);
@@ -550,16 +557,16 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
 
   // Better Auth's routes first; every other request on the origin goes to the hub's API handler,
   // whose router decides whether it is a call of the API.
-  async function handle(request: Request) {
+  async function handle(request: Request, taken?: () => void) {
     const url = new URL(request.url);
     if (url.origin !== origin) return undefined;
     if (url.pathname === `${AUTH_BASE}/get-session` && request.method === "GET") {
-      return serveSession();
+      return serveSession(taken);
     }
     if (url.pathname.startsWith(`${AUTH_BASE}/`)) {
-      return serveAuth(request, url.pathname.slice(AUTH_BASE.length));
+      return serveAuth(request, url.pathname.slice(AUTH_BASE.length), taken);
     }
-    const exchange: Exchange = { arranged: false };
+    const exchange: Exchange = { arranged: false, taken };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
     if (exchange.failure !== undefined) failures.push(exchange.failure);
     if (!matched) return undefined;
