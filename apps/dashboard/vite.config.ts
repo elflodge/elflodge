@@ -106,19 +106,30 @@ export default defineConfig({
                 await (await context.frame()).locator(locator.selector).tap();
               },
               // Nor the console as the browser shows it: the messages it has shown since
-              // `clearConsole`, each with its type and whether any of its arguments holds `text`,
-              // searched where the page holds them, in properties a copy would leave out, such as an
-              // error's cause.
+              // `clearConsole`, each with its type and whether it holds `text`, in its printed
+              // text or in an argument, searched where the page holds it, in properties a copy
+              // would leave out, such as an error's cause. Playwright hears of a message apart from
+              // the commands, so these wait, when asked, until one of type `until` has shown.
               async clearConsole(context) {
                 await context.page.clearConsoleMessages();
               },
-              async consoleMessages(context, text: string) {
+              async consoleMessages(context, text: string, until?: string) {
+                if (until) {
+                  const shown = context.page.waitForEvent("console", {
+                    predicate: (message) => message.type() === until,
+                  });
+                  const messages = await context.page.consoleMessages();
+                  if (messages.some((message) => message.type() === until)) shown.catch(() => {});
+                  else await shown;
+                }
                 return Promise.all(
                   (await context.page.consoleMessages()).map(async (message) => ({
                     type: message.type(),
-                    holds: (
-                      await Promise.all(message.args().map((arg) => arg.evaluate(holds, text)))
-                    ).some(Boolean),
+                    holds:
+                      message.text().includes(text) ||
+                      (
+                        await Promise.all(message.args().map((arg) => arg.evaluate(holds, text)))
+                      ).some(Boolean),
                   })),
                 );
               },

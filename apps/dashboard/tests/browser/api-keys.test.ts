@@ -304,7 +304,7 @@ test.for(["Create key", "Add Runner"] as const)(
         .element(page.getByCSS("tbody tr").filter({ hasText: "unconfirmed" }))
         .toHaveLength(1);
     }
-    const messages = await commands.consoleMessages(key);
+    const messages = await commands.consoleMessages(key, "error");
     expect(messages.filter(({ type }) => type === "error")).toHaveLength(1);
     expect(messages.filter((message) => message.holds)).toEqual([]);
   },
