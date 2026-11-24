@@ -56,10 +56,10 @@ export type Open = (path: string, options?: PageOptions) => Promise<typeof page>
  * for the hub, which answers the page's `fetch` in the same document. Every request the page starts
  * is recorded for the test as it starts, offline too; a `fetch` already aborted starts none. These
  * fail the test, which names them: a call it has no answer for; a `fetch` the stand-in does not
- * answer, or a WebSocket; an arranged answer that throws, or whose promise rejects before the test
- * ends, other than with a procedure's declared refusal, or that the contract refuses; and a request
- * whose body the page was still sending, unaborted, as the test ended. Once a test ends, its page's
- * work goes no further through the network: its stand-in answers nothing more, an answer the page
+ * answer, or a WebSocket; an arranged answer that throws, other than a procedure's declared refusal,
+ * or that the contract refuses, once the page has its answer; and a request whose body the page was
+ * still sending, unaborted, as the test ended. Once a test ends, its page's work goes no further
+ * through the network: its stand-in answers nothing more, an answer the page
  * has not yet read stops arriving, and nothing answers what the page sends from then until the next
  * test opens a page. `open` mounts the app at an address of the dashboard. Its timers and clock
  * start at `NOW` and move when a test moves them, and as Vitest moves them while an action or a
@@ -109,11 +109,11 @@ export const test = base
       if (betterAuthOnline) betterAuthOnline.isOnline = true;
       vi.useRealTimers();
       // Every request sent before the test ended is the test's to have arranged, so the stand-in
-      // is done with each, or holds it, before the checks below. One whose body the page was still
+      // records each before the checks below. One whose body the page was still
       // sending is named as such instead: a body need not ever end.
       const sending = [...outgoing].filter((request) => request.sending);
       await Promise.all(
-        [...outgoing].filter((request) => !request.sending).map(({ done }) => done.promise),
+        [...outgoing].filter((request) => !request.sending).map(({ recorded }) => recorded.promise),
       );
       const unarranged = [...network.unarranged, ...strays];
       const failed = [...network.failures, ...failures];
@@ -148,7 +148,7 @@ export const test = base
           Object.defineProperty(request, "headers", { value: headers });
         }
         entry.sending = false;
-        const response = await network.handle(request, () => entry.done.resolve());
+        const response = await network.handle(request, () => entry.recorded.resolve());
         if (!response) strays.push(entry.described);
         return { response };
       } catch (error) {
@@ -156,7 +156,7 @@ export const test = base
         return { error };
       } finally {
         entry.sending = false;
-        entry.done.resolve();
+        entry.recorded.resolve();
       }
     }
 
@@ -177,7 +177,7 @@ export const test = base
         const entry: Outgoing = {
           described: `${request.method} ${request.url}`,
           sending: true,
-          done: Promise.withResolvers(),
+          recorded: Promise.withResolvers(),
         };
         outgoing.add(entry);
         const answer = takeToStandIn(request, entry);
@@ -220,8 +220,8 @@ interface Outgoing {
   readonly described: string;
   /** Whether its body is still being read, before the stand-in can take it. */
   sending: boolean;
-  /** Settled once the stand-in is done with the request, or holds it. */
-  readonly done: PromiseWithResolvers<void>;
+  /** Settled once the stand-in has recorded the request, or is done with it. */
+  readonly recorded: PromiseWithResolvers<void>;
 }
 
 /**
