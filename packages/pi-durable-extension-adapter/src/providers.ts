@@ -360,12 +360,14 @@ export class ConversationProviders {
     live.addEventListener("abort", closed, { once: true });
     const result = awaitWithContext(call, bound)
       .then(
-        (answer) => partial.mirror(answer),
+        // Once the answer's last event has come, Pi has resolved `result()` with the held message,
+        // which callers may have changed since, as pi-durable sets `thinkingLevel` on it.
+        (answer) => (terminal && partial.current) || partial.mirror(answer),
         (failure: unknown) => {
           // The worker may have sent the answer's last event before the call failed.
           if (terminal && partial.current) return partial.current;
           const reason = signal?.aborted ? "aborted" : "error";
-          const message = partial.failed(failure, reason);
+          const message = partial.markFailed(failure, reason);
           if (!message) throw failure;
           events.push({ type: "error", reason, error: message });
           return message;
@@ -475,7 +477,14 @@ class LivePartial {
   apply(event: AssistantMessageEvent): AssistantMessageEvent {
     if (event.type === "done") return { ...event, message: this.mirror(event.message) };
     if (event.type === "error") return { ...event, error: this.mirror(event.error) };
-    return { ...event, partial: this.mirror(event.partial) };
+    const partial = this.mirror(event.partial);
+    // pi-ai's Anthropic provider ends a tool call with the block itself, as its message holds it.
+    if (event.type === "toolcall_end") {
+      const block = partial.content[event.contentIndex];
+      const same = event.toolCall === event.partial.content[event.contentIndex];
+      if (same && block?.type === "toolCall") return { ...event, toolCall: block, partial };
+    }
+    return { ...event, partial };
   }
 
   /** Updates the held message, and its blocks, to `message`, and returns the held one. */
@@ -495,16 +504,15 @@ class LivePartial {
   }
 
   /**
-   * The message an RPC failure ends the request with: what streamed so far, as a provider's own
-   * error message is, or none when nothing did, for lazyStream to make one.
+   * Ends the held message for an RPC failure, keeping what streamed so far, as a provider's own
+   * error message does. Returns none when nothing streamed, for lazyStream to make one.
    */
-  failed(failure: unknown, reason: "aborted" | "error"): AssistantMessage | undefined {
-    if (!this.#message) return undefined;
-    return this.mirror({
-      ...this.#message,
-      stopReason: reason,
-      errorMessage: ensureError(failure).message,
-    });
+  markFailed(failure: unknown, reason: "aborted" | "error"): AssistantMessage | undefined {
+    const message = this.#message;
+    if (!message) return undefined;
+    message.stopReason = reason;
+    message.errorMessage = ensureError(failure).message;
+    return message;
   }
 }
 
