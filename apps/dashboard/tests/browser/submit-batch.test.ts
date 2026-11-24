@@ -379,7 +379,7 @@ test("Remove all asks first: keeping keeps every job, and removing sends nothing
   await expect.element(page.getByLabelText("Custom ID of job 2")).toBeVisible();
 
   // The rows go while the limits, from which the draft's figures are recomputed, are read again.
-  await expect.element(page.getByLabelText("Model budget")).toHaveAccessibleDescription(/At most/);
+  await expect.element(page.getByLabelText(/^Model budget/)).toHaveAccessibleDescription(/At most/);
   const limits = hub.jobs.limits.hold();
   readAgain();
   await limits.arrived;
@@ -438,6 +438,6 @@ test("a dropped folder past what is read says some of its files may not have bee
   await expect.element(group.getByText(words)).toBeVisible();
   await expect.element(await announced(page, "added")).toMatchTextContent(words);
   // The words go with the next change of the rows.
-  await page.getByRole("button", { name: "Remove job 1", exact: true }).click();
+  await page.getByRole("button", { name: "Remove job 1" }).click();
   await expect.element(group.getByText(words)).toHaveLength(0);
 });

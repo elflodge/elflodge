@@ -28,8 +28,8 @@ test("a member can correct the limits the hub refused without retyping the job",
   ] as const;
   for (const [label, value] of values)
     await page.getByLabelText(label, { exact: label === "Input" }).fill(value);
-  const budget = page.getByLabelText("Model budget");
-  const timeout = page.getByLabelText("Run timeout");
+  const budget = page.getByLabelText(/^Model budget/);
+  const timeout = page.getByLabelText(/^Run timeout/);
   const words = descriptionOnFocus(budget);
   await page.getByRole("button", { name: "Submit job" }).click();
   await expect.element(budget).toHaveFocus();
@@ -84,8 +84,8 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   hub.jobs.limits.answers(JOB_LIMITS);
   // From the Jobs list, so Back has somewhere to go.
   const page = await open("jobs");
-  await page.getByRole("link", { name: "Submit a job", exact: true }).click();
-  const input = page.getByLabelText("Input", { exact: true });
+  await page.getByRole("link", { name: "Submit a job" }).click();
+  const input = page.getByLabelText("Input");
   const jobs = page
     .getByRole("navigation", { name: "Where this is" })
     .getByRole("link", { name: "Jobs" });
@@ -109,7 +109,7 @@ test("a member leaving typed input, by a link or by Back, can stay with the draf
   const entry = historyIndex();
   await jobs.click();
   await dialog.getByRole("button", { name: "Leave the page" }).click();
-  await expect.element(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Jobs" })).toBeVisible();
   await expect.element(dialog).toHaveLength(0);
   expect(historyIndex()).toBe(entry + 1);
   await expect.element(page.getByCSS("[inert]")).toHaveLength(0);

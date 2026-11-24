@@ -33,6 +33,6 @@ test("a plain member gets no owner's actions on Runners and API keys", async ({ 
     .getByRole("navigation", { name: "Destinations" })
     .getByRole("link", { name: "API keys" })
     .click();
-  await expect.element(page.getByText("Only owners and admins see and manage")).toBeVisible();
+  await expect.element(page.getByText(/Only owners and admins see and manage/)).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Create key" })).toHaveLength(0);
 });

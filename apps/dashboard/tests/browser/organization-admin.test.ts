@@ -72,7 +72,7 @@ test("an admin changing their own role immediately loses the management controls
       page
         .getByRole("row")
         .filter({ hasText: admin.user.email })
-        .getByRole("cell", { name: "Member", exact: true }),
+        .getByRole("cell", { name: "Member" }),
     )
     .toBeVisible();
   expect(hub.auth.organization.updateMemberRole.calls).toEqual([

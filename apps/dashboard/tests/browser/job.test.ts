@@ -107,9 +107,7 @@ test("a member confirms deletion and sees when the job has gone", async ({ hub, 
   hub.jobs.get.refuses("NOT_FOUND");
   await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(page.getByRole("heading", { name: "This job was deleted" })).toBeVisible();
-  await expect
-    .element(page.getByRole("main").getByRole("link", { name: "Jobs", exact: true }))
-    .toBeVisible();
+  await expect.element(page.getByRole("main").getByRole("link", { name: "Jobs" })).toBeVisible();
   expect(hub.jobs.delete.calls).toEqual([{ id: queued.id }]);
 });
 
@@ -206,7 +204,7 @@ test("Pause keeps the focus while the hub answers, the other controls wait, and 
   const page = await openJob(hub, open, journal);
   // The tab is named by the job's Custom ID.
   await expect.poll(() => document.title).toBe("Job pause-presser · Elflodge");
-  const pause = page.getByRole("button", { name: "Pause", exact: true });
+  const pause = page.getByRole("button", { name: "Pause" });
   const sending = hub.jobs.pause.hold();
   await pause.click();
   await sending.arrived;
@@ -243,7 +241,7 @@ test("a job read that answers 404 under an open Cancel leaves its not-found page
   );
   await page.getByRole("button", { name: "Cancel the job" }).click();
   const dialog = page.getByRole("alertdialog");
-  const link = page.getByRole("main").getByRole("link", { name: "Jobs", exact: true });
+  const link = page.getByRole("main").getByRole("link", { name: "Jobs" });
   async function expectNothingLeft() {
     await expect.element(page.getByRole("heading", { name: "Job not found" })).toBeVisible();
     await expect.element(link).toHaveFocus();
@@ -320,13 +318,13 @@ test("a member can correct a refused budget and resume the job, which the jobs l
     hasMore: false,
   });
   const page = await open("jobs");
-  const jobLink = page.getByRole("link", { name: "budget-spent", exact: true });
+  const jobLink = page.getByRole("link", { name: "budget-spent" });
   await jobLink.click();
   await expect
     .element(page.getByRole("meter", { name: "Model budget used" }))
     .toHaveAttribute("aria-valuetext", expect.stringMatching(/ of 0\.000001 USD, estimated$/));
   await expect.element(page.getByText("Resume asks for a larger model budget.")).toBeVisible();
-  const resume = page.getByRole("button", { name: "Resume", exact: true });
+  const resume = page.getByRole("button", { name: "Resume" });
   const dialog = page.getByRole("dialog");
   // As on a browser that leaves focus in place on a mouse press. dispatchEvent("click") would
   // send an untrusted event, which UI SDK handles as a programmatic open.
@@ -420,7 +418,7 @@ test("a raised budget keeps a member from resending an older amount after a refu
   const journal = spentBudget("budget-raised");
   hub.batches.get.answers(aBatch("april"));
   const page = await openJob(hub, open, journal);
-  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await page.getByRole("button", { name: "Resume" }).click();
   const dialog = page.getByRole("dialog", { name: "Resume the job" });
   const field = dialog.getByLabelText("New model budget USD");
   await field.fill("1.50");
@@ -459,7 +457,7 @@ test("a raised budget keeps a member from resending an older amount after a refu
   await userEvent.keyboard("{Enter}");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).toHaveLength(0);
-  await expect.element(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeEnabled();
   expect(hub.jobs.resume.calls).toEqual([{ id: journal.job.id, modelBudgetUsd: 1.5 }]);
 });
 
@@ -504,7 +502,7 @@ test("a member reads the latest hundred Events in journal order, then earlier on
   await expect.element(earlier).toHaveFocus();
   expect((await earlier.findElement()).getBoundingClientRect().top).toBeCloseTo(top, 0);
   await userEvent.tab();
-  await expect.element(page.getByRole("button", { name: "Start", exact: true })).toHaveFocus();
+  await expect.element(page.getByRole("button", { name: "Start" })).toHaveFocus();
   await userEvent.tab({ shift: true });
   await userEvent.keyboard("{Enter}");
   await expect.element(count).toHaveTextContent("4 earlier Events added. All 204 read.");
@@ -536,12 +534,10 @@ test("a member can retry a refused earlier page from its own box", async ({ hub,
   await expect.element(earlier).toHaveAttribute("aria-busy", "true");
   await expect.element(earlier).toHaveFocus();
   await userEvent.keyboard("{Enter}");
-  await expect.element(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+  await expect.element(page.getByRole("button", { name: "Start" })).toBeDisabled();
   await expect.element(box.getByRole("alert")).toHaveLength(0);
   retry.release();
-  await expect
-    .element(box.getByText("There are no earlier Events.", { exact: true }))
-    .toBeVisible();
+  await expect.element(box.getByText("There are no earlier Events.")).toBeVisible();
   await expect.element(box).toHaveFocus();
   expect(hub.jobs.events.calls.slice(before)).toEqual([
     { id: journal.job.id, order: "desc", after: 30, limit: 100 },
@@ -581,7 +577,7 @@ test("Latest recovers a refused forward read without dropping the Events already
 
   serve(hub, journal);
   journal.events.push(aMessage(235));
-  await page.getByRole("button", { name: "Latest", exact: true }).click();
+  await page.getByRole("button", { name: "Latest" }).click();
   await expect.element(count).toHaveTextContent("All 26 read");
   expect(hub.jobs.events.calls.at(-1)).toMatchObject({ order: "asc", after: 230 });
   await expect.element(page.getByCSS(".ev-id").first()).toHaveTextContent("1");
@@ -595,7 +591,10 @@ test("a member can read from the start and page forward in order, to a success s
   const journal = { job: runningJob("first-events"), events: history(102) };
   const page = await openJob(hub, open, journal);
   await page.getByCSS("#event-1020").findElement();
-  await page.getByRole("navigation", { name: "Go to" }).getByText("Start", { exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Go to a moment of the job" })
+    .getByText("Start")
+    .click();
   const numbers = page.getByCSS("ol.timeline .ev-id");
   await expect.element(numbers.first()).toHaveTextContent("1");
   await expect.element(numbers.last()).toHaveTextContent("980");
@@ -606,7 +605,7 @@ test("a member can read from the start and page forward in order, to a success s
   journal.events.push(aSuccess(1030, 17));
   journal.job = succeededJob("first-events", 17);
   const recordsAndErrors = page.getByRole("radio", { name: "Runner’s records and errors" });
-  await page.getByText("Runner’s records and errors", { exact: true }).click();
+  await page.getByText("Runner’s records and errors").click();
   await page.getByRole("button", { name: "Show later Events" }).click();
   await expect.element(recordsAndErrors).toBeChecked();
   // Focus moves to the first Event added that the filter shows, the Runner's record of success.
@@ -628,14 +627,17 @@ test("a member paging forward to Events the chosen filter hides keeps the filter
   const journal = { job: runningJob("hidden-events"), events: history(102) };
   const page = await openJob(hub, open, journal);
   await page.getByCSS("#event-1020").findElement();
-  await page.getByRole("navigation", { name: "Go to" }).getByText("Start", { exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Go to a moment of the job" })
+    .getByText("Start")
+    .click();
   const numbers = page.getByCSS("ol.timeline .ev-id");
   await expect.element(numbers.last()).toHaveTextContent("980");
 
   // The last page adds only messages, which the Runner's records leave out.
   journal.events.push(aMessage(1030));
   const recordsAndErrors = page.getByRole("radio", { name: "Runner’s records and errors" });
-  await page.getByText("Runner’s records and errors", { exact: true }).click();
+  await page.getByText("Runner’s records and errors").click();
   await page.getByRole("button", { name: "Show later Events" }).click();
   await expect.element(recordsAndErrors).toBeChecked();
   await expect.element(page.getByCSS("ol.timeline")).toHaveFocus();
@@ -681,7 +683,7 @@ test("a member reading earlier Events can jump to new ones, and sees the Output 
   await expect.element(notice).toBeVisible();
   await expect.element(notice.getByCSS("time")).toHaveLength(0);
   expect((await first.findElement()).getBoundingClientRect().top).toBeCloseTo(top, 0);
-  await notice.getByText("Go to them", { exact: true }).click();
+  await notice.getByText("Go to them").click();
   await expect.element(page.getByCSS("#event-260")).toHaveFocus();
 
   journal.events.push(aSuccess(267, 17));
@@ -709,7 +711,7 @@ test("a member following an ended job sees another member resume it before its n
   journal.job = aJob("resumed-elsewhere", STARTED);
   await vi.advanceTimersByTimeAsync(5_000);
   await expect.element(statusWord(page)).toHaveTextContent("Queued");
-  await expect.element(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Pause" })).toBeVisible();
   await expect.element(page.getByCSS("ol.timeline .ev-id").last()).toHaveTextContent("11");
 });
 
@@ -744,17 +746,15 @@ test("a member can read a failure reason added by a newer hub on the job and its
   await expect.element(fullReason).toHaveTextContent(quoted);
   await expect.element(fullReason).toBeInViewport({ ratio: 1 });
   await expect
-    .element(full.getByText("(unknown to this dashboard version)", { exact: true }))
+    .element(full.getByText("(unknown to this dashboard version)"))
     .toBeInViewport({ ratio: 1 });
   await expect.element(full).toMatchTextContent("Provider unavailable.");
-  await page.getByText("One line each", { exact: true }).click();
+  await page.getByText("One line each").click();
   const summary = event.getByCSS(".ev-line");
   await expect.element(summary).toBeVisible();
   (await summary.findElement()).scrollIntoView({ block: "center" });
-  await expect
-    .element(summary.getByText("Unknown failure reason", { exact: true }))
-    .toBeInViewport({
-      ratio: 1,
-    });
+  await expect.element(summary.getByText("Unknown failure reason")).toBeInViewport({
+    ratio: 1,
+  });
   await expect.element(summary.getByCSS("[title]")).toHaveAttribute("title", words);
 });

@@ -63,7 +63,7 @@ test.for(["lists no keys", "fails"] as const)(
       reads.release();
       // Query tries the read again three times, a second, two and four seconds apart, before it
       // reports the failure.
-      const failure = page.getByText("The API keys could not be read");
+      const failure = page.getByText(/^The API keys could not be read at /);
       await runClockUntil(1_000, () => isVisible(failure));
     }
     await expect.element(notice).toHaveFocus();
@@ -368,7 +368,7 @@ test("a member can correct a refused key name and keep the permissions they chos
       problems: [{ message: "Choose another action", path: ["permissions", "job", 0] }],
     }),
   });
-  const permissions = dialog.getByRole("group", { name: "Permissions", exact: true });
+  const permissions = dialog.getByRole("group", { name: "Permissions" });
   const words = descriptionOnFocus(permissions);
   await create.click();
   await expect.element(permissions).toHaveAccessibleDescription(/Choose another action/);
