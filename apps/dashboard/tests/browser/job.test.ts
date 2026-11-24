@@ -271,7 +271,7 @@ test("a job read that answers 404 under an open Cancel leaves its not-found page
   await answered;
   await expectNothingLeft();
   await link.click();
-  await expect.poll(() => location.pathname).toBe("/dashboard/jobs");
+  await expect.poll(() => location.href).toBe(`${location.origin}/dashboard/jobs`);
 });
 
 test("a refused Cancel shows why in the dialog for a retry, and a 5xx says it may have been done", async ({
@@ -590,7 +590,7 @@ test("a member can read from the start and page forward in order, to a success s
 }) => {
   const journal = { job: runningJob("first-events"), events: history(102) };
   const page = await openJob(hub, open, journal);
-  await page.getByCSS("#event-1020").findElement();
+  await expect.element(page.getByCSS("#event-1020")).toBeVisible();
   await page
     .getByRole("navigation", { name: "Go to a moment of the job" })
     .getByText("Start")
@@ -626,7 +626,7 @@ test("a member paging forward to Events the chosen filter hides keeps the filter
 }) => {
   const journal = { job: runningJob("hidden-events"), events: history(102) };
   const page = await openJob(hub, open, journal);
-  await page.getByCSS("#event-1020").findElement();
+  await expect.element(page.getByCSS("#event-1020")).toBeVisible();
   await page
     .getByRole("navigation", { name: "Go to a moment of the job" })
     .getByText("Start")
