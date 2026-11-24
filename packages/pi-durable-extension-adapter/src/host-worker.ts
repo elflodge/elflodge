@@ -155,6 +155,9 @@ const functions: WorkerFunctions = {
       flags,
       registerProvider(name, config) {
         life.signal.throwIfAborted();
+        // Refused before anything registers. refreshModels in particular: Pi calls it right after each
+        // registration and when the app refreshes, and the adapter does not bridge those calls to the
+        // worker, while a provider registered without it may list no models at all.
         for (const field of ["oauth", "images", "classifiers", "refreshModels"] as const) {
           if (config[field] !== undefined)
             throw new Error(
