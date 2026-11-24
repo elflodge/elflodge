@@ -132,8 +132,11 @@ test("a member sees a Batch control in flight and its result on the record and l
   expect(hub.batches.get.calls).toHaveLength(reads);
   await expect.element(page.getByRole("status").filter({ hasText: "By a caller" })).toHaveFocus();
   // The Batch's status no longer waits. UI SDK's shared announcer keeps the "Working…" it announced
-  // once the press had waited a second, as it keeps every announcement until the next.
-  await expect.element(page.getByCSS("#batch-status").getByText("Working…")).toHaveLength(0);
+  // once the press had waited a second, as it keeps every announcement until the next. By part of
+  // its text, so a longer line that still says it is absent too.
+  await expect
+    .element(page.getByCSS("#batch-status").getByText("Working…", { exact: false }))
+    .toHaveLength(0);
   await expect.element(pause).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: "Resume" })).toBeEnabled();
   await expect.element(cancel).toBeEnabled();

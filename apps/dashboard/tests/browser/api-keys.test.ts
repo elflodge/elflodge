@@ -123,7 +123,8 @@ test("a revocation the hub never answers ends on its own after 30 seconds, sayin
   expect(dialog.getByRole("alert").elements()).toHaveLength(0);
   await advanceTo(arrivedAt + 30_000);
   expect(texts(dialog.getByRole("alert"))).toEqual([UNCERTAIN]);
-  await expect.element(dialog.getByText("Working…")).toHaveLength(0);
+  // By part of its text, so a longer line that still says it is absent too.
+  await expect.element(dialog.getByText("Working…", { exact: false })).toHaveLength(0);
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).toHaveLength(0);
   await expect.element(page.getByRole("button", revoke)).toHaveFocus();
@@ -374,5 +375,3 @@ test("a member can correct a refused key name and keep the permissions they chos
     permissions: { job: ["read"] },
   });
 });
-
-/** The methods of the console, as the Console Standard names them. */

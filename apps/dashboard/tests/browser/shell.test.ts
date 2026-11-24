@@ -124,7 +124,10 @@ test.for([
     await expect.element(page.getByRole("banner")).toBeVisible();
     await expect.element(page.getByRole("heading", { name: heading })).toBeVisible();
     session.release();
-    await expect.element(retry).toHaveLength(0);
+    // By part of its name, so a control that offers it under a longer name is absent too.
+    await expect
+      .element(page.getByRole("button", { name: "Try again", exact: false }))
+      .toHaveLength(0);
     await expect.element(page.getByRole("heading", { name: heading })).toBeVisible();
     // The list read again, shown.
     await expect
