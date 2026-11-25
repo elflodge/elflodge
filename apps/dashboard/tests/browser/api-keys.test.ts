@@ -1,5 +1,5 @@
-import { expect, vi } from "vite-plus/test";
-import { commands, userEvent } from "vite-plus/test/browser/context";
+import { expect, onTestFinished, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser/context";
 
 import { InvalidInput } from "../../../hub/src/invalid-input.ts";
 import { anApiKey } from "../records.ts";
@@ -24,6 +24,45 @@ import {
 // the hub gives only in its answer.
 
 const readOnly = (element: Element) => element instanceof HTMLInputElement && element.readOnly;
+
+/** Whether `value` holds `text`, in any property, enumerable or not, as deep as it goes. */
+function holds(value: unknown, text: string) {
+  const seen = new Set<object>();
+  const search = (part: unknown): boolean => {
+    if (typeof part === "string") return part.includes(text);
+    if (typeof part !== "object" || part === null || seen.has(part)) return false;
+    seen.add(part);
+    return Reflect.ownKeys(part).some(
+      (name) => String(name).includes(text) || search(Reflect.get(part, name)),
+    );
+  };
+  return search(value);
+}
+
+type ConsoleMethod = Extract<
+  {
+    [Name in keyof Console]: Console[Name] extends (...args: never[]) => unknown ? Name : never;
+  }[keyof Console],
+  string
+>;
+
+/**
+ * Spies on every method of the console, which the page shares with the test, each still printing:
+ * what it is given is what the console shows of the page's own work.
+ */
+function spyOnConsole() {
+  const spies = Object.keys(console)
+    .filter((name): name is ConsoleMethod => typeof Reflect.get(console, name) === "function")
+    .map((name) => vi.spyOn(console, name));
+  onTestFinished(() => {
+    for (const spy of spies) spy.mockRestore();
+  });
+  return {
+    errors: () => vi.mocked(console.error).mock.calls.length,
+    holding: (text: string) =>
+      spies.flatMap((spy) => spy.mock.calls).filter((args) => holds(args, text)),
+  };
+}
 
 const validationMessage = (element: Element) =>
   element instanceof HTMLInputElement ? element.validationMessage : undefined;
@@ -288,7 +327,7 @@ test.for(["Create key", "Add Runner"] as const)(
       await check(dialog.getByRole("group", { name: "Jobs" }).getByLabelText("read"));
       hub.apiKeys.list.answers([anApiKey("unconfirmed")]);
     }
-    await commands.clearConsole();
+    const printed = spyOnConsole();
     const answered = waitForResponse(
       (request) => request.method === "POST" && new URL(request.url).pathname === "/api-keys",
     );
@@ -305,9 +344,8 @@ test.for(["Create key", "Add Runner"] as const)(
         .element(page.getByCSS("tbody tr").filter({ hasText: "unconfirmed" }))
         .toHaveLength(1);
     }
-    const messages = await commands.consoleMessages(key, "error");
-    expect(messages.filter(({ type }) => type === "error")).toHaveLength(1);
-    expect(messages.filter((message) => message.holds)).toEqual([]);
+    expect(printed.errors()).toBe(1);
+    expect(printed.holding(key)).toEqual([]);
   },
 );
 

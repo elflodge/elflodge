@@ -13,20 +13,6 @@ export interface Dropped {
   [name: string]: string | Dropped;
 }
 
-/** Whether `value` holds `text`, in any property, enumerable or not, as deep as it goes. */
-function holds(value: unknown, text: string) {
-  const seen = new Set<object>();
-  const search = (part: unknown): boolean => {
-    if (typeof part === "string") return part.includes(text);
-    if (typeof part !== "object" || part === null || seen.has(part)) return false;
-    seen.add(part);
-    return Reflect.ownKeys(part).some(
-      (name) => String(name).includes(text) || search(Reflect.get(part, name)),
-    );
-  };
-  return search(value);
-}
-
 /**
  * The browser contexts that refuse to open a file: dropped where nothing takes it, a file is the
  * browser's to open in the tab, which would replace the tests' page.
@@ -104,53 +90,6 @@ export default defineConfig({
               // Vitest has no tap: Playwright's, in the frame the tests run in.
               async tap(context, locator: SerializedLocator) {
                 await (await context.frame()).locator(locator.selector).tap();
-              },
-              // Nor the console as the browser shows it: the messages it has shown since
-              // `clearConsole`, each with its type and whether it holds `text`, in its printed
-              // text or in an argument, searched where the page holds it, in properties a copy
-              // would leave out, such as an error's cause. Playwright hears of a message apart from
-              // the commands, so these wait, when asked, until one of type `until` has shown.
-              async clearConsole(context) {
-                await context.page.clearConsoleMessages();
-              },
-              async consoleMessages(context, text: string, until?: string) {
-                if (until) {
-                  // Heard from before the messages are read, so one shown in between is not
-                  // missed, and only while this command runs.
-                  const shown = Promise.withResolvers<void>();
-                  const hear = (message: { type(): string }) => {
-                    if (message.type() === until) shown.resolve();
-                  };
-                  context.page.on("console", hear);
-                  // A message the page has shown reaches Playwright within moments; five seconds,
-                  // a third of a test's time, names one that never shows before the test times out.
-                  // Handled here as well, since it can reject while the messages are still being read.
-                  shown.promise.catch(() => undefined);
-                  const timer = setTimeout(
-                    () =>
-                      shown.reject(
-                        new Error(`No console message of type "${until}" showed in 5 s`),
-                      ),
-                    5_000,
-                  );
-                  try {
-                    const messages = await context.page.consoleMessages();
-                    if (!messages.some((message) => message.type() === until)) await shown.promise;
-                  } finally {
-                    clearTimeout(timer);
-                    context.page.off("console", hear);
-                  }
-                }
-                return Promise.all(
-                  (await context.page.consoleMessages()).map(async (message) => ({
-                    type: message.type(),
-                    holds:
-                      message.text().includes(text) ||
-                      (
-                        await Promise.all(message.args().map((arg) => arg.evaluate(holds, text)))
-                      ).some(Boolean),
-                  })),
-                );
               },
               // Nor a drop of files: written to disk and dropped through Chromium's own hit test, as
               // a person drops them, 10 pixels into the start of the element, which shows first.
