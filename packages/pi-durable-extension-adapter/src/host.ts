@@ -700,7 +700,7 @@ class Installation {
   readonly #conversations = new Map<ConversationId, AttachedConversation>();
   /** What each conversation's extension was installed from, to skip installing the same again. */
   readonly #installedFor = new Map<ConversationId, unknown>();
-  /** The Harness's commits, observed while some conversation's extensions listen to `session_compact`. */
+  /** The Harness's commits, observed while some conversation has extensions attached. */
   #commits: CommitObservation | undefined;
 
   constructor(workers: Workers, harness: Harness, registry: Registry, emptied: () => void) {
@@ -752,16 +752,13 @@ class Installation {
   }
 
   /**
-   * Observes the Harness's commits while some conversation's extensions listen to `session_compact`,
-   * for the compaction summaries pi-durable places, as it has no hook after a compaction. Each is
-   * seen as its commit is published, before its committer and the waits it resolves go on, so
-   * before a generation that placed it, or waits for the compaction, makes its next request.
+   * Observes the Harness's commits while some conversation has extensions attached, for the
+   * compaction summaries pi-durable places, as it has no hook after a compaction. Each is seen as
+   * its commit is published, before its committer and the waits it resolves go on, so before a
+   * generation that placed it, or waits for the compaction, makes its next request.
    */
   #observeCompactions() {
-    const listening = [...this.#conversations.values()].some((each) =>
-      each.registrations.events.includes("session_compact"),
-    );
-    if (!listening) {
+    if (this.#conversations.size === 0) {
       this.#commits?.detach();
       this.#commits = undefined;
       return;
@@ -772,7 +769,8 @@ class Installation {
       observation = this.harness.observeCommits({
         advance: (publication) => this.#committed(publication),
         // At the Harness's close, or after a failure of `advance`, which detaches it; the next
-        // change of the conversations' events attaches it again while the Harness is open.
+        // change of the conversations or their extensions' registrations attaches it again while
+        // the Harness is open.
         end: () => {
           if (this.#commits === observation) this.#commits = undefined;
         },
@@ -963,7 +961,10 @@ class AttachedConversation {
   #runEnd: { taskId: TaskId; delivered: PromiseWithResolvers<void> } | undefined;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
-  /** The extensions' writes to the conversation so far, which a read waits for. */
+  /**
+   * The extensions' writes to the conversation so far, and the compactions' fields being kept,
+   * which a read waits for.
+   */
   #writes: Promise<unknown> = Promise.resolve();
   /** The model tools being set, which the next selection waits for. */
   #activation: Promise<void> = Promise.resolve();
@@ -975,8 +976,8 @@ class AttachedConversation {
   readonly #ended = Promise.withResolvers<void>();
   /**
    * What the compactions whose summary this conversation's `session_before_compact` handlers
-   * supplied carry besides it, for their `session_compact`, by the compaction's task until its
-   * end tells how pi-durable places the summary, while some handler listens to `session_compact`.
+   * supplied carry besides it, to keep with the summary's entry, by the compaction's task until its
+   * end tells how pi-durable places the summary.
    */
   readonly #supplied = new Map<TaskId, Supplied>();
   /** Those whose summary waits in a write submission to be placed, or settled unplaced, by it. */
@@ -1136,14 +1137,7 @@ class AttachedConversation {
     // registrations would install the extension again after the conversation left.
     if (this.#closing) return;
     this.registrations = registrations;
-    if (!this.#listens("session_compact")) this.#forgetSupplied();
     this.#installation.refresh(this);
-  }
-
-  /** What `#supplied` keeps goes once nothing listens to `session_compact` for it. */
-  #forgetSupplied() {
-    this.#supplied.clear();
-    this.#submitted.clear();
   }
 
   async beforeTool(call: ToolHookCall, context: Context) {
@@ -1436,7 +1430,7 @@ class AttachedConversation {
 
   /**
    * `session_before_compact`: a cancel declines the compaction, a compaction of a handler's own
-   * replaces pi-durable's summary, and what it carries besides is kept for its `session_compact`.
+   * replaces pi-durable's summary, and what it carries besides is kept with the summary's entry.
    */
   async beforeCompact(
     compaction: {
@@ -1463,21 +1457,22 @@ class AttachedConversation {
     if (!decision || "decline" in decision) return decision;
     const { summary, ...supplied } = decision;
     // pi-durable takes the first decision and asks no later hook, so this summary is placed, or
-    // goes stale; how it is placed tells its `session_compact` apart (`committed`).
-    if (this.#listens("session_compact")) this.#supplied.set(api.taskId, supplied);
+    // goes stale; how it is placed tells its entry apart (`committed`).
+    this.#supplied.set(api.taskId, supplied);
     return { summary };
   }
 
   /**
-   * The changes a commit stored for the conversation. Each compaction summary pi-durable placed is
-   * followed by `session_compact`, as in Pi once a compaction is written. A summary the
-   * conversation's handlers supplied is told by its compaction: one its generation waits for
-   * appends the summary in the commit that ends it; any other ends with a write submission, whose
-   * placement, in the same commit when the conversation is idle or at its next boundary, carries
-   * the summary's entry, or which goes stale.
+   * The changes a commit stored for the conversation. What each compaction summary pi-durable
+   * placed lacks of Pi's compaction entry is kept, as Pi stores it with every compaction, and
+   * `session_compact` follows, as in Pi once a compaction is written. A summary the conversation's
+   * handlers supplied is told by its compaction: one its generation waits for appends the summary
+   * in the commit that ends it; any other ends with a write submission, whose placement, in the
+   * same commit when the conversation is idle or at its next boundary, carries the summary's entry,
+   * or which goes stale.
    */
   committed(changes: readonly StoredChange[]) {
-    if (this.#closing || !this.#listens("session_compact")) return;
+    if (this.#closing) return;
     const placed = new Map<number, Supplied>();
     for (const change of changes) {
       if (change.type !== "task") continue;
@@ -1500,27 +1495,34 @@ class AttachedConversation {
       if (change.value.entry !== undefined) placed.set(change.value.entry, supplied);
     }
     for (const change of changes) {
-      if (change.type === "entry" && CompactionEntry.is(change.value))
-        this.#queueSessionCompact(change.value, placed.get(change.value.id));
+      if (change.type !== "entry" || !CompactionEntry.is(change.value)) continue;
+      const entry = change.value;
+      const supplied = placed.get(entry.id);
+      // Outside `advance`, which the Harness calls synchronously as it publishes the commit.
+      const kept = Promise.resolve().then(() => this.#keep(entry, supplied));
+      // A later read of `ctx.sessionManager` shows it.
+      this.#writes = Promise.all([this.#writes, kept]);
+      // The next request and `close` wait for its `session_compact` handlers, and only then.
+      if (this.#listens("session_compact")) {
+        this.#compactions = this.#compactions.then(async () =>
+          this.#sessionCompact(entry.data.reason, await kept),
+        );
+      }
     }
   }
 
-  /** Queues `session_compact` for a summary placed now, which the next request and `close` wait for. */
-  #queueSessionCompact(entry: TypedEntry<{ reason: CompactionReason }>, supplied?: Supplied) {
-    this.#compactions = this.#compactions.then(() => this.#sessionCompact(entry, supplied));
-  }
-
   /**
-   * `session_compact`, with the compaction entry Pi would have written: pi-durable's summary and
-   * first kept entry, the size of the context before it, and its system prompt and tools then, as
-   * pi-durable's context gives them, or what a handler's compaction carried. What pi-durable's
-   * entry lacks is kept with the conversation first, so `ctx.sessionManager` shows the same entry.
+   * Keeps with the conversation what Pi's compaction entry has and pi-durable's lacks, for the
+   * entry Pi would have written: pi-durable's summary and first kept entry, the size of the
+   * context before it, and its system prompt and tools then, as pi-durable's context gives them,
+   * or what a handler's compaction carried. The entry as `ctx.sessionManager` shows it from then
+   * on, or nothing once the conversation or the Harness has closed.
    */
-  async #sessionCompact(entry: TypedEntry<{ reason: CompactionReason }>, supplied?: Supplied) {
+  async #keep(
+    entry: TypedEntry<{ reason: CompactionReason }>,
+    supplied: Supplied | undefined,
+  ): Promise<SessionCompactionEntry | undefined> {
     try {
-      // Opened again after a worker exit, the reopened extensions get it.
-      await this.#ready;
-      if (!this.#running) return;
       const { conversation } = this.#options;
       const context = BACKGROUND_CONTEXT;
       // The entries before it, newest first: the context before it ends at the first, and its
@@ -1555,11 +1557,24 @@ class AttachedConversation {
       await conversation.commit(async (tx) => {
         (await tx.doc(KeptCompactions, conversation.id)).entries[`${entry.id}`] = kept;
       }, context);
-      const { reason } = entry.data;
+      return compactionSessionEntry(entry, parentId, kept);
+    } catch {
+      // The conversation or the Harness closed meanwhile, which ends its extensions' session too.
+      return undefined;
+    }
+  }
+
+  /** `session_compact`, with the compaction entry as `ctx.sessionManager` shows it. */
+  async #sessionCompact(reason: CompactionReason, kept: SessionCompactionEntry | undefined) {
+    if (!kept) return;
+    try {
+      // Opened again after a worker exit, the reopened extensions get it.
+      await this.#ready;
+      if (!this.#running) return;
       await this.#rpc.emit(this.#route, {
         type: "session_compact",
-        compactionEntry: compactionSessionEntry(entry, parentId, kept),
-        fromExtension: supplied !== undefined,
+        compactionEntry: kept,
+        fromExtension: kept.fromHook === true,
         reason,
         willRetry: willRetry(reason),
       });
@@ -1919,7 +1934,7 @@ class AttachedConversation {
 
   /**
    * The conversation's entries as Pi's session entries, with what the adapter kept of the
-   * compactions it told extensions about.
+   * compactions.
    */
   async #entries(): Promise<SessionEntry[]> {
     const { harness, conversation } = this.#options;
@@ -2015,7 +2030,9 @@ class AttachedConversation {
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(Promise.all([this.#ready, this.#compactions]), limited).catch(() => {});
     this.#installation.remove(this);
-    this.#forgetSupplied();
+    // Its commits are no longer observed, so nothing takes these any more.
+    this.#supplied.clear();
+    this.#submitted.clear();
     // Its provider queries end by their IDs first, so a `session_shutdown` handler that hangs
     // cannot keep them open; their registrations go with them.
     this.providers.close();
@@ -2211,7 +2228,7 @@ type StoredChange = Extract<CommitChange, { readonly type: "entry" | "task" | "s
 /** What a `session_before_compact` handler's compaction carries besides its summary. */
 type Supplied = Omit<Extract<CompactDecision, { readonly summary: string }>, "summary">;
 
-/** What the adapter kept of a compaction it told extensions about, see `KeptCompactions`. */
+/** What the adapter kept of a compaction, see `KeptCompactions`. */
 type KeptCompaction = {
   tokensBefore: number;
   fromHook: boolean;
@@ -2223,10 +2240,10 @@ type KeptCompaction = {
 };
 
 /**
- * What the adapter kept of each compaction it told extensions about, by its summary's entry: the
- * fields of Pi's compaction entry that pi-durable's lacks, as `session_compact` gave them, which
- * `ctx.sessionManager` shows with the entry. A compaction placed while no extension of the
- * conversation listened to `session_compact` has none, so its size reads 0.
+ * What the adapter kept of each compaction placed while the conversation had extensions attached,
+ * by its summary's entry: the fields of Pi's compaction entry that pi-durable's lacks, which
+ * `ctx.sessionManager` shows with the entry, and `session_compact` with it. A compaction placed
+ * while none were attached has none, so its size reads 0.
  */
 const KeptCompactions = defineDoc<{ entries: Record<string, KeptCompaction> }>({
   kind: "pi-durable-extension-adapter.compactions",
@@ -2309,7 +2326,7 @@ function compactionSessionEntry(
     tokensBefore: kept?.tokensBefore ?? 0,
     ...(kept && { fromHook: kept.fromHook }),
     ...(kept?.details !== undefined && { details: kept.details }),
-    // Stored as JSON from values of these types (`#sessionCompact`), which pi-ai has no schemas for.
+    // Stored as JSON from values of these types (`#keep`), which pi-ai has no schemas for.
     ...(kept?.usage !== undefined && {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi's `Usage`, as above
       usage: kept.usage as unknown as Usage,

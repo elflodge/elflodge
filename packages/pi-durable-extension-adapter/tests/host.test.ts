@@ -441,12 +441,17 @@ test("a run's lifecycle reaches the extensions, which add to its prompt, select 
   });
 });
 
-test("compactions reach the extensions as session_compact, as their session shows them, after which the context's usage is unknown", async () => {
+/**
+ * Runs a conversation with the extension `source` through a compaction of pi-durable's, then one
+ * whose summary the extension writes when asked to keep its own, and closes its extensions; the
+ * conversation's entries then, newest first, its model, and the messages the first compaction kept.
+ */
+async function compactTwice(source: string) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({
-      sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
+      sources: [path.join(import.meta.dirname, "fixtures", source)],
       dir,
     }),
   });
@@ -464,8 +469,7 @@ test("compactions reach the extensions as session_compact, as their session show
     fauxAssistantMessage([fauxText("Done.")]),
   ]);
   const registry = createRegistry();
-  // Keeping the second run, whose request wrote the tools the extension selected in the first,
-  // and cutting the first run's long answer.
+  // Keeping the second run, and cutting the first run's long answer.
   const harness = await Harness.open(
     new MemoryStorage(),
     { models, registry, settings: { ...settings, compaction: { keepRecentTokens: 2000 } } },
@@ -490,15 +494,19 @@ test("compactions reach the extensions as session_compact, as their session show
   await ask("again");
   await compact();
   const { messages } = await conversation.context(context);
-  // The kept history carries the system entry the second run's request wrote.
-  expect(messages.map((message) => message.role)).toContain("system");
   await ask("more");
   await ask("done");
   // The extension writes this summary.
   await compact("keep mine");
-
   await extensions.close();
   const { items } = await conversation.entries({ order: "descending" }, 20, undefined, context);
+  return { items, model, kept: messages };
+}
+
+test("compactions reach the extensions as session_compact, as their session shows them, after which the context's usage is unknown", async () => {
+  const { items, model, kept } = await compactTwice("lifecycle");
+  // The kept history carries the system entry the second run's request wrote.
+  expect(kept.map((message) => message.role)).toContain("system");
   const [saved] = items;
   const [mine, summary] = items.filter((entry) => CompactionEntry.is(entry));
   expect(saved).toMatchObject({ kind: "piext.seen" });
@@ -551,6 +559,26 @@ test("compactions reach the extensions as session_compact, as their session show
     // does not change that.
     usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
   });
+});
+
+test("an extension's session shows every compaction as Pi stores it, its own summary's details too, without a session_compact handler", async () => {
+  const { items } = await compactTwice("compactions.ts");
+
+  const [saved] = items;
+  const [mine, summary] = items.filter((entry) => CompactionEntry.is(entry));
+  expect(saved).toMatchObject({ kind: "piext.compactions" });
+  expect(saved?.data).toMatchObject([
+    {
+      type: "compaction",
+      id: `${summary?.id}`,
+      summary: "Summary.",
+      // How large the context was, as pi-durable's context gives it.
+      tokensBefore: expect.any(Number),
+      fromHook: false,
+    },
+    // What the extension's compaction carried.
+    { id: `${mine?.id}`, summary: "Mine.", details: { mine: true }, fromHook: true },
+  ]);
 });
 
 test("closing a conversation's extensions releases what providers keep for its session alone", async () => {
