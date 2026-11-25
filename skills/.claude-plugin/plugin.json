@@ -1,7 +1,7 @@
 {
   "name": "elflodge",
   "displayName": "Elflodge Agent Batches",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Too much repetitive work for one conversation? Let Claude hand it off to hundreds of sandboxed Pi agents working in parallel on your own machine. They run unattended and return structured results your code can use.",
   "author": {
     "name": "Elflodge",
