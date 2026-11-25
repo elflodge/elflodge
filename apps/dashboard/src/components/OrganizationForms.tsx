@@ -29,6 +29,14 @@ function chosenRole(form: FormData): MemberRole | undefined {
   return rolesOf(fieldText(form, "role"))[0];
 }
 
+// A roster refresh updates the draft before sending and after refusal. While the Hub
+// answers, both the selected role and the roles offered belong to the form that was sent.
+function whileEditing<T>(read: () => T, readOnly: () => boolean) {
+  return createMemo((previous: T | undefined) =>
+    readOnly() && previous !== undefined ? previous : read(),
+  );
+}
+
 function RoleChoices(props: {
   owner: boolean;
   own?: boolean;
@@ -37,6 +45,10 @@ function RoleChoices(props: {
   defaultValue?: MemberRole;
   choose?: (role: MemberRole | null) => void;
 }) {
+  const owner = whileEditing(
+    () => props.owner,
+    () => props.readOnly,
+  );
   return (
     <Field label="Role">
       <RadioGroup<MemberRole>
@@ -48,9 +60,7 @@ function RoleChoices(props: {
         onValueChange={props.choose}
       >
         <For
-          each={
-            props.owner ? (["member", "admin", "owner"] as const) : (["member", "admin"] as const)
-          }
+          each={owner() ? (["member", "admin", "owner"] as const) : (["member", "admin"] as const)}
         >
           {(role) => (
             <SDKField class="role-choice">
@@ -283,9 +293,9 @@ function RoleFields(props: {
   owner: boolean;
   consequences: (member: Member, role: MemberRole) => JSX.Element;
 }) {
-  // A roster update can replace a draft. While the Hub answers, keep showing the role sent.
-  const role = createMemo((previous: string | undefined) =>
-    props.readOnly && previous !== undefined ? previous : props.member.role,
+  const role = whileEditing(
+    () => props.member.role,
+    () => props.readOnly,
   );
   // A newly read role replaces any draft based on the old one, even while this dialog stays open.
   const [choice, setChoice] = createSignal<MemberRole | null>(
