@@ -602,7 +602,7 @@ test("an extension's session shows every compaction as Pi stores it, its own sum
   expect(savedInFork?.data).toStrictEqual(saved?.data);
 });
 
-test("a compaction that ends without a summary, or whose request overflows again, reaches session_compact_failed once, with what started it and why", async () => {
+test("a compaction that ends without a summary, or whose request overflows again or is cut short, reaches session_compact_failed once, with what started it and why, after the turn as in Pi", async () => {
   const overflow = fauxAssistantMessage([], {
     stopReason: "error",
     errorMessage: "prompt is too long: 213462 tokens > 200000 maximum",
@@ -630,6 +630,11 @@ test("a compaction that ends without a summary, or whose request overflows again
     overflow,
     fauxAssistantMessage([fauxText("Summary.")]),
     overflow,
+    // The same, then the answer cut off below the model's output limit.
+    fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
+    overflow,
+    fauxAssistantMessage([fauxText("Summary.")]),
+    fauxAssistantMessage([fauxText("Cut")], { stopReason: "length" }),
   ]);
   const registry = createRegistry();
   const harness = await Harness.open(
@@ -659,6 +664,8 @@ test("a compaction that ends without a summary, or whose request overflows again
   // pi-durable keeps the failure while this run goes on.
   await ask("more");
   expect(await ask("too much")).toMatchObject({ status: "unanswered" });
+  await ask("long");
+  expect(await ask("cut")).toMatchObject({ status: "done" });
 
   await extensions.close();
   const {
@@ -667,8 +674,10 @@ test("a compaction that ends without a summary, or whose request overflows again
   expect(saved).toMatchObject({ kind: "piext.failed" });
   // In Pi's words for a manual compaction.
   const failed = { type: "session_compact_failed", reason: "manual", willRetry: false };
+  const again = { ...failed, reason: "overflow", aborted: false, fromExtension: false };
   expect(saved?.data).toStrictEqual([
     {
+      after: "start",
       ...failed,
       errorMessage: "Compaction failed: Nothing to compact (session too small)",
       aborted: false,
@@ -676,20 +685,26 @@ test("a compaction that ends without a summary, or whose request overflows again
     },
     // Then pi-durable's error.
     {
+      after: "agent_settled",
       ...failed,
       errorMessage: "Compaction failed: Summarization failed: The summarizer broke",
       aborted: false,
       fromExtension: false,
     },
     // The extension's cancel.
-    { ...failed, aborted: true, fromExtension: false },
+    { after: "agent_settled", ...failed, aborted: true, fromExtension: false },
+    // The failed run's last turn; a run that fails has no `agent_end` here.
     {
-      ...failed,
-      reason: "overflow",
+      after: "turn_end",
+      ...again,
       errorMessage:
         "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
-      aborted: false,
-      fromExtension: false,
+    },
+    // Between the run's `agent_end` and `agent_settled`.
+    {
+      after: "agent_end",
+      ...again,
+      errorMessage: "Truncated response recovery failed after one compact-and-retry attempt.",
     },
   ]);
 });

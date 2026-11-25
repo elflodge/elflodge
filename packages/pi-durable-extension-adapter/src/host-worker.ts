@@ -445,7 +445,9 @@ const functions: WorkerFunctions = {
         const value = toJson(result.compaction?.[field]);
         return value === undefined ? {} : { [field]: value };
       } catch (error) {
-        const failure = ensureError(error);
+        // An Error is reported as it is: ensure-error assigns to its cause, which throws on a
+        // frozen one.
+        const failure = error instanceof Error ? error : ensureError(error);
         void host.error(key, {
           source: "<runtime>",
           event: "session_before_compact",
@@ -542,10 +544,7 @@ const functions: WorkerFunctions = {
       }
     }
   },
-  releaseSessionResources(key) {
-    const found = instances.get(key);
-    return found ? releaseSessionResources(key, found.sessionId) : [];
-  },
+  releaseSessionResources,
 };
 
 /**

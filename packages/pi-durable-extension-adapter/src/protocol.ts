@@ -237,11 +237,12 @@ export interface WorkerFunctions extends DispatchFunctions {
   cancelProvider(request: number, reason: unknown): void;
   close(key: string): Promise<void>;
   /**
-   * Releases what providers keep for the instance's session, when the host gave up waiting for its
-   * close, and returns what failed, which the host reports, having let go of the instance; its
-   * close does not release it again.
+   * Releases what providers keep for the session, when the opening `key` is the one to, and returns
+   * what failed, which the host reports, having let go of the instance: after a close that passed
+   * its time limit, or for an opening given up on that has no instance to close yet. A close that
+   * released it already, or a later release, does nothing.
    */
-  releaseSessionResources(key: string): HandlerError[];
+  releaseSessionResources(key: string, sessionId: string): HandlerError[];
 }
 
 /**
