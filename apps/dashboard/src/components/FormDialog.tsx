@@ -7,10 +7,16 @@ import {
   DialogTitle,
   type DialogController,
 } from "@ui-sdk/solid/dialog";
-import { Show, createSignal, onCleanup, onFlush, onSettled, untrack } from "solid-js";
+import { Show, createSignal, onCleanup, onFlush, untrack } from "solid-js";
 
 import { hubWriteFailureMessage, isWriteRefusal } from "../api-client.ts";
-import { createFormAction, formRefusal, withoutRefusals, type FormRefusal } from "../form.ts";
+import {
+  createFormAction,
+  formRefusal,
+  settledRef,
+  withoutRefusals,
+  type FormRefusal,
+} from "../form.ts";
 import { untilFlushed } from "../query.ts";
 import { dialogAction, withdrawalMessage } from "./dialog-action.ts";
 import { Notice } from "./Notice.tsx";
@@ -245,7 +251,7 @@ function OpenForm<A, T>(
           <>
             <div class="dialog-b">
               {props.answer?.children(shown.value, {
-                buttonRef: (button) => onSettled(() => button.focus()),
+                buttonRef: settledRef((button: HTMLButtonElement) => button.focus()),
               })}
             </div>
             <div class="dialog-f">

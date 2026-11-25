@@ -1,38 +1,130 @@
 import solid from "@solidjs/vite-plugin";
 import { tanstackStart } from "@tanstack/solid-start/plugin/vite";
+import { createFixture, type FileTree } from "fs-fixture";
+import type { BrowserContext } from "playwright";
 import { configDefaults, defineConfig } from "vite-plus";
+import { playwright } from "vite-plus/test/browser-playwright";
+import type { SerializedLocator } from "vite-plus/test/browser/context";
 
 import { DASHBOARD_ASSETS, DASHBOARD_BASE } from "../hub/src/dashboard.ts";
+
+/** Files and folders to drop, by name: a text is a file's, and an object a folder's entries. */
+export interface Dropped {
+  [name: string]: string | Dropped;
+}
+
+/**
+ * The browser contexts that refuse to open a file: dropped where nothing takes it, a file is the
+ * browser's to open in the tab, which would replace the tests' page.
+ */
+const refusingFiles = new WeakSet<BrowserContext>();
+
+/** The browser the tests run in, in the locale and time zone their expectations are written in. */
+const BROWSER_CONTEXT = {
+  locale: "en-US",
+  timezoneId: "UTC",
+  permissions: ["clipboard-read", "clipboard-write"],
+};
 
 export default defineConfig({
   run: {
     tasks: {
-      // Not cached: Vite Task traces a cached task's file reads by preloading a library into every
-      // process it starts, and under that tracing the tests' setup cannot start the dashboard's build
-      // through Vite Task, which fails to spawn it. The build itself stays cached.
-      test: { command: "vp test", cache: false },
+      // A task, which Vite Task caches, where a `package.json` script would run every time.
+      test: { command: "vp test" },
     },
   },
   test: {
-    // The browser tests import none of the dashboard's source, so Vitest's module graph cannot tell
-    // when an edit concerns them: any change to it reruns every test, and the global setup builds it
-    // again.
-    forceRerunTriggers: [
-      ...configDefaults.forceRerunTriggers,
-      `${import.meta.dirname}/src/**`,
-      `${import.meta.dirname}/public/**`,
-    ],
-    // The tests run in Node, import none of the dashboard's components and drive the build in a
-    // browser, so the build's plugins have nothing to do in them; a top-level `test` would load them
-    // with the rest of this config, and `extends: false` leaves them out.
+    // Each project takes the plugins it needs: a top-level `test` would load the build's with the rest
+    // of this config, and `extends: false` leaves them out.
     projects: [
       {
         extends: false,
         test: {
+          name: "node",
           include: ["tests/**/*.test.ts"],
-          // Builds the dashboard and serves the build for the run.
-          globalSetup: ["tests/global-setup.ts"],
-          testTimeout: 15_000,
+          exclude: [...configDefaults.exclude, "tests/browser/**"],
+        },
+      },
+      {
+        extends: false,
+        plugins: [solid()],
+        // As for the app below: UI SDK's installation guide asks for it.
+        optimizeDeps: { exclude: ["@ui-sdk/core"] },
+        test: {
+          name: "browser",
+          setupFiles: ["tests/browser/setup.ts"],
+          include: ["tests/browser/**/*.test.ts"],
+          browser: {
+            enabled: true,
+            provider: playwright({ contextOptions: BROWSER_CONTEXT }),
+            headless: true,
+            instances: [
+              {
+                browser: "chromium",
+                exclude: [
+                  ...configDefaults.exclude,
+                  "**/*.touch.test.ts",
+                  "**/*.los-angeles.test.ts",
+                ],
+              },
+              // A tap needs touch, which also makes the pointer coarse for the page's styles.
+              {
+                browser: "chromium",
+                name: "chromium-touch",
+                include: ["tests/browser/**/*.touch.test.ts"],
+                provider: playwright({ contextOptions: { ...BROWSER_CONTEXT, hasTouch: true } }),
+              },
+              // A time zone west of UTC, which the browser's context sets.
+              {
+                browser: "chromium",
+                name: "chromium-los-angeles",
+                include: ["tests/browser/**/*.los-angeles.test.ts"],
+                provider: playwright({
+                  contextOptions: { ...BROWSER_CONTEXT, timezoneId: "America/Los_Angeles" },
+                }),
+              },
+            ],
+            // Playwright's default.
+            viewport: { width: 1280, height: 720 },
+            commands: {
+              // Vitest has no tap: Playwright's, in the frame the tests run in.
+              async tap(context, locator: SerializedLocator) {
+                await (await context.frame()).locator(locator.selector).tap();
+              },
+              // Nor a drop of files: written to disk and dropped through Chromium's own hit test, as
+              // a person drops them, 10 pixels into the start of the element, which shows first.
+              // Playwright's `locator.drop()` builds the data in the page, which carries no folders,
+              // and dispatches its events on the element, past what covers it.
+              async drop(context, locator: SerializedLocator, entries: Dropped) {
+                const browser = context.page.context();
+                // On disk until the browser closes, as the page reads the files after the drop.
+                const folder = await createFixture(entries satisfies FileTree);
+                browser.once("close", () => void folder.rm());
+                const target = (await context.frame()).locator(locator.selector);
+                await target.scrollIntoViewIfNeeded();
+                const box = await target.boundingBox();
+                if (!box) throw new Error(`Nothing to drop on: ${locator.selector}`);
+                if (!refusingFiles.has(browser)) {
+                  refusingFiles.add(browser);
+                  // Refused, as the network refuses what it cannot reach.
+                  await browser.route(
+                    (url) => url.protocol === "file:",
+                    (route) => route.abort(),
+                  );
+                }
+                const input = await browser.newCDPSession(context.page);
+                try {
+                  const at = { x: box.x + 10, y: box.y + box.height / 2 };
+                  const files = Object.keys(entries).map((name) => folder.getPath(name));
+                  const data = { items: [], files, dragOperationsMask: 1 };
+                  for (const type of ["dragEnter", "dragOver", "drop"] as const)
+                    await input.send("Input.dispatchDragEvent", { type, ...at, data });
+                } finally {
+                  await input.detach();
+                }
+              },
+            },
+          },
         },
       },
     ],

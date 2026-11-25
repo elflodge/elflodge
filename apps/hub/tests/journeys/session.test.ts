@@ -69,3 +69,106 @@ test("in a browser, a member signs in, reloads a page, changes the password and 
   // The new password signs in.
   await system.signIn({ email: member.email, password });
 }, 30_000);
+
+test("an open page returns to sign-in when a background read finds its session ended elsewhere", async () => {
+  const page = await browser.newPage();
+  onTestFinished(() => page.close());
+  // Installed first, so the test can move the page's clock to the hub strip's next poll.
+  await page.clock.install();
+  const member = await newMember(system, "Ended Elsewhere");
+  // The open document's own session read, which Better Auth starts once the page has mounted, after
+  // the page's first read of the jobs.
+  let listed = false;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/jobs") listed = true;
+  });
+  const sessionWatched = page.waitForRequest(
+    (request) => listed && new URL(request.url()).pathname === "/api/auth/get-session",
+  );
+  await signInAt(system, page, "jobs", member);
+  await page.getByRole("heading", { name: "Jobs", level: 1 }).waitFor();
+  // Answered, body and all, before the session ends: a refusal while that read is under way rightly
+  // starts no other.
+  const watched = await (await sessionWatched).response();
+  expect(watched?.status()).toBe(200);
+  await watched?.finished();
+
+  /**
+   * What the page did, in order: a member read the hub refused, as its answer arrived, and a session
+   * read and a document it started loading, by its path, as each started.
+   */
+  const events: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      events.push(`document ${new URL(request.url()).pathname}`);
+    } else if (new URL(request.url()).pathname === "/api/auth/get-session") {
+      events.push("session read");
+    }
+  });
+  page.on("response", (response) => {
+    if (response.status() === 401 && response.request().method() === "GET") events.push("refused");
+  });
+
+  // The session ends at the hub, with no sign-out in this browser and no navigation.
+  const cookie = (await page.context().cookies())
+    .map(({ name, value }) => `${name}=${value}`)
+    .join("; ");
+  await system.authClient(cookie).signOut();
+
+  // The page's polls of the hub, five seconds on, are refused. The open document then reads the
+  // session, which names no one, before another document loads, which shows sign-in.
+  await page.clock.fastForward(5_000);
+  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible();
+  const refused = events.indexOf("refused");
+  expect(refused).toBeGreaterThanOrEqual(0);
+  const next = events.slice(refused).filter((event) => event !== "refused");
+  expect(next[0]).toBe("session read");
+  expect(next[1]).toMatch(/^document /);
+  expect(new URL(page.url()).searchParams.get("redirect")).toContain("/jobs");
+}, 30_000);
+
+test("a member change in another tab of the browser loads a fresh document", async () => {
+  const context = await browser.newContext();
+  onTestFinished(() => context.close());
+  const [first, next] = await Promise.all([
+    newMember(system, "First Tab"),
+    newMember(system, "Next Tab"),
+  ]);
+  const page = await context.newPage();
+  await signInAt(system, page, "change-password", first);
+  await page.getByRole("button", { name: first.name, exact: true }).waitFor();
+  const firstDocument = await page.evaluate(() => performance.timeOrigin);
+  const other = await context.newPage();
+  await other.goto(`${system.origin}/dashboard/jobs`);
+  const otherAccount = other.getByRole("button", { name: first.name, exact: true });
+
+  // Signed out in the other tab, this one, at its next session read, loads the sign-in page anew.
+  await otherAccount.click();
+  await other.getByRole("button", { name: "Sign out" }).click();
+  await other.waitForURL(/\/sign-in/);
+  await expectBrowser(page.getByRole("heading", { name: "Sign in to Elflodge" })).toBeVisible();
+  const signInDocument = await page.evaluate(() => performance.timeOrigin);
+  expect(signInDocument).not.toBe(firstDocument);
+
+  // Signing in here keeps the document, which had shown no member.
+  await page.getByLabel("Email").fill(first.email);
+  await page.getByLabel("Password").fill(first.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.waitForURL(`${system.origin}/dashboard/change-password`);
+  await page.getByRole("button", { name: first.name, exact: true }).waitFor();
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(signInDocument);
+
+  // Signed in as the next member in the other tab, over this one's session, this one shows the next
+  // member at its next session read, when it opens another page.
+  await other.getByLabel("Email").fill(next.email);
+  await other.getByLabel("Password").fill(next.password);
+  await other.getByRole("button", { name: "Sign in" }).click();
+  await other.getByRole("button", { name: next.name, exact: true }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Destinations" })
+    .getByRole("link", { name: "Jobs" })
+    .click();
+  await expectBrowser(page.getByRole("button", { name: next.name, exact: true })).toBeVisible();
+  expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(signInDocument);
+  expect(new URL(page.url()).pathname).toBe("/dashboard/jobs");
+}, 60_000);

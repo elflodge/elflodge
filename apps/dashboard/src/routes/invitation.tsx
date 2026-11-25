@@ -37,6 +37,7 @@ import {
   fieldText,
   focusIfLost,
   formRefusal,
+  settledRef,
 } from "../form.ts";
 import { DATE_TIME_ZONED, formatRoles } from "../format.ts";
 import {
@@ -146,7 +147,11 @@ function ReadInvitation(props: { invitationId: string }) {
           <InvitationPage heading={`Joined ${result().organization}`}>
             <Notice role="alert">{result().message}</Notice>
             <p>
-              <Link class="stands-alone" to="/sign-in" ref={focusSignIn}>
+              <Link
+                class="stands-alone"
+                to="/sign-in"
+                ref={settledRef<HTMLAnchorElement>(focusIfLost)}
+              >
                 Sign in
               </Link>
             </p>
@@ -197,7 +202,6 @@ function UnavailableInvitation(props: { focusLink: boolean }) {
   const router = useRouter();
   const context = Route.useRouteContext();
   const [checked, setChecked] = createSignal(false);
-  const linkProps = () => (props.focusLink ? { ref: focusSignIn } : {});
   // Either the preview or the press can discover that another tab already joined.
   onSettled(() => {
     void router.invalidate().then(() => setChecked(true));
@@ -213,12 +217,24 @@ function UnavailableInvitation(props: { focusLink: boolean }) {
           <Show
             when={context().session}
             fallback={
-              <Link class="stands-alone" to="/sign-in" {...linkProps()}>
+              <Link
+                class="stands-alone"
+                to="/sign-in"
+                ref={settledRef((link: HTMLAnchorElement) => {
+                  if (props.focusLink) focusIfLost(link);
+                })}
+              >
                 Sign in
               </Link>
             }
           >
-            <Link class="stands-alone" to="/" {...linkProps()}>
+            <Link
+              class="stands-alone"
+              to="/"
+              ref={settledRef((link: HTMLAnchorElement) => {
+                if (props.focusLink) focusIfLost(link);
+              })}
+            >
               Go to the dashboard
             </Link>
           </Show>
@@ -226,10 +242,6 @@ function UnavailableInvitation(props: { focusLink: boolean }) {
       </p>
     </InvitationPage>
   );
-}
-
-function focusSignIn(link: HTMLAnchorElement) {
-  onSettled(() => focusIfLost(link));
 }
 
 function AcceptInvitation(props: {
@@ -337,7 +349,13 @@ function AcceptInvitation(props: {
             in with it to join.
           </Notice>
           <p>
-            <Link class="stands-alone" to="/sign-in" search={signInSearch} hash ref={focusSignIn}>
+            <Link
+              class="stands-alone"
+              to="/sign-in"
+              search={signInSearch}
+              hash
+              ref={settledRef<HTMLAnchorElement>(focusIfLost)}
+            >
               Sign in
             </Link>
           </p>

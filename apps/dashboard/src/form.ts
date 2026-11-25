@@ -3,7 +3,7 @@ import { isSchemaIssue } from "@orpc/contract";
 import { getIssueMessage } from "@orpc/openapi/helpers";
 import { useRouter } from "@tanstack/solid-router";
 import { PASSWORD_LENGTH } from "contract";
-import { action, createOptimistic } from "solid-js";
+import { action, createOptimistic, onSettled } from "solid-js";
 
 import { hubFailureMessage } from "./api-client.ts";
 import { untilFlushed } from "./query.ts";
@@ -74,6 +74,21 @@ export function focusIfLost(target: HTMLElement | null | undefined) {
   const active = document.activeElement;
   if (active === document.body || !active?.checkVisibility({ visibilityProperty: true }))
     target?.focus();
+}
+
+/**
+ * A ref that runs `act` on its element once the page has settled, as `ref={settledRef(focusIfLost)}`.
+ * Called where the element is built, so the wait belongs to the element's owner: a ref callback
+ * owns nothing, and Solid's development build refuses `onSettled` inside one.
+ */
+export function settledRef<E extends Element>(act: (element: E) => void) {
+  let target: E | undefined;
+  onSettled(() => {
+    if (target) act(target);
+  });
+  return (element: E) => {
+    target = element;
+  };
 }
 
 /** Restore lost focus after navigation has rendered the link's replacement. */

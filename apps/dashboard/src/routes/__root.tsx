@@ -1,8 +1,8 @@
-import type { JSX } from "@solidjs/web";
 import type { QueryClient } from "@tanstack/solid-query";
-import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/solid-router";
+import { createRootRouteWithContext } from "@tanstack/solid-router";
 
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary.tsx";
+import { RootDocument } from "../components/RootDocument.tsx";
 import { logoDark, logoLight } from "../logo.ts";
 import { PRODUCT } from "../page-title.ts";
 
@@ -30,17 +30,3 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: DefaultCatchBoundary,
   shellComponent: RootDocument,
 });
-
-function RootDocument(props: { children: JSX.Element }) {
-  return (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {props.children}
-        <Scripts />
-      </body>
-    </html>
-  );
-}

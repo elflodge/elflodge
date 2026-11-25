@@ -5,9 +5,10 @@ import { DASHBOARD_ASSETS } from "./src/dashboard.ts";
 
 /**
  * The journeys through the dashboard's pages in a browser, where what a test claims is what the hub
- * accepted, stored or refused, which the `journeys` project runs. A test of what a hub itself
- * answers goes in another file, which both hubs run; one of what a page does with an answer goes in
- * the dashboard's own tests.
+ * accepted, stored or refused, or what a page does in a second document, such as after a reload or
+ * in another tab, which the `journeys` project runs. A test of what a hub itself answers goes in
+ * another file, which both hubs run; one of what a page does with an answer goes in the dashboard's
+ * own tests.
  */
 const JOURNEYS = "tests/journeys/**/*.test.ts";
 

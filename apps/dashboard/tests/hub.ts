@@ -95,6 +95,12 @@ export interface Procedure<Input, Output, Errors extends ErrorMap> extends Endpo
    */
   answersUnchecked(body: unknown): void;
   /**
+   * Refuses every call with a 429, as a proxy in front of the hub answers a client that sends too
+   * many requests, with Problem Details that say no more than the status: a refusal the contract
+   * does not declare, which asking again later can clear.
+   */
+  rateLimits(): void;
+  /**
    * The input of every call received, in order. A request the hub's API handler refuses before the
    * procedure runs, such as one whose body is too large or whose input the contract refuses, gets
    * the hub's refusal, whatever the test arranged, and is not among them.
@@ -147,14 +153,16 @@ export type Hub = Procedures<typeof apiContract> & {
   readonly auth: AuthRoutes<typeof authClient>;
 };
 
-/** The stand-in as the browser's network serves it. */
+/** The stand-in as the page's `fetch` reaches it. */
 export interface HubNetwork {
   /**
-   * Answers `request` as the hub would: a `Response.error()` for an answer lost on its way back,
-   * and nothing for a request that is not one of the hub's, which goes on to the build or fails the
-   * test as a stray.
+   * Answers `request` as the hub would, or as the test arranged what stands between them to: a
+   * `Response.error()` for an answer lost on its way back, a proxy's refusal,
+   * and nothing for a request that is not one of the hub's, which fails the test as a stray.
+   * `recorded` is called once a procedure or route has recorded the call, before a hold keeps it or
+   * its arranged answer is given.
    */
-  handle(request: Request): Promise<Response | undefined>;
+  handle(request: Request, recorded?: () => void): Promise<Response | undefined>;
   /** The calls the test arranged no answer for, each with its input. */
   readonly unarranged: readonly string[];
   /**
@@ -162,8 +170,6 @@ export interface HubNetwork {
    * answer that threw, or one the contract refused.
    */
   readonly failures: readonly string[];
-  /** Lets every held call go on, so that nothing waits once the test is over. */
-  releaseAll(): void;
 }
 
 type Answer<Input, Output, Refuse, Errors> =
@@ -172,7 +178,8 @@ type Answer<Input, Output, Refuse, Errors> =
   | { kind: "failure" }
   | { kind: "loss" }
   | { kind: "invalidInput"; problems: readonly InputProblem[] }
-  | { kind: "unchecked"; body: unknown };
+  | { kind: "unchecked"; body: unknown }
+  | { kind: "rateLimit" };
 
 /** What one endpoint was arranged to answer, and the calls it received. */
 class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Input, Output> {
@@ -205,14 +212,13 @@ class Arrangement<Input, Output, Refuse, Errors = void> implements Endpoint<Inpu
     };
   }
 
-  release() {
-    this.#hold?.gate.resolve();
-    this.#hold = undefined;
-  }
-
-  /** Records a call, waits while calls are held, and returns the answer that stands then. */
-  async receive(input: Input) {
+  /**
+   * Records a call, says so to `recorded`, waits while calls are held, and returns the answer that
+   * stands then.
+   */
+  async receive(input: Input, recorded?: () => void) {
     this.calls.push(input);
+    recorded?.();
     const hold = this.#hold;
     if (hold) {
       hold.arrived.resolve(input);
@@ -231,8 +237,13 @@ function isAnswerFunction<Input, Output, Errors>(
 
 /** What the stand-in learns of one request while the hub's handler serves it. */
 interface Exchange {
-  /** Whether the answer is to be lost on its way back. */
-  lost: boolean;
+  /** Called once the procedure has recorded the call. */
+  recorded?: () => void;
+  /**
+   * What reaches the page in place of the hub's answer: a `Response.error()` for an answer lost on
+   * its way back, or what something between the hub and the page answers instead.
+   */
+  replacement?: Response;
   /** The call a procedure took, by its name and input, once one took it. */
   call?: string;
   /** Whether what the procedure throws is the answer the test arranged. */
@@ -291,6 +302,10 @@ class ContractProcedure<
     this.answer = { kind: "unchecked", body };
   }
 
+  rateLimits() {
+    this.answer = { kind: "rateLimit" };
+  }
+
   /** Answers a call whose input the contract accepted, as the test arranged. */
   async serve({
     input,
@@ -305,7 +320,7 @@ class ContractProcedure<
       this.#unarranged.push(`${this.#name} with ${JSON.stringify(input)}`);
       throw new Error(`The test arranged no answer for ${this.#name}`);
     }
-    const answer = await this.receive(input);
+    const answer = await this.receive(input, context.exchange.recorded);
     context.exchange.call = `${this.#name} with ${JSON.stringify(input)}`;
     // What any other arrangement throws is its answer.
     context.exchange.arranged = answer?.kind !== "output";
@@ -324,8 +339,14 @@ class ContractProcedure<
         throw invalidInput(errors, input, answer.problems);
       case "unchecked":
         throw new UncheckedAnswer(answer.body);
+      case "rateLimit":
+        context.exchange.replacement = Response.json(
+          { type: "about:blank", status: 429, title: "Too Many Requests" },
+          { status: 429, headers: { "content-type": "application/problem+json" } },
+        );
+        throw new Error(`${this.#name} is refused by a proxy, as the test arranged`);
       case "loss":
-        context.exchange.lost = true;
+        context.exchange.replacement = Response.error();
         throw new Error(`${this.#name}'s answer is lost, as the test arranged`);
       default:
         throw new Error(`${this.#name} fails, as the test arranged`);
@@ -367,13 +388,12 @@ function describeFailure(caught: unknown) {
 }
 
 /**
- * One `ContractProcedure` for each procedure of `contract`, at its path, gathered in `procedures`,
- * and the router that serves them.
+ * One `ContractProcedure` for each procedure of `contract`, at its path, and the router that serves
+ * them.
  */
 function arrange<Contract>(
   contract: Contract,
   path: string[],
-  procedures: AnyProcedure[],
   unarranged: string[],
 ): { hub: Procedures<Contract>; router: Router<StandInContext> };
 // The contract's tree is walked at run time, which no type can follow; the overload above states
@@ -381,7 +401,6 @@ function arrange<Contract>(
 function arrange(
   contract: unknown,
   path: string[],
-  procedures: AnyProcedure[],
   unarranged: string[],
 ): { hub: unknown; router: unknown } {
   if (contract instanceof ProcedureContract) {
@@ -390,7 +409,6 @@ function arrange(
       throw new Error(`The implementer has no procedure at ${path.join(".")}`);
     }
     const procedure: AnyProcedure = new ContractProcedure(path.join("."), unarranged);
-    procedures.push(procedure);
     return {
       hub: procedure,
       router: procedureImplementer.handler((options) => procedure.serve(options)),
@@ -400,7 +418,7 @@ function arrange(
     throw new Error(`The contract has no procedure at ${path.join(".")}`);
   }
   const children = Object.entries(contract).map(
-    ([key, child]) => [key, arrange(child, [...path, key], procedures, unarranged)] as const,
+    ([key, child]) => [key, arrange(child, [...path, key], unarranged)] as const,
   );
   return {
     hub: Object.fromEntries(children.map(([key, { hub }]) => [key, hub])),
@@ -488,16 +506,15 @@ async function sentInput(request: Request) {
 export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
   const session = new Arrangement<void, Session, never>();
   const auth = new Map<string, BetterAuthRoute>();
-  const procedures: AnyProcedure[] = [];
   const unarranged: string[] = [];
   const failures: string[] = [];
-  const { hub: api, router } = arrange(apiContract, [], procedures, unarranged);
+  const { hub: api, router } = arrange(apiContract, [], unarranged);
   const apiHandler = createApiHandler(router);
 
   const hub: Hub = { ...api, session, auth: authRoutes(auth) };
 
-  async function serveSession() {
-    const answer = await session.receive();
+  async function serveSession(recorded?: () => void) {
+    const answer = await session.receive(undefined, recorded);
     switch (answer?.kind) {
       case "output":
         return Response.json(await answer.answer());
@@ -508,7 +525,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
     }
   }
 
-  async function serveAuth(request: Request, address: string) {
+  async function serveAuth(request: Request, address: string, recorded?: () => void) {
     const methods = AUTH_METHODS.get(address);
     if (!methods?.includes(request.method)) {
       unarranged.push(
@@ -526,7 +543,7 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
       return Response.json(null, { status: 500 });
     }
     const input: unknown = await authInput(request);
-    const answer = await route.receive(input);
+    const answer = await route.receive(input, recorded);
     switch (answer?.kind) {
       case "output":
         return Response.json((await answer.answer(input)) ?? null);
@@ -541,31 +558,26 @@ export function createHub(origin: string): { hub: Hub; network: HubNetwork } {
 
   // Better Auth's routes first; every other request on the origin goes to the hub's API handler,
   // whose router decides whether it is a call of the API.
-  async function handle(request: Request) {
+  async function handle(request: Request, recorded?: () => void) {
     const url = new URL(request.url);
     if (url.origin !== origin) return undefined;
     if (url.pathname === `${AUTH_BASE}/get-session` && request.method === "GET") {
-      return serveSession();
+      return serveSession(recorded);
     }
     if (url.pathname.startsWith(`${AUTH_BASE}/`)) {
-      return serveAuth(request, url.pathname.slice(AUTH_BASE.length));
+      return serveAuth(request, url.pathname.slice(AUTH_BASE.length), recorded);
     }
-    const exchange: Exchange = { lost: false, arranged: false };
+    const exchange: Exchange = { arranged: false, recorded };
     const { matched, response } = await apiHandler.handle(request, { context: { exchange } });
     if (exchange.failure !== undefined) failures.push(exchange.failure);
     if (!matched) return undefined;
-    return exchange.lost ? Response.error() : response;
+    return exchange.replacement ?? response;
   }
 
   const network: HubNetwork = {
     handle,
     unarranged,
     failures,
-    releaseAll() {
-      session.release();
-      for (const route of auth.values()) route.release();
-      for (const procedure of procedures) procedure.release();
-    },
   };
   return { hub, network };
 }
