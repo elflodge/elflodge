@@ -61,8 +61,8 @@ export function ListEnd(props: ListAddressState & { length: number; older?: stri
 }
 
 /**
- * What an empty list means, and what to do next: clear the filters that match nothing, or, on an
- * empty hub, connect a Runner first, then submit a Batch.
+ * An empty list can mean the cursor is past the last page, no records match the filters, or
+ * nothing has been submitted. Only the last case needs the Runner roster to suggest a next step.
  */
 export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
   const list = () => listPages[props.to];
@@ -89,22 +89,24 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
           <h2 id={list().end} tabindex="-1">
             No {list().plural} yet
           </h2>
-          <Show
-            when={props.runners?.every((runner) => !runner.connected)}
-            fallback={
+          <Switch>
+            <Match when={props.runners?.every((runner) => !runner.connected)}>
+              <p>Jobs run on Runners, and no Runner is connected to this hub.</p>
+              <p class="empty-act">
+                <Link to="/runners" class="stands-alone">
+                  Add Runner
+                </Link>
+              </p>
+            </Match>
+            <Match when={props.runners !== undefined}>
               <p>
                 {list().empty}
-                <code>elflodge batches submit</code>
+                <Show when={props.to === "/batches"}>
+                  <code>elflodge batches submit</code>
+                </Show>
               </p>
-            }
-          >
-            <p>Jobs run on Runners, and no Runner is connected to this hub.</p>
-            <p class="empty-act">
-              <Link to="/runners" class="stands-alone">
-                Add Runner
-              </Link>
-            </p>
-          </Show>
+            </Match>
+          </Switch>
         </Match>
       </Switch>
     </div>

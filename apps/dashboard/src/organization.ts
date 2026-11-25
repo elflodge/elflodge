@@ -33,7 +33,7 @@ export function readMembers(
   fetchOptions: { signal: AbortSignal } | { timeout: number },
 ) {
   return authClient.organization.listMembers({
-    query: { organizationId, limit: 100 },
+    query: { organizationId },
     fetchOptions,
   });
 }

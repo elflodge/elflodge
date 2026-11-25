@@ -16,15 +16,20 @@ function rows(page: BrowserPage) {
     .filter({ has: page.getByRole("cell") });
 }
 
-test("the dashboard opens on the jobs list, which on an empty hub says to add a Runner, and once one is connected, to submit a Batch", async ({
+test("the dashboard opens on the jobs list, which on an empty hub says to add a Runner, and once one is connected, to submit a job", async ({
   hub,
   open,
 }) => {
   hub.jobs.list.answers(NO_JOBS_LISTED);
+  const roster = hub.runners.list.hold();
   const page = await open("");
   await expect.poll(() => location.href).toBe(`${location.origin}/dashboard/jobs`);
   await expect.element(page.getByRole("heading", { name: "Jobs", level: 1 })).toBeVisible();
   await expect.element(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+  const nextStep = page.getByText("Choose Submit a job to run your first job.");
+  await expect.element(nextStep).toHaveLength(0);
+  await expect.element(page.getByRole("link", { name: "Add Runner" })).toHaveLength(0);
+  roster.release();
   await expect
     .element(page.getByRole("link", { name: "Add Runner" }))
     .toHaveAttribute("href", "/dashboard/runners");
@@ -48,7 +53,10 @@ test("the dashboard opens on the jobs list, which on an empty hub says to add a 
         .getByRole("link", { name: "Runners 1 of 1 connected" }),
     )
     .toBeVisible();
-  await expect.element(page.getByText("elflodge batches submit")).toBeVisible();
+  await expect.element(nextStep).toBeVisible();
+  await expect
+    .element(page.getByRole("link", { name: "Submit a job" }))
+    .toHaveAttribute("href", "/dashboard/jobs/new");
   // By part of its name, so a control that offers it under a longer name is absent too.
   await expect
     .element(page.getByRole("link", { name: "Add Runner", exact: false }))
@@ -197,11 +205,26 @@ test("a count in the strip opens the list of the jobs it counts", async ({ hub, 
   await expect.element(rows(page).getByText("strip-cancelled")).toBeVisible();
 
   hub.jobs.list.answers({ jobs: [queued], hasMore: false });
-  await page
+  const link = page
     .getByRole("region", { name: "The hub now" })
-    .getByRole("link", { name: "1 queued" })
-    .click();
+    .getByRole("link", { name: "1 queued" });
+  await link.click();
+  await expect.element(link).toHaveAttribute("aria-current", "page");
   await expect.poll(() => location.search).toMatch(/status=/);
   await expect.element(page.getByRole("checkbox", { name: "Queued" })).toBeChecked();
   await expect.poll(() => hub.jobs.list.calls.at(-1)).toEqual({ status: ["queued"], limit: 50 });
+});
+
+test("clearing an empty result closes mobile Filters and returns focus to its button", async ({
+  hub,
+  open,
+}) => {
+  hub.jobs.list.answers(NO_JOBS_LISTED);
+  const page = await open("jobs?batchId=march", { viewport: { width: 600, height: 800 } });
+  await page.getByRole("button", { name: "Filters (1 applied)" }).click();
+  await page.getByRole("link", { name: "Clear the filters" }).click();
+  await expect.poll(() => location.search).toBe("");
+  const filters = page.getByRole("button", { name: "Filters", exact: true });
+  await expect.element(filters).toHaveFocus();
+  await expect.element(filters).toHaveAttribute("aria-expanded", "false");
 });

@@ -12,7 +12,12 @@ import * as z from "zod/mini";
 
 import { BATCH_STATUS_WORDS } from "../../../batch.ts";
 import { Field } from "../../../components/Field.tsx";
-import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
+import {
+  ListFilterPanel,
+  ListFilters,
+  StatusFilters,
+  statusFilter,
+} from "../../../components/ListFilters.tsx";
 import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 import { optionalText } from "../../../search-form.ts";
@@ -63,7 +68,7 @@ function Batches() {
   });
 
   return (
-    <>
+    <ListFilterPanel>
       <div hidden={failed()}>
         <div class="head">
           <h1>Batches</h1>
@@ -108,6 +113,6 @@ function Batches() {
         </ListFilters>
       </div>
       <Outlet />
-    </>
+    </ListFilterPanel>
   );
 }
