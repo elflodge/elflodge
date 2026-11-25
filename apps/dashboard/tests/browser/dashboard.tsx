@@ -53,7 +53,8 @@ export type Open = (path: string, options?: PageOptions) => Promise<typeof page>
 
 /**
  * The test for a dashboard page, mounted in the document the test runs in, against the stand-in
- * for the hub, which answers the page's `fetch` in the same document. Every request the page starts
+ * for the hub, which answers the page's `fetch` in the same document, where Mock Service Worker
+ * intercepts it. Every request the page starts
  * is recorded for the test as it starts, offline too; a `fetch` already aborted starts none. These
  * fail the test, which names them: a call it has no answer for; a `fetch` the stand-in does not
  * answer, or a WebSocket; an arranged answer that throws, other than a procedure's declared refusal,
