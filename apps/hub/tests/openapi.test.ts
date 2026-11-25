@@ -120,12 +120,6 @@ test("the hub serves its OpenAPI document saying who may call, how errors read a
       },
       "/setup": { post: { responses: { 422: {} } } },
       "/invitations/preview": { post: { security: [], responses: { 404: {} } } },
-      "/invitations/accept": {
-        post: {
-          security: [{}, { session: [] }],
-          responses: { 401: {}, 403: {}, 404: {}, 422: {} },
-        },
-      },
       "/invitations": { get: { security: [{ session: [] }] } },
       "/jobs/{id}": { get: { security: [{ apiKey: ["job:read"] }, { session: [] }] } },
       "/runners": { get: { security: [{ apiKey: ["runner:read"] }, { session: [] }] } },

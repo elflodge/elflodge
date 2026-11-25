@@ -820,7 +820,10 @@ export const usageReportSchema = z.union([
 export type UsageReport = z.infer<typeof usageReportSchema>;
 
 /** A name a person gives, such as the Organization's or a member's. */
-const nameSchema = textSchema.check(z.trim(), z.minLength(1));
+export const nameSchema = textSchema.check(z.trim(), z.minLength(1));
+
+/** A private invitation authorizes password registration for its recipient. */
+export const INVITATION_HEADER = "x-elflodge-invitation";
 
 const invitationInput = z.strictObject({ invitationId: textSchema });
 const invitationFields = z.object({ email: z.email(), role: z.string(), expiresAt: z.date() });
@@ -964,35 +967,6 @@ export const apiContract = oc.errors({ BAD_REQUEST: {} }).router({
       )
       .input(invitationInput)
       .output(z.extend(invitationFields, { organizationName: z.string() })),
-    accept: forAnyone
-      .errors({
-        [InvitationUnavailable.code]: InvitationUnavailable,
-        UNAUTHORIZED: {},
-        FORBIDDEN: {},
-        // Another registration can win the account insert after lookup. The claim rolls back
-        // and the invitation stays usable.
-        UNPROCESSABLE_CONTENT: {},
-      })
-      .meta(
-        openapi({
-          method: "POST",
-          path: "/invitations/accept",
-          description:
-            "Joins the Organization once. A new account supplies a name and password. An existing account signs in first.",
-        }),
-        ...byAnyone,
-        openapi.spec((operation): typeof operation => ({
-          ...operation,
-          security: [{}, { session: [] }],
-        })),
-      )
-      .input(
-        z.extend(invitationInput, {
-          name: z.optional(nameSchema),
-          password: z.optional(passwordSchema),
-        }),
-      )
-      .output(z.object({ email: z.email() })),
     list: forMembers
       .meta(
         openapi({

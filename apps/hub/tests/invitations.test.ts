@@ -1,6 +1,7 @@
+import { INVITATION_HEADER } from "contract";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { problemResponse, OWNER, startSystem } from "./harness.ts";
+import { OWNER, startSystem } from "./harness.ts";
 
 const system = startSystem();
 let organizationId: string;
@@ -32,13 +33,14 @@ async function memberId(email: string) {
   return member.id;
 }
 
-function authPost(path: string, body: object, cookie?: string) {
+function authPost(path: string, body: object, cookie?: string, invitationId?: string) {
   return system.hub.fetch(`/api/auth/${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       origin: system.origin,
       ...(cookie && { cookie }),
+      ...(invitationId && { [INVITATION_HEADER]: invitationId }),
     },
     body: JSON.stringify(body),
   });
@@ -84,19 +86,13 @@ test("a new account can redeem a live invitation once and sign in with the grant
     organizationName: "Organization",
     expiresAt: expect.any(Date),
   });
-  const input = { invitationId, name: "New member", password };
-  await expect(anyone.accept({ ...input, password: "short" })).rejects.toMatchObject({
-    code: "BAD_REQUEST",
-    cause: problemResponse({ errors: [{ detail: "At least 8 characters", pointer: "/password" }] }),
-  });
-  const results = await Promise.allSettled([anyone.accept(input), anyone.accept(input)]);
-  expect(results).toContainEqual({ status: "fulfilled", value: { email } });
-  expect(results).toContainEqual({
-    status: "rejected",
-    reason: expect.objectContaining({ code: "NOT_FOUND" }),
-  });
+  const cookie = await register(email, invitationId);
+  const accept = () => authPost("organization/accept-invitation", { invitationId }, cookie);
+  const results = await Promise.all([accept(), accept()]);
+  expect(results.map((result) => result.status).toSorted((left, right) => left - right)).toEqual([
+    200, 400,
+  ]);
   await expect(anyone.preview({ invitationId })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  const cookie = await system.signIn({ email, password });
   await system.client({ cookie }).apiKeys.list();
 });
 
@@ -105,43 +101,68 @@ test("only the invited account can rejoin with its existing credentials", async 
   const person = await system.addMember({ name: "Returning member", email });
   await system.ownerAuth().organization.removeMember({ memberIdOrEmail: email, organizationId });
   const { id: invitationId } = await invite(email, "member");
-  await expect(
-    system.client().invitations.accept({ invitationId, name: "Replacement", password }),
-  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-  await expect(system.owner().invitations.accept({ invitationId })).rejects.toMatchObject({
-    code: "FORBIDDEN",
-  });
-  expect(await person.client.invitations.accept({ invitationId })).toEqual({ email });
+  const replacement = await authPost(
+    "sign-up/email",
+    { email, name: "Replacement", password },
+    undefined,
+    invitationId,
+  );
+  expect(await replacement.json()).toMatchObject({ code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL" });
+  expect(
+    (await authPost("organization/accept-invitation", { invitationId }, system.ownerCookie()))
+      .status,
+  ).toBe(403);
+  await system.authClient(person.cookie).organization.acceptInvitation({ invitationId });
   await person.client.runners.list();
   await expect(person.client.invitations.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
-test("public sign-up and native invitation redemption stay closed", async () => {
+test("registration needs a live invitation for the same address, and registration alone grants no membership", async () => {
   const email = "closed@example.com";
-  const { id: invitationId } = await invite(email, "member");
-  expect((await authPost("sign-up/email", { name: "Closed", email, password })).status).toBe(400);
-  for (const action of ["accept", "reject"]) {
-    expect((await authPost(`organization/${action}-invitation`, { invitationId })).status).toBe(
-      404,
-    );
-  }
-  await system.client().invitations.accept({ invitationId, name: "Invited", password });
+  const { id } = await invite(email, "member");
+  const body = { name: "Invited", email, password };
+  expect((await authPost("sign-up/email", body)).status).toBe(403);
+  expect(
+    (await authPost("sign-up/email", { ...body, email: "other@example.com" }, undefined, id))
+      .status,
+  ).toBe(403);
+  const cookie = await register(email, id);
+  await expect(system.client({ cookie }).runners.list()).rejects.toMatchObject({
+    code: "FORBIDDEN",
+  });
+  await system.authClient(cookie).organization.rejectInvitation({ invitationId: id });
+  await expectUnavailable(id);
 });
+
+async function register(email: string, id: string) {
+  const response = await authPost(
+    "sign-up/email",
+    { name: "Inviter", email, password },
+    undefined,
+    id,
+  );
+  expect(response.status).toBe(200);
+  const cookie = response.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Sign-up did not sign the invitee in");
+  return cookie;
+}
+
+async function join(email: string, id: string) {
+  const cookie = await register(email, id);
+  await system.authClient(cookie).organization.acceptInvitation({ invitationId: id });
+  return cookie;
+}
 
 /** Invites and admits an account with the role, and returns that account's signed-in cookie. */
 async function joinAsInviter(email: string, role: "admin" | ("owner" | "admin")[]) {
   const { id: invitationId } = await invite(email, role);
-  await system.client().invitations.accept({ invitationId, name: "Inviter", password });
-  return system.signIn({ email, password });
+  return join(email, invitationId);
 }
 
 async function expectUnavailable(invitationId: string) {
   const dead = { code: "NOT_FOUND", message: "This invitation is no longer available" };
   const client = system.client().invitations;
   await expect(client.preview({ invitationId })).rejects.toMatchObject(dead);
-  await expect(client.accept({ invitationId, name: "Unclaimed", password })).rejects.toMatchObject(
-    dead,
-  );
   expect((await system.owner().invitations.list()).map((row) => row.id)).not.toContain(
     invitationId,
   );
@@ -163,7 +184,7 @@ test("an admin's re-invite preserves a live owner invitation and its grant", asy
 
   const invitations = system.client().invitations;
   expect(await invitations.preview({ invitationId })).toMatchObject({ email, role: "owner" });
-  await invitations.accept({ invitationId, name: "Invited owner", password });
+  await join(email, invitationId);
   const { members } = await system
     .ownerAuth()
     .organization.listMembers({ query: { organizationId } });
@@ -194,7 +215,7 @@ test("an owner can replace an admin's member invitation in one call", async () =
     email,
     role: "admin",
   });
-  await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
+  await join(email, replacement.id);
 });
 
 test("a resend renews while the inviter can grant the role, is refused after demotion without spending the session's renewal, and a replacement works", async () => {
@@ -250,6 +271,7 @@ test("demotion to admin voids owner grants, hides owner invitations and prevents
   const email = "inviter@example.com";
   const cookie = await joinAsInviter(email, ["owner", "admin"]);
   const ownerGrant = await invite("another-owner@example.com", ["admin", "owner"], cookie);
+  const invitee = await register(ownerGrant.email, ownerGrant.id);
   const memberGrant = await invite("another-member@example.com", "member", cookie);
   const ownerOnly = await invite("original-owner-grant@example.com", "owner");
   const listed = await system.owner().invitations.list();
@@ -275,6 +297,12 @@ test("demotion to admin voids owner grants, hides owner invitations and prevents
   expect(asAdmin.map((row) => row.id)).not.toContain(ownerOnly.id);
 
   await expectUnavailable(ownerGrant.id);
+  const refused = await authPost(
+    "organization/accept-invitation",
+    { invitationId: ownerGrant.id },
+    invitee,
+  );
+  expect(await refused.json()).toMatchObject({ code: "INVITATION_NOT_FOUND" });
 });
 
 test("removal voids an inviter's outstanding grants and preserves key attribution", async () => {

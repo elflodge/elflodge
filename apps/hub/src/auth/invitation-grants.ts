@@ -33,7 +33,7 @@ function pendingInvitations(db: Kysely<Database>) {
   return db
     .selectFrom("invitation")
     .where("invitation.status", "=", "pending")
-    .where("invitation.expiresAt", ">", (eb) => eb.fn<Date>("clock_timestamp"));
+    .where("invitation.expiresAt", ">", (eb) => eb.fn<Date>("now"));
 }
 
 /** Only invitations the original inviter could issue now are visible or redeemable. */
