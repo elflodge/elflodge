@@ -1,6 +1,7 @@
 import type { JSX } from "@solidjs/web";
 import { useMutation } from "@tanstack/solid-query";
 import type { DialogController } from "@ui-sdk/solid/dialog";
+import { Field as SDKField, FieldDescription, FieldLabel } from "@ui-sdk/solid/field";
 import { Input } from "@ui-sdk/solid/input";
 import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/solid/radio";
 import { For, Show, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
@@ -52,21 +53,21 @@ function RoleChoices(props: {
           }
         >
           {(role) => (
-            <label class="role-choice">
+            <SDKField class="role-choice">
               <Radio value={role}>
                 <RadioIndicator />
               </Radio>
-              <span>
-                {ROLE_LABEL[role]}
-                <small class="note">
+              <div>
+                <FieldLabel>{ROLE_LABEL[role]}</FieldLabel>
+                <FieldDescription class="note">
                   {role === "member"
                     ? "Submits, reads and controls jobs and Batches. Each job spends money on models. Sees Runners and members."
                     : role === "admin"
                       ? "Also manages API keys, reads Usage, removes Runners, invites and removes members and changes their roles, owners excepted."
                       : `Also invites, changes and removes owners${props.own ? "." : ", you included."}`}
-                </small>
-              </span>
-            </label>
+                </FieldDescription>
+              </div>
+            </SDKField>
           )}
         </For>
       </RadioGroup>
@@ -282,7 +283,10 @@ function RoleFields(props: {
   owner: boolean;
   consequences: (member: Member, role: MemberRole) => JSX.Element;
 }) {
-  const role = createMemo(() => props.member.role);
+  // A roster update can replace a draft. While the Hub answers, keep showing the role sent.
+  const role = createMemo((previous: string | undefined) =>
+    props.readOnly && previous !== undefined ? previous : props.member.role,
+  );
   // A newly read role replaces any draft based on the old one, even while this dialog stays open.
   const [choice, setChoice] = createSignal<MemberRole | null>(
     () => rolesOf(role()).find((each) => each === role()) ?? null,

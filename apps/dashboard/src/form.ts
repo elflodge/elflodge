@@ -108,22 +108,21 @@ export function focusAfterLinkDrops(target: () => HTMLElement | null, onPress?: 
 }
 
 /**
- * Returns true when a field was refused, even if the member moved focus while waiting. Focus goes to
+ * Focus goes to
  * the refused field only from where the submission left it, or when it was lost: a member who moved
  * on meanwhile, to Cancel say, keeps their place, and the field's words reach them when they return.
  */
-export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Element | null) {
+function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Element | null) {
   const refused = form.querySelector('[aria-invalid="true"]');
-  if (!(refused instanceof HTMLElement)) return false;
+  if (!(refused instanceof HTMLElement)) return;
   if (document.activeElement === focusedAtSubmit) refused.focus();
   else focusIfLost(refused);
-  return true;
 }
 
 /**
  * Keep the form pending until its submission, including any navigation, settles. `submit` is async,
  * or an async generator, which the action re-enters at each `yield`. Then focus a refused field, or
- * return focus to the control that disabling lost it, unless the member moved on.
+ * leave focus where the member moved it.
  */
 export function createFormAction(
   submit: (form: HTMLFormElement) => Promise<void> | AsyncGenerator<void, void, void>,
@@ -146,14 +145,7 @@ export function createFormAction(
       // UI SDK registers a newly mounted description after binding it. Focus reads the
       // refusal only once that registration reaches the control’s aria-describedby.
       await untilFlushed();
-      if (
-        !focusRefusedField(currentTarget, focused) &&
-        focused instanceof HTMLElement &&
-        Array.from(currentTarget.elements).includes(focused)
-      ) {
-        // Enter can submit from a field in a fieldset disabled while the action runs.
-        focusIfLost(focused);
-      }
+      focusRefusedField(currentTarget, focused);
     }
   }
   return { pending, onSubmit };

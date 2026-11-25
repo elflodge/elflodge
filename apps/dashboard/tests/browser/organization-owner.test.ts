@@ -125,8 +125,10 @@ test("a Change role the hub never answers ends after 30 seconds by saying it may
   await dialog.getByRole("button", { name: "Change role" }).click();
   expect(await change.arrived).toMatchObject({ role: "admin" });
   const group = dialog.getByRole("radiogroup", { name: "Role" });
+  const admin = group.getByRole("radio", { name: "Admin", exact: true });
+  await expect.element(admin).toHaveAccessibleDescription(/^Also manages API keys/);
   await group.getByRole("radio", { name: /^Owner/ }).click();
-  await expect.element(group.getByRole("radio", { name: /^Admin/ })).toBeChecked();
+  await expect.element(admin).toBeChecked();
   // The deadline runs from before the request arrived, and these steps go to fixed times after the
   // clock's reading at its arrival, so the deadline is held to between 29 and 30 seconds after it
   // however far the clock has moved since. Checked without retrying, since Vitest moves the clock

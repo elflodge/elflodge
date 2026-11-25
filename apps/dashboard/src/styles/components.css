@@ -1883,13 +1883,16 @@ p mark.placeholder {
 }
 /* A role choice with the permissions it grants on a second line. */
 .role-choice {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
   min-height: var(--control);
   cursor: pointer;
 }
-.role-choice [role="radio"] {
+.role-choice [data-slot="radio"] {
+  position: relative;
+  z-index: 1;
   flex: none;
   width: 1rem;
   height: 1rem;
@@ -1897,13 +1900,20 @@ p mark.placeholder {
   padding: 0;
   border-radius: 50%;
 }
-.role-choice [role="radio"] > span {
+.role-choice [data-slot="radio-indicator"] {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: currentColor;
+  border: 0.25rem solid currentColor;
 }
-.role-choice small {
+/* The whole option selects its radio, including the separate permission description. */
+.role-choice label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+}
+.role-choice [data-slot="field-description"] {
   display: block;
   font-weight: var(--weight-regular);
 }
