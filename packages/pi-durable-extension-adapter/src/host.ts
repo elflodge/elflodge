@@ -1013,7 +1013,9 @@ class AttachedConversation {
    * The `session_compact_failed` error of a truncated answer after an overflow compaction, by the
    * generation that answered, told after its `agent_end`, as Pi checks after the run.
    */
-  #recoveryFailed: { taskId: TaskId; message: AssistantMessage } | undefined;
+  #recoveryFailed:
+    | { taskId: TaskId; message: AssistantMessage; since: EntryId | undefined }
+    | undefined;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
@@ -1445,11 +1447,12 @@ class AttachedConversation {
     }
     if (!this.#listens("session_compact_failed")) return;
     // After the turn, as Pi checks once the run is over.
-    const errorMessage = await this.#recoveryFailure(message, api, context);
-    if (errorMessage === undefined) return;
+    const failure = await this.#recoveryFailure(message, api, context);
+    if (failure === undefined) return;
     // pi-durable fails a run on the error; a truncated answer ends it, after `agent_end`.
-    if (message.stopReason === "length") this.#recoveryFailed = { taskId: api.taskId, message };
-    else this.#queueCompactionEvent(async () => recoveryFailed(errorMessage));
+    if (message.stopReason === "length")
+      this.#recoveryFailed = { taskId: api.taskId, message, since: failure.since };
+    else this.#queueCompactionEvent(async () => recoveryFailed(failure.errorMessage));
   }
 
   /** `turn_end` for a tool round, from the committed entries: the hook's `results` can be empty. */
@@ -1499,8 +1502,12 @@ class AttachedConversation {
         await this.#rpc.emit(this.#route, { type: "agent_end", messages });
       }
       if (failed) {
-        const applies = await this.#recoveryApplies(failed.message, context).catch(() => undefined);
-        told.resolve(applies && recoveryFailed(TRUNCATED_AGAIN));
+        const errorMessage = await this.#recoveryApplies(
+          failed.message,
+          failed.since,
+          context,
+        ).catch(() => undefined);
+        told.resolve(errorMessage === undefined ? undefined : recoveryFailed(errorMessage));
         // Until the extensions close, as for a request.
         await this.#awaitCompactionHandlers(context);
         if (!this.#running) return;
@@ -1787,20 +1794,24 @@ class AttachedConversation {
     const compaction = await harness.getTask(checkpoint.compacted, context);
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the compaction task's own input
     if ((compaction?.input as CompactionInput | undefined)?.reason !== "overflow") return undefined;
-    const model = await this.#recoveryApplies(message, context);
-    if (!model) return undefined;
-    const overflow =
-      (message.stopReason === "error" && isContextOverflow(message)) ||
-      isContextOverflow(message, model.contextWindow);
-    if (overflow) return OVERFLOW_AGAIN;
-    return isRecoverableLength(message, model.maxTokens) ? TRUNCATED_AGAIN : undefined;
+    // Its summary's entry, from which on the latest compaction is looked for.
+    const ended = compaction?.state;
+    const since =
+      (ended?.status === "completing" || ended?.status === "terminal") &&
+      ended.outcome.status === "completed"
+        ? ended.outcome.result.entryId
+        : undefined;
+    const errorMessage = await this.#recoveryApplies(message, since, context);
+    return errorMessage === undefined ? undefined : { errorMessage, since };
   }
 
   /**
-   * The model of a response Pi checks for a failed recovery, if it does: one of the conversation's
-   * current model, newer than its latest compaction, while its compaction setting is not off.
+   * Pi's error for a response it checks for a failed recovery, by Pi's conditions as they stand: one
+   * of the conversation's current model, newer than its latest compaction entry (from `since` on),
+   * while its compaction setting is not off, that overflows the context or is cut off below the
+   * model's output limit.
    */
-  async #recoveryApplies(message: AssistantMessage, context: Context) {
+  async #recoveryApplies(message: AssistantMessage, since: EntryId | undefined, context: Context) {
     const { conversation, models } = this.#options;
     const agent = await conversation.agent(context);
     const ref = agent.model;
@@ -1809,10 +1820,31 @@ class AttachedConversation {
     // settings decide; the harness's are the app's, which the adapter cannot read.
     const own = agent.compaction?.modelOverrides?.[`${ref.provider}/${ref.modelId}`]?.enabled;
     if ((own ?? agent.compaction?.enabled) === false) return undefined;
-    // The latest compaction is the context's head marker, at the time the session shows for it.
-    const { head } = await conversation.context(context);
-    if (head && message.timestamp <= placedAt(head)) return undefined;
-    return models.getModel(ref.provider, ref.modelId);
+    const latest = await this.#latestCompaction(since, context);
+    if (latest && message.timestamp <= placedAt(latest)) return undefined;
+    const model = models.getModel(ref.provider, ref.modelId);
+    if (!model) return undefined;
+    const overflow =
+      (message.stopReason === "error" && isContextOverflow(message)) ||
+      isContextOverflow(message, model.contextWindow);
+    if (overflow) return OVERFLOW_AGAIN;
+    return isRecoverableLength(message, model.maxTokens) ? TRUNCATED_AGAIN : undefined;
+  }
+
+  /** The newest compaction entry, from `since` on: a head marker an app writes is none. */
+  async #latestCompaction(since: EntryId | undefined, context: Context) {
+    const newest = paged(
+      (limit, cursor) =>
+        this.#options.conversation.entries(
+          { order: "descending", ...(since !== undefined && { minEntryId: since }) },
+          limit,
+          cursor,
+          context,
+        ),
+      NEWEST_PAGE,
+    );
+    for await (const each of newest) if (CompactionEntry.is(each)) return each;
+    return undefined;
   }
 
   /**
