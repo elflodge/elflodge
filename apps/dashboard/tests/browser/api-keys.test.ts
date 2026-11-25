@@ -30,6 +30,7 @@ function holds(value: unknown, text: string) {
   const seen = new Set<object>();
   const search = (part: unknown): boolean => {
     if (typeof part === "string") return part.includes(text);
+    if (typeof part === "symbol") return part.description?.includes(text) ?? false;
     if (typeof part !== "object" || part === null || seen.has(part)) return false;
     seen.add(part);
     return Reflect.ownKeys(part).some(
@@ -48,7 +49,9 @@ type ConsoleMethod = Extract<
 
 /**
  * Spies on every method of the console, which the page shares with the test, each still printing:
- * what it is given is what the console shows of the page's own work.
+ * every call the page's code makes through `console` from here on, with what it was given. A method
+ * a module took from `console` before, and what the browser prints itself, are not seen; an uncaught
+ * error fails the test as Vitest's.
  */
 function spyOnConsole() {
   const spies = Object.keys(console)
