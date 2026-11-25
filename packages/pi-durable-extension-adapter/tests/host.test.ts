@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   awaitWithContext,
@@ -602,11 +603,23 @@ test("an extension's session shows every compaction as Pi stores it, its own sum
   expect(savedInFork?.data).toStrictEqual(saved?.data);
 });
 
+/**
+ * A response made at the request, a few milliseconds in as a real one, since Pi tells a failed
+ * recovery only for a response newer than the compaction.
+ */
+const later =
+  (...args: Parameters<typeof fauxAssistantMessage>) =>
+  async () => {
+    await sleep(5);
+    return fauxAssistantMessage(...args);
+  };
+
+const overflow = later([], {
+  stopReason: "error",
+  errorMessage: "prompt is too long: 213462 tokens > 200000 maximum",
+});
+
 test("a compaction that ends without a summary, or whose request overflows again or is cut short, reaches session_compact_failed once, with what started it and why, after the turn as in Pi", async () => {
-  const overflow = fauxAssistantMessage([], {
-    stopReason: "error",
-    errorMessage: "prompt is too long: 213462 tokens > 200000 maximum",
-  });
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -634,7 +647,7 @@ test("a compaction that ends without a summary, or whose request overflows again
     fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
     overflow,
     fauxAssistantMessage([fauxText("Summary.")]),
-    fauxAssistantMessage([fauxText("Cut")], { stopReason: "length" }),
+    later([fauxText("Cut")], { stopReason: "length" }),
   ]);
   const registry = createRegistry();
   const harness = await Harness.open(

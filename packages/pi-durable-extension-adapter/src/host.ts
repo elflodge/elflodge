@@ -277,7 +277,10 @@ export function startExtensionHost(options: ExtensionHostOptions): ExtensionHost
  * them: a compaction that was ending then may be told again, and a summary dropped after it is not.
  */
 type CompactionTracking = {
-  /** The compactions told when they were seen `completing`, until they are `terminal`. */
+  /**
+   * The compactions told, or whose summary's write is followed, when they were seen `completing`,
+   * until they are `terminal`.
+   */
   readonly told: Set<TaskId>;
   /** The summaries waiting in write submissions to be placed, until they settle. */
   readonly placing: Map<
@@ -1010,7 +1013,7 @@ class AttachedConversation {
    * The `session_compact_failed` error of a truncated answer after an overflow compaction, by the
    * generation that answered, told after its `agent_end`, as Pi checks after the run.
    */
-  #recoveryFailed: { taskId: TaskId; errorMessage: string } | undefined;
+  #recoveryFailed: { taskId: TaskId; message: AssistantMessage } | undefined;
   /** What the extensions registered, as last read. */
   registrations: Registrations = { tools: [], events: [] };
   /** The extensions' writes to the conversation so far, which a read waits for. */
@@ -1445,8 +1448,7 @@ class AttachedConversation {
     const errorMessage = await this.#recoveryFailure(message, api, context);
     if (errorMessage === undefined) return;
     // pi-durable fails a run on the error; a truncated answer ends it, after `agent_end`.
-    if (message.stopReason === "length")
-      this.#recoveryFailed = { taskId: api.taskId, errorMessage };
+    if (message.stopReason === "length") this.#recoveryFailed = { taskId: api.taskId, message };
     else this.#queueCompactionEvent(async () => recoveryFailed(errorMessage));
   }
 
@@ -1480,6 +1482,14 @@ class AttachedConversation {
    * hook for a run that fails or aborts.
    */
   async agentEnd(run: RunSummary, api: HookApi, context: Context) {
+    // A truncated answer's `session_compact_failed` is queued from the start, so requests from now
+    // on wait for its handlers, and told after `agent_end`, once checked again where Pi checks.
+    const failed = this.#recoveryFailed?.taskId === api.taskId ? this.#recoveryFailed : undefined;
+    const told = Promise.withResolvers<SessionCompactFailedEvent | undefined>();
+    if (failed) {
+      this.#recoveryFailed = undefined;
+      this.#queueCompactionEvent(() => told.promise);
+    }
     try {
       await awaitWithContext(this.#ready, context);
       if (!this.#running) return;
@@ -1488,16 +1498,19 @@ class AttachedConversation {
         const messages = range.flatMap((record) => record.model ?? []);
         await this.#rpc.emit(this.#route, { type: "agent_end", messages });
       }
-      const failed = this.#recoveryFailed;
-      if (failed?.taskId === api.taskId) {
-        this.#recoveryFailed = undefined;
-        await this.#rpc.emit(this.#route, recoveryFailed(failed.errorMessage));
+      if (failed) {
+        const applies = await this.#recoveryApplies(failed.message, context).catch(() => undefined);
+        told.resolve(applies && recoveryFailed(TRUNCATED_AGAIN));
+        // Until the extensions close, as for a request.
+        await this.#awaitCompactionHandlers(context);
+        if (!this.#running) return;
       }
       // A run that answered was not aborted.
       if (this.#listens("agent_settled")) {
         await this.#rpc.emit(this.#route, { type: "agent_settled", aborted: false });
       }
     } finally {
+      told.resolve(undefined);
       this.#runEndOf(api.taskId).delivered.resolve();
     }
   }
@@ -1696,6 +1709,8 @@ class AttachedConversation {
       // A summary placed, or waiting to be.
       if (entryId !== undefined) return;
       if (submissionId !== undefined) {
+        // Once: at `terminal` after `completing`, its write may have settled already.
+        if (!terminal) told.add(task.id);
         placing.set(submissionId, { reason, fromExtension });
         return;
       }
@@ -1763,7 +1778,7 @@ class AttachedConversation {
    */
   async #recoveryFailure(message: AssistantMessage, api: HookApi, context: Context) {
     if (message.stopReason !== "error" && message.stopReason !== "length") return undefined;
-    const { harness, conversation } = this.#options;
+    const { harness } = this.#options;
     const task = await harness.getTask(api.taskId, context);
     if (task?.state.status !== "running") return undefined;
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generation task's own checkpoint
@@ -1772,14 +1787,7 @@ class AttachedConversation {
     const compaction = await harness.getTask(checkpoint.compacted, context);
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the compaction task's own input
     if ((compaction?.input as CompactionInput | undefined)?.reason !== "overflow") return undefined;
-    const agent = await conversation.agent(context);
-    const ref = agent.model;
-    if (ref?.provider !== message.provider || ref.modelId !== message.model) return undefined;
-    // pi-durable's `compactionPolicy`, which it does not export, so far as the conversation's own
-    // settings decide; the harness's are the app's, which the adapter cannot read.
-    const own = agent.compaction?.modelOverrides?.[`${ref.provider}/${ref.modelId}`]?.enabled;
-    if ((own ?? agent.compaction?.enabled) === false) return undefined;
-    const model = api.models.getModel(ref.provider, ref.modelId);
+    const model = await this.#recoveryApplies(message, context);
     if (!model) return undefined;
     const overflow =
       (message.stopReason === "error" && isContextOverflow(message)) ||
@@ -1789,16 +1797,38 @@ class AttachedConversation {
   }
 
   /**
+   * The model of a response Pi checks for a failed recovery, if it does: one of the conversation's
+   * current model, newer than its latest compaction, while its compaction setting is not off.
+   */
+  async #recoveryApplies(message: AssistantMessage, context: Context) {
+    const { conversation, models } = this.#options;
+    const agent = await conversation.agent(context);
+    const ref = agent.model;
+    if (ref?.provider !== message.provider || ref.modelId !== message.model) return undefined;
+    // pi-durable's `compactionPolicy`, which it does not export, so far as the conversation's own
+    // settings decide; the harness's are the app's, which the adapter cannot read.
+    const own = agent.compaction?.modelOverrides?.[`${ref.provider}/${ref.modelId}`]?.enabled;
+    if ((own ?? agent.compaction?.enabled) === false) return undefined;
+    // The latest compaction is the context's head marker, at the time the session shows for it.
+    const { head } = await conversation.context(context);
+    if (head && message.timestamp <= placedAt(head)) return undefined;
+    return models.getModel(ref.provider, ref.modelId);
+  }
+
+  /**
    * Queues a compaction event, built once the ones before it are done; the next request and `close`
    * wait for its handlers.
    */
-  #queueCompactionEvent(event: () => Promise<SessionCompactEvent | SessionCompactFailedEvent>) {
+  #queueCompactionEvent(
+    event: () => Promise<SessionCompactEvent | SessionCompactFailedEvent | undefined>,
+  ) {
     this.#compactions = this.#compactions.then(async () => {
       try {
         // Opened again after a worker exit, the reopened extensions get it.
         await this.#ready;
         if (!this.#running) return;
-        await this.#rpc.emit(this.#route, await event());
+        const built = await event();
+        if (built) await this.#rpc.emit(this.#route, built);
       } catch {
         // The worker exited or the conversation closed meanwhile, which ends its extensions'
         // session too; Pi's runner reports a failing handler itself.
@@ -2656,6 +2686,11 @@ function summaryHash(summary: string) {
   return createHash("sha256").update(summary).digest("base64url");
 }
 
+/** When a compaction's summary was placed, as its summary message's time. */
+function placedAt(record: EntryRecord) {
+  return record.model?.[0]?.timestamp ?? 0;
+}
+
 /** The handler's notes in `note` of the summary `entry` placed, if a handler supplied it. */
 function suppliedFor(note: CompactionNote | undefined, entry: EntryRecord) {
   return note?.summaries[summaryHash(compactionSummary(entry))];
@@ -2728,13 +2763,13 @@ function compactionSessionEntry(
   note: CompactionNote | undefined,
   measured: Measured | undefined,
 ): SessionCompactionEntry {
-  const placedAt = record.model?.[0]?.timestamp ?? 0;
+  const placed = placedAt(record);
   const supplied = suppliedFor(note, record);
   return {
     type: "compaction",
     id: `${record.id}`,
     parentId,
-    timestamp: new Date(placedAt).toISOString(),
+    timestamp: new Date(placed).toISOString(),
     summary: compactionSummary(record),
     firstKeptEntryId: `${record.head ?? record.id}`,
     tokensBefore: supplied?.tokensBefore ?? note?.tokensBefore ?? measured?.tokensBefore ?? 0,
@@ -2746,7 +2781,7 @@ function compactionSessionEntry(
     }),
     // At the summary's time, as Pi stamps it.
     ...(measured?.systemMessage && {
-      systemMessage: { ...measured.systemMessage, timestamp: placedAt },
+      systemMessage: { ...measured.systemMessage, timestamp: placed },
     }),
   };
 }
