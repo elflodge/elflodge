@@ -113,8 +113,8 @@ export function focusAfterLinkDrops(target: () => HTMLElement | null, onPress?: 
  * on meanwhile, to Cancel say, keeps their place, and the field's words reach them when they return.
  */
 export function focusRefusedField(form: HTMLFormElement, focusedAtSubmit: Element | null) {
-  const refused = form.querySelector<HTMLElement>('[aria-invalid="true"]');
-  if (!refused) return false;
+  const refused = form.querySelector('[aria-invalid="true"]');
+  if (!(refused instanceof HTMLElement)) return false;
   if (document.activeElement === focusedAtSubmit) refused.focus();
   else focusIfLost(refused);
   return true;
@@ -149,8 +149,7 @@ export function createFormAction(
       if (
         !focusRefusedField(currentTarget, focused) &&
         focused instanceof HTMLElement &&
-        "form" in focused &&
-        focused.form === currentTarget
+        Array.from(currentTarget.elements).includes(focused)
       ) {
         // Enter can submit from a field in a fieldset disabled while the action runs.
         focusIfLost(focused);

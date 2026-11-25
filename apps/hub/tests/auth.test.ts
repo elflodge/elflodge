@@ -67,6 +67,19 @@ test("API errors are RFC 9457 Problem Details", async () => {
   });
 });
 
+test("renaming the Organization applies the same name rules as setup", async () => {
+  const auth = system.ownerAuth().organization;
+  const [original] = await auth.list();
+  if (!original) throw new Error("The hub has no Organization");
+  const rename = (name: string) => auth.update({ organizationId: original.id, data: { name } });
+  await expect(rename("   ")).rejects.toMatchObject({ status: 400 });
+  try {
+    await expect(rename("  Harbor  ")).resolves.toMatchObject({ name: "Harbor" });
+  } finally {
+    await rename(original.name);
+  }
+});
+
 test("a member removed from the Organization is refused, though their session lasts", async () => {
   const email = "removed@example.com";
   const { client: asMember, cookie } = await system.addMember({ email, name: "Removed" });

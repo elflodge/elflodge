@@ -1881,7 +1881,7 @@ p mark.placeholder {
     justify-content: flex-start;
   }
 }
-/* A native role choice with the permissions it grants on a second line. */
+/* A role choice with the permissions it grants on a second line. */
 .role-choice {
   display: flex;
   align-items: baseline;
@@ -1889,8 +1889,19 @@ p mark.placeholder {
   min-height: var(--control);
   cursor: pointer;
 }
-.role-choice input {
-  flex-shrink: 0;
+.role-choice [role="radio"] {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+}
+.role-choice [role="radio"] > span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
 }
 .role-choice small {
   display: block;

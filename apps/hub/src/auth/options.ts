@@ -207,6 +207,16 @@ export function authOptions(settings: AuthSettings, mode: "serving" | "offline" 
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
         organizationHooks: {
+          // Renaming accepts the same Organization names as initial setup.
+          async beforeUpdateOrganization({ organization: update }) {
+            if (update.name === undefined) return undefined;
+            const name = nameSchema.safeParse(update.name);
+            if (!name.success)
+              throw APIError.fromStatus("BAD_REQUEST", {
+                message: "Enter a valid Organization name.",
+              });
+            return { data: { name: name.data } };
+          },
           // Only an owner may revoke an owner invitation, even after it lapses.
           async beforeCancelInvitation({ invitation, cancelledBy }) {
             const member = await db

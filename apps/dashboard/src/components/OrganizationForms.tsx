@@ -2,11 +2,13 @@ import type { JSX } from "@solidjs/web";
 import { useMutation } from "@tanstack/solid-query";
 import type { DialogController } from "@ui-sdk/solid/dialog";
 import { Input } from "@ui-sdk/solid/input";
+import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/solid/radio";
 import { For, Show, createMemo, createSignal, createUniqueId, untrack } from "solid-js";
 
 import { HUB_DEADLINE_MS } from "../api-client.ts";
 import { authClient, hasAuthCode, isAuthAccessError } from "../auth-client.ts";
-import { fieldText, type FormRefusal } from "../form.ts";
+import { fieldText, GIVEN_NAME, type FormRefusal } from "../form.ts";
+import { DATE_TIME_ZONED } from "../format.ts";
 import { isLoopback } from "../hub-address.ts";
 import {
   ROLE_LABEL,
@@ -29,42 +31,46 @@ function chosenRole(form: FormData): MemberRole | undefined {
 function RoleChoices(props: {
   owner: boolean;
   own?: boolean;
-  value?: string;
-  choose?: (role: MemberRole) => void;
+  readOnly: boolean;
+  value?: MemberRole | null;
+  defaultValue?: MemberRole;
+  choose?: (role: MemberRole | null) => void;
 }) {
-  // A click on the Role legend leaves focus on the dialog. FieldGroup would focus the group itself.
   return (
-    <fieldset class="field">
-      <legend>Role</legend>
-      <For
-        each={
-          props.owner ? (["member", "admin", "owner"] as const) : (["member", "admin"] as const)
-        }
+    <Field label="Role">
+      <RadioGroup<MemberRole>
+        name="role"
+        required
+        readOnly={props.readOnly}
+        defaultValue={props.defaultValue}
+        value={props.value}
+        onValueChange={props.choose}
       >
-        {(role) => (
-          <label class="role-choice">
-            <input
-              type="radio"
-              name="role"
-              value={role}
-              required
-              checked={props.value === role}
-              onChange={() => props.choose?.(role)}
-            />
-            <span>
-              {ROLE_LABEL[role]}
-              <small class="note">
-                {role === "member"
-                  ? "Submits, reads and controls jobs and Batches. Each job spends money on models. Sees Runners and members."
-                  : role === "admin"
-                    ? "Also manages API keys, reads Usage, removes Runners, invites and removes members and changes their roles, owners excepted."
-                    : `Also invites, changes and removes owners${props.own ? "." : ", you included."}`}
-              </small>
-            </span>
-          </label>
-        )}
-      </For>
-    </fieldset>
+        <For
+          each={
+            props.owner ? (["member", "admin", "owner"] as const) : (["member", "admin"] as const)
+          }
+        >
+          {(role) => (
+            <label class="role-choice">
+              <Radio value={role}>
+                <RadioIndicator />
+              </Radio>
+              <span>
+                {ROLE_LABEL[role]}
+                <small class="note">
+                  {role === "member"
+                    ? "Submits, reads and controls jobs and Batches. Each job spends money on models. Sees Runners and members."
+                    : role === "admin"
+                      ? "Also manages API keys, reads Usage, removes Runners, invites and removes members and changes their roles, owners excepted."
+                      : `Also invites, changes and removes owners${props.own ? "." : ", you included."}`}
+                </small>
+              </span>
+            </label>
+          )}
+        </For>
+      </RadioGroup>
+    </Field>
   );
 }
 
@@ -165,8 +171,8 @@ export function InviteMember(props: {
             <InvitationAddressNote />
             <p id={instructionsId}>
               Send this link to <span class="mono">{created.email}</span> yourself. It works once,
-              until <Instant value={created.expires} />, and lets them join as{" "}
-              {asRole(created.role)}. It stays under Invitations until then.
+              until <Instant value={created.expires} format={DATE_TIME_ZONED} />, and lets them join
+              as {asRole(created.role)}. It stays under Invitations until then.
             </p>
           </>
         ),
@@ -181,7 +187,7 @@ export function InviteMember(props: {
           <Field label="Email" error={fields.refused("email")}>
             <Input name="email" type="email" required readonly={fields.pending()} />
           </Field>
-          <RoleChoices owner={props.owner} value="member" />
+          <RoleChoices owner={props.owner} defaultValue="member" readOnly={fields.pending()} />
         </>
       )}
     </FormDialog>
@@ -208,6 +214,7 @@ export function RenameOrganization(props: {
         <Field label="Name">
           <Input
             name="name"
+            {...GIVEN_NAME}
             // The name as the dialog opens; a session read while it is open leaves the draft.
             defaultValue={untrack(() => props.name)}
             required
@@ -255,8 +262,9 @@ export function ChangeRole(props: {
       }}
       notice={props.notice}
     >
-      {(_fields, member) => (
+      {(fields, member) => (
         <RoleFields
+          readOnly={fields.pending()}
           member={props.current(member)}
           own={props.own(member)}
           owner={props.owner}
@@ -268,6 +276,7 @@ export function ChangeRole(props: {
 }
 
 function RoleFields(props: {
+  readOnly: boolean;
   member: Member;
   own: boolean;
   owner: boolean;
@@ -275,8 +284,8 @@ function RoleFields(props: {
 }) {
   const role = createMemo(() => props.member.role);
   // A newly read role replaces any draft based on the old one, even while this dialog stays open.
-  const [choice, setChoice] = createSignal<MemberRole | undefined>(() =>
-    rolesOf(role()).find((each) => each === role()),
+  const [choice, setChoice] = createSignal<MemberRole | null>(
+    () => rolesOf(role()).find((each) => each === role()) ?? null,
   );
   const consequences = () => {
     const selected = choice();
@@ -290,7 +299,13 @@ function RoleFields(props: {
           one replaces {rolesOf(role()).length === 2 ? "both" : "them all"}.
         </p>
       </Show>
-      <RoleChoices owner={props.owner} own={props.own} value={choice()} choose={setChoice} />
+      <RoleChoices
+        owner={props.owner}
+        own={props.own}
+        value={choice()}
+        choose={setChoice}
+        readOnly={props.readOnly}
+      />
       {consequences()}
       <Show when={props.own}>
         <p>Once you change your own role, you cannot change it back yourself.</p>

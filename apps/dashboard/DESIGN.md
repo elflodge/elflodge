@@ -584,8 +584,7 @@ content. Plain-text identifiers, addresses and the names of inviters and key cre
 An invitation's Copy link says its result through UI SDK's announcer rather than a live region in
 the row, which would keep the row out of what an open confirmation makes inert.
 
-A dialog offering roles uses a fieldset and legend. Each `label.role-choice` holds a native
-radio and the role name, with a `small.note` on the next line describing what it permits.
+A dialog offering roles labels UI SDK’s `RadioGroup` with a `Field`. The group stays read-only while the Hub answers so the selection still shows what was sent. Each `label.role-choice` holds a radio and the role name, with a `small.note` on the next line describing what it permits.
 
 ### Batches list
 
