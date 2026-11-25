@@ -1,6 +1,5 @@
 {
   "name": "provider-extensions",
-  "private": true,
   "dependencies": {
     "provider-extension-fixture": "file:./extension"
   }

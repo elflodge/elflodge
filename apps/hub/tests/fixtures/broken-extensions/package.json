@@ -1,6 +1,5 @@
 {
   "name": "broken-extensions",
-  "private": true,
   "dependencies": {
     "broken-extension-fixture": "file:./broken-extension"
   }
