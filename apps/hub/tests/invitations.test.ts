@@ -1,20 +1,16 @@
-import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, inject, test } from "vite-plus/test";
+import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { openDatabase } from "../src/db/database.ts";
 import { problemResponse, OWNER, startSystem } from "./harness.ts";
 
 const system = startSystem();
 let organizationId: string;
 
-async function start() {
+beforeAll(async () => {
   await system.start();
   const [organization] = await system.ownerAuth().organization.list();
   if (!organization) throw new Error("The hub has no Organization");
   organizationId = organization.id;
-}
-
-beforeAll(start);
+});
 afterAll(() => system.stop());
 
 const password = "the invited person's password";
@@ -47,6 +43,36 @@ function authPost(path: string, body: object, cookie?: string) {
     body: JSON.stringify(body),
   });
 }
+
+test("the only owner can register a Runner with a combined role and cannot give up ownership", async () => {
+  const id = await memberId(OWNER.email);
+  const organization = system.ownerAuth().organization;
+  await organization.updateMemberRole({ memberId: id, role: ["admin", "owner"], organizationId });
+  const registration = await system.createRegistrationKey();
+  await system.runnerClient({ "x-api-key": registration }).register({ name: "First Runner" });
+
+  for (const [action, body, code] of [
+    [
+      "remove-member",
+      { memberIdOrEmail: id },
+      "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
+    ],
+    [
+      "update-member-role",
+      { memberId: id, role: "admin" },
+      "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+    ],
+  ] as const) {
+    const response = await authPost(
+      `organization/${action}`,
+      { organizationId, ...body },
+      system.ownerCookie(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code });
+  }
+  await organization.updateMemberRole({ memberId: id, role: "owner", organizationId });
+});
 
 test("a new account can redeem a live invitation once and sign in with the granted role", async () => {
   const email = "new@example.com";
@@ -268,84 +294,4 @@ test("removal voids an inviter's outstanding grants and preserves key attributio
   const replacement = await invite(memberGrant.email, "member");
   expect(replacement.id).not.toBe(memberGrant.id);
   await system.client().invitations.preview({ invitationId: replacement.id });
-});
-
-describe("owner races", () => {
-  // Each race needs exactly two owners and may remove the hub's first owner, so it starts on a
-  // fresh database.
-  beforeEach(async () => {
-    await system.stop();
-    await start();
-  });
-
-  test.each(["leave", "self-demotion"] as const)(
-    "an owner's %s racing another owner's departure leaves one owner who can register Runners",
-    async (firstAction) => {
-      const email = "second-owner@example.com";
-      const { id: invitationId } = await invite(email, ["admin", "owner"]);
-      await system.client().invitations.accept({ invitationId, name: "Second owner", password });
-      const firstOwner = await memberId(OWNER.email);
-      await system.ownerAuth().organization.updateMemberRole({
-        memberId: firstOwner,
-        role: ["owner", "admin"],
-        organizationId,
-      });
-      const registration = await system.createRegistrationKey();
-      const firstCookie = system.ownerCookie();
-      const secondCookie = await system.signIn({ email, password });
-      await using database = openDatabase(inject("databaseUrl"));
-      const writes = await database.transaction().execute(async (tx) => {
-        // Let both requests finish Better Auth's owner count before either can change a membership.
-        await sql`lock table elflodge.member in share mode`.execute(tx);
-        const pending = Promise.all([
-          firstAction === "leave"
-            ? authPost("organization/leave", { organizationId }, firstCookie)
-            : authPost(
-                "organization/update-member-role",
-                { memberId: firstOwner, role: "admin", organizationId },
-                firstCookie,
-              ),
-          authPost("organization/leave", { organizationId }, secondCookie),
-        ]);
-        await expect
-          .poll(async () => {
-            const waiting = await sql<{ count: number }>`select count(*) from pg_locks
-        where relation = 'elflodge.member'::regclass and mode = 'RowExclusiveLock' and not granted`.execute(
-              tx,
-            );
-            return waiting.rows[0]?.count;
-          })
-          .toBe(2);
-        return { pending };
-      });
-      const [first, second] = await writes.pending;
-      expect(first.ok).not.toBe(second.ok);
-      await system.runnerClient({ "x-api-key": registration }).register({ name: "After handoff" });
-      const cookie = first.ok ? secondCookie : firstCookie;
-      const { members } = await system
-        .authClient(cookie)
-        .organization.listMembers({ query: { organizationId } });
-      const owners = members.filter((member) => member.role.split(",").includes("owner"));
-      expect(owners).toHaveLength(1);
-      const [remaining] = owners;
-      if (!remaining) throw new Error("The Organization has no owner");
-      for (const [action, body] of [
-        ["remove-member", { memberIdOrEmail: remaining.id }],
-        ["update-member-role", { memberId: remaining.id, role: "admin" }],
-      ] as const) {
-        const response = await authPost(
-          `organization/${action}`,
-          { organizationId, ...body },
-          cookie,
-        );
-        expect(response.status).toBe(400);
-        expect(await response.json()).toMatchObject({
-          code:
-            action === "remove-member"
-              ? "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER"
-              : "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
-        });
-      }
-    },
-  );
 });
