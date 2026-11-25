@@ -6,18 +6,11 @@ import { type Kysely, sql } from "kysely";
 // adapter overrides. At REPEATABLE READ that read would still see the earlier snapshot.
 // The loser receives HTTP 500 from Better Auth because translating the violation would require
 // wrapping its adapter or rewriting its responses, for a race the database already makes safe.
-// During the Workers maintenance window (ADR 0047), the previous Worker can still admit a
-// signed-in recipient under its native invitation rules, even if the inviter has lost authority.
-// That version can already grant this membership. The new hub accepts existing memberships and
-// applies the current-authority check as it takes over. The trigger guards both versions' writes.
 export async function up(db: Kysely<unknown>): Promise<void> {
   // Better Auth stores trimmed, non-empty role names joined by commas.
-  await sql`create function elflodge.stored_roles(roles text) returns text[]
-    language sql immutable strict parallel safe
-    return string_to_array(roles, ',')`.execute(db);
   await sql`create function elflodge.has_owner_role(roles text) returns boolean
     language sql immutable strict parallel safe
-    return 'owner' = any(elflodge.stored_roles(roles))`.execute(db);
+    return 'owner' = any(string_to_array(roles, ','))`.execute(db);
   await sql`create function elflodge.keep_an_owner() returns trigger language plpgsql as $$
     begin
       perform 1 from elflodge.organization where id = old."organizationId" for update;
@@ -39,5 +32,4 @@ export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`drop trigger member_keeps_an_owner on elflodge.member`.execute(db);
   await sql`drop function elflodge.keep_an_owner()`.execute(db);
   await sql`drop function elflodge.has_owner_role(text)`.execute(db);
-  await sql`drop function elflodge.stored_roles(text)`.execute(db);
 }
