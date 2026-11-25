@@ -427,21 +427,6 @@ export function describeFailures(failures: readonly { source: string; message: s
 }
 
 /**
- * How large each extension worker's JavaScript heap may grow, in MiB, so an extension that runs
- * away with memory ends its own worker, whose jobs get their extensions back on a new one, rather
- * than filling the host. Node's default grows with the host's or cgroup's memory, to 2 GiB for
- * each worker with 8 GiB, so the workers alone could claim half of it. pi-web-access reads pages
- * of up to 5 MB, three at a time on a worker, and keeps what a job fetched in memory until the job
- * ends or an hour has passed: three jobs on one worker each reading such a page at once needed up
- * to 320 MiB, and three that each read 30 pages of 2 to 3 MB kept up to about 460 MiB in use under
- * a 512 MiB cap, which this one leaves twice the room for. Node's own default is lower only with
- * less than 2 GiB of memory, too small for a Runner whose jobs may take 1 GiB each, so the value is
- * fixed rather than scaled with the host. It caps the old generation alone, as Node's
- * `--max-old-space-size` does, which replaces it.
- */
-const WORKER_HEAP_MB = 1024;
-
-/**
  * Runs `prepared`'s extensions for the Runner's jobs until the scope closes, which closes every
  * job's extensions still attached and stops their workers.
  */
@@ -459,7 +444,6 @@ export function startRunnerExtensions(dataDir: string, prepared: PreparedExtensi
             ...Struct.omit(process.env, ["NO_PROXY", "no_proxy", "GCE_METADATA_HOST"]),
             PI_CODING_AGENT_DIR: agentDir,
           },
-          resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB },
         },
       }),
     ),
