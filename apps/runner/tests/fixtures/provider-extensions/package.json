@@ -1,0 +1,6 @@
+{
+  "name": "provider-extensions",
+  "dependencies": {
+    "provider-extension-fixture": "file:./extension"
+  }
+}

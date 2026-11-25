@@ -5,8 +5,8 @@ import {
   type AuthType,
   type CredentialStore,
   type LoginOptions,
+  type Models,
   ModelsError,
-  type MutableModels,
 } from "@earendil-works/pi-ai";
 import * as NodeStream from "@effect/platform-node-shared/NodeStream";
 import { Effect } from "effect";
@@ -50,7 +50,7 @@ export const readApiKey = (input: Readable) =>
  * refresh, persistence and provider-specific prompts; this module owns the Runner's restrictions
  * and projects status without ever returning credentials to its callers.
  */
-export function createRunnerAuth(models: MutableModels, credentials: CredentialStore) {
+export function createRunnerAuth(models: Models, credentials: CredentialStore) {
   /** Append available alternatives without resolving or refreshing unrelated sign-ins. */
   const withAvailable = Effect.fn(function* (message: string) {
     const modelsWithAuth = yield* Effect.tryPromise({
@@ -66,8 +66,8 @@ export function createRunnerAuth(models: MutableModels, credentials: CredentialS
   return {
     /**
      * Resolve authentication before startup, renewing OAuth through Pi. Only absent credentials
-     * invite onboarding; saved credentials Pi cannot resolve or renew require repair.
-     * On success, apply the model URL override and disable OAuth for subsequent model calls too.
+     * invite onboarding; saved credentials Pi cannot resolve or renew require repair. The model
+     * URL override itself applies to each job's models (`acquireJobModels`).
      */
     prepareModel: Effect.fn(
       function* ({
@@ -125,24 +125,6 @@ export function createRunnerAuth(models: MutableModels, credentials: CredentialS
         // Pi accepts this subscription token through its API-key resolver and identifies its source.
         if (baseUrl && auth.source === "ANTHROPIC_OAUTH_TOKEN") {
           return { kind: "invalid", message: SIGN_IN_WITH_BASE_URL };
-        }
-        const definition = models.getProvider(provider);
-        const apiKey = definition?.auth.apiKey;
-        if (baseUrl && definition && apiKey) {
-          const url = baseUrl.href;
-          const atUrl = <M extends { baseUrl: string }>(model: M): M => ({
-            ...model,
-            baseUrl: url,
-          });
-          models.setProvider({
-            ...definition,
-            baseUrl: url,
-            // A subscription saved by login beside a running Runner must not reach this URL.
-            auth: { apiKey },
-            getModels: () => definition.getModels().map(atUrl),
-            getAllModels:
-              definition.getAllModels && (() => definition.getAllModels?.().map(atUrl) ?? []),
-          });
         }
         return undefined;
       },

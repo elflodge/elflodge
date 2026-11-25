@@ -13,9 +13,9 @@ import lockfile from "proper-lockfile";
 // `modify`, saving the new tokens before `modify` returns. OpenAI's refresh tokens work once, so two
 // refreshes of the same token, by the Runner and by a `login` beside it or by two of the Runner's
 // own model calls, must not overlap: each change holds a lock on the file across Pi's callback, as
-// Pi's coding agent's own `auth.json` store does. That store is not exported; the coding agent's
-// `ModelRuntime`, which Pi offers in its place, would load the whole coding agent into every Runner
-// (about 50 MB more memory) and resolve models its own way.
+// Pi's coding agent's own `auth.json` store does. That store is not exported; a `ModelRuntime` given
+// its path makes one, which takes its lock synchronously, retrying in a busy loop, as it first reads
+// the file, and the Runner makes a runtime for every job, on the thread all jobs share.
 
 type Credentials = Record<string, Credential>;
 

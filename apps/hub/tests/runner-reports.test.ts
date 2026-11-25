@@ -88,13 +88,13 @@ async function runAgainstStandIn(
   await writeFile(path.join(dataDir, "runner.json"), JSON.stringify(registration));
   const address = hub.address();
   if (address === null || typeof address === "string") throw new Error("no port");
-  const { faux, models, model } = scriptedModel();
+  const { faux, jobModels, model } = scriptedModel();
   faux.setResponses([callTool("submit_output", { value: {} })]);
   const runner = await startRunner({
     hubUrl: `http://127.0.0.1:${address.port}`,
     registrationKey: "unused",
     dataDir,
-    models,
+    jobModels,
     model,
   });
   try {

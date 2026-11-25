@@ -1,6 +1,5 @@
 {
   "name": "extension-fixture",
-  "private": true,
   "type": "module",
   "pi": {
     "extensions": [

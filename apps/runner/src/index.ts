@@ -109,8 +109,12 @@ export interface RunnerOptions {
   registrationKey: string;
   /** Where the Runner keeps what must survive restarts, such as its own key and its jobs' files. */
   dataDir: string;
-  /** The models the Runner's agents can run on, with their providers' keys or sign-ins. */
-  models: Models;
+  /**
+   * Makes the models one job's agent runs on, with its provider's keys or sign-ins, kept until the
+   * scope closes. Its Pi extensions can register providers only in a Pi coding-agent
+   * `ModelRuntime`, and those reach every job holding the same one (`acquireJobModels`).
+   */
+  jobModels: Effect.Effect<Models, never, Scope.Scope>;
   /** The model every job runs on. */
   model: AgentModel;
   /** How many jobs the Runner runs at once. */
@@ -249,7 +253,7 @@ function runRegistered(
           }),
         ),
         environments,
-        models: options.models,
+        jobModels: options.jobModels,
         model: options.model,
         extensionHost,
       };

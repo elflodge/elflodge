@@ -1,6 +1,5 @@
 {
   "name": "broken-extension-fixture",
-  "private": true,
   "type": "module",
   "pi": {
     "extensions": [

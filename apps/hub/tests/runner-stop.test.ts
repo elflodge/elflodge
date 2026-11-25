@@ -28,12 +28,12 @@ test("a runner stopped while the hub never completes the handshake stops cleanly
   const record = (error: unknown) => uncaught.push(error);
   process.on("uncaughtException", record);
   try {
-    const { models, model } = scriptedModel();
+    const { jobModels, model } = scriptedModel();
     const runner = await startRunner({
       hubUrl: `http://127.0.0.1:${address.port}`,
       registrationKey: "unused",
       dataDir,
-      models,
+      jobModels,
       model,
     });
     await dialled;

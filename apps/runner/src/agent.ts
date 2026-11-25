@@ -97,7 +97,8 @@ export interface AgentSettings {
   /** The Runner's HTTP calls, made with its own key, which jobs' Input files are downloaded with. */
   hubHttp: HubHttpClient;
   environments: JobEnvironments;
-  models: Models;
+  /** Makes the models a job's journal is opened with, kept until the scope closes (`RunnerOptions`). */
+  jobModels: Effect.Effect<Models, never, Scope.Scope>;
   model: AgentModel;
   /** The Pi extensions every job's agent runs with, if the Runner loads any. */
   extensionHost?: ExtensionHost;
@@ -204,17 +205,21 @@ export function openAndCheckJournal(
     }
     // The hub holds none of the job's records, so any journal holds them all.
     if (position === 0) return true;
-    const found = yield* Effect.acquireUseRelease(
-      Effect.promise(async () =>
-        Harness.open(
-          await openNodeSqliteStorage(paths.journal),
-          { models: settings.models, registry: createRegistry(), readOnly: true },
-          context,
+    const found = yield* Effect.gen(function* () {
+      // A read-only Harness runs no model, but takes models all the same.
+      const models = yield* settings.jobModels;
+      const journal = yield* Effect.acquireRelease(
+        Effect.promise(async () =>
+          Harness.open(
+            await openNodeSqliteStorage(paths.journal),
+            { models, registry: createRegistry(), readOnly: true },
+            context,
+          ),
         ),
-      ),
-      (journal) => Effect.promise(() => holdsRecord(journal, position)),
-      (journal) => Effect.promise(() => journal.close(context)),
-    );
+        (opened) => Effect.promise(() => opened.close(context)),
+      );
+      return yield* Effect.promise(() => holdsRecord(journal, position));
+    }).pipe(Effect.scoped);
     if (found.held) return true;
     // In the words callers read: the journal's records are the job's events, known by their IDs.
     return yield* new JournalLost({
@@ -416,6 +421,8 @@ export function openJob(
     // A job's first run downloaded its Input files into the Workspace before this; a later one
     // keeps the agent's edits to them.
     yield* Effect.promise(() => mkdir(paths.workspace, { recursive: true }));
+    // Made before the rest of the job, so they go after its journal and its extensions have closed.
+    const models = yield* options.jobModels;
     // The sandbox has a scope of its own, which `runAgent` closes once the agent has stopped, while
     // the journal stays open for reporting. A Runner that stops closes the journal first and the
     // sandbox after it, so no tool call is left on a stopped daemon.
@@ -438,7 +445,7 @@ export function openJob(
         Harness.open(
           await openNodeSqliteStorage(paths.journal),
           {
-            models: options.models,
+            models,
             registry,
             env: () => env,
             // Partial answers and command output are saved once a second rather than every 100 ms: the
@@ -513,8 +520,9 @@ export function openJob(
         }, context),
       ));
     // Why the job fails before its agent starts, if an extension failed as it loaded, or called
-    // what the adapter does not support, such as registering a model provider: its agent would run
-    // without what the operator gave it, as a Runner that cannot prepare one refuses to start.
+    // what the adapter refuses, such as registering the Runner's own provider while its model URL is
+    // replaced: its agent would run without what the operator gave it, as a Runner that cannot
+    // prepare one refuses to start.
     let notLoaded: Failure | undefined;
     const host = options.extensionHost;
     if (host && !closed) {
@@ -528,7 +536,7 @@ export function openJob(
               harness,
               conversation: root,
               registry,
-              models: options.models,
+              models,
               env,
               cwd: paths.workspace,
               onLost: (error) => Deferred.doneUnsafe(extensionsLost, Effect.succeed(error)),
@@ -721,13 +729,10 @@ export function recordStop(
     // A stop settles Pi's tasks and any pending output-completion task without opening a sandbox.
     const registry = createRegistry();
     registry.install(defineExtension({ name: "elflodge", tasks: [finishOutput] }));
+    const models = yield* settings.jobModels;
     const journal = yield* Effect.acquireRelease(
       Effect.promise(async () =>
-        Harness.open(
-          await openNodeSqliteStorage(paths.journal),
-          { models: settings.models, registry },
-          context,
-        ),
+        Harness.open(await openNodeSqliteStorage(paths.journal), { models, registry }, context),
       ),
       (opened) => Effect.promise(() => opened.close(context)),
     );
