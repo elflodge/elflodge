@@ -190,8 +190,8 @@ function UnavailableInvitation(props: { focusLink: boolean }) {
   return (
     <InvitationPage heading="Invitation">
       <p class="prose">
-        This invitation is no longer available. It may have been used, revoked or replaced, or have
-        expired. Ask whoever invited you for a new one.
+        This invitation is no longer available. It may have been used or revoked, or have expired.
+        Ask whoever invited you for a new one.
       </p>
       <p>
         <Show when={checked()}>

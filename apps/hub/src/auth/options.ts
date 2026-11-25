@@ -1,11 +1,6 @@
 import { apiKey } from "@better-auth/api-key";
 import type { BetterAuthOptions } from "better-auth";
-import {
-  APIError,
-  createAuthMiddleware,
-  getSessionFromCtx,
-  setShouldSkipSessionRefresh,
-} from "better-auth/api";
+import { APIError, createAuthMiddleware, setShouldSkipSessionRefresh } from "better-auth/api";
 import { ORGANIZATION_ERROR_CODES } from "better-auth/client/plugins";
 import { generateRandomString } from "better-auth/crypto";
 import { customSession, organization } from "better-auth/plugins";
@@ -18,17 +13,11 @@ import {
 } from "contract";
 import type { Kysely } from "kysely";
 import { jsonBuildObject } from "kysely/helpers/postgres";
-import * as z from "zod/mini";
 
 import { DB_SCHEMA } from "../db/database.ts";
 import { type Database, InvitationId, OrganizationId, UserId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import {
-  findInvitationInviterCannotGrantByEmail,
-  findLiveInvitationCallerCannotGrantByEmail,
-  liveInvitations,
-  mayGrantRole,
-} from "./invitation-grants.ts";
+import { pendingInvitations, mayManageInvitation } from "./invitation-grants.ts";
 
 // Loading this module has no side effects (no environment reads or connections), so Better Auth's
 // CLI can load it to draft the schema (ADR 0020).
@@ -55,8 +44,6 @@ export const SETUP_TOKEN_PREFIX = `${SETUP_LINK_VALUE}:`;
 /** The API key configurations: keys for services, and each Runner's own key. */
 export const API_KEY_CONFIG = "default";
 export const RUNNER_KEY_CONFIG = "runner";
-
-const invitationEmail = z.email();
 
 export interface AuthSettings {
   /**
@@ -116,8 +103,8 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
 /** Better Auth's options for the hub. */
 export function authOptions(settings: AuthSettings, mode: "serving" | "offline" = "serving") {
   const db = settings.db.withSchema(DB_SCHEMA);
-  function findLiveInvitation(id: string) {
-    return liveInvitations(db)
+  function findPendingInvitation(id: string) {
+    return pendingInvitations(db)
       .where("invitation.id", "=", InvitationId(id))
       .select("invitation.email")
       .executeTakeFirst();
@@ -183,7 +170,7 @@ export function authOptions(settings: AuthSettings, mode: "serving" | "offline" 
         if (ctx.path === "/sign-up/email" && mode === "serving") {
           // Check the link before the endpoint looks up the address or hashes a password.
           const id = ctx.headers?.get(INVITATION_HEADER);
-          const invitation = id && (await findLiveInvitation(id));
+          const invitation = id && (await findPendingInvitation(id));
           const email = ctx.body?.email;
           if (!invitation || typeof email !== "string" || invitation.email !== email.toLowerCase())
             throw APIError.from("FORBIDDEN", ORGANIZATION_ERROR_CODES.INVITATION_NOT_FOUND);
@@ -197,37 +184,6 @@ export function authOptions(settings: AuthSettings, mode: "serving" | "offline" 
         // dashboard renews through get-session.
         if (ctx.path === "/api-key/delete") {
           await setShouldSkipSessionRefresh(true);
-          return undefined;
-        }
-        // Better Auth may cancel the old invitation before beforeCreateInvitation runs, and a
-        // resend keeps the original inviter. Check both paths before Better Auth changes the row.
-        if (ctx.path !== "/organization/invite-member") return undefined;
-        const resend = ctx.body?.resend === true;
-        // Match the invite request's lowercased address and its explicit or active Organization.
-        const address = ctx.body?.email;
-        if (typeof address !== "string") return undefined;
-        const email = address.toLowerCase();
-        if (!invitationEmail.safeParse(email).success) return undefined;
-        // A refusal below drops the headers this read would set, so it must not renew.
-        const session = await getSessionFromCtx(ctx, { disableRefresh: true });
-        if (!session) return undefined;
-        const requested = ctx.body.organizationId || session.session.activeOrganizationId;
-        if (typeof requested !== "string") return undefined;
-        const organizationId = OrganizationId(requested);
-        const caller = UserId(session.user.id);
-        if (resend) {
-          if (await findInvitationInviterCannotGrantByEmail(db, organizationId, caller, email)) {
-            throw APIError.fromStatus("CONFLICT", {
-              message: "This invitation can no longer be renewed. Create a new invitation.",
-            });
-          }
-        } else if (
-          await findLiveInvitationCallerCannotGrantByEmail(db, organizationId, caller, email)
-        ) {
-          throw APIError.from(
-            "FORBIDDEN",
-            ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE,
-          );
         }
         return undefined;
       }),
@@ -250,20 +206,16 @@ export function authOptions(settings: AuthSettings, mode: "serving" | "offline" 
         roles,
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
-        cancelPendingInvitationsOnReInvite: true,
         organizationHooks: {
-          async beforeAcceptInvitation({ invitation }) {
-            // The inviter may have lost authority since the link was shared.
-            if (!(await findLiveInvitation(invitation.id)))
-              throw APIError.from("BAD_REQUEST", ORGANIZATION_ERROR_CODES.INVITATION_NOT_FOUND);
-          },
           // Cancelling by ID requires authority to grant the role even after the invitation lapses.
           async beforeCancelInvitation({ invitation, cancelledBy }) {
             const member = await db
               .selectFrom("member")
               .where("organizationId", "=", OrganizationId(invitation.organizationId))
               .where("userId", "=", UserId(cancelledBy.id))
-              .select((eb) => mayGrantRole(eb.ref("role"), eb.val(invitation.role)).as("mayGrant"))
+              .select((eb) =>
+                mayManageInvitation(eb.ref("role"), eb.val(invitation.role)).as("mayGrant"),
+              )
               .limit(1)
               .executeTakeFirst();
             if (!member?.mayGrant)

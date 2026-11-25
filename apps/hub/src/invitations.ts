@@ -3,14 +3,14 @@ import { Effect, Predicate } from "effect";
 import { jsonBuildObject } from "kysely/helpers/postgres";
 
 import { requireRolePermission } from "./auth/auth.ts";
-import { liveInvitations, mayGrantRole } from "./auth/invitation-grants.ts";
+import { pendingInvitations, mayManageInvitation } from "./auth/invitation-grants.ts";
 import { Db } from "./db/database.ts";
 import type { InvitationId, OrganizationId } from "./db/types.ts";
 
 export function previewInvitation(id: InvitationId) {
   return Db.use((database) =>
     database.query((db) =>
-      liveInvitations(db)
+      pendingInvitations(db)
         .innerJoin("organization", "organization.id", "invitation.organizationId")
         .where("invitation.id", "=", id)
         .select([
@@ -30,10 +30,10 @@ export function listInvitations(organizationId: OrganizationId, role: string) {
     yield* requireRolePermission(role, { invitation: ["create"] });
     return yield* Db.use((database) =>
       database.query((db) =>
-        liveInvitations(db)
+        pendingInvitations(db)
           .innerJoin("user", "user.id", "invitation.inviterId")
           .where("invitation.organizationId", "=", organizationId)
-          .where((eb) => mayGrantRole(eb.val(role), eb.ref("invitation.role")))
+          .where((eb) => mayManageInvitation(eb.val(role), eb.ref("invitation.role")))
           .select([
             "invitation.id",
             "invitation.email",

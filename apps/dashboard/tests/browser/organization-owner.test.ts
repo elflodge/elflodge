@@ -35,8 +35,8 @@ test("removing a member counts their active keys and invitations and keeps their
   await expect
     .element(dialog)
     .toMatchTextContent("1 active API key created by Mei Tanaka keeps working.");
-  await expect.element(dialog).toMatchTextContent("Their 1 pending invitation stops working.");
-  // An admin keeps the invitations that do not grant owner.
+  await expect.element(dialog).toMatchTextContent("Their 1 pending invitation stays valid.");
+  // Selecting the current role has no consequences.
   await check(dialog.getByRole("radio", { name: /^Admin/ }));
   await expect.element(dialog).not.toMatchTextContent("pending invitation");
   await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -48,9 +48,7 @@ test("removing a member counts their active keys and invitations and keeps their
     .toMatchTextContent(
       "1 active API key created by Mei Tanaka keeps working. Review it under API keys, and the Runners registered with it under Runners.",
     );
-  await expect
-    .element(confirmation)
-    .toMatchTextContent("Their 1 pending invitation stops working.");
+  await expect.element(confirmation).toMatchTextContent("Their 1 pending invitation stays valid.");
   hub.auth.organization.removeMember.answers({ member: mei });
   const removal = hub.auth.organization.removeMember.hold();
   await confirmation.getByRole("button", { name: "Remove Mei Tanaka" }).click();

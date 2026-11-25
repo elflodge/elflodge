@@ -183,9 +183,9 @@ test("an admin's re-invite preserves a live owner invitation and its grant", asy
     { email: email.toUpperCase(), role: "member", organizationId },
     cookie,
   );
-  expect(response.status).toBe(403);
+  expect(response.status).toBe(400);
   expect(await response.json()).toMatchObject({
-    code: "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE",
+    code: "USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION",
   });
 
   const invitations = system.client().invitations;
@@ -210,10 +210,11 @@ test("only an owner can cancel an invitation granting owner by ID", async () => 
   await expectUnavailable(invitationId);
 });
 
-test("an owner can replace an admin's member invitation in one call", async () => {
+test("an owner can revoke an invitation and issue one with a different role", async () => {
   const cookie = await joinAsInviter("replaced-inviter@example.com", "admin");
   const email = "replacement@example.com";
   const original = await invite(email, "member", cookie);
+  await system.ownerAuth().organization.cancelInvitation({ invitationId: original.id });
   const replacement = await invite(email, "admin");
   await expectUnavailable(original.id);
   const invitations = system.client().invitations;
@@ -224,60 +225,10 @@ test("an owner can replace an admin's member invitation in one call", async () =
   await join(email, replacement.id);
 });
 
-test("a resend renews while the inviter can grant the role, is refused after demotion without spending the session's renewal, and a replacement works", async () => {
-  const inviterEmail = "demoted-owner@example.com";
-  const inviter = await joinAsInviter(inviterEmail, ["owner"]);
-  const admin = await joinAsInviter("replacement-admin@example.com", "admin");
-  const email = "reinvited-member@example.com";
-  const original = await invite(email, "owner", inviter);
-  const resend = () =>
-    authPost(
-      "organization/invite-member",
-      { email, role: "owner", organizationId, resend: true },
-      system.ownerCookie(),
-    );
-  const renewed = await resend();
-  expect(renewed.status).toBe(200);
-  expect(await renewed.json()).toMatchObject({ id: original.id });
-  const inviterMemberId = await memberId(inviterEmail);
-  await system.ownerAuth().organization.updateMemberRole({
-    memberId: inviterMemberId,
-    role: "admin",
-    organizationId,
-  });
-
-  await system.makeSessionDueForRenewal(system.ownerCookie());
-  const refused = await resend();
-  expect(refused.status).toBe(409);
-  expect(await refused.json()).toMatchObject({
-    message: "This invitation can no longer be renewed. Create a new invitation.",
-  });
-  // The refusal leaves the renewal to get-session, which sends the cookie.
-  const session = await system.hub.fetch("/api/auth/get-session", {
-    headers: { cookie: system.ownerCookie() },
-  });
-  expect(session.headers.get("set-cookie")).toContain("session_token=");
-
-  const replacement = await invite(email, "member", admin);
-  await system.ownerAuth().organization.updateMemberRole({
-    memberId: inviterMemberId,
-    role: "owner",
-    organizationId,
-  });
-  await expectUnavailable(original.id);
-  expect(await system.client().invitations.preview({ invitationId: replacement.id })).toMatchObject(
-    {
-      email,
-      role: "member",
-    },
-  );
-});
-
-test("demotion to admin voids owner grants, hides owner invitations and prevents removing an owner", async () => {
+test("an admin cannot list owner invitations or remove an owner", async () => {
   const email = "inviter@example.com";
   const cookie = await joinAsInviter(email, ["owner", "admin"]);
   const ownerGrant = await invite("another-owner@example.com", ["admin", "owner"], cookie);
-  const invitee = await register(ownerGrant.email, ownerGrant.id);
   const memberGrant = await invite("another-member@example.com", "member", cookie);
   const ownerOnly = await invite("original-owner-grant@example.com", "owner");
   const listed = await system.owner().invitations.list();
@@ -302,30 +253,24 @@ test("demotion to admin voids owner grants, hides owner invitations and prevents
   expect(asAdmin.map((row) => row.id)).toContain(memberGrant.id);
   expect(asAdmin.map((row) => row.id)).not.toContain(ownerOnly.id);
 
-  await expectUnavailable(ownerGrant.id);
-  const refused = await authPost(
-    "organization/accept-invitation",
-    { invitationId: ownerGrant.id },
-    invitee,
-  );
-  expect(await refused.json()).toMatchObject({ code: "INVITATION_NOT_FOUND" });
+  expect((await system.owner().invitations.list()).map((row) => row.id)).toContain(ownerGrant.id);
 });
 
-test("removal voids an inviter's outstanding grants and preserves key attribution", async () => {
+test("a manager can see and revoke a departed member's invitation and see who created their key", async () => {
   const email = "departing-admin@example.com";
   const cookie = await joinAsInviter(email, "admin");
-  const memberGrant = await invite("another-member@example.com", "member", cookie);
+  const memberGrant = await invite("departed-inviter-recipient@example.com", "member", cookie);
   const { id: keyId } = await system
     .client({ cookie })
     .apiKeys.create({ name: "Shared", permissions: { runner: ["read"] } });
   await system.ownerAuth().organization.removeMember({ memberIdOrEmail: email, organizationId });
-  await expectUnavailable(memberGrant.id);
+  await system.client().invitations.preview({ invitationId: memberGrant.id });
+  expect((await system.owner().invitations.list()).map((row) => row.id)).toContain(memberGrant.id);
   const keys = await system.owner().apiKeys.list();
   expect(keys.find((key) => key.id === keyId)?.creator).toMatchObject({
     name: "Inviter",
     isMember: false,
   });
-  const replacement = await invite(memberGrant.email, "member");
-  expect(replacement.id).not.toBe(memberGrant.id);
-  await system.client().invitations.preview({ invitationId: replacement.id });
+  await system.ownerAuth().organization.cancelInvitation({ invitationId: memberGrant.id });
+  await expectUnavailable(memberGrant.id);
 });

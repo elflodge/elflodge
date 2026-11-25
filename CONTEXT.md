@@ -13,7 +13,7 @@ A person in the organization, signed in with a password, with a role there. Bett
 _Avoid_: seat
 
 **Invitation**:
-A one-use, expiring offer to join the Organization at a particular email address with a particular role. It holds only while the inviter can grant the role.
+A one-use, expiring offer to join the Organization at a particular email address with a particular role. A manager can revoke a pending invitation.
 
 **API key**:
 A named, revocable credential owned by the organization that a service uses to call the hub, limited to the actions it is granted. Each key is an identity of its own, as a service account is elsewhere; the member who created it is recorded but does not act through it.

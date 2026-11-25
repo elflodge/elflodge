@@ -260,7 +260,7 @@ function OrganizationPage(props: { organizationId: string }) {
   );
 
   function refreshAfterMembershipChange() {
-    // The inviter's authority and each key creator's membership may have changed as well.
+    // The reader’s role determines which invitations they can manage. Key creators may have left.
     void refreshInvites();
     void refreshKeys();
     return refreshMembers();
@@ -501,13 +501,7 @@ function OrganizationPage(props: { organizationId: string }) {
   ) {
     if (!manages() || person.role === next) return undefined;
     const own = isOwn(person);
-    const sent = liveInvitations().filter((invite) => invite.inviter.id === person.userId);
-    const lost =
-      next === "admin"
-        ? sent.filter((invite) => rolesOf(invite.role).includes("owner")).length
-        : next === "owner"
-          ? 0
-          : sent.length;
+    const sent = liveInvitations().filter((invite) => invite.inviter.id === person.userId).length;
     const keepKeys = ["remove", "leave", "member"].includes(next);
     const count =
       keyList() === undefined
@@ -544,11 +538,11 @@ function OrganizationPage(props: { organizationId: string }) {
             </Show>
           </p>
         </Show>
-        <Show when={lost > 0}>
+        <Show when={next !== "owner" && sent > 0}>
           <p>
-            {own ? "Your" : "Their"} {lost} pending {plural(lost, "invitation", "invitations")}
-            {next === "admin" ? plural(lost, " that grants owner", " that grant owner") : ""}{" "}
-            {plural(lost, "stops", "stop")} working.
+            {own ? "Your" : "Their"} {sent} pending{" "}
+            {plural(sent, "invitation stays", "invitations stay")} valid. Revoke unwanted
+            invitations separately.
           </p>
         </Show>
       </>
