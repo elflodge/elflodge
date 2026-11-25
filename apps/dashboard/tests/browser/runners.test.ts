@@ -2,7 +2,7 @@ import { expect, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser/context";
 
 import { anApiKey, aRunner } from "../records.ts";
-import { focus, liveRegions, runClockUntil, test } from "./dashboard.tsx";
+import { focus, liveRegions, readAgain, runClockUntil, test } from "./dashboard.tsx";
 
 // The Runners page: removing a Runner, adding one, and what a member who may not remove one sees.
 
@@ -128,6 +128,34 @@ test("a Runner a read drops while its dialog is open is still named there, and i
   expect(hub.runners.delete.calls).toEqual([{ id: former.id }]);
 });
 
+test("Add Runner shows every newly listed machine even when another registers first", async ({
+  hub,
+  open,
+}) => {
+  const existing = aRunner("existing-host");
+  const first = aRunner("other-host");
+  const second = aRunner("my-host");
+  hub.runners.list.answers([existing]);
+  const page = await open("runners");
+  await page.getByRole("button", { name: "Add Runner" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Runner" });
+  const notice = dialog
+    .getByRole("status")
+    .filter({ hasText: "Newly listed since you opened this dialog" });
+  hub.runners.list.answers([existing, first]);
+  readAgain();
+  await expect.element(notice).toMatchTextContent(first.name);
+  hub.runners.list.answers([existing, first, second]);
+  readAgain();
+  const entries = notice.getByRole("listitem");
+  await expect.element(entries).toHaveLength(2);
+  for (const runner of [first, second]) {
+    await expect
+      .element(entries.filter({ hasText: runner.name }))
+      .toHaveTextContent(`${runner.name} ${runner.id.slice(0, 8)}`);
+  }
+});
+
 test("Add Runner cannot be left while its key is created, then shows the key in the command and announces a copy without it", async ({
   hub,
   open,
@@ -190,7 +218,11 @@ test("Add Runner cannot be left while its key is created, then shows the key in 
   const copyLine = dialog.getByCSS("p.copy");
   const copy = copyLine.getByRole("button", { name: "Copy the command" });
   await expect.element(copy).toHaveFocus();
-  await expect.element(copy).toHaveAccessibleDescription(/^Shown this once: the registration key/);
+  await expect
+    .element(copy)
+    .toHaveAccessibleDescription(
+      /^Shown this once: the registration key.*your shell may save the registration key in its history\./,
+    );
   await expect.element(command.getByCSS("mark.key")).toHaveTextContent(answer.key);
   expect(hub.apiKeys.create.calls).toHaveLength(1);
 

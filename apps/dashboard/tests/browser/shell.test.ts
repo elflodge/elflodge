@@ -17,6 +17,18 @@ import {
 // the document title, which start signed out, are in files of their own. A session ending and a
 // second tab, which load the page again, are journeys in the hub's tests (journeys/session.test.ts).
 
+test.for([
+  ["hubNotSetUp", "The hub is not set up."],
+  ["notMember", "This account is no longer a member of the Organization."],
+] as const)(
+  "the Organization access notice explains a %s session",
+  async ([status, message], { hub, open }) => {
+    hub.session.answers({ ...signedIn("owner"), membership: { status } });
+    const page = await open("jobs");
+    await expect.element(page.getByRole("alert")).toHaveTextContent(message);
+  },
+);
+
 test("the bar leads to the dashboard's pages, and on a phone names the current one", async ({
   hub,
   open,
