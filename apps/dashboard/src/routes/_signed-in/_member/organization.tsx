@@ -501,7 +501,6 @@ function OrganizationPage(props: { organizationId: string }) {
   ) {
     if (!manages() || person.role === next) return undefined;
     const own = isOwn(person);
-    const sent = liveInvitations().filter((invite) => invite.inviter.id === person.userId).length;
     const keepKeys = ["remove", "leave", "member"].includes(next);
     const count =
       keyList() === undefined
@@ -538,11 +537,13 @@ function OrganizationPage(props: { organizationId: string }) {
             </Show>
           </p>
         </Show>
-        <Show when={next !== "owner" && sent > 0}>
+        <Show when={keepKeys || (next === "admin" && rolesOf(person.role).includes("owner"))}>
           <p>
-            {own ? "Your" : "Their"} {sent} pending{" "}
-            {plural(sent, "invitation stays", "invitations stay")} valid. Revoke unwanted
-            invitations separately.
+            Pending invitations stay valid. Revoke any that should stop working.
+            <Show when={!owner()}>
+              {" "}
+              Only an owner can review invitations granting owner access.
+            </Show>
           </p>
         </Show>
       </>
