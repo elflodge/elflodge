@@ -1,14 +1,44 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isDeepStrictEqual } from "node:util";
+
+import type { ExtensionAPI, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 // An extension that follows a run as observability and prompt extensions do: it adds to the
 // system prompt, sends a message with the prompt and selects the active tools in
 // `before_agent_start`, and records the lifecycle events. Its tool returns the events so far and
-// then reports progress; at the end of the session it saves the events and the context's usage. It
+// then reports progress; at the end of the session it saves the events, the compactions it was told
+// of with whether its session shows their entries the same, and the context's usage. It writes a
+// compaction's summary itself when asked to keep its own, as custom compaction extensions do. It
 // registers tools just before and after its selection, as extensions that register tools when a
 // run starts do beside another that selects them.
 export default function extension(pi: ExtensionAPI) {
   const seen: string[] = [];
+  const compactions: { event: SessionCompactEvent; same: boolean }[] = [];
+  pi.on("session_compact", (event, ctx) => {
+    const entry = ctx.sessionManager.getEntry(event.compactionEntry.id);
+    compactions.push({ event, same: isDeepStrictEqual(entry, event.compactionEntry) });
+  });
+  pi.on("session_before_compact", ({ customInstructions, preparation }) => {
+    if (customInstructions !== "keep mine") return undefined;
+    const { firstKeptEntryId, tokensBefore } = preparation;
+    const usage = {
+      input: 10,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 12,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+    return {
+      compaction: {
+        summary: "Mine.",
+        firstKeptEntryId,
+        tokensBefore,
+        details: { mine: true },
+        usage,
+      },
+    };
+  });
   const events = [
     "agent_start",
     "turn_start",
@@ -23,7 +53,7 @@ export default function extension(pi: ExtensionAPI) {
   for (const event of events) pi.on(event, () => void seen.push(event));
   // What it saw by the end of the session, and how full the context was, kept with the conversation.
   pi.on("session_shutdown", (_event, ctx) =>
-    pi.appendEntry("seen", { events: seen, usage: ctx.getContextUsage() }),
+    pi.appendEntry("seen", { events: seen, compactions, usage: ctx.getContextUsage() }),
   );
   pi.on("before_agent_start", (event) => {
     seen.push(`before_agent_start ${event.prompt}`);

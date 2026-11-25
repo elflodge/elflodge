@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { basename } from "node:path";
 import { setTimeout } from "node:timers/promises";
 
@@ -21,6 +21,7 @@ export default function extension(pi: ExtensionAPI) {
   const tool = (name: string) =>
     fauxAssistantMessage([fauxToolCall(name, {})], { stopReason: "toolUse" });
   let owner = "";
+  let cwd = "";
   // Keep the signal of the original request, including across later requests returning tool results.
   let request: AbortSignal | undefined;
   const config: ProviderConfig = {
@@ -44,6 +45,9 @@ export default function extension(pi: ExtensionAPI) {
           }
           request = options?.signal;
           queries.set(owner, request);
+          // Where a test keeps an order log beside the working directory, the requests that reach
+          // the provider are noted in it.
+          if (existsSync(`${cwd}.order`)) appendFileSync(`${cwd}.order`, `${text}\n`);
           if (text === "crash") process.exit(3);
           if (/^(wait for provider|ignore abort)$/.test(text) && request && !request.aborted)
             await once(request, "abort");
@@ -74,6 +78,7 @@ export default function extension(pi: ExtensionAPI) {
   const { streamSimple: _, ...settings } = config;
 
   pi.on("session_start", async ({ reason }, ctx) => {
+    cwd = ctx.cwd;
     owner = basename(ctx.cwd);
     // Holds a reopening while the test keeps the file beside the working directory.
     while (reason === "resume" && existsSync(`${ctx.cwd}.hold`)) await setTimeout(20);

@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   awaitWithContext,
@@ -16,6 +17,7 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { calculateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
+  CompactionEntry,
   type Conversation,
   createRegistry,
   defineExtension,
@@ -24,6 +26,7 @@ import {
   GenerationTask,
   Harness,
   hook,
+  ProviderDoc,
 } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -439,12 +442,18 @@ test("a run's lifecycle reaches the extensions, which add to its prompt, select 
   });
 });
 
-test("right after a compaction, the context's usage is unknown", async () => {
+/**
+ * Runs a conversation with the extension `source` through a compaction of pi-durable's, then one
+ * whose summary the extension writes when asked to keep its own, and closes its extensions; the
+ * conversation's entries then, newest first, its model, the messages the first compaction kept, and
+ * what it ran with.
+ */
+async function compactTwice(source: string) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
     prepared: await prepareExtensions({
-      sources: [path.join(import.meta.dirname, "fixtures", "lifecycle")],
+      sources: [path.join(import.meta.dirname, "fixtures", source)],
       dir,
     }),
   });
@@ -453,14 +462,16 @@ test("right after a compaction, the context's usage is unknown", async () => {
   const models = createModels();
   models.setProvider(faux.provider);
   const model = faux.getModel();
+  const long = fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]);
   faux.setResponses([
-    () => fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
-    () => fauxAssistantMessage([fauxText("Done.")]),
-    () => fauxAssistantMessage([fauxText("Summary.")]),
+    long,
+    fauxAssistantMessage([fauxText("Done.")]),
+    fauxAssistantMessage([fauxText("Summary.")]),
+    long,
+    fauxAssistantMessage([fauxText("Done.")]),
   ]);
   const registry = createRegistry();
-  // Keeping the second run, whose request wrote the tools the extension selected in the first,
-  // and cutting the first run's long answer.
+  // Keeping the second run, and cutting the first run's long answer.
   const harness = await Harness.open(
     new MemoryStorage(),
     { models, registry, settings: { ...settings, compaction: { keepRecentTokens: 2000 } } },
@@ -474,26 +485,281 @@ test("right after a compaction, the context's usage is unknown", async () => {
     { harness, conversation, registry, models, cwd: dir },
     context,
   );
-  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
-  await (await conversation.submit({ type: "input", content: "again" }, context)).wait(context);
-  // Idle, so the summary is placed at once rather than at the next run.
-  await conversation.waitForIdle(context);
-  await harness.waitForTask(await conversation.compact(undefined, context), context);
+  const ask = async (content: string) =>
+    (await conversation.submit({ type: "input", content }, context)).wait(context);
+  // Idle, so each summary is placed at once rather than at the next run.
+  const compact = async (instructions?: string) => {
+    await conversation.waitForIdle(context);
+    await harness.waitForTask(await conversation.compact(instructions, context), context);
+  };
+  await ask("hi");
+  await ask("again");
+  await compact();
   const { messages } = await conversation.context(context);
-  // The kept history carries the system entry the second run's request wrote.
-  expect(messages.map((message) => message.role)).toContain("system");
+  await ask("more");
+  await ask("done");
+  // The extension writes this summary.
+  await compact("keep mine");
+  await extensions.close();
+  const { items } = await conversation.entries({ order: "descending" }, 20, undefined, context);
+  return { items, model, kept: messages, host, harness, conversation, registry, models, dir };
+}
 
-  // The next request writes the whole system prompt again, which is not counted yet, so the tokens
-  // are unknown, as Pi's are after a compaction, rather than low; the kept system entry does not
-  // change that.
+test("compactions reach the extensions as session_compact, as their session shows them, after which the context's usage is unknown", async () => {
+  const { items, model, kept } = await compactTwice("lifecycle");
+  // The kept history carries the system entry the second run's request wrote.
+  expect(kept.map((message) => message.role)).toContain("system");
+  const [saved] = items;
+  const [mine, summary] = items.filter((entry) => CompactionEntry.is(entry));
+  expect(saved).toMatchObject({ kind: "piext.seen" });
+  expect(saved?.data).toMatchObject({
+    compactions: [
+      {
+        event: {
+          type: "session_compact",
+          // As Pi records a compaction, with the IDs `ctx.sessionManager` gives entries.
+          compactionEntry: {
+            type: "compaction",
+            id: `${summary?.id}`,
+            parentId: expect.any(String),
+            timestamp: expect.any(String),
+            summary: "Summary.",
+            firstKeptEntryId: `${summary?.head}`,
+            // How large the context was, and the system prompt and tools it ended with.
+            tokensBefore: expect.any(Number),
+            systemMessage: { role: "system" },
+            fromHook: false,
+          },
+          fromExtension: false,
+          reason: "manual",
+          willRetry: false,
+        },
+        // Its session shows the entry as the event gives it.
+        same: true,
+      },
+      {
+        event: {
+          compactionEntry: {
+            id: `${mine?.id}`,
+            summary: "Mine.",
+            firstKeptEntryId: `${mine?.head}`,
+            // What the extension's compaction carried.
+            tokensBefore: expect.any(Number),
+            details: { mine: true },
+            usage: { totalTokens: 12 },
+            fromHook: true,
+          },
+          fromExtension: true,
+          reason: "manual",
+          willRetry: false,
+        },
+        same: true,
+      },
+    ],
+    // The next request writes the whole system prompt again, which is not counted yet, so the
+    // tokens are unknown, as Pi's are after a compaction, rather than low; the kept system entry
+    // does not change that.
+    usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
+  });
+});
+
+test("an extension's session shows every compaction as Pi stores it, its own summary's details too, without a session_compact handler, in a fork as well", async () => {
+  const { items, host, harness, conversation, registry, models, dir } =
+    await compactTwice("compactions.ts");
+
+  const [saved] = items;
+  const [mine, summary] = items.filter((entry) => CompactionEntry.is(entry));
+  expect(saved).toMatchObject({ kind: "piext.compactions" });
+  expect(saved?.data).toMatchObject([
+    {
+      type: "compaction",
+      id: `${summary?.id}`,
+      summary: "Summary.",
+      // How large the context was, as pi-durable's context gives it.
+      tokensBefore: expect.any(Number),
+      fromHook: false,
+    },
+    // What the extension's compaction carried, as JSON.
+    {
+      id: `${mine?.id}`,
+      summary: "Mine.",
+      details: { mine: true, from: "https://example.com/" },
+      fromHook: true,
+    },
+  ]);
+  expect(saved?.data).not.toMatchObject([{ tokensBefore: 0 }, {}]);
+
+  // The fork's history holds both compactions, and its session shows them the same.
+  if (!mine) throw new Error("The extension's summary is missing");
+  const fork = await conversation.fork(mine.id, { ownership: { kind: "ownerless" } }, context);
+  const forked = await host.attach(
+    { harness, conversation: fork, registry, models, cwd: dir },
+    context,
+  );
+  await forked.close();
+  const {
+    items: [savedInFork],
+  } = await fork.entries({ order: "descending" }, 1, undefined, context);
+  expect(savedInFork?.data).toStrictEqual(saved?.data);
+});
+
+/**
+ * A response made at the request, a few milliseconds in as a real one, since Pi tells a failed
+ * recovery only for a response newer than the compaction.
+ */
+const later =
+  (...args: Parameters<typeof fauxAssistantMessage>) =>
+  async () => {
+    await sleep(5);
+    return fauxAssistantMessage(...args);
+  };
+
+const overflow = later([], {
+  stopReason: "error",
+  errorMessage: "prompt is too long: 213462 tokens > 200000 maximum",
+});
+
+test("a compaction that ends without a summary, or whose request overflows again or is cut short, reaches session_compact_failed once, with what started it and why, after the turn as in Pi", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "compact-failed.ts")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  faux.setResponses([
+    fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
+    fauxAssistantMessage([fauxText("Done.")]),
+    // The summary's request, which pi-durable does not retry for this error.
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "The summarizer broke" }),
+    fauxAssistantMessage([fauxText("Done.")]),
+    // A request that overflows the context, its compaction's summary, and the same request again.
+    overflow,
+    fauxAssistantMessage([fauxText("Summary.")]),
+    overflow,
+    // The same, then the answer cut off below the model's output limit.
+    fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
+    overflow,
+    fauxAssistantMessage([fauxText("Summary.")]),
+    later([fauxText("Cut")], { stopReason: "length" }),
+  ]);
+  const registry = createRegistry();
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    { models, registry, settings: { ...settings, compaction: { keepRecentTokens: 2000 } } },
+    context,
+  );
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+  const ask = async (content: string) =>
+    (await conversation.submit({ type: "input", content }, context)).wait(context);
+  const compact = async (instructions?: string) => {
+    await conversation.waitForIdle(context);
+    await harness.waitForTask(await conversation.compact(instructions, context), context);
+  };
+  await compact();
+  await ask("hi");
+  await ask("again");
+  await compact();
+  await compact("cancel");
+  // pi-durable keeps the failure while this run goes on.
+  await ask("more");
+  expect(await ask("too much")).toMatchObject({ status: "unanswered" });
+  await ask("long");
+  expect(await ask("cut")).toMatchObject({ status: "done" });
+
   await extensions.close();
   const {
     items: [saved],
   } = await conversation.entries({ order: "descending" }, 1, undefined, context);
-  expect(saved).toMatchObject({
-    kind: "piext.seen",
-    data: { usage: { tokens: null, contextWindow: model.contextWindow, percent: null } },
+  expect(saved).toMatchObject({ kind: "piext.failed" });
+  // In Pi's words for a manual compaction.
+  const failed = { type: "session_compact_failed", reason: "manual", willRetry: false };
+  const again = { ...failed, reason: "overflow", aborted: false, fromExtension: false };
+  expect(saved?.data).toStrictEqual([
+    {
+      after: "start",
+      ...failed,
+      errorMessage: "Compaction failed: Nothing to compact (session too small)",
+      aborted: false,
+      fromExtension: false,
+    },
+    // Then pi-durable's error.
+    {
+      after: "agent_settled",
+      ...failed,
+      errorMessage: "Compaction failed: Summarization failed: The summarizer broke",
+      aborted: false,
+      fromExtension: false,
+    },
+    // The extension's cancel.
+    { after: "agent_settled", ...failed, aborted: true, fromExtension: false },
+    // The failed run's last turn; a run that fails has no `agent_end` here.
+    {
+      after: "turn_end",
+      ...again,
+      errorMessage:
+        "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
+    },
+    // Between the run's `agent_end` and `agent_settled`.
+    {
+      after: "agent_end",
+      ...again,
+      errorMessage: "Truncated response recovery failed after one compact-and-retry attempt.",
+    },
+  ]);
+});
+
+test("closing a conversation's extensions releases what providers keep for its session alone", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const log = path.join(dir, "released");
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "resources")],
+      dir,
+    }),
+    // One worker, so both conversations' extensions share the providers' module state.
+    maxWorkers: 1,
+    workerOptions: { env: { ...process.env, RESOURCES_LOG: log } },
   });
+  onTestFinished(() => host.close());
+  const models = createModels();
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
+  onTestFinished(() => harness.close(context));
+  const attach = async () => {
+    const conversation = await harness.createConversation(
+      { ownership: { kind: "ownerless" } },
+      context,
+    );
+    const extensions = await host.attach(
+      { harness, conversation, registry, models, cwd: dir },
+      context,
+    );
+    return { conversation, extensions };
+  };
+  const closed = await attach();
+  await attach();
+
+  await closed.extensions.close();
+
+  // Providers key what they keep by the conversation's provider session ID, which requests carry.
+  const provider = await harness.snapshot(ProviderDoc, closed.conversation.id, context);
+  const released = await readFile(log, "utf8").catch(() => "");
+  expect(released.split("\n").filter(Boolean)).toEqual([provider?.sessionId]);
 });
 
 test("a run's prompt additions reach its later rounds after the host restarts", async () => {

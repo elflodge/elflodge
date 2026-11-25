@@ -15,9 +15,11 @@ import { SyncMessagePort } from "sync-message-port";
 import { Value } from "typebox/value";
 
 import {
+  toJson,
   unsupportedProviderFields,
   type Action,
   type ExtensionError,
+  type HandlerError,
   type HostFunctions,
   type JournalMessage,
   ReadReply,
@@ -56,6 +58,8 @@ for (const { source, path } of workerData.extensions) {
  * within a conversation; they go when the conversation closes.
  */
 interface Opened extends Instance {
+  /** Pi's session ID for the instance, which providers key what they keep for the session by. */
+  readonly sessionId: string;
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
   readonly providerStreams: Map<string, NonNullable<ProviderConfig["streamSimple"]>>;
@@ -71,6 +75,14 @@ interface Opened extends Instance {
 }
 
 const instances = new Map<string, Opened>();
+/**
+ * The instance that releases each session's resources at its close, by session ID: the latest one
+ * whose opening started. An earlier instance of the same conversation can still be open here, its
+ * close past the host's time limit, as when a shutdown handler hangs, or still loading, its
+ * opening given up on; the host has let go of it, and what providers keep for the session is the
+ * latest instance's.
+ */
+const releasing = new Map<string, string>();
 type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
 
 const journal = new SyncMessagePort(workerData.journal);
@@ -144,6 +156,8 @@ function registrations(instance: Instance): Registrations {
 
 const functions: WorkerFunctions = {
   async open(key, sessionId, cwd, flags) {
+    // Before loading, so an earlier opening that finishes later does not take it back.
+    releasing.set(sessionId, key);
     const life = new AbortController();
     // A write after close, such as a timer's message, is dropped rather than thrown, which would
     // end the worker with every other conversation on it. A later instance of the same conversation
@@ -153,7 +167,7 @@ const functions: WorkerFunctions = {
     };
     const prompts = new Set<Promise<void>>();
     const providerStreams: Opened["providerStreams"] = new Map();
-    const instance = await runtime.createInstance(extensions, {
+    const opening = runtime.createInstance(extensions, {
       cwd,
       flags,
       registerProvider(name, config) {
@@ -256,8 +270,15 @@ const functions: WorkerFunctions = {
       changed: () => host.changed(key),
       error: (error) => host.error(key, error),
     });
+    // An opening that fails releases the session now: an earlier instance still here is one the
+    // host let go of, whose close passed its time limit and may never end.
+    void opening.catch(() => {
+      for (const failure of releaseSessionResources(key, sessionId)) void host.error(key, failure);
+    });
+    const instance = await opening;
     instances.set(key, {
       ...instance,
+      sessionId,
       life,
       providerStreams,
       providerRequests: new Map(),
@@ -391,7 +412,9 @@ const functions: WorkerFunctions = {
       canContinue: false,
     }));
   },
-  async beforeCompact(key, { reason, instructions, firstKept, messages, entries }) {
+  async beforeCompact(key, compaction) {
+    const { reason, instructions, firstKept, messages, entries, tokensBefore, willRetry } =
+      compaction;
     const result = await runnerFor(key).emit({
       type: "session_before_compact",
       preparation: {
@@ -400,19 +423,41 @@ const functions: WorkerFunctions = {
         messagesToSummarize: messages as AgentMessages,
         turnPrefixMessages: [],
         isSplitTurn: false,
-        tokensBefore: 0,
+        tokensBefore,
         fileOps: { read: new Set(), written: new Set(), edited: new Set() },
         settings: runtime.DEFAULT_COMPACTION_SETTINGS,
       },
       branchEntries: [...entries],
       customInstructions: instructions,
       reason,
-      willRetry: false,
+      willRetry,
       signal: new AbortController().signal,
     });
     if (result?.cancel) return { decline: true };
-    const summary = result?.compaction?.summary;
-    return summary === undefined ? undefined : { summary };
+    if (!result?.compaction) return undefined;
+    // pi-durable keeps its own first kept entry, and places the summary alone. What else the
+    // compaction carries is stored as JSON, so it crosses as JSON: a value the reply cannot copy,
+    // such as a URL, would end the worker. One JSON cannot hold, such as a BigInt, is left out
+    // and reported, and the summary is placed without it.
+    const { summary, tokensBefore: before } = result.compaction;
+    const json = (field: "details" | "usage") => {
+      try {
+        const value = toJson(result.compaction?.[field]);
+        return value === undefined ? {} : { [field]: value };
+      } catch (error) {
+        // An Error is reported as it is: ensure-error assigns to its cause, which throws on a
+        // frozen one.
+        const failure = error instanceof Error ? error : ensureError(error);
+        void host.error(key, {
+          source: "<runtime>",
+          event: "session_before_compact",
+          message: failure.message,
+          ...(failure.stack !== undefined && { stack: failure.stack }),
+        });
+        return {};
+      }
+    };
+    return { summary, tokensBefore: before, ...json("details"), ...json("usage") };
   },
   async executeTool(key, callId, name, args) {
     const instance = instanceFor(key);
@@ -494,9 +539,41 @@ const functions: WorkerFunctions = {
       found.life.abort();
       for (const controller of found.providerRequests.values()) controller.abort();
       found.providerRequests.clear();
+      for (const failure of releaseSessionResources(key, found.sessionId)) {
+        void host.error(key, failure);
+      }
     }
   },
+  releaseSessionResources,
 };
+
+/**
+ * Releases what providers keep in this worker for the session, such as an open connection, as Pi's
+ * `AgentSession.dispose` does after `session_shutdown`, when this instance is the one `releasing`
+ * names, and returns what failed. The host's own pi-ai is pi-durable's, which releases its provider
+ * sessions when the Harness closes.
+ */
+function releaseSessionResources(key: string, sessionId: string): HandlerError[] {
+  if (releasing.get(sessionId) !== key) return [];
+  releasing.delete(sessionId);
+  try {
+    runtime.cleanupSessionResources(sessionId);
+    return [];
+  } catch (error) {
+    // pi-ai runs every cleanup and throws the failures together. An Error is reported as it is:
+    // ensure-error assigns to its cause, which throws on a frozen one.
+    const failures: unknown[] = error instanceof AggregateError ? error.errors : [error];
+    return failures.map((each) => {
+      const failure = each instanceof Error ? each : ensureError(each);
+      return {
+        source: "<runtime>",
+        event: "cleanup_session_resources",
+        message: failure.message,
+        ...(failure.stack !== undefined && { stack: failure.stack }),
+      };
+    });
+  }
+}
 
 /**
  * An extension's prompt, through the `input` handlers first, as Pi's `sendUserMessage` sends it
