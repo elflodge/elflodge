@@ -89,22 +89,24 @@ export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
           <h2 id={list().end} tabindex="-1">
             No {list().plural} yet
           </h2>
-          <Show
-            when={props.runners?.every((runner) => !runner.connected)}
-            fallback={
+          <Switch>
+            <Match when={props.runners?.every((runner) => !runner.connected)}>
+              <p>Jobs run on Runners, and no Runner is connected to this hub.</p>
+              <p class="empty-act">
+                <Link to="/runners" class="stands-alone">
+                  Add Runner
+                </Link>
+              </p>
+            </Match>
+            <Match when={props.runners !== undefined}>
               <p>
                 {list().empty}
-                <code>elflodge batches submit</code>
+                <Show when={props.to === "/batches"}>
+                  <code>elflodge batches submit</code>
+                </Show>
               </p>
-            }
-          >
-            <p>Jobs run on Runners, and no Runner is connected to this hub.</p>
-            <p class="empty-act">
-              <Link to="/runners" class="stands-alone">
-                Add Runner
-              </Link>
-            </p>
-          </Show>
+            </Match>
+          </Switch>
         </Match>
       </Switch>
     </div>

@@ -2,7 +2,15 @@ import type { JSX } from "@solidjs/web";
 import type { QueryKey } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
 import { Button } from "@ui-sdk/solid/button";
-import { For, Show, createEffect, createSignal, onFlush } from "solid-js";
+import {
+  For,
+  Show,
+  createContext,
+  createEffect,
+  createSignal,
+  onFlush,
+  useContext,
+} from "solid-js";
 import * as z from "zod/mini";
 
 import { focusIfLost, focusAfterLinkDrops } from "../form.ts";
@@ -64,14 +72,29 @@ function filterFocusTarget(to: keyof typeof listPages) {
     : document.querySelector<HTMLButtonElement>(`#${id} button[type=submit]`);
 }
 
-export function ClearFiltersLink(props: {
-  to: keyof typeof listPages;
-  children: string;
-  closePanel?: () => void;
-}) {
+function createFilterPanel() {
+  const [open, setOpen] = createSignal(false);
+  return {
+    open,
+    toggle: () => setOpen((wasOpen) => !wasOpen),
+    // Close before navigation starts waiting for the next list.
+    close: () => onFlush(() => setOpen(false)),
+  };
+}
+
+const FilterPanel = createContext<ReturnType<typeof createFilterPanel>>();
+
+/** The filter form and its results share one disclosure, including when the list read fails. */
+export function ListFilterPanel(props: { children: JSX.Element }) {
+  const panel = createFilterPanel();
+  return <FilterPanel value={panel}>{props.children}</FilterPanel>;
+}
+
+export function ClearFiltersLink(props: { to: keyof typeof listPages; children: string }) {
+  const { close } = useContext(FilterPanel);
   const target = () => filterFocusTarget(props.to);
   const returnToFilters = focusAfterLinkDrops(target, () => {
-    props.closePanel?.();
+    close();
     const control = target();
     if (control?.checkVisibility()) control.focus();
   });
@@ -100,19 +123,14 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
   children: JSX.Element;
 }) {
   const id = () => listPages[props.to].filters;
-  const [open, setOpen] = createSignal(false);
-
-  function closePanel() {
-    // Close in a separate flush so navigation cannot hold the panel open until its read settles.
-    onFlush(() => setOpen(false));
-  }
+  const { open, toggle, close } = useContext(FilterPanel);
 
   const { pending, onSubmit, resetForNavigation } = createSearchForm({
     to: props.to,
     schema: props.schema,
     queryKey: props.queryKey,
     beforeSubmit() {
-      closePanel();
+      close();
       filterFocusTarget(props.to)?.focus();
     },
   });
@@ -136,7 +154,7 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
         class="filter-toggle"
         aria-expanded={open() ? "true" : "false"}
         aria-controls={id()}
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        onClick={toggle}
       >
         Filters
         <Show when={props.applied > 0}> ({formatCount(props.applied)} applied)</Show>
@@ -159,9 +177,7 @@ export function ListFilters<T extends Record<string, unknown>>(props: {
               Apply
             </Button>
             <Show when={props.applied > 0}>
-              <ClearFiltersLink to={props.to} closePanel={closePanel}>
-                Clear
-              </ClearFiltersLink>
+              <ClearFiltersLink to={props.to}>Clear</ClearFiltersLink>
             </Show>
           </span>
         </div>

@@ -14,7 +14,12 @@ import * as z from "zod/mini";
 
 import { Field } from "../../../components/Field.tsx";
 import { STATUS_WORDS } from "../../../components/JobStatus.tsx";
-import { ListFilters, StatusFilters, statusFilter } from "../../../components/ListFilters.tsx";
+import {
+  ListFilterPanel,
+  ListFilters,
+  StatusFilters,
+  statusFilter,
+} from "../../../components/ListFilters.tsx";
 import { memberPageHead } from "../../../page-title.ts";
 import { orpc } from "../../../query.ts";
 import { optionalText } from "../../../search-form.ts";
@@ -72,7 +77,7 @@ function Jobs() {
     runners.dataUpdatedAt ? latest(() => deep(runners.data)) : undefined,
   );
   return (
-    <>
+    <ListFilterPanel>
       <div hidden={listFailed()}>
         <div class="head">
           <h1>Jobs</h1>
@@ -85,7 +90,7 @@ function Jobs() {
         <Filters filters={filters()} runners={roster() ?? []} />
       </div>
       <Outlet />
-    </>
+    </ListFilterPanel>
   );
 }
 

@@ -200,7 +200,7 @@ Sentences that explain are `p.prose`: 15px, at most 72 characters a line. `p.not
 
 ### Empty
 
-A list with nothing in it says what belongs there and the way to it: `div.empty` holds an `h2` naming what is missing, "No … yet" where nothing has come so far, as "No API keys yet", a `p` that says how it comes, and a `p.empty-act` with the way on only where the head does not already have it. A list its filters leave empty and a page past the last keep their own words, "No job matches these filters" and "No older jobs" (`src/components/ListEnd.tsx`).
+A list with nothing in it says what belongs there and the way to it: `div.empty` holds an `h2` naming what is missing, "No … yet" where nothing has come so far, as "No API keys yet", a `p` that says how it comes, and a `p.empty-act` with the way on only where the head does not already have it. Jobs and Batches show the empty heading while the Runner list is unknown. Once it answers, suggest adding a Runner or using the submission action in the page heading. A list its filters leave empty and a page past the last keep their own words, "No job matches these filters" and "No older jobs" (`src/components/ListEnd.tsx`).
 
 ```tsx
 <div class="empty">
@@ -551,8 +551,8 @@ The disclosure starts at 760px to leave room for the six Jobs status checks on o
 
 1. The panel starts closed on arrival, including at a filtered address.
 2. Pressing Filters toggles the panel.
-3. Pressing Apply or Clear immediately closes the panel and focuses Filters.
-4. List links, paging, Back, and the success or failure of a read leave the panel as the reader set it.
+3. Pressing Apply, Clear, or the result’s “Clear the filters” link immediately closes the panel and focuses Filters.
+4. Other list links, paging, Back, and the success or failure of a read leave the panel as the reader set it.
 
 ```html
 <button type="button" class="filter-toggle" aria-expanded="false" aria-controls="jobs-filters">
