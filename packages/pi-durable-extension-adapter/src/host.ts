@@ -26,6 +26,7 @@ import {
   type Usage,
 } from "@earendil-works/pi-ai";
 import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
+import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 import type {
   CompactionEntry as SessionCompactionEntry,
@@ -46,6 +47,7 @@ import {
   type CommitPublication,
   CompactionEntry,
   type CompactionInput,
+  type CompactionResult,
   CompactionTask,
   type CompactionReason,
   defineExtension,
@@ -56,6 +58,8 @@ import {
   type EntryRecord,
   type Cursor,
   defineDoc,
+  type GenerationCheckpoint,
+  type SubmissionId,
   type Page,
   type PromptInput,
   type PromptSection,
@@ -91,11 +95,10 @@ import { Guard } from "typebox/guard";
 import { Value } from "typebox/value";
 
 import type { PreparedExtensions } from "./prepare.ts";
-import { serializedFailure } from "./protocol.ts";
+import { serializedFailure, toJson } from "./protocol.ts";
 import type {
   Action,
   AgentStartTrigger,
-  CompactDecision,
   ExtensionError,
   Flags,
   HandlerError,
@@ -710,6 +713,11 @@ class Installation {
    * or `session_compact_failed`.
    */
   #commits: CommitObservation | undefined;
+  /**
+   * The compactions `session_compact_failed` was told for when they were seen `completing`, until
+   * they are `terminal`, so a conversation attached again in between does not tell them again.
+   */
+  readonly told = new Set<TaskId>();
 
   constructor(workers: Workers, harness: Harness, registry: Registry, emptied: () => void) {
     this.workers = workers;
@@ -824,7 +832,10 @@ class Installation {
     return api.conversationId === owner ? this.#conversations.get(owner) : undefined;
   }
 
-  /** Hooks for the Pi events the conversation's extensions listen to, and only those. */
+  /**
+   * Hooks for the Pi events the conversation's extensions listen to, and only those, besides the
+   * compaction hook, which notes what the session shows of each compaction.
+   */
   #hooks(owner: ConversationId, events: Set<string>): HookRegistration[] {
     const has = (...names: string[]) => names.some((name) => events.has(name));
     const hooks: HookRegistration[] = [];
@@ -852,7 +863,7 @@ class Installation {
         beforeProviderRequest: async (request, api, context) =>
           this.#for(owner, api)?.beforeProviderRequest(request, context),
       }),
-      ...(has("message_end", "turn_end") && {
+      ...(has("message_end", "turn_end", "session_compact_failed") && {
         afterResponse: async (message, api, context) =>
           this.#for(owner, api)?.afterResponse(message, api, context),
       }),
@@ -870,14 +881,13 @@ class Installation {
       }),
     };
     if (Object.keys(generation).length > 0) hooks.push(hook(GenerationTask, generation));
-    if (has("session_before_compact")) {
-      hooks.push(
-        hook(CompactionTask, {
-          beforeCompact: async (compaction, api, context) =>
-            this.#for(owner, api)?.beforeCompact(compaction, api, context),
-        }),
-      );
-    }
+    // Whatever the extensions listen to, as it notes what the session shows of each compaction.
+    hooks.push(
+      hook(CompactionTask, {
+        beforeCompact: async (compaction, api, context) =>
+          this.#for(owner, api)?.beforeCompact(compaction, api, context),
+      }),
+    );
     return hooks;
   }
 
@@ -991,12 +1001,23 @@ class AttachedConversation {
   /** Aborted once the extensions are closed, which ends the waits for their handlers. */
   readonly #ended = new AbortController();
   /**
-   * The compactions this conversation's `session_before_compact` handlers cancelled, until their
-   * end, for `session_compact_failed`.
+   * The compactions this conversation's `session_before_compact` handlers cancelled, until they are
+   * `terminal`, for `session_compact_failed`.
    */
   readonly #declined = new Set<TaskId>();
-  /** The compactions seen `completing`, whose end was told then, until they are `terminal`. */
-  readonly #ending = new Set<TaskId>();
+  /**
+   * The compactions whose summary this conversation's `session_before_compact` handlers supplied,
+   * until they are `terminal`, for `session_compact_failed`'s `fromExtension`.
+   */
+  readonly #supplied = new Set<TaskId>();
+  /**
+   * The summaries waiting in write submissions to be placed, until they settle, for
+   * `session_compact_failed` should pi-durable drop one.
+   */
+  readonly #placing = new Map<
+    SubmissionId,
+    { readonly reason: CompactionReason; readonly fromExtension: boolean }
+  >();
   /** What the session shows of each compaction besides its entry, which only a context read tells. */
   readonly #measured = new Map<EntryId, Measured>();
 
@@ -1381,6 +1402,9 @@ class AttachedConversation {
   async afterResponse(message: AssistantMessage, api: HookApi, context: Context) {
     await awaitWithContext(this.#ready, context);
     if (!this.#running) return;
+    const overflow = message.stopReason === "error" && isContextOverflow(message);
+    if (overflow && this.#listens("session_compact_failed"))
+      await this.#followOverflow(api, context);
     if (this.#listens("message_end")) await this.#rpc.messageEnd(this.#route, message);
     // A tool round's `turn_end` comes from `afterTools`; pi-durable starts one only for a response
     // with calls, and takes one without as an answer.
@@ -1458,12 +1482,14 @@ class AttachedConversation {
   }
 
   /**
-   * `session_before_compact`: a cancel declines the compaction, and a compaction of a handler's own
-   * replaces pi-durable's summary, once what it carries besides is kept in its notes.
+   * Notes what pi-durable's summary entry has no place for of every compaction (`CompactionNotes`),
+   * and runs `session_before_compact`: a cancel declines the compaction, and a compaction of a
+   * handler's own replaces pi-durable's summary, once what it carries besides is noted too.
    */
   async beforeCompact(
     compaction: {
       readonly reason: CompactionReason;
+      readonly entries: readonly EntryRecord[];
       readonly messages: readonly Message[];
       readonly firstKept: EntryId;
       readonly instructions?: string;
@@ -1472,53 +1498,55 @@ class AttachedConversation {
     context: Context,
   ) {
     await awaitWithContext(this.#ready, context);
-    if (!this.#running) return undefined;
+    // The context the compaction chose from, as pi-durable read it just before its hooks.
     const { messages } = await this.#options.conversation.context(context);
-    const decision = await this.#rpc.beforeCompact(this.#route, {
-      reason: compaction.reason,
-      instructions: compaction.instructions,
-      firstKept: `${compaction.firstKept}`,
-      messages: compaction.messages.filter((message) => message.role !== "system"),
-      entries: await this.#entries(),
-      tokensBefore: estimateContextTokens(messages).tokens,
-      willRetry: willRetry(compaction.reason),
-    });
-    if (!decision) return undefined;
+    const tokensBefore = estimateContextTokens(messages).tokens;
+    const decision =
+      this.#running && this.#listens("session_before_compact")
+        ? await this.#rpc.beforeCompact(this.#route, {
+            reason: compaction.reason,
+            instructions: compaction.instructions,
+            firstKept: `${compaction.firstKept}`,
+            messages: compaction.messages.filter((message) => message.role !== "system"),
+            entries: await this.#entries(),
+            tokensBefore,
+            willRetry: willRetry(compaction.reason),
+          })
+        : undefined;
     // pi-durable takes the first decision and asks no later hook.
-    if ("decline" in decision) {
+    if (decision && "decline" in decision) {
       if (this.#listens("session_compact_failed")) this.#declined.add(api.taskId);
       return decision;
     }
-    const { summary, ...supplied } = decision;
-    await this.#keepNotes(compaction.firstKept, summary, supplied, context);
-    return { summary };
+    await this.#keepNote(
+      compaction.firstKept,
+      {
+        tokensBefore,
+        ...(decision && {
+          supplied: {
+            summary: summaryHash(decision.summary),
+            tokensBefore: decision.tokensBefore,
+            ...(decision.details !== undefined && { details: decision.details }),
+            ...(decision.usage !== undefined && { usage: decision.usage }),
+          },
+        }),
+      },
+      context,
+    );
+    if (!decision) return undefined;
+    if (this.#listens("session_compact_failed")) this.#supplied.add(api.taskId);
+    return { summary: decision.summary };
   }
 
   /**
-   * Keeps what a handler's compaction carries besides its summary in the conversation's
-   * `CompactionNotes`, before pi-durable places the summary, so that every read of the summary's
-   * entry finds them: a fork's, and one after a restart, too. A value JSON cannot hold, such as a
-   * BigInt in `details`, is left out and reported, as is a commit that fails; the summary is placed
-   * either way.
+   * Writes the note of the compaction that keeps the entries from `firstKept` on, before pi-durable
+   * places its summary. A commit that fails is reported, and the summary is placed without it.
    */
-  async #keepNotes(firstKept: EntryId, summary: string, supplied: Supplied, context: Context) {
-    const note: CompactionNote = { tokensBefore: supplied.tokensBefore };
-    try {
-      const details = toJson(supplied.details);
-      if (details !== undefined) note.details = details;
-    } catch (error) {
-      this.#reportFailure("session_before_compact", error);
-    }
-    try {
-      const usage = toJson(supplied.usage);
-      if (usage !== undefined) note.usage = usage;
-    } catch (error) {
-      this.#reportFailure("session_before_compact", error);
-    }
+  async #keepNote(firstKept: EntryId, note: CompactionNote, context: Context) {
     const { conversation } = this.#options;
     try {
       await conversation.commit(async (tx) => {
-        (await tx.doc(CompactionNotes, conversation.id)).notes[noteKey(firstKept, summary)] = note;
+        (await tx.doc(CompactionNotes, conversation.id)).notes[`${firstKept}`] = note;
       }, context);
     } catch (error) {
       // An abort is the compaction's: pi-durable's abort handling takes it.
@@ -1545,15 +1573,17 @@ class AttachedConversation {
   /**
    * Follows the compactions a commit stored for the conversation: `session_compact` for each summary
    * pi-durable placed, as Pi gives it once a compaction is written, and `session_compact_failed`
-   * for each compaction that ended without one (`#followEnd`).
+   * for each compaction that ended without one (`#followEnd`) or whose summary pi-durable dropped
+   * (`#followPlacement`). Task ends first, as a commit's changes come in no order and an idle
+   * conversation settles a summary's write in the commit that ends its compaction.
    */
   followCompactions(changes: readonly StoredChange[]) {
     if (this.#closing) return;
     for (const change of changes) {
-      if (change.type === "task") {
-        this.#followEnd(change.value, changes);
-        continue;
-      }
+      if (change.type === "task") this.#followEnd(change.value, changes);
+    }
+    for (const change of changes) {
+      if (change.type === "submission") this.#followPlacement(change.value);
       if (change.type !== "entry" || !CompactionEntry.is(change.value)) continue;
       if (!this.#listens("session_compact")) continue;
       const entry = change.value;
@@ -1576,66 +1606,131 @@ class AttachedConversation {
    * it: for a cancel by this conversation's handlers or an abort, with `aborted`; for a failure,
    * with the error `pi.live` records in the commit that ends the compaction; and for a manual
    * compaction with nothing to compact, with Pi's error for that. A task with children left ends
-   * `completing`, and `terminal` once they end, so it is told at whichever comes first. An
-   * automatic compaction with nothing to compact has no event, as in Pi. One that an app's own
-   * pi-durable hook declines ends the same way here, so it is told as one with nothing to compact.
+   * `completing`, and `terminal` once they end; a fault the scheduler writes is recorded only then.
+   * So it is told at the first of the two that has it, and the Installation keeps which were told
+   * until `terminal`, for a conversation attached again in between. An automatic compaction with
+   * nothing to compact has no event, as in Pi. One that an app's own pi-durable hook declines ends
+   * the same way here, so it is told as one with nothing to compact.
    */
   #followEnd(task: StoredTask, changes: readonly StoredChange[]) {
     if (task.kind !== CompactionTask.definition.name) return;
     const { state } = task;
     if (state.status !== "completing" && state.status !== "terminal") return;
-    const told = this.#ending.has(task.id);
-    if (state.status === "completing") this.#ending.add(task.id);
-    else this.#ending.delete(task.id);
-    const declined = this.#declined.delete(task.id);
-    if (told || !this.#listens("session_compact_failed")) return;
+    const terminal = state.status === "terminal";
+    const declined = this.#declined.has(task.id);
+    const fromExtension = this.#supplied.has(task.id);
+    const { told } = this.#installation;
+    if (terminal) {
+      this.#declined.delete(task.id);
+      this.#supplied.delete(task.id);
+      if (told.delete(task.id)) return;
+    } else if (told.has(task.id)) return;
+    if (!this.#listens("session_compact_failed")) return;
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the compaction task's own input
     const { reason } = task.input as CompactionInput;
-    const failed = (fields: Pick<SessionCompactFailedEvent, "aborted" | "errorMessage">) =>
+    const failed = (
+      fields: () => Promise<Pick<SessionCompactFailedEvent, "aborted" | "errorMessage">>,
+    ) => {
+      if (!terminal) told.add(task.id);
       this.#queueCompactionEvent(async () => ({
         type: "session_compact_failed",
         reason,
-        ...fields,
+        ...(await fields()),
         // Pi retries no request after a compaction that failed.
         willRetry: false,
-        // A summary a handler supplied is placed in the commit that ends its compaction, so a
-        // compaction that ends without a summary never had one.
-        fromExtension: false,
+        fromExtension,
       }));
+    };
     const { outcome } = state;
     if (outcome.status === "aborted" || (declined && outcome.status === "completed")) {
-      failed({ aborted: true });
+      failed(async () => ({ aborted: true }));
       return;
     }
     if (outcome.status === "completed") {
-      const result: unknown = outcome.result;
-      // pi-durable's `CompactionResult`: a summary placed, or waiting to be.
-      if (Guard.IsObjectNotArray(result) && (result.entryId ?? result.submissionId) !== undefined)
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the compaction task's own result
+      const { entryId, submissionId } = outcome.result as CompactionResult;
+      // A summary placed, or waiting to be.
+      if (entryId !== undefined) return;
+      if (submissionId !== undefined) {
+        this.#placing.set(submissionId, { reason, fromExtension });
         return;
+      }
       if (reason !== "manual") return;
-      this.#queueCompactionEvent(async () => ({
-        type: "session_compact_failed",
-        reason,
+      // Read now, as the task ends, rather than once the events before it are done.
+      const newest = this.#newest().then(
+        ({ shown }) => shown,
+        () => undefined,
+      );
+      failed(async () => ({
+        aborted: false,
         errorMessage: `${COMPACTION_FAILED.manual}: ${
-          (await this.#newestShown())?.type === "compaction"
+          (await newest)?.type === "compaction"
             ? "Already compacted"
             : "Nothing to compact (session too small)"
         }`,
-        aborted: false,
-        willRetry: false,
-        fromExtension: false,
       }));
       return;
     }
     const live = changes.find((change) => change.type === "document");
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `pi.live` at the version this Harness runs (`isStored`)
     const failure = (live?.value as LiveState | undefined)?.compactionFailure;
-    // Not one pi-durable counts as a failure, such as an aborted one whose abort was cut off.
+    // None yet, as for a fault while children are left, or none pi-durable counts as a failure,
+    // such as an abort whose abort was cut off.
     if (!failure || failure.taskId !== task.id) return;
-    failed({
+    failed(async () => ({
       aborted: false,
       errorMessage: `${COMPACTION_FAILED[failure.trigger]}: ${failure.error}`,
-    });
+    }));
+  }
+
+  /**
+   * `session_compact_failed` for a summary waiting in a write submission that pi-durable settled
+   * without placing it: a later compaction or a reset moved the context past its cut first, so it
+   * went stale. Pi always places a summary its compaction produced, so the error is the adapter's.
+   */
+  #followPlacement(submission: StoredSubmission) {
+    const placing = this.#placing.get(submission.id);
+    if (!placing || submission.status === "queued") return;
+    this.#placing.delete(submission.id);
+    if (submission.status !== "unanswered" || !this.#listens("session_compact_failed")) return;
+    const { reason, fromExtension } = placing;
+    this.#queueCompactionEvent(async () => ({
+      type: "session_compact_failed",
+      reason,
+      errorMessage: `${COMPACTION_FAILED[reason]}: ${
+        submission.reason === "stale"
+          ? "The summary was not placed, as a later compaction or a reset came first"
+          : `The summary was not placed (${submission.reason})`
+      }`,
+      aborted: false,
+      willRetry: false,
+      fromExtension,
+    }));
+  }
+
+  /**
+   * `session_compact_failed` for a request that overflows the context again after the compaction
+   * its overflow started, which pi-durable fails without another, as Pi does. The generation that
+   * waited for that compaction keeps its task in the checkpoint it sends from.
+   */
+  async #followOverflow(api: HookApi, context: Context) {
+    const { harness } = this.#options;
+    const task = await harness.getTask(api.taskId, context);
+    if (task?.state.status !== "running") return;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generation task's own checkpoint
+    const checkpoint = task.state.checkpoint as GenerationCheckpoint;
+    if (checkpoint.phase !== "request" || checkpoint.compacted === undefined) return;
+    const compaction = await harness.getTask(checkpoint.compacted, context);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the compaction task's own input
+    if ((compaction?.input as CompactionInput | undefined)?.reason !== "overflow") return;
+    this.#queueCompactionEvent(async () => ({
+      type: "session_compact_failed",
+      reason: "overflow",
+      errorMessage: OVERFLOW_AGAIN,
+      aborted: false,
+      willRetry: false,
+      fromExtension: false,
+    }));
   }
 
   /**
@@ -1657,40 +1752,51 @@ class AttachedConversation {
   }
 
   /**
-   * The compaction entry as `ctx.sessionManager` shows it. One whose session cannot be read, as
-   * when the Harness closes meanwhile, is reported, and given with what its entry alone has.
+   * The compaction entry as `ctx.sessionManager` shows it, from the entries just before it alone.
+   * One whose session cannot be read, as when the Harness closes meanwhile, is reported, and given
+   * with what its entry alone has.
    */
   async #shownCompaction(
     entry: TypedEntry<{ reason: CompactionReason }>,
   ): Promise<SessionCompactionEntry> {
     try {
-      const shown = (await this.#entries()).find((each) => each.id === `${entry.id}`);
-      if (shown?.type === "compaction") return shown;
+      const { harness, conversation } = this.#options;
+      const notes = await harness.snapshot(CompactionNotes, conversation.id, BACKGROUND_CONTEXT);
+      const { record, shown } = await this.#newest(entry.id);
+      const note = entry.head === undefined ? undefined : notes?.notes[`${entry.head}`];
+      const measured = await this.#measure(entry, record);
+      return compactionSessionEntry(entry, shown?.id ?? null, note, measured);
     } catch (error) {
       this.#reportFailure("session_compact", error);
     }
     return compactionSessionEntry(entry, null, undefined, undefined);
   }
 
-  /** The newest entry the session shows, without reading the whole history. */
-  async #newestShown(): Promise<SessionEntry | undefined> {
+  /**
+   * The newest entry before `below`, or of all without it: its record, and the newest entry the
+   * session shows, read a page at a time from the newest rather than the whole history.
+   */
+  async #newest(below?: EntryId): Promise<{ record?: EntryRecord; shown?: SessionEntry }> {
     const newest = paged(
       (limit, cursor) =>
         this.#options.conversation.entries(
-          { order: "descending" },
+          { order: "descending", ...(below !== undefined && { maxEntryId: below }) },
           limit,
           cursor,
           BACKGROUND_CONTEXT,
         ),
       NEWEST_PAGE,
     );
-    for await (const record of newest) {
-      if (CompactionEntry.is(record))
-        return compactionSessionEntry(record, null, undefined, undefined);
-      const shown = sessionEntries(record, null, "").at(-1);
-      if (shown) return shown;
+    let record: EntryRecord | undefined;
+    for await (const each of newest) {
+      if (each.id === below) continue;
+      record ??= each;
+      const shown = CompactionEntry.is(each)
+        ? compactionSessionEntry(each, null, undefined, undefined)
+        : sessionEntries(each, null, "").at(-1);
+      if (shown) return { record, shown };
     }
-    return undefined;
+    return { record };
   }
 
   async beforeProviderRequest(request: { readonly payload: unknown }, context: Context) {
@@ -2067,10 +2173,7 @@ class AttachedConversation {
         entries.push(...sessionEntries(record, parentId, now));
         continue;
       }
-      const note =
-        record.head === undefined
-          ? undefined
-          : notes?.[noteKey(record.head, compactionSummary(record))];
+      const note = record.head === undefined ? undefined : notes?.[`${record.head}`];
       const measured = await this.#measure(record, found[index - 1]);
       entries.push(compactionSessionEntry(record, parentId, note, measured));
     }
@@ -2175,7 +2278,8 @@ class AttachedConversation {
     this.#installation.remove(this);
     // Its commits are no longer observed, so nothing ends these any more.
     this.#declined.clear();
-    this.#ending.clear();
+    this.#supplied.clear();
+    this.#placing.clear();
     // Its provider queries end by their IDs first, so a `session_shutdown` handler that hangs
     // cannot keep them open; their registrations go with them.
     this.providers.close();
@@ -2191,8 +2295,16 @@ class AttachedConversation {
       );
       const done = await awaitWithContext(closed, limited).catch(() => false);
       // Past the limit, as behind a shutdown handler that never returns, what providers keep for
-      // the session is released all the same, as another conversation can keep the worker going.
-      if (!done) void hosted.rpc.releaseSessionResources(this.#route).catch(() => {});
+      // the session is released all the same, as another conversation can keep the worker going;
+      // what fails is reported here, as the worker's reports for an instance let go of are dropped.
+      if (!done) {
+        void hosted.rpc.releaseSessionResources(this.#route).then(
+          (failures) => {
+            for (const failure of failures) this.#workers.report(failure, this.conversationId);
+          },
+          () => {},
+        );
+      }
     }
     this.#closed = true;
     this.#ended.abort();
@@ -2267,12 +2379,6 @@ function repairArguments(args: unknown, schema: object): unknown {
     }
   }
   return repaired ?? args;
-}
-
-/** A value as JSON, as pi-durable stores it: what does not survive JSON is dropped. */
-function toJson(value: unknown): JsonValue | undefined {
-  const text = JSON.stringify(value);
-  return text === undefined ? undefined : JSON.parse(text);
 }
 
 /** `details`, when there are any that survive JSON. */
@@ -2379,13 +2485,25 @@ const COMPACTION_FAILED = {
 } satisfies Record<CompactionReason, string>;
 
 /**
- * What a commit stored that `AttachedConversation.followCompactions` reads: entries, tasks and
- * changes of `pi.live`.
+ * Pi's error for a request that overflows the context again after the compaction its overflow
+ * started (`AgentSession`).
  */
-type StoredChange = Extract<CommitChange, { readonly type: "entry" | "task" }> | LiveChange;
+const OVERFLOW_AGAIN =
+  "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.";
+
+/**
+ * What a commit stored that `AttachedConversation.followCompactions` reads: entries, tasks,
+ * submissions and changes of `pi.live`.
+ */
+type StoredChange =
+  | Extract<CommitChange, { readonly type: "entry" | "task" | "submission" }>
+  | LiveChange;
 
 /** A task a commit stored. */
 type StoredTask = Extract<StoredChange, { readonly type: "task" }>["value"];
+
+/** A submission a commit stored. */
+type StoredSubmission = Extract<StoredChange, { readonly type: "submission" }>["value"];
 
 /** A change of a conversation's `pi.live`, at the definition version the Harness runs. */
 type LiveChange = Extract<CommitChange, { readonly type: "document"; readonly kind: "change" }> & {
@@ -2397,6 +2515,7 @@ function isStored(change: CommitChange): change is StoredChange {
   switch (change.type) {
     case "entry":
     case "task":
+    case "submission":
       return true;
     case "document":
       return (
@@ -2410,25 +2529,36 @@ function isStored(change: CommitChange): change is StoredChange {
   }
 }
 
-/** What a `session_before_compact` handler's compaction carries besides its summary. */
-type Supplied = Omit<Extract<CompactDecision, { readonly summary: string }>, "summary">;
-
-/** What a handler's compaction carried besides its summary, see `CompactionNotes`. */
+/**
+ * What the adapter's `beforeCompact` hook learned of a compaction that pi-durable's summary entry
+ * has no place for, by its cut, see `CompactionNotes`.
+ */
 type CompactionNote = {
+  /** The context's estimated size when the compaction chose what to summarize, as Pi's. */
   tokensBefore: number;
-  details?: JsonValue;
-  /** Pi's `Usage`. */
-  usage?: JsonValue;
+  /** What a `session_before_compact` handler's compaction carried besides its summary. */
+  supplied?: {
+    /** The hash of the summary (`summaryHash`), which the placed entry must match. */
+    summary: string;
+    tokensBefore: number;
+    details?: JsonValue;
+    /** Pi's `Usage`. */
+    usage?: JsonValue;
+  };
 };
 
 /**
- * What `session_before_compact` handlers' compactions carried besides their summaries, which
- * pi-durable's summary entry has no place for, by `noteKey`. pi-durable places a summary in an
- * entry of its own, from another task when the conversation is busy, so only what the entry
- * carries links the two: its first kept entry and its summary. A summary found here was a
- * handler's; any other is pi-durable's own. Two compactions at the same cut whose summaries are the
- * same text share one record, the later one's, so they show the later one's notes. A fork copies
- * the document whole: the records of entries it does not share are never looked up.
+ * What the adapter's `beforeCompact` hook learned of each compaction, by its first kept entry, the
+ * cut, which pi-durable places as the summary entry's `head`. pi-durable places a summary in an
+ * entry of its own, from another task when the conversation is busy, so the cut and the summary are
+ * all that link the entry to its compaction. The hook writes the record before it returns, so every
+ * read that sees the entry finds it, a fork's and one after a restart too, and every run of the hook
+ * for a cut writes it again, so a handler's notes do not outlive a later attempt that supplied
+ * nothing. A handler's notes count only for the summary whose hash they keep: an entry with another
+ * summary is pi-durable's own. Two compactions at the same cut whose summaries are the same text,
+ * one after the other, share the later one's record; so does a compaction the hook did not see,
+ * with no extensions attached, as in a fork that copied the record (`fork: "current"`) and reached
+ * the cut again. A fork's copies of records for cuts it does not share are never looked up.
  */
 const CompactionNotes = defineDoc<{ notes: Record<string, CompactionNote> }>({
   kind: "pi-durable-extension-adapter.compaction-notes",
@@ -2437,16 +2567,19 @@ const CompactionNotes = defineDoc<{ notes: Record<string, CompactionNote> }>({
   history: "latest",
   fork: "current",
   initial: () => ({ notes: {} }),
-  // A complete base now and then bounds what a cold read replays.
-  checkpointWhen: (_value, _ops, { deltasSinceBase }) => deltasSinceBase >= 31,
+  // A complete value each write, as pi-durable's own `pi.usage`: one is written per compaction.
+  checkpointWhen: () => true,
 });
 
-/**
- * The notes' key for a summary that keeps the entries from `firstKept` on: the placed entry's
- * `head`, and a hash of the summary, which its text gives back.
- */
-function noteKey(firstKept: EntryId, summary: string) {
-  return `${firstKept}:${createHash("sha256").update(summary).digest("base64url")}`;
+/** The hash of a summary, by which a handler's notes find their summary entry. */
+function summaryHash(summary: string) {
+  return createHash("sha256").update(summary).digest("base64url");
+}
+
+/** The handler's notes in `note`, if they are of the summary `entry` placed. */
+function suppliedFor(note: CompactionNote | undefined, entry: EntryRecord) {
+  const supplied = note?.supplied;
+  return supplied?.summary === summaryHash(compactionSummary(entry)) ? supplied : undefined;
 }
 
 /**
@@ -2506,8 +2639,9 @@ function sessionEntries(record: EntryRecord, parentId: string | null, now: strin
 }
 
 /**
- * A compaction summary as Pi's compaction entry, after `parentId`: with the `note` of the handler's
- * compaction that supplied it, or as pi-durable's own, and what the context `measured` before it.
+ * A compaction summary as Pi's compaction entry, after `parentId`: with what the adapter's hook
+ * noted of its compaction (`CompactionNotes`), a handler's notes if they are of this summary, and
+ * what the context `measured` before it.
  */
 function compactionSessionEntry(
   record: TypedEntry<{ reason: CompactionReason }>,
@@ -2516,6 +2650,7 @@ function compactionSessionEntry(
   measured: Measured | undefined,
 ): SessionCompactionEntry {
   const placedAt = record.model?.[0]?.timestamp ?? 0;
+  const supplied = suppliedFor(note, record);
   return {
     type: "compaction",
     id: `${record.id}`,
@@ -2523,12 +2658,12 @@ function compactionSessionEntry(
     timestamp: new Date(placedAt).toISOString(),
     summary: compactionSummary(record),
     firstKeptEntryId: `${record.head ?? record.id}`,
-    tokensBefore: note ? note.tokensBefore : (measured?.tokensBefore ?? 0),
-    fromHook: note !== undefined,
-    ...(note?.details !== undefined && { details: note.details }),
-    ...(note?.usage !== undefined && {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- stored as JSON from Pi's `Usage` (`#keepNotes`), which pi-ai has no schema for
-      usage: note.usage as unknown as Usage,
+    tokensBefore: supplied?.tokensBefore ?? note?.tokensBefore ?? measured?.tokensBefore ?? 0,
+    fromHook: supplied !== undefined,
+    ...(supplied?.details !== undefined && { details: supplied.details }),
+    ...(supplied?.usage !== undefined && {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- stored as JSON from Pi's `Usage` (`toJson` in the worker), which pi-ai has no schema for
+      usage: supplied.usage as unknown as Usage,
     }),
     // At the summary's time, as Pi stamps it.
     ...(measured?.systemMessage && {

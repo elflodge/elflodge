@@ -15,9 +15,11 @@ import { SyncMessagePort } from "sync-message-port";
 import { Value } from "typebox/value";
 
 import {
+  toJson,
   unsupportedProviderFields,
   type Action,
   type ExtensionError,
+  type HandlerError,
   type HostFunctions,
   type JournalMessage,
   ReadReply,
@@ -155,7 +157,6 @@ function registrations(instance: Instance): Registrations {
 const functions: WorkerFunctions = {
   async open(key, sessionId, cwd, flags) {
     // Before loading, so an earlier opening that finishes later does not take it back.
-    const previous = releasing.get(sessionId);
     releasing.set(sessionId, key);
     const life = new AbortController();
     // A write after close, such as a timer's message, is dropped rather than thrown, which would
@@ -269,12 +270,10 @@ const functions: WorkerFunctions = {
       changed: () => host.changed(key),
       error: (error) => host.error(key, error),
     });
-    // An opening that fails gives the session back to the instance before it, or, if that one
-    // closed meanwhile, leaving it to this one, releases it now.
+    // An opening that fails releases the session now: an earlier instance still here is one the
+    // host let go of, whose close passed its time limit and may never end.
     void opening.catch(() => {
-      if (previous !== undefined && instances.has(previous) && releasing.get(sessionId) === key)
-        releasing.set(sessionId, previous);
-      else releaseSessionResources(key, sessionId);
+      for (const failure of releaseSessionResources(key, sessionId)) void host.error(key, failure);
     });
     const instance = await opening;
     instances.set(key, {
@@ -436,9 +435,27 @@ const functions: WorkerFunctions = {
     });
     if (result?.cancel) return { decline: true };
     if (!result?.compaction) return undefined;
-    // pi-durable keeps its own first kept entry, and places the summary alone.
-    const { summary, tokensBefore: before, details, usage } = result.compaction;
-    return { summary, tokensBefore: before, details, usage };
+    // pi-durable keeps its own first kept entry, and places the summary alone. What else the
+    // compaction carries is stored as JSON, so it crosses as JSON: a value the reply cannot copy,
+    // such as a URL, would end the worker. One JSON cannot hold, such as a BigInt, is left out
+    // and reported, and the summary is placed without it.
+    const { summary, tokensBefore: before } = result.compaction;
+    const json = (field: "details" | "usage") => {
+      try {
+        const value = toJson(result.compaction?.[field]);
+        return value === undefined ? {} : { [field]: value };
+      } catch (error) {
+        const failure = ensureError(error);
+        void host.error(key, {
+          source: "<runtime>",
+          event: "session_before_compact",
+          message: failure.message,
+          ...(failure.stack !== undefined && { stack: failure.stack }),
+        });
+        return {};
+      }
+    };
+    return { summary, tokensBefore: before, ...json("details"), ...json("usage") };
   },
   async executeTool(key, callId, name, args) {
     const instance = instanceFor(key);
@@ -520,40 +537,42 @@ const functions: WorkerFunctions = {
       found.life.abort();
       for (const controller of found.providerRequests.values()) controller.abort();
       found.providerRequests.clear();
-      releaseSessionResources(key, found.sessionId);
+      for (const failure of releaseSessionResources(key, found.sessionId)) {
+        void host.error(key, failure);
+      }
     }
   },
   releaseSessionResources(key) {
     const found = instances.get(key);
-    if (found) releaseSessionResources(key, found.sessionId);
+    return found ? releaseSessionResources(key, found.sessionId) : [];
   },
 };
 
 /**
  * Releases what providers keep in this worker for the session, such as an open connection, as Pi's
  * `AgentSession.dispose` does after `session_shutdown`, when this instance is the one `releasing`
- * names. The host's own pi-ai is pi-durable's, which releases its provider sessions when the
- * Harness closes.
+ * names, and returns what failed. The host's own pi-ai is pi-durable's, which releases its provider
+ * sessions when the Harness closes.
  */
-function releaseSessionResources(key: string, sessionId: string) {
-  if (releasing.get(sessionId) !== key) return;
+function releaseSessionResources(key: string, sessionId: string): HandlerError[] {
+  if (releasing.get(sessionId) !== key) return [];
   releasing.delete(sessionId);
   try {
     runtime.cleanupSessionResources(sessionId);
+    return [];
   } catch (error) {
     // pi-ai runs every cleanup and throws the failures together. An Error is reported as it is:
     // ensure-error assigns to its cause, which throws on a frozen one.
     const failures: unknown[] = error instanceof AggregateError ? error.errors : [error];
-    for (const failure of failures.map((each) =>
-      each instanceof Error ? each : ensureError(each),
-    )) {
-      void host.error(key, {
+    return failures.map((each) => {
+      const failure = each instanceof Error ? each : ensureError(each);
+      return {
         source: "<runtime>",
         event: "cleanup_session_resources",
         message: failure.message,
         ...(failure.stack !== undefined && { stack: failure.stack }),
-      });
-    }
+      };
+    });
   }
 }
 

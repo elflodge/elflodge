@@ -578,8 +578,13 @@ test("an extension's session shows every compaction as Pi stores it, its own sum
       tokensBefore: expect.any(Number),
       fromHook: false,
     },
-    // What the extension's compaction carried.
-    { id: `${mine?.id}`, summary: "Mine.", details: { mine: true }, fromHook: true },
+    // What the extension's compaction carried, as JSON.
+    {
+      id: `${mine?.id}`,
+      summary: "Mine.",
+      details: { mine: true, from: "https://example.com/" },
+      fromHook: true,
+    },
   ]);
   expect(saved?.data).not.toMatchObject([{ tokensBefore: 0 }, {}]);
 
@@ -597,7 +602,11 @@ test("an extension's session shows every compaction as Pi stores it, its own sum
   expect(savedInFork?.data).toStrictEqual(saved?.data);
 });
 
-test("a compaction that ends without a summary reaches session_compact_failed once, with what started it and why", async () => {
+test("a compaction that ends without a summary, or whose request overflows again, reaches session_compact_failed once, with what started it and why", async () => {
+  const overflow = fauxAssistantMessage([], {
+    stopReason: "error",
+    errorMessage: "prompt is too long: 213462 tokens > 200000 maximum",
+  });
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -617,6 +626,10 @@ test("a compaction that ends without a summary reaches session_compact_failed on
     // The summary's request, which pi-durable does not retry for this error.
     fauxAssistantMessage([], { stopReason: "error", errorMessage: "The summarizer broke" }),
     fauxAssistantMessage([fauxText("Done.")]),
+    // A request that overflows the context, its compaction's summary, and the same request again.
+    overflow,
+    fauxAssistantMessage([fauxText("Summary.")]),
+    overflow,
   ]);
   const registry = createRegistry();
   const harness = await Harness.open(
@@ -645,6 +658,7 @@ test("a compaction that ends without a summary reaches session_compact_failed on
   await compact("cancel");
   // pi-durable keeps the failure while this run goes on.
   await ask("more");
+  expect(await ask("too much")).toMatchObject({ status: "unanswered" });
 
   await extensions.close();
   const {
@@ -669,6 +683,14 @@ test("a compaction that ends without a summary reaches session_compact_failed on
     },
     // The extension's cancel.
     { ...failed, aborted: true, fromExtension: false },
+    {
+      ...failed,
+      reason: "overflow",
+      errorMessage:
+        "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
+      aborted: false,
+      fromExtension: false,
+    },
   ]);
 });
 

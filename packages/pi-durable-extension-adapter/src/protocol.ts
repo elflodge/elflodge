@@ -1,5 +1,6 @@
 import type { MessagePort } from "node:worker_threads";
 
+import type { JsonValue } from "@earendil-works/chord/json";
 import type {
   Api,
   AssistantMessage,
@@ -168,8 +169,19 @@ export interface Compaction {
  */
 export type CompactDecision =
   | { readonly decline: true }
-  | Pick<CompactionResult, "summary" | "tokensBefore" | "details" | "usage">
+  | (Pick<CompactionResult, "summary" | "tokensBefore"> & {
+      /** As JSON, as the worker stores what crosses (`toJson`). */
+      readonly details?: JsonValue;
+      /** Pi's `Usage`, as JSON. */
+      readonly usage?: JsonValue;
+    })
   | undefined;
+
+/** A value as JSON, as pi-durable stores it: what does not survive JSON is dropped. */
+export function toJson(value: unknown): JsonValue | undefined {
+  const text = JSON.stringify(value);
+  return text === undefined ? undefined : JSON.parse(text);
+}
 
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;
@@ -226,9 +238,10 @@ export interface WorkerFunctions extends DispatchFunctions {
   close(key: string): Promise<void>;
   /**
    * Releases what providers keep for the instance's session, when the host gave up waiting for its
-   * close; its close does not release it again.
+   * close, and returns what failed, which the host reports, having let go of the instance; its
+   * close does not release it again.
    */
-  releaseSessionResources(key: string): void;
+  releaseSessionResources(key: string): HandlerError[];
 }
 
 /**
