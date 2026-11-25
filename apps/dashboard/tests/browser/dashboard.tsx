@@ -128,8 +128,6 @@ export const test = base
      */
     async function takeToStandIn(request: Request, entry: Outgoing) {
       try {
-        // Aborted on its way here, it never arrives.
-        request.signal.throwIfAborted();
         // The browser's network stack adds Content-Length from the body, which the hub's upload
         // reads; a Request built in the page drops it, but a plain Headers holds it.
         if (request.body) {
@@ -183,12 +181,8 @@ export const test = base
           };
           outgoing.add(entry);
           const answer = takeToStandIn(request, entry);
-          const { signal } = request;
-          const response = await runWithSignal(
-            AbortSignal.any([signal, ended.signal]),
-            () => answer,
-          )
-            // Unanswered once the page aborts, which MSW has failed it for, or the test ends.
+          const response = await runWithSignal(ended.signal, () => answer)
+            // Unanswered once the test ends.
             .catch(never);
           return arrivingUntil(ended.signal, response);
         }),
