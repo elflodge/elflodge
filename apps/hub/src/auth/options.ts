@@ -207,18 +207,18 @@ export function authOptions(settings: AuthSettings, mode: "serving" | "offline" 
         allowUserToCreateOrganization: false,
         disableOrganizationDeletion: true,
         organizationHooks: {
-          // Cancelling by ID requires authority to grant the role even after the invitation lapses.
+          // Only an owner may revoke an owner invitation, even after it lapses.
           async beforeCancelInvitation({ invitation, cancelledBy }) {
             const member = await db
               .selectFrom("member")
               .where("organizationId", "=", OrganizationId(invitation.organizationId))
               .where("userId", "=", UserId(cancelledBy.id))
               .select((eb) =>
-                mayManageInvitation(eb.ref("role"), eb.val(invitation.role)).as("mayGrant"),
+                mayManageInvitation(eb.ref("role"), eb.val(invitation.role)).as("mayManage"),
               )
               .limit(1)
               .executeTakeFirst();
-            if (!member?.mayGrant)
+            if (!member?.mayManage)
               throw APIError.from(
                 "FORBIDDEN",
                 ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION,

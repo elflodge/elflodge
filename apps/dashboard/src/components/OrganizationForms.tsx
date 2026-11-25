@@ -132,7 +132,9 @@ export function InviteMember(props: {
         if (hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION"))
           message = "This address is already a member.";
         else if (hasAuthCode(error, "USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION"))
-          message = "This address already has a pending invitation.";
+          message = props.owner
+            ? "This address already has a pending invitation."
+            : "This address already has a pending invitation. If you can't see it in the list, ask an owner to review it.";
         if (message) return { fields: new Map([["email", message]]), alert: undefined };
         return undefined;
       }}

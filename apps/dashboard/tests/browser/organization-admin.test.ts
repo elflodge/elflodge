@@ -26,7 +26,9 @@ test("the email field explains when the address already has a pending invitation
   await dialog.getByRole("button", { name: "Create invitation" }).click();
   await expect
     .element(field)
-    .toHaveAccessibleDescription("This address already has a pending invitation.");
+    .toHaveAccessibleDescription(
+      "This address already has a pending invitation. If you can't see it in the list, ask an owner to review it.",
+    );
   await expect.element(field).toHaveAttribute("aria-invalid", "true");
   await expect.element(field).toHaveValue(email);
   await expect.element(field).toHaveFocus();
