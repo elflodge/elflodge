@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { calculateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
+  CompactionEntry,
   type Conversation,
   createRegistry,
   defineExtension,
@@ -24,6 +25,7 @@ import {
   GenerationTask,
   Harness,
   hook,
+  ProviderDoc,
 } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -439,7 +441,7 @@ test("a run's lifecycle reaches the extensions, which add to its prompt, select 
   });
 });
 
-test("right after a compaction, the context's usage is unknown", async () => {
+test("a compaction reaches the extensions as session_compact, after which the context's usage is unknown", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -483,17 +485,78 @@ test("right after a compaction, the context's usage is unknown", async () => {
   // The kept history carries the system entry the second run's request wrote.
   expect(messages.map((message) => message.role)).toContain("system");
 
-  // The next request writes the whole system prompt again, which is not counted yet, so the tokens
-  // are unknown, as Pi's are after a compaction, rather than low; the kept system entry does not
-  // change that.
   await extensions.close();
-  const {
-    items: [saved],
-  } = await conversation.entries({ order: "descending" }, 1, undefined, context);
+  const { items } = await conversation.entries({ order: "descending" }, 10, undefined, context);
+  const [saved] = items;
+  const summary = items.find((entry) => CompactionEntry.is(entry));
   expect(saved).toMatchObject({
     kind: "piext.seen",
-    data: { usage: { tokens: null, contextWindow: model.contextWindow, percent: null } },
+    data: {
+      // With the summary as Pi records it, and the IDs `ctx.sessionManager` gives entries.
+      compactions: [
+        {
+          type: "session_compact",
+          compactionEntry: {
+            type: "compaction",
+            id: `${summary?.id}`,
+            parentId: expect.any(String),
+            timestamp: expect.any(String),
+            summary: "Summary.",
+            firstKeptEntryId: `${summary?.head}`,
+            tokensBefore: 0,
+            fromHook: false,
+          },
+          fromExtension: false,
+          reason: "manual",
+          willRetry: false,
+        },
+      ],
+      // The next request writes the whole system prompt again, which is not counted yet, so the
+      // tokens are unknown, as Pi's are after a compaction, rather than low; the kept system entry
+      // does not change that.
+      usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
+    },
   });
+});
+
+test("closing a conversation's extensions releases what providers keep for its session alone", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const log = path.join(dir, "released");
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "resources")],
+      dir,
+    }),
+    // One worker, so both conversations' extensions share the providers' module state.
+    maxWorkers: 1,
+    workerOptions: { env: { ...process.env, RESOURCES_LOG: log } },
+  });
+  onTestFinished(() => host.close());
+  const models = createModels();
+  const registry = createRegistry();
+  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings }, context);
+  onTestFinished(() => harness.close(context));
+  const attach = async () => {
+    const conversation = await harness.createConversation(
+      { ownership: { kind: "ownerless" } },
+      context,
+    );
+    const extensions = await host.attach(
+      { harness, conversation, registry, models, cwd: dir },
+      context,
+    );
+    return { conversation, extensions };
+  };
+  const closed = await attach();
+  await attach();
+
+  await closed.extensions.close();
+
+  // Providers key what they keep by the conversation's provider session ID, which requests carry.
+  const provider = await harness.snapshot(ProviderDoc, closed.conversation.id, context);
+  const released = await readFile(log, "utf8").catch(() => "");
+  expect(released.split("\n").filter(Boolean)).toEqual([provider?.sessionId]);
 });
 
 test("a run's prompt additions reach its later rounds after the host restarts", async () => {

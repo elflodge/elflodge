@@ -56,6 +56,8 @@ for (const { source, path } of workerData.extensions) {
  * within a conversation; they go when the conversation closes.
  */
 interface Opened extends Instance {
+  /** Pi's session ID for the instance, which providers key what they keep for the session by. */
+  readonly sessionId: string;
   /** Aborted at close, after which the instance's writes are dropped. */
   readonly life: AbortController;
   readonly providerStreams: Map<string, NonNullable<ProviderConfig["streamSimple"]>>;
@@ -258,6 +260,7 @@ const functions: WorkerFunctions = {
     });
     instances.set(key, {
       ...instance,
+      sessionId,
       life,
       providerStreams,
       providerRequests: new Map(),
@@ -494,9 +497,35 @@ const functions: WorkerFunctions = {
       found.life.abort();
       for (const controller of found.providerRequests.values()) controller.abort();
       found.providerRequests.clear();
+      releaseSessionResources(key, found.sessionId);
     }
   },
 };
+
+/**
+ * Releases what providers keep in this worker for the session, such as an open connection, as Pi's
+ * `AgentSession.dispose` does after `session_shutdown`. Not while a later instance of the same
+ * conversation is open here, as after a close past the host's time limit and an attach again: what
+ * providers keep would be that instance's now. The host's own pi-ai is pi-durable's, which releases
+ * its provider sessions when the Harness closes.
+ */
+function releaseSessionResources(key: string, sessionId: string) {
+  for (const each of instances.values()) if (each.sessionId === sessionId) return;
+  try {
+    runtime.cleanupSessionResources(sessionId);
+  } catch (error) {
+    // pi-ai runs every cleanup and throws the failures together.
+    const failures = error instanceof AggregateError ? error.errors : [error];
+    for (const failure of failures.map((each: unknown) => ensureError(each))) {
+      void host.error(key, {
+        source: "<runtime>",
+        event: "cleanup_session_resources",
+        message: failure.message,
+        ...(failure.stack !== undefined && { stack: failure.stack }),
+      });
+    }
+  }
+}
 
 /**
  * An extension's prompt, through the `input` handlers first, as Pi's `sendUserMessage` sends it

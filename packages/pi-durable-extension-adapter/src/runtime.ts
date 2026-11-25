@@ -24,8 +24,10 @@ import type { ExtensionError, Flags, HandlerError, Reads } from "./protocol.ts";
 // departures: `pi.exec` runs through the host, and `pi.on` tells the host of a subscription made
 // after loading, so it hooks only the events some extension listens to.
 
-// The worker takes Pi's values from here, which shares the bundle's copy of Pi.
+// The worker takes Pi's values from here, which shares the bundle's copy of Pi. Its pi-ai is the one
+// extensions import, so the session resources their providers register are those it releases.
 export { convertToLlm, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
+export { cleanupSessionResources } from "@earendil-works/pi-ai/session-resources";
 
 /** What an instance needs from its host: the conversation's state and every action that leaves the worker. */
 export interface Bridge extends Pick<ExtensionRuntime, "registerProvider" | "unregisterProvider"> {
