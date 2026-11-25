@@ -11,6 +11,7 @@ import type {
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type {
+  CompactionResult,
   ContextUsage,
   ExecOptions,
   ExecResult,
@@ -23,7 +24,6 @@ import type {
   ToolInfo,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import type { CompactionHooks } from "@earendil-works/pi-durable";
 import ensureError from "ensure-error";
 import { serializeError } from "serialize-error";
 import Type, { type Static } from "typebox";
@@ -127,11 +127,8 @@ export interface DispatchFunctions {
     key: string,
     event: Omit<TurnEndEvent, "entries" | "continue" | "context">,
   ): Promise<void>;
-  /** `session_before_compact`: whether a handler cancels it, or the summary one wrote. */
-  beforeCompact(
-    key: string,
-    compaction: Compaction,
-  ): Promise<Awaited<ReturnType<CompactionHooks["beforeCompact"]>>>;
+  /** `session_before_compact`: whether a handler cancels it, or the compaction one wrote. */
+  beforeCompact(key: string, compaction: Compaction): Promise<CompactDecision>;
 }
 
 /** What starts a run, as Pi's `before_agent_start` gets it. */
@@ -159,7 +156,20 @@ export interface Compaction {
   /** The messages the summary replaces. */
   readonly messages: readonly unknown[];
   readonly entries: readonly SessionEntry[];
+  /** How large the context is before the compaction. */
+  readonly tokensBefore: number;
+  /** Whether the request that overflowed is sent again after the compaction. */
+  readonly willRetry: boolean;
 }
+
+/**
+ * What `session_before_compact` handlers decided: to cancel, or a compaction of their own, of
+ * which pi-durable places the summary and `session_compact` reports the rest.
+ */
+export type CompactDecision =
+  | { readonly decline: true }
+  | Pick<CompactionResult, "summary" | "tokensBefore" | "details" | "usage">
+  | undefined;
 
 /** Values for the flags extensions register, by name, as Pi's command line gives them. */
 export type Flags = Readonly<Record<string, boolean | string>>;

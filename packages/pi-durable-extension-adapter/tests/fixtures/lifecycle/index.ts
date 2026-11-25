@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { ExtensionAPI, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -5,12 +7,38 @@ import { Type } from "typebox";
 // system prompt, sends a message with the prompt and selects the active tools in
 // `before_agent_start`, and records the lifecycle events. Its tool returns the events so far and
 // then reports progress; at the end of the session it saves the events, the compactions it was told
-// of and the context's usage. It registers tools just before and after its selection, as
-// extensions that register tools when a run starts do beside another that selects them.
+// of with whether its session shows their entries the same, and the context's usage. It writes a
+// compaction's summary itself when asked to keep its own, as custom compaction extensions do. It
+// registers tools just before and after its selection, as extensions that register tools when a
+// run starts do beside another that selects them.
 export default function extension(pi: ExtensionAPI) {
   const seen: string[] = [];
-  const compactions: SessionCompactEvent[] = [];
-  pi.on("session_compact", (event) => void compactions.push(event));
+  const compactions: { event: SessionCompactEvent; same: boolean }[] = [];
+  pi.on("session_compact", (event, ctx) => {
+    const entry = ctx.sessionManager.getEntry(event.compactionEntry.id);
+    compactions.push({ event, same: isDeepStrictEqual(entry, event.compactionEntry) });
+  });
+  pi.on("session_before_compact", ({ customInstructions, preparation }) => {
+    if (customInstructions !== "keep mine") return undefined;
+    const { firstKeptEntryId, tokensBefore } = preparation;
+    const usage = {
+      input: 10,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 12,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+    return {
+      compaction: {
+        summary: "Mine.",
+        firstKeptEntryId,
+        tokensBefore,
+        details: { mine: true },
+        usage,
+      },
+    };
+  });
   const events = [
     "agent_start",
     "turn_start",

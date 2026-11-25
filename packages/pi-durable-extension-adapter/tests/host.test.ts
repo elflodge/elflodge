@@ -441,7 +441,7 @@ test("a run's lifecycle reaches the extensions, which add to its prompt, select 
   });
 });
 
-test("a compaction reaches the extensions as session_compact, after which the context's usage is unknown", async () => {
+test("compactions reach the extensions as session_compact, as their session shows them, after which the context's usage is unknown", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -455,10 +455,13 @@ test("a compaction reaches the extensions as session_compact, after which the co
   const models = createModels();
   models.setProvider(faux.provider);
   const model = faux.getModel();
+  const long = fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]);
   faux.setResponses([
-    () => fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
-    () => fauxAssistantMessage([fauxText("Done.")]),
-    () => fauxAssistantMessage([fauxText("Summary.")]),
+    long,
+    fauxAssistantMessage([fauxText("Done.")]),
+    fauxAssistantMessage([fauxText("Summary.")]),
+    long,
+    fauxAssistantMessage([fauxText("Done.")]),
   ]);
   const registry = createRegistry();
   // Keeping the second run, whose request wrote the tools the extension selected in the first,
@@ -476,26 +479,35 @@ test("a compaction reaches the extensions as session_compact, after which the co
     { harness, conversation, registry, models, cwd: dir },
     context,
   );
-  await (await conversation.submit({ type: "input", content: "hi" }, context)).wait(context);
-  await (await conversation.submit({ type: "input", content: "again" }, context)).wait(context);
-  // Idle, so the summary is placed at once rather than at the next run.
-  await conversation.waitForIdle(context);
-  await harness.waitForTask(await conversation.compact(undefined, context), context);
+  const ask = async (content: string) =>
+    (await conversation.submit({ type: "input", content }, context)).wait(context);
+  // Idle, so each summary is placed at once rather than at the next run.
+  const compact = async (instructions?: string) => {
+    await conversation.waitForIdle(context);
+    await harness.waitForTask(await conversation.compact(instructions, context), context);
+  };
+  await ask("hi");
+  await ask("again");
+  await compact();
   const { messages } = await conversation.context(context);
   // The kept history carries the system entry the second run's request wrote.
   expect(messages.map((message) => message.role)).toContain("system");
+  await ask("more");
+  await ask("done");
+  // The extension writes this summary.
+  await compact("keep mine");
 
   await extensions.close();
-  const { items } = await conversation.entries({ order: "descending" }, 10, undefined, context);
+  const { items } = await conversation.entries({ order: "descending" }, 20, undefined, context);
   const [saved] = items;
-  const summary = items.find((entry) => CompactionEntry.is(entry));
-  expect(saved).toMatchObject({
-    kind: "piext.seen",
-    data: {
-      // With the summary as Pi records it, and the IDs `ctx.sessionManager` gives entries.
-      compactions: [
-        {
+  const [mine, summary] = items.filter((entry) => CompactionEntry.is(entry));
+  expect(saved).toMatchObject({ kind: "piext.seen" });
+  expect(saved?.data).toMatchObject({
+    compactions: [
+      {
+        event: {
           type: "session_compact",
+          // As Pi records a compaction, with the IDs `ctx.sessionManager` gives entries.
           compactionEntry: {
             type: "compaction",
             id: `${summary?.id}`,
@@ -503,19 +515,41 @@ test("a compaction reaches the extensions as session_compact, after which the co
             timestamp: expect.any(String),
             summary: "Summary.",
             firstKeptEntryId: `${summary?.head}`,
-            tokensBefore: 0,
+            // How large the context was, and the system prompt and tools it ended with.
+            tokensBefore: expect.any(Number),
+            systemMessage: { role: "system" },
             fromHook: false,
           },
           fromExtension: false,
           reason: "manual",
           willRetry: false,
         },
-      ],
-      // The next request writes the whole system prompt again, which is not counted yet, so the
-      // tokens are unknown, as Pi's are after a compaction, rather than low; the kept system entry
-      // does not change that.
-      usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
-    },
+        // Its session shows the entry as the event gives it.
+        same: true,
+      },
+      {
+        event: {
+          compactionEntry: {
+            id: `${mine?.id}`,
+            summary: "Mine.",
+            firstKeptEntryId: `${mine?.head}`,
+            // What the extension's compaction carried.
+            tokensBefore: expect.any(Number),
+            details: { mine: true },
+            usage: { totalTokens: 12 },
+            fromHook: true,
+          },
+          fromExtension: true,
+          reason: "manual",
+          willRetry: false,
+        },
+        same: true,
+      },
+    ],
+    // The next request writes the whole system prompt again, which is not counted yet, so the
+    // tokens are unknown, as Pi's are after a compaction, rather than low; the kept system entry
+    // does not change that.
+    usage: { tokens: null, contextWindow: model.contextWindow, percent: null },
   });
 });
 

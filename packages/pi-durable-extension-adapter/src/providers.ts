@@ -135,6 +135,8 @@ export class ConversationProviders {
   readonly #sessionId: string;
   readonly #harness: Harness;
   readonly #conversation: ConversationId;
+  /** What a request waits for before it reaches the worker. */
+  readonly #settled: () => Promise<unknown>;
   readonly #life = new AbortController();
   #worker: ProviderWorker | undefined;
   /** Why the last worker went, for the requests that find none. */
@@ -146,8 +148,19 @@ export class ConversationProviders {
    */
   readonly #held = new Set<{ cancel(reason?: unknown): void; unwatch(): void }>();
 
-  constructor(models: Models, sessionId: string, harness: Harness, conversation: ConversationId) {
+  /**
+   * `settled` is what a request waits for before it reaches the extensions: their `session_compact`
+   * handlers under way, as a generation's request waits for them.
+   */
+  constructor(
+    models: Models,
+    sessionId: string,
+    harness: Harness,
+    conversation: ConversationId,
+    settled: () => Promise<unknown>,
+  ) {
     this.#models = models;
+    this.#settled = settled;
     this.#runtime = supportsProviders(models) ? models : undefined;
     // Without a runtime nothing registers, so the catalog stays empty.
     this.#catalog = (this.#runtime && catalogs.get(this.#runtime)) ?? new Map();
@@ -316,6 +329,9 @@ export class ConversationProviders {
       throw new Error("An extension provider running on a worker cannot use a host fetch function");
     const live = this.#life.signal;
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
+    // Any request continues the conversation as its extensions' providers see it, so a provider
+    // that keeps a query open hears of a compaction before a direct caller's request too.
+    await awaitWithContext(this.#settled(), signal ? withAbortSignal(signal, bound) : bound);
     const run = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run;
     const submission = run?.inputs[0];
     // Nothing waits between reading the worker and calling it.

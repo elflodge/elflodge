@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout } from "node:timers/promises";
 
 import { awaitWithContext, BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
@@ -40,11 +41,22 @@ registerApiProvider(
   "providers-test",
 );
 
-async function setup({ maxWorkers = 1 } = {}) {
+async function setup({
+  maxWorkers = 1,
+  compaction,
+  beside = [],
+}: {
+  maxWorkers?: number;
+  compaction?: { keepRecentTokens: number };
+  /** Fixtures that run beside the provider's. */
+  beside?: readonly string[];
+} = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const prepared = await prepareExtensions({
-    sources: [path.join(import.meta.dirname, "fixtures", "provider.ts")],
+    sources: ["provider.ts", ...beside].map((name) =>
+      path.join(import.meta.dirname, "fixtures", name),
+    ),
     dir,
   });
   expect(prepared.failures).toEqual([]);
@@ -99,7 +111,15 @@ async function setup({ maxWorkers = 1 } = {}) {
     registry.install(app);
     const harness = await Harness.open(
       new MemoryStorage(),
-      { models, registry, settings: { extensions: [app], retry: { enabled: false } } },
+      {
+        models,
+        registry,
+        settings: {
+          extensions: [app],
+          retry: { enabled: false },
+          ...(compaction && { compaction }),
+        },
+      },
       context,
     );
     onTestFinished(() => harness.close(context));
@@ -204,6 +224,39 @@ test("a direct caller's abort stops a provider query that asked for tools", asyn
 
   caller.abort();
   await expect.poll(status).toMatchObject({ action: "transform", text: "aborted" });
+});
+
+test("a conversation's next requests, a direct caller's too, wait for its session_compact handlers", async () => {
+  const { attach, models, dir } = await setup({
+    compaction: { keepRecentTokens: 1 },
+    beside: ["compact-hold.ts"],
+  });
+  const alice = await attach("alice");
+  expect(await (await alice.ask("one")).wait(context)).toMatchObject({ status: "done" });
+  expect(await (await alice.ask("two")).wait(context)).toMatchObject({ status: "done" });
+  const hold = path.join(dir, "alice.compact");
+  await writeFile(hold, "");
+  onTestFinished(() => rm(hold, { force: true }));
+  // Idle, so the summary is placed at once, and its handler holds.
+  const compaction = await alice.conversation.compact(undefined, context);
+  await alice.harness.waitForTask(compaction, context);
+  const model = models.getModel("fixture", "echo");
+  if (!model) throw new Error("The fixture's model is missing");
+  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
+  const direct = models
+    .streamSimple(
+      model,
+      { messages: [{ role: "user", content: "direct", timestamp: Date.now() }] },
+      { sessionId: provider?.sessionId },
+    )
+    .result();
+  const asked = (await alice.ask("three")).wait(context);
+
+  const answered = Promise.race([direct, asked]).then(() => "answered");
+  expect(await Promise.race([answered, setTimeout(300, "waiting")])).toBe("waiting");
+  await rm(hold);
+  expect(await direct).toMatchObject({ stopReason: "stop" });
+  expect(await asked).toMatchObject({ status: "done" });
 });
 
 test.each(["with", "without"])(

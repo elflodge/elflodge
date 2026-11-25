@@ -73,6 +73,13 @@ interface Opened extends Instance {
 }
 
 const instances = new Map<string, Opened>();
+/**
+ * The instance that releases each session's resources at its close, by session ID: the latest one
+ * opened for it. An earlier instance of the same conversation can still be open here, its close
+ * past the host's time limit, as when a shutdown handler hangs; the host has let go of it, and
+ * what providers keep for the session is the latest instance's.
+ */
+const releasing = new Map<string, string>();
 type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
 
 const journal = new SyncMessagePort(workerData.journal);
@@ -269,6 +276,7 @@ const functions: WorkerFunctions = {
       durations: new Map(),
       prompts,
     });
+    releasing.set(sessionId, key);
     return {
       ...registrations(instance),
       errors: [...loadErrors, ...instance.errors],
@@ -394,7 +402,9 @@ const functions: WorkerFunctions = {
       canContinue: false,
     }));
   },
-  async beforeCompact(key, { reason, instructions, firstKept, messages, entries }) {
+  async beforeCompact(key, compaction) {
+    const { reason, instructions, firstKept, messages, entries, tokensBefore, willRetry } =
+      compaction;
     const result = await runnerFor(key).emit({
       type: "session_before_compact",
       preparation: {
@@ -403,19 +413,21 @@ const functions: WorkerFunctions = {
         messagesToSummarize: messages as AgentMessages,
         turnPrefixMessages: [],
         isSplitTurn: false,
-        tokensBefore: 0,
+        tokensBefore,
         fileOps: { read: new Set(), written: new Set(), edited: new Set() },
         settings: runtime.DEFAULT_COMPACTION_SETTINGS,
       },
       branchEntries: [...entries],
       customInstructions: instructions,
       reason,
-      willRetry: false,
+      willRetry,
       signal: new AbortController().signal,
     });
     if (result?.cancel) return { decline: true };
-    const summary = result?.compaction?.summary;
-    return summary === undefined ? undefined : { summary };
+    if (!result?.compaction) return undefined;
+    // pi-durable keeps its own first kept entry, and places the summary alone.
+    const { summary, tokensBefore: before, details, usage } = result.compaction;
+    return { summary, tokensBefore: before, details, usage };
   },
   async executeTool(key, callId, name, args) {
     const instance = instanceFor(key);
@@ -504,19 +516,22 @@ const functions: WorkerFunctions = {
 
 /**
  * Releases what providers keep in this worker for the session, such as an open connection, as Pi's
- * `AgentSession.dispose` does after `session_shutdown`. Not while a later instance of the same
- * conversation is open here, as after a close past the host's time limit and an attach again: what
- * providers keep would be that instance's now. The host's own pi-ai is pi-durable's, which releases
- * its provider sessions when the Harness closes.
+ * `AgentSession.dispose` does after `session_shutdown`, when this instance is the one `releasing`
+ * names. The host's own pi-ai is pi-durable's, which releases its provider sessions when the
+ * Harness closes.
  */
 function releaseSessionResources(key: string, sessionId: string) {
-  for (const each of instances.values()) if (each.sessionId === sessionId) return;
+  if (releasing.get(sessionId) !== key) return;
+  releasing.delete(sessionId);
   try {
     runtime.cleanupSessionResources(sessionId);
   } catch (error) {
-    // pi-ai runs every cleanup and throws the failures together.
-    const failures = error instanceof AggregateError ? error.errors : [error];
-    for (const failure of failures.map((each: unknown) => ensureError(each))) {
+    // pi-ai runs every cleanup and throws the failures together. An Error is reported as it is:
+    // ensure-error assigns to its cause, which throws on a frozen one.
+    const failures: unknown[] = error instanceof AggregateError ? error.errors : [error];
+    for (const failure of failures.map((each) =>
+      each instanceof Error ? each : ensureError(each),
+    )) {
       void host.error(key, {
         source: "<runtime>",
         event: "cleanup_session_resources",
