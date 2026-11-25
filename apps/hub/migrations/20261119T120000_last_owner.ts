@@ -11,15 +11,10 @@ import { type Kysely, sql } from "kysely";
 // That version can already grant this membership. The new hub accepts existing memberships and
 // applies the current-authority check as it takes over. The trigger guards both versions' writes.
 export async function up(db: Kysely<unknown>): Promise<void> {
-  // Better Auth trims each name and drops empty names. With the C collation, [:space:] covers
-  // ASCII whitespace and the added ranges cover the remaining JavaScript trim characters.
+  // Better Auth stores trimmed, non-empty role names joined by commas.
   await sql`create function elflodge.stored_roles(roles text) returns text[]
     language sql immutable strict parallel safe
-    return array_remove(regexp_split_to_array(roles collate "C",
-      format('^%1$s+|%1$s*,%1$s*|%1$s+$',
-        '[[:space:]\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]')), '')`.execute(
-    db,
-  );
+    return string_to_array(roles, ',')`.execute(db);
   await sql`create function elflodge.has_owner_role(roles text) returns boolean
     language sql immutable strict parallel safe
     return 'owner' = any(elflodge.stored_roles(roles))`.execute(db);
