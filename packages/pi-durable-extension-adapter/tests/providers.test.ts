@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout } from "node:timers/promises";
 
 import { awaitWithContext, BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
@@ -232,31 +231,41 @@ test("a conversation's next requests, a direct caller's too, wait for its sessio
     beside: ["compact-hold.ts"],
   });
   const alice = await attach("alice");
+  const bob = await attach("bob");
   expect(await (await alice.ask("one")).wait(context)).toMatchObject({ status: "done" });
   expect(await (await alice.ask("two")).wait(context)).toMatchObject({ status: "done" });
-  const hold = path.join(dir, "alice.compact");
-  await writeFile(hold, "");
-  onTestFinished(() => rm(hold, { force: true }));
   // Idle, so the summary is placed at once, and its handler holds.
   const compaction = await alice.conversation.compact(undefined, context);
   await alice.harness.waitForTask(compaction, context);
+  const order = path.join(dir, "alice.order");
+  await writeFile(order, "");
   const model = models.getModel("fixture", "echo");
   if (!model) throw new Error("The fixture's model is missing");
-  const provider = await alice.harness.snapshot(ProviderDoc, alice.conversation.id, context);
-  const direct = models
-    .streamSimple(
-      model,
-      { messages: [{ role: "user", content: "direct", timestamp: Date.now() }] },
-      { sessionId: provider?.sessionId },
-    )
-    .result();
+  const call = async (owner: typeof alice, content: string) => {
+    const provider = await owner.harness.snapshot(ProviderDoc, owner.conversation.id, context);
+    return models
+      .streamSimple(
+        model,
+        { messages: [{ role: "user", content, timestamp: Date.now() }] },
+        { sessionId: provider?.sessionId },
+      )
+      .result();
+  };
+  const direct = call(alice, "direct");
   const asked = (await alice.ask("three")).wait(context);
+  // A request made after alice's reaches the worker's provider, as alice's would have by now
+  // without the wait.
+  expect(await call(bob, "after")).toMatchObject({ stopReason: "stop" });
+  const channel = new BroadcastChannel("alice.compact");
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a BroadcastChannel has no target origin
+  channel.postMessage("release");
+  channel.close();
 
-  const answered = Promise.race([direct, asked]).then(() => "answered");
-  expect(await Promise.race([answered, setTimeout(300, "waiting")])).toBe("waiting");
-  await rm(hold);
   expect(await direct).toMatchObject({ stopReason: "stop" });
   expect(await asked).toMatchObject({ status: "done" });
+  const [first, ...requests] = (await readFile(order, "utf8")).trim().split("\n");
+  expect(first).toBe("session_compact");
+  expect(requests.toSorted()).toEqual(["direct", "three"]);
 });
 
 test.each(["with", "without"])(
