@@ -61,8 +61,8 @@ export function ListEnd(props: ListAddressState & { length: number; older?: stri
 }
 
 /**
- * What an empty list means, and what to do next: clear the filters that match nothing, or, on an
- * empty hub, connect a Runner first, then submit a Batch.
+ * An empty list can mean the cursor is past the last page, no records match the filters, or
+ * nothing has been submitted. Only the last case needs the Runner roster to suggest a next step.
  */
 export function EmptyList(props: ListAddressState & { runners?: Runner[] }) {
   const list = () => listPages[props.to];

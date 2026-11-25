@@ -551,7 +551,7 @@ The disclosure starts at 760px to leave room for the six Jobs status checks on o
 
 1. The panel starts closed on arrival, including at a filtered address.
 2. Pressing Filters toggles the panel.
-3. Pressing Apply, Clear, or the result’s “Clear the filters” link immediately closes the panel and focuses Filters.
+3. Apply and either Clear link close the panel. Focus returns to Filters immediately when the button is visible, or after navigation restores it on recovery from a failed read.
 4. Other list links, paging, Back, and the success or failure of a read leave the panel as the reader set it.
 
 ```html
