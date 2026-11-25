@@ -581,6 +581,68 @@ test("an extension's session shows every compaction as Pi stores it, its own sum
   ]);
 });
 
+test("a compaction that fails reaches session_compact_failed once, with what started it and why", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const host = startExtensionHost({
+    prepared: await prepareExtensions({
+      sources: [path.join(import.meta.dirname, "fixtures", "compact-failed.ts")],
+      dir,
+    }),
+  });
+  onTestFinished(() => host.close());
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  faux.setResponses([
+    fauxAssistantMessage([fauxText(`Done. ${"word ".repeat(2400)}`)]),
+    fauxAssistantMessage([fauxText("Done.")]),
+    // The summary's request, which pi-durable does not retry for this error.
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "The summarizer broke" }),
+    fauxAssistantMessage([fauxText("Done.")]),
+  ]);
+  const registry = createRegistry();
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    { models, registry, settings: { ...settings, compaction: { keepRecentTokens: 2000 } } },
+    context,
+  );
+  onTestFinished(() => harness.close(context));
+  const conversation = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  });
+  const extensions = await host.attach(
+    { harness, conversation, registry, models, cwd: dir },
+    context,
+  );
+  const ask = async (content: string) =>
+    (await conversation.submit({ type: "input", content }, context)).wait(context);
+  await ask("hi");
+  await ask("again");
+  await conversation.waitForIdle(context);
+  await harness.waitForTask(await conversation.compact(undefined, context), context);
+  // pi-durable keeps the failure while this run goes on.
+  await ask("more");
+
+  await extensions.close();
+  const {
+    items: [saved],
+  } = await conversation.entries({ order: "descending" }, 1, undefined, context);
+  expect(saved).toMatchObject({ kind: "piext.failed" });
+  expect(saved?.data).toStrictEqual([
+    {
+      type: "session_compact_failed",
+      reason: "manual",
+      // Pi's words for a manual compaction that failed, then pi-durable's.
+      errorMessage: "Compaction failed: Summarization failed: The summarizer broke",
+      aborted: false,
+      willRetry: false,
+      fromExtension: false,
+    },
+  ]);
+});
+
 test("closing a conversation's extensions releases what providers keep for its session alone", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));

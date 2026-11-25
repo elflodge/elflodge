@@ -32,6 +32,8 @@ import type {
   ExecResult,
   InputEvent,
   InputEventResult,
+  SessionCompactEvent,
+  SessionCompactFailedEvent,
   SessionEntry,
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
@@ -63,6 +65,7 @@ import {
   type HookRegistration,
   LiveDoc,
   type LiveRun,
+  type LiveState,
   ProviderDoc,
   type Registry,
   section,
@@ -783,14 +786,16 @@ class Installation {
 
   /**
    * Hands each attached conversation the changes a commit stored for it, together, as a commit's
-   * changes come in no order: a summary's entry, and what tells who wrote the summary.
+   * changes come in no order: a summary's entry, and what tells who wrote the summary, or a
+   * compaction's end and the failure `pi.live` records for it.
    */
   #committed(publication: CommitPublication) {
     const byConversation = new Map<AttachedConversation, StoredChange[]>();
     for (const change of publication.changes) {
-      if (change.type !== "entry" && change.type !== "task" && change.type !== "submission")
-        continue;
-      const conversation = this.#conversations.get(change.value.conversationId);
+      if (!isStored(change)) continue;
+      const conversation = this.#conversations.get(
+        change.type === "document" ? change.conversationId : change.value.conversationId,
+      );
       if (!conversation) continue;
       const changes = byConversation.get(conversation) ?? [];
       changes.push(change);
@@ -827,8 +832,8 @@ class Installation {
       );
     }
     const generation: Partial<GenerationHooks> = {
-      // A request also waits for the `session_compact` handlers of a compaction placed before it.
-      ...(has(...REQUEST_EVENTS, "session_compact") && {
+      // A request also waits for the handlers of a compaction placed, or failed, before it.
+      ...(has(...REQUEST_EVENTS, "session_compact", "session_compact_failed") && {
         beforeRequest: async (request, api, context) =>
           this.#for(owner, api)?.beforeRequest(request, api, context),
       }),
@@ -970,7 +975,10 @@ class AttachedConversation {
   #activation: Promise<void> = Promise.resolve();
   /** Commands `pi.exec` runs, by the ID the worker gave them, to cancel when their signal aborts. */
   readonly #execs = new Map<number, AbortController>();
-  /** The `session_compact` events under way, which the next request and `close` wait for. */
+  /**
+   * The `session_compact` and `session_compact_failed` events under way, which the next request
+   * and `close` wait for.
+   */
   #compactions: Promise<void> = Promise.resolve();
   /** Resolved once the extensions are closed, which ends the waits for their handlers. */
   readonly #ended = Promise.withResolvers<void>();
@@ -1013,7 +1021,7 @@ class AttachedConversation {
     );
   }
 
-  /** Once the `session_compact` handlers under way are done, or the extensions closed. */
+  /** Once the compaction handlers under way are done, or the extensions closed. */
   #compacted() {
     return Promise.race([this.#compactions, this.#ended.promise]);
   }
@@ -1469,10 +1477,15 @@ class AttachedConversation {
    * handlers supplied is told by its compaction: one its generation waits for appends the summary
    * in the commit that ends it; any other ends with a write submission, whose placement, in the
    * same commit when the conversation is idle or at its next boundary, carries the summary's entry,
-   * or which goes stale.
+   * or which goes stale. A compaction that failed is followed by `session_compact_failed`.
    */
   committed(changes: readonly StoredChange[]) {
     if (this.#closing) return;
+    // Before the ended compactions' supplied summaries go: a failed one may have had one.
+    const failed = this.#listens("session_compact_failed") ? this.#failed(changes) : undefined;
+    if (failed) {
+      this.#compactions = this.#compactions.then(async () => this.#emitCompaction(failed));
+    }
     const placed = new Map<number, Supplied>();
     for (const change of changes) {
       if (change.type !== "task") continue;
@@ -1504,11 +1517,50 @@ class AttachedConversation {
       this.#writes = Promise.all([this.#writes, kept]);
       // The next request and `close` wait for its `session_compact` handlers, and only then.
       if (this.#listens("session_compact")) {
-        this.#compactions = this.#compactions.then(async () =>
-          this.#sessionCompact(entry.data.reason, await kept),
-        );
+        this.#compactions = this.#compactions.then(async () => {
+          const compactionEntry = await kept;
+          if (!compactionEntry) return;
+          const { reason } = entry.data;
+          await this.#emitCompaction({
+            type: "session_compact",
+            compactionEntry,
+            fromExtension: compactionEntry.fromHook === true,
+            reason,
+            willRetry: willRetry(reason),
+          });
+        });
       }
     }
+  }
+
+  /**
+   * `session_compact_failed` for the compaction whose failure `changes` record, as Pi gives it
+   * once a compaction fails. pi-durable records a failure in `pi.live` in the commit that ends its
+   * compaction, and keeps it there until a compaction produces a summary, so only the commit that
+   * also ends that compaction tells it, once. An abort or a decline is no failure there.
+   */
+  #failed(changes: readonly StoredChange[]): SessionCompactFailedEvent | undefined {
+    const live = changes.find((change) => change.type === "document");
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `pi.live` at the version this Harness runs (`isStored`)
+    const failure = (live?.value as LiveState | undefined)?.compactionFailure;
+    if (!failure) return undefined;
+    const ended = changes.some(
+      (change) =>
+        change.type === "task" &&
+        change.value.id === failure.taskId &&
+        change.value.state.status === "terminal",
+    );
+    if (!ended) return undefined;
+    return {
+      type: "session_compact_failed",
+      reason: failure.trigger,
+      // As Pi words it for each trigger.
+      errorMessage: `${COMPACTION_FAILED[failure.trigger]}: ${failure.error}`,
+      aborted: false,
+      // Pi retries no request after a compaction that failed.
+      willRetry: false,
+      fromExtension: this.#supplied.has(failure.taskId),
+    };
   }
 
   /**
@@ -1564,20 +1616,13 @@ class AttachedConversation {
     }
   }
 
-  /** `session_compact`, with the compaction entry as `ctx.sessionManager` shows it. */
-  async #sessionCompact(reason: CompactionReason, kept: SessionCompactionEntry | undefined) {
-    if (!kept) return;
+  /** `session_compact` or `session_compact_failed`, which the next request and `close` wait for. */
+  async #emitCompaction(event: SessionCompactEvent | SessionCompactFailedEvent) {
     try {
       // Opened again after a worker exit, the reopened extensions get it.
       await this.#ready;
       if (!this.#running) return;
-      await this.#rpc.emit(this.#route, {
-        type: "session_compact",
-        compactionEntry: kept,
-        fromExtension: kept.fromHook === true,
-        reason,
-        willRetry: willRetry(reason),
-      });
+      await this.#rpc.emit(this.#route, event);
     } catch {
       // The worker exited or the conversation closed meanwhile, which ends its extensions' session
       // too; Pi's runner reports a failing handler itself.
@@ -2025,7 +2070,7 @@ class AttachedConversation {
 
   async #close() {
     await this.#awaitRunEnd();
-    // One time limit for the loading and the `session_compact` handlers under way and the shutdown
+    // One time limit for the loading and the compaction handlers under way and the shutdown
     // handlers.
     const limited = withAbortSignal(AbortSignal.timeout(STUCK_AFTER_MS), BACKGROUND_CONTEXT);
     await awaitWithContext(Promise.all([this.#ready, this.#compactions]), limited).catch(() => {});
@@ -2222,8 +2267,44 @@ function willRetry(reason: CompactionReason) {
   return reason === "overflow";
 }
 
-/** What a commit stored that `AttachedConversation.committed` reads: entries, tasks and submissions. */
-type StoredChange = Extract<CommitChange, { readonly type: "entry" | "task" | "submission" }>;
+/** How Pi begins the error message of a compaction that failed, by what started it. */
+const COMPACTION_FAILED = {
+  manual: "Compaction failed",
+  threshold: "Auto-compaction failed",
+  overflow: "Context overflow recovery failed",
+} satisfies Record<CompactionReason, string>;
+
+/**
+ * What a commit stored that `AttachedConversation.committed` reads: entries, tasks, submissions,
+ * and changes of `pi.live`.
+ */
+type StoredChange =
+  | Extract<CommitChange, { readonly type: "entry" | "task" | "submission" }>
+  | LiveChange;
+
+/** A change of a conversation's `pi.live`, at the definition version the Harness runs. */
+type LiveChange = Extract<CommitChange, { readonly type: "document"; readonly kind: "change" }> & {
+  readonly conversationId: ConversationId;
+};
+
+/** Whether `committed` reads `change`: a `pi.live` change only with the shape this Harness writes. */
+function isStored(change: CommitChange): change is StoredChange {
+  switch (change.type) {
+    case "entry":
+    case "task":
+    case "submission":
+      return true;
+    case "document":
+      return (
+        change.kind === "change" &&
+        change.conversationId !== undefined &&
+        change.record.kind === LiveDoc.definition.kind &&
+        change.version === LiveDoc.definition.version
+      );
+    default:
+      return false;
+  }
+}
 
 /** What a `session_before_compact` handler's compaction carries besides its summary. */
 type Supplied = Omit<Extract<CompactDecision, { readonly summary: string }>, "summary">;

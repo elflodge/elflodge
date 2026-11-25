@@ -150,7 +150,7 @@ export class ConversationProviders {
 
   /**
    * `settled` is what a request waits for before it reaches the extensions: their `session_compact`
-   * handlers under way, as a generation's request waits for them.
+   * and `session_compact_failed` handlers under way, as a generation's request waits for them.
    */
   constructor(
     models: Models,
