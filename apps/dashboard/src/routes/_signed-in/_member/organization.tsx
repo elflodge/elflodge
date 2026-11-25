@@ -434,8 +434,7 @@ function OrganizationPage(props: { organizationId: string }) {
     try {
       await revokingInvitation.mutate({ invitationId: invite.id });
     } catch (error) {
-      // Better Auth answers this when it finds no invitation by the ID, so it is gone: a reader
-      // without membership or permission gets other codes.
+      // The invitation was removed or already used. A reader without permission gets another code.
       if (isWriteRefusal(error) && hasAuthCode(error, "INVITATION_NOT_FOUND")) {
         await writeAbsence(client, queryKey, (cached) =>
           cached.filter((item) => item.id !== invite.id),

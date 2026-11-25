@@ -93,6 +93,12 @@ test("a new account can redeem a live invitation once and sign in with the grant
     200, 400,
   ]);
   await expect(anyone.preview({ invitationId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const revoke = await authPost(
+    "organization/cancel-invitation",
+    { invitationId },
+    system.ownerCookie(),
+  );
+  expect(await revoke.json()).toMatchObject({ code: "INVITATION_NOT_FOUND" });
   await system.client({ cookie }).apiKeys.list();
 });
 

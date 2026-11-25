@@ -274,6 +274,10 @@ export function authOptions(
                 "FORBIDDEN",
                 ORGANIZATION_ERROR_CODES.YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION,
               );
+            // Revoke can remain open while the recipient joins. Cancelling that invitation
+            // would report success while the person remains a member.
+            if (invitation.status !== "pending")
+              throw APIError.from("BAD_REQUEST", ORGANIZATION_ERROR_CODES.INVITATION_NOT_FOUND);
           },
         },
       }),
