@@ -114,21 +114,13 @@ async function findMembership(db: Kysely<Database>, userId: UserId) {
 }
 
 /** Better Auth's options for the hub. */
-export function authOptions(
-  settings: AuthSettings,
-  registration: "invitation" | "setup" = "invitation",
-) {
+export function authOptions(settings: AuthSettings, mode: "serving" | "offline" = "serving") {
   const db = settings.db.withSchema(DB_SCHEMA);
-  async function requireInvitation(id: string | null | undefined, email: unknown) {
-    const invitation = id
-      ? await liveInvitations(db)
-          .where("invitation.id", "=", InvitationId(id))
-          .select("invitation.email")
-          .executeTakeFirst()
-      : undefined;
-    if (!invitation || typeof email !== "string" || invitation.email !== email.toLowerCase()) {
-      throw APIError.from("FORBIDDEN", ORGANIZATION_ERROR_CODES.INVITATION_NOT_FOUND);
-    }
+  function findLiveInvitation(id: string) {
+    return liveInvitations(db)
+      .where("invitation.id", "=", InvitationId(id))
+      .select("invitation.email")
+      .executeTakeFirst();
   }
   return {
     secret: settings.secret,
@@ -146,7 +138,7 @@ export function authOptions(
       minPasswordLength: PASSWORD_LENGTH.min,
       maxPasswordLength: PASSWORD_LENGTH.max,
       // Setup has no browser to receive a session cookie.
-      ...(registration === "setup" && { autoSignIn: false }),
+      ...(mode === "offline" && { autoSignIn: false }),
       // A reset is often because the password leaked, so whoever signed in with it is signed out.
       revokeSessionsOnPasswordReset: true,
     },
@@ -188,9 +180,13 @@ export function authOptions(
     ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path === "/sign-up/email" && registration === "invitation") {
+        if (ctx.path === "/sign-up/email" && mode === "serving") {
           // Check the link before the endpoint looks up the address or hashes a password.
-          await requireInvitation(ctx.headers?.get(INVITATION_HEADER), ctx.body?.email);
+          const id = ctx.headers?.get(INVITATION_HEADER);
+          const invitation = id && (await findLiveInvitation(id));
+          const email = ctx.body?.email;
+          if (!invitation || typeof email !== "string" || invitation.email !== email.toLowerCase())
+            throw APIError.from("FORBIDDEN", ORGANIZATION_ERROR_CODES.INVITATION_NOT_FOUND);
           const name = nameSchema.safeParse(ctx.body?.name);
           if (!name.success)
             throw APIError.fromStatus("BAD_REQUEST", { message: "Enter a valid name." });
@@ -258,7 +254,8 @@ export function authOptions(
         organizationHooks: {
           async beforeAcceptInvitation({ invitation }) {
             // The inviter may have lost authority since the link was shared.
-            await requireInvitation(invitation.id, invitation.email);
+            if (!(await findLiveInvitation(invitation.id)))
+              throw APIError.from("BAD_REQUEST", ORGANIZATION_ERROR_CODES.INVITATION_NOT_FOUND);
           },
           // Cancelling by ID requires authority to grant the role even after the invitation lapses.
           async beforeCancelInvitation({ invitation, cancelledBy }) {
@@ -320,6 +317,6 @@ export function offlineAuthOptions(db: Kysely<Database>) {
       trustedProxies: [],
       rateLimit: true,
     },
-    "setup",
+    "offline",
   );
 }

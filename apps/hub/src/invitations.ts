@@ -57,8 +57,8 @@ export const sweepInvitations = Db.use((database) =>
   database.query((db) =>
     db
       .deleteFrom("invitation")
-      // Native acceptance marks the invitation accepted before adding the member. On failure
-      // it restores the pending status so the invitee can retry until the link expires.
+      // Native acceptance marks the invitation accepted before adding the member. Keep the
+      // row until expiry so the plugin can restore it if the membership write fails.
       .where("expiresAt", "<=", (eb) => eb.fn<Date>("now"))
       .execute(),
   ),

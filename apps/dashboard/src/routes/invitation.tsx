@@ -19,6 +19,7 @@ import {
 
 import {
   api,
+  HUB_DEADLINE_MS,
   failureDetailSuffix,
   hubFailureDetail,
   hubFailureMessage,
@@ -263,10 +264,16 @@ function AcceptInvitation(props: {
           email: props.invitation.email,
           name: fieldText(form, "name"),
           password: fieldText(form, "password"),
-          fetchOptions: { headers: { [INVITATION_HEADER]: props.invitationId } },
+          fetchOptions: {
+            timeout: HUB_DEADLINE_MS,
+            headers: { [INVITATION_HEADER]: props.invitationId },
+          },
         });
       }
-      await authClient.organization.acceptInvitation({ invitationId: props.invitationId });
+      await authClient.organization.acceptInvitation({
+        invitationId: props.invitationId,
+        fetchOptions: { timeout: HUB_DEADLINE_MS },
+      });
     } catch (failure) {
       if (hasAuthCode(failure, "INVITATION_NOT_FOUND")) {
         props.unavailable();
@@ -281,7 +288,7 @@ function AcceptInvitation(props: {
         setError(hubFailureMessage(failure));
       }
       // Sign-up may already have established a session even when joining failed.
-      if (!session() || isSignedOutError(failure)) await router.invalidate();
+      if (!session() || isSignedOutError(failure)) void router.invalidate();
       return;
     }
     props.consumed();
