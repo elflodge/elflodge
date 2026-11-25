@@ -224,6 +224,11 @@ export interface WorkerFunctions extends DispatchFunctions {
   /** Aborts the signal a model request's provider was given; a request already done is ignored. */
   cancelProvider(request: number, reason: unknown): void;
   close(key: string): Promise<void>;
+  /**
+   * Releases what providers keep for the instance's session, when the host gave up waiting for its
+   * close; its close does not release it again.
+   */
+  releaseSessionResources(key: string): void;
 }
 
 /**

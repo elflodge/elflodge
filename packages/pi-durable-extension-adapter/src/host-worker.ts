@@ -75,9 +75,10 @@ interface Opened extends Instance {
 const instances = new Map<string, Opened>();
 /**
  * The instance that releases each session's resources at its close, by session ID: the latest one
- * opened for it. An earlier instance of the same conversation can still be open here, its close
- * past the host's time limit, as when a shutdown handler hangs; the host has let go of it, and
- * what providers keep for the session is the latest instance's.
+ * whose opening started. An earlier instance of the same conversation can still be open here, its
+ * close past the host's time limit, as when a shutdown handler hangs, or still loading, its
+ * opening given up on; the host has let go of it, and what providers keep for the session is the
+ * latest instance's.
  */
 const releasing = new Map<string, string>();
 type AgentMessages = SessionBeforeCompactEvent["preparation"]["messagesToSummarize"];
@@ -153,6 +154,9 @@ function registrations(instance: Instance): Registrations {
 
 const functions: WorkerFunctions = {
   async open(key, sessionId, cwd, flags) {
+    // Before loading, so an earlier opening that finishes later does not take it back.
+    const previous = releasing.get(sessionId);
+    releasing.set(sessionId, key);
     const life = new AbortController();
     // A write after close, such as a timer's message, is dropped rather than thrown, which would
     // end the worker with every other conversation on it. A later instance of the same conversation
@@ -162,7 +166,7 @@ const functions: WorkerFunctions = {
     };
     const prompts = new Set<Promise<void>>();
     const providerStreams: Opened["providerStreams"] = new Map();
-    const instance = await runtime.createInstance(extensions, {
+    const opening = runtime.createInstance(extensions, {
       cwd,
       flags,
       registerProvider(name, config) {
@@ -265,6 +269,14 @@ const functions: WorkerFunctions = {
       changed: () => host.changed(key),
       error: (error) => host.error(key, error),
     });
+    // An opening that fails gives the session back to the instance before it, or, if that one
+    // closed meanwhile, leaving it to this one, releases it now.
+    void opening.catch(() => {
+      if (previous !== undefined && instances.has(previous) && releasing.get(sessionId) === key)
+        releasing.set(sessionId, previous);
+      else releaseSessionResources(key, sessionId);
+    });
+    const instance = await opening;
     instances.set(key, {
       ...instance,
       sessionId,
@@ -276,7 +288,6 @@ const functions: WorkerFunctions = {
       durations: new Map(),
       prompts,
     });
-    releasing.set(sessionId, key);
     return {
       ...registrations(instance),
       errors: [...loadErrors, ...instance.errors],
@@ -511,6 +522,10 @@ const functions: WorkerFunctions = {
       found.providerRequests.clear();
       releaseSessionResources(key, found.sessionId);
     }
+  },
+  releaseSessionResources(key) {
+    const found = instances.get(key);
+    if (found) releaseSessionResources(key, found.sessionId);
   },
 };
 

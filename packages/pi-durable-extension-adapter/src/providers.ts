@@ -1,6 +1,7 @@
 import {
   awaitWithContext,
   BACKGROUND_CONTEXT,
+  type Context,
   withAbortSignal,
   withCancel,
 } from "@earendil-works/chord/context";
@@ -136,7 +137,7 @@ export class ConversationProviders {
   readonly #harness: Harness;
   readonly #conversation: ConversationId;
   /** What a request waits for before it reaches the worker. */
-  readonly #settled: () => Promise<unknown>;
+  readonly #settled: (context: Context) => Promise<void>;
   readonly #life = new AbortController();
   #worker: ProviderWorker | undefined;
   /** Why the last worker went, for the requests that find none. */
@@ -157,7 +158,7 @@ export class ConversationProviders {
     sessionId: string,
     harness: Harness,
     conversation: ConversationId,
-    settled: () => Promise<unknown>,
+    settled: (context: Context) => Promise<void>,
   ) {
     this.#models = models;
     this.#settled = settled;
@@ -331,7 +332,7 @@ export class ConversationProviders {
     const bound = withAbortSignal(live, BACKGROUND_CONTEXT);
     // Any request continues the conversation as its extensions' providers see it, so a provider
     // that keeps a query open hears of a compaction before a direct caller's request too.
-    await awaitWithContext(this.#settled(), signal ? withAbortSignal(signal, bound) : bound);
+    await this.#settled(signal ? withAbortSignal(signal, bound) : bound);
     const run = (await this.#harness.snapshot(LiveDoc, this.#conversation, bound))?.run;
     const submission = run?.inputs[0];
     // Nothing waits between reading the worker and calling it.

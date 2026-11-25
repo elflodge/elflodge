@@ -444,7 +444,8 @@ test("a run's lifecycle reaches the extensions, which add to its prompt, select 
 /**
  * Runs a conversation with the extension `source` through a compaction of pi-durable's, then one
  * whose summary the extension writes when asked to keep its own, and closes its extensions; the
- * conversation's entries then, newest first, its model, and the messages the first compaction kept.
+ * conversation's entries then, newest first, its model, the messages the first compaction kept, and
+ * what it ran with.
  */
 async function compactTwice(source: string) {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
@@ -500,7 +501,7 @@ async function compactTwice(source: string) {
   await compact("keep mine");
   await extensions.close();
   const { items } = await conversation.entries({ order: "descending" }, 20, undefined, context);
-  return { items, model, kept: messages };
+  return { items, model, kept: messages, host, harness, conversation, registry, models, dir };
 }
 
 test("compactions reach the extensions as session_compact, as their session shows them, after which the context's usage is unknown", async () => {
@@ -561,8 +562,9 @@ test("compactions reach the extensions as session_compact, as their session show
   });
 });
 
-test("an extension's session shows every compaction as Pi stores it, its own summary's details too, without a session_compact handler", async () => {
-  const { items } = await compactTwice("compactions.ts");
+test("an extension's session shows every compaction as Pi stores it, its own summary's details too, without a session_compact handler, in a fork as well", async () => {
+  const { items, host, harness, conversation, registry, models, dir } =
+    await compactTwice("compactions.ts");
 
   const [saved] = items;
   const [mine, summary] = items.filter((entry) => CompactionEntry.is(entry));
@@ -579,9 +581,23 @@ test("an extension's session shows every compaction as Pi stores it, its own sum
     // What the extension's compaction carried.
     { id: `${mine?.id}`, summary: "Mine.", details: { mine: true }, fromHook: true },
   ]);
+  expect(saved?.data).not.toMatchObject([{ tokensBefore: 0 }, {}]);
+
+  // The fork's history holds both compactions, and its session shows them the same.
+  if (!mine) throw new Error("The extension's summary is missing");
+  const fork = await conversation.fork(mine.id, { ownership: { kind: "ownerless" } }, context);
+  const forked = await host.attach(
+    { harness, conversation: fork, registry, models, cwd: dir },
+    context,
+  );
+  await forked.close();
+  const {
+    items: [savedInFork],
+  } = await fork.entries({ order: "descending" }, 1, undefined, context);
+  expect(savedInFork?.data).toStrictEqual(saved?.data);
 });
 
-test("a compaction that fails reaches session_compact_failed once, with what started it and why", async () => {
+test("a compaction that ends without a summary reaches session_compact_failed once, with what started it and why", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "pi-durable-extension-adapter-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const host = startExtensionHost({
@@ -618,10 +634,15 @@ test("a compaction that fails reaches session_compact_failed once, with what sta
   );
   const ask = async (content: string) =>
     (await conversation.submit({ type: "input", content }, context)).wait(context);
+  const compact = async (instructions?: string) => {
+    await conversation.waitForIdle(context);
+    await harness.waitForTask(await conversation.compact(instructions, context), context);
+  };
+  await compact();
   await ask("hi");
   await ask("again");
-  await conversation.waitForIdle(context);
-  await harness.waitForTask(await conversation.compact(undefined, context), context);
+  await compact();
+  await compact("cancel");
   // pi-durable keeps the failure while this run goes on.
   await ask("more");
 
@@ -630,16 +651,24 @@ test("a compaction that fails reaches session_compact_failed once, with what sta
     items: [saved],
   } = await conversation.entries({ order: "descending" }, 1, undefined, context);
   expect(saved).toMatchObject({ kind: "piext.failed" });
+  // In Pi's words for a manual compaction.
+  const failed = { type: "session_compact_failed", reason: "manual", willRetry: false };
   expect(saved?.data).toStrictEqual([
     {
-      type: "session_compact_failed",
-      reason: "manual",
-      // Pi's words for a manual compaction that failed, then pi-durable's.
-      errorMessage: "Compaction failed: Summarization failed: The summarizer broke",
+      ...failed,
+      errorMessage: "Compaction failed: Nothing to compact (session too small)",
       aborted: false,
-      willRetry: false,
       fromExtension: false,
     },
+    // Then pi-durable's error.
+    {
+      ...failed,
+      errorMessage: "Compaction failed: Summarization failed: The summarizer broke",
+      aborted: false,
+      fromExtension: false,
+    },
+    // The extension's cancel.
+    { ...failed, aborted: true, fromExtension: false },
   ]);
 });
 
