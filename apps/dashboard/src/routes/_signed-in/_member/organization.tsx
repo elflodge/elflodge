@@ -260,7 +260,7 @@ function OrganizationPage(props: { organizationId: string }) {
   );
 
   function refreshAfterMembershipChange() {
-    // The inviter's authority and each key creator's membership may have changed as well.
+    // The reader’s role determines which invitations they can manage. Key creators may have left.
     void refreshInvites();
     void refreshKeys();
     return refreshMembers();
@@ -434,8 +434,7 @@ function OrganizationPage(props: { organizationId: string }) {
     try {
       await revokingInvitation.mutate({ invitationId: invite.id });
     } catch (error) {
-      // Better Auth answers this when it finds no invitation by the ID, so it is gone: a reader
-      // without membership or permission gets other codes.
+      // The invitation was removed or already used. A reader without permission gets another code.
       if (isWriteRefusal(error) && hasAuthCode(error, "INVITATION_NOT_FOUND")) {
         await writeAbsence(client, queryKey, (cached) =>
           cached.filter((item) => item.id !== invite.id),
@@ -502,13 +501,6 @@ function OrganizationPage(props: { organizationId: string }) {
   ) {
     if (!manages() || person.role === next) return undefined;
     const own = isOwn(person);
-    const sent = liveInvitations().filter((invite) => invite.inviter.id === person.userId);
-    const lost =
-      next === "admin"
-        ? sent.filter((invite) => rolesOf(invite.role).includes("owner")).length
-        : next === "owner"
-          ? 0
-          : sent.length;
     const keepKeys = ["remove", "leave", "member"].includes(next);
     const count =
       keyList() === undefined
@@ -545,11 +537,13 @@ function OrganizationPage(props: { organizationId: string }) {
             </Show>
           </p>
         </Show>
-        <Show when={lost > 0}>
+        <Show when={keepKeys || (next === "admin" && rolesOf(person.role).includes("owner"))}>
           <p>
-            {own ? "Your" : "Their"} {lost} pending {plural(lost, "invitation", "invitations")}
-            {next === "admin" ? plural(lost, " that grants owner", " that grant owner") : ""}{" "}
-            {plural(lost, "stops", "stop")} working.
+            Pending invitations stay valid. Revoke any that should stop working.
+            <Show when={!owner()}>
+              {" "}
+              Only an owner can review invitations granting owner access.
+            </Show>
           </p>
         </Show>
       </>

@@ -4,7 +4,7 @@ import { Link, createFileRoute, useLocation, useNavigate, useRouter } from "@tan
 import { Button } from "@ui-sdk/solid/button";
 import { FieldControl } from "@ui-sdk/solid/field";
 import { Input } from "@ui-sdk/solid/input";
-import { problemOf } from "contract";
+import { INVITATION_HEADER, PASSWORD_LENGTH, problemOf } from "contract";
 import {
   Match,
   Show,
@@ -19,12 +19,13 @@ import {
 
 import {
   api,
+  HUB_DEADLINE_MS,
   failureDetailSuffix,
   hubFailureDetail,
   hubFailureMessage,
   readFromHub,
 } from "../api-client.ts";
-import { authClient, getSession } from "../auth-client.ts";
+import { authClient, getSession, hasAuthCode, isSignedOutError } from "../auth-client.ts";
 import { BrandMark } from "../components/BrandMark.tsx";
 import { FailedReadNotice } from "../components/FailedReadNotice.tsx";
 import { Field } from "../components/Field.tsx";
@@ -36,7 +37,6 @@ import {
   createFormAction,
   fieldText,
   focusIfLost,
-  formRefusal,
   settledRef,
 } from "../form.ts";
 import { DATE_TIME_ZONED, formatRoles } from "../format.ts";
@@ -136,28 +136,10 @@ function ReadInvitation(props: { invitationId: string }) {
       if (id) watchDocumentMember(id);
     },
   );
-  const [joined, setJoined] = createSignal<{ organization: string; message: string }>();
   const [dead, setDead] = createSignal(false);
 
   return (
     <Switch fallback={<ReadingInvitation />}>
-      {/* Once joined, a fresh preview answers 404. Keep the sign-in failure and the way in. */}
-      <Match when={joined()}>
-        {(result) => (
-          <InvitationPage heading={`Joined ${result().organization}`}>
-            <Notice role="alert">{result().message}</Notice>
-            <p>
-              <Link
-                class="stands-alone"
-                to="/sign-in"
-                ref={settledRef<HTMLAnchorElement>(focusIfLost)}
-              >
-                Sign in
-              </Link>
-            </p>
-          </InvitationPage>
-        )}
-      </Match>
       <Match when={dead() || (preview.isError && problemOf(preview.error)?.status === 404)}>
         <UnavailableInvitation focusLink={dead()} />
       </Match>
@@ -182,7 +164,6 @@ function ReadInvitation(props: { invitationId: string }) {
             forgetPreview();
             setDead(true);
           }}
-          joined={setJoined}
         >
           <Show when={preview.isRefetchError}>
             <FailedReadNotice
@@ -209,8 +190,9 @@ function UnavailableInvitation(props: { focusLink: boolean }) {
   return (
     <InvitationPage heading="Invitation">
       <p class="prose">
-        This invitation is no longer available. It may have been used, revoked or replaced, or have
-        expired. Ask whoever invited you for a new one.
+        This invitation is no longer available. It may have been used or revoked, or have expired.
+        Ask an Organization owner or admin for a new invitation. Only an owner can invite another
+        owner.
       </p>
       <p>
         <Show when={checked()}>
@@ -250,7 +232,6 @@ function AcceptInvitation(props: {
   consumed: () => void;
   unavailable: () => void;
   children: JSX.Element;
-  joined: (result: { organization: string; message: string }) => void;
 }) {
   const context = Route.useRouteContext();
   const session = () => context().session;
@@ -258,19 +239,15 @@ function AcceptInvitation(props: {
     Boolean(session() && session()?.user.email !== props.invitation.email);
   const navigate = useNavigate();
   const [error, setError] = createSignal<string>();
-  const [offerSignIn, setOfferSignIn] = createSignal(false);
+  const router = useRouter();
   const [passwordError, setPasswordError] = createSignal<string>();
-  const [nameError, setNameError] = createSignal<string>();
-  let nameField: HTMLInputElement | undefined;
   let password: HTMLInputElement | undefined;
-  // A 401 asks the account that pressed to sign in. Another tab can satisfy that prompt.
+  // A returning invitee may sign in from another tab.
   const [refusedAccount, setRefusedAccount] = createSignal<string | null>();
   const accountId = () => session()?.user.id ?? null;
   const { pending, onSubmit } = createFormAction(async (element) => {
     setError(undefined);
     setPasswordError(undefined);
-    setNameError(undefined);
-    setOfferSignIn(false);
     if (differentAccount()) {
       try {
         await signOutTo();
@@ -282,58 +259,40 @@ function AcceptInvitation(props: {
 
     const form = new FormData(element);
     const submittedBy = accountId();
-    const account = session()
-      ? undefined
-      : { name: fieldText(form, "name"), password: fieldText(form, "password") };
-    const organization = props.invitation.organizationName;
-    let joined;
     try {
-      joined = await api.invitations.accept({ invitationId: props.invitationId, ...account });
-    } catch (failure) {
-      const status = problemOf(failure)?.status;
-      if (status === 404) {
-        props.unavailable();
-        return;
+      if (!session()) {
+        await authClient.signUp.email({
+          email: props.invitation.email,
+          name: fieldText(form, "name"),
+          password: fieldText(form, "password"),
+          fetchOptions: {
+            timeout: HUB_DEADLINE_MS,
+            headers: { [INVITATION_HEADER]: props.invitationId },
+          },
+        });
       }
-      if (status === 401) {
-        setRefusedAccount(submittedBy);
-        return;
-      }
-      const refusal = formRefusal(failure, {
-        name: account && nameField?.value === account.name ? ["name"] : [],
-        password: account && password?.value === account.password ? ["password"] : [],
+      await authClient.organization.acceptInvitation({
+        invitationId: props.invitationId,
+        fetchOptions: { timeout: HUB_DEADLINE_MS },
       });
-      setNameError(refusal.fields.get("name"));
-      setPasswordError(refusal.fields.get("password"));
-      setError(refusal.alert);
-      setOfferSignIn(status === 422);
+    } catch (failure) {
+      if (hasAuthCode(failure, "INVITATION_NOT_FOUND")) {
+        props.unavailable();
+      } else if (hasAuthCode(failure, "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL")) {
+        setRefusedAccount(submittedBy);
+      } else if (
+        hasAuthCode(failure, "PASSWORD_TOO_LONG") &&
+        password?.value === fieldText(form, "password")
+      ) {
+        setPasswordError(`At most ${PASSWORD_LENGTH.max} characters`);
+      } else {
+        setError(hubFailureMessage(failure));
+      }
+      // Sign-up may already have established a session even when joining failed.
+      if (!session() || isSignedOutError(failure)) void router.invalidate();
       return;
     }
     props.consumed();
-    if (account) {
-      // Accept returns the invited address for both paths. A session established in another
-      // tab can have redeemed the invitation even if this form submitted a name and password.
-      let current;
-      try {
-        current = await readInvitationSession();
-      } catch (failure) {
-        props.joined({
-          organization,
-          message: `You have joined ${organization}, but your session could not be read${failureDetailSuffix(hubFailureDetail(failure))}`,
-        });
-        return;
-      }
-      try {
-        if (current?.user.email !== joined.email)
-          await authClient.signIn.email({ email: joined.email, password: account.password });
-      } catch (failure) {
-        props.joined({
-          organization,
-          message: `You have joined ${organization}, but signing in failed${failureDetailSuffix(hubFailureDetail(failure))}`,
-        });
-        return;
-      }
-    }
     await navigate({ to: "/" });
   });
 
@@ -410,17 +369,8 @@ function AcceptInvitation(props: {
                   defaultValue={props.invitation.email}
                 />
               </Field>
-              <Field label="Your name" error={nameError()}>
-                <Input
-                  name="name"
-                  autocomplete="name"
-                  required
-                  {...GIVEN_NAME}
-                  ref={(field) => {
-                    nameField = field;
-                  }}
-                  onInput={() => setNameError(undefined)}
-                />
+              <Field label="Your name">
+                <Input name="name" autocomplete="name" required {...GIVEN_NAME} />
               </Field>
               <Field label="Password" error={passwordError()}>
                 <FieldControl
@@ -443,7 +393,7 @@ function AcceptInvitation(props: {
               {session() ? join() : "Create account and join"}
             </Button>
           </form>
-          <Show when={!session() || offerSignIn()}>
+          <Show when={!session()}>
             <p class="prose">
               Already have an account here with this address?{" "}
               <Link to="/sign-in" search={signInSearch} hash>

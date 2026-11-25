@@ -58,7 +58,7 @@ import {
 } from "./db/types.ts";
 import { readInputFileChunk } from "./input-files.ts";
 import { InvalidInput, invalidInput } from "./invalid-input.ts";
-import { acceptInvitation, listInvitations, previewInvitation } from "./invitations.ts";
+import { listInvitations, previewInvitation } from "./invitations.ts";
 import {
   type Control,
   controlJob,
@@ -167,14 +167,6 @@ const router = implement<typeof hubContract, ApiContext>(hubContract)
     invitations: {
       preview: os.invitations.preview.effect(function* ({ input }) {
         return yield* previewInvitation(InvitationId(input.invitationId));
-      }),
-      accept: os.invitations.accept.effect(function* ({ input, context }) {
-        return yield* acceptInvitation(
-          InvitationId(input.invitationId),
-          context.headers,
-          input.name,
-          input.password,
-        );
       }),
       list: os.invitations.list.effect(function* ({ context }) {
         const { organization, role } = yield* callerMember(context.caller);

@@ -17,10 +17,10 @@ import { Cause, Context, Effect, Layer, type Types } from "effect";
 import ensureError from "ensure-error";
 import { type InflightQueryAbortStrategy, type Kysely, sql } from "kysely";
 
-import { Db, DB_SCHEMA, openScopedDatabase } from "../db/database.ts";
+import { Db, openScopedDatabase } from "../db/database.ts";
 import { ApikeyId, type Database, OrganizationId } from "../db/types.ts";
 import { ac, roles } from "./access.ts";
-import { authOptions, type AuthSettings, signUpAuth } from "./options.ts";
+import { authOptions, type AuthSettings } from "./options.ts";
 
 /** A Better Auth instance with the hub's options. */
 export type BetterAuth = ReturnType<typeof betterAuth<ReturnType<typeof authOptions>>>;
@@ -29,10 +29,6 @@ export type BetterAuth = ReturnType<typeof betterAuth<ReturnType<typeof authOpti
 export class Auth extends Context.Service<
   Auth,
   {
-    /** Holds the invitation claim, account and membership in the same transaction. */
-    readonly signUpTransaction: <A>(
-      run: (db: Kysely<Database>, auth: ReturnType<typeof signUpAuth>) => Promise<A>,
-    ) => Effect.Effect<A, ORPCError<ORPCErrorCode, unknown> | Cause.UnknownError>;
     /**
      * Calls Better Auth. Its refusals become oRPC's errors (`fromBetterAuth`).
      */
@@ -46,25 +42,14 @@ export class Auth extends Context.Service<
     Effect.sync(() => {
       const instance = betterAuth(authOptions({ ...settings, db }));
       return {
-        signUpTransaction: (run) =>
-          Effect.tryPromise({
-            try: () =>
-              db
-                .transaction()
-                .execute((tx) =>
-                  run(tx.withSchema(DB_SCHEMA), signUpAuth(authOptions({ ...settings, db: tx }))),
-                ),
-            catch: fromBetterAuth,
-          }),
         call: (run) => Effect.tryPromise({ try: () => run(instance), catch: fromBetterAuth }),
       };
     }),
 }) {}
 
-/** Keep oRPC refusals intact, translate Better Auth refusals by status and retain unexpected errors. */
+/** Preserve the HTTP status and message of a Better Auth refusal. */
 export function fromBetterAuth(caught: unknown) {
   const error = ensureError(caught);
-  if (error instanceof ORPCError) return error;
   return isAPIError(error)
     ? new ORPCError(errorCodeOf(error.statusCode), { message: error.body?.message, cause: error })
     : new Cause.UnknownError(error);

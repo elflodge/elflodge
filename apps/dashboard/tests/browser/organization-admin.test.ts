@@ -6,16 +6,15 @@ import { arrangeOrganization } from "./organization.ts";
 
 // The Organization page as an admin sees it.
 
-test("the email field explains why an admin cannot replace an owner invitation", async ({
+test("the email field explains when the address already has a pending invitation", async ({
   hub,
   open,
 }) => {
   const admin = signedIn("admin");
   arrangeOrganization(hub, admin, aMember("Olive Owner", "owner"));
-  // The hub refuses a Member grant to an address that has an owner invitation.
   hub.auth.organization.inviteMember.refuses(
-    "FORBIDDEN",
-    "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE",
+    "BAD_REQUEST",
+    "USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION",
   );
   const page = await open("organization");
   await page.getByRole("button", { name: "Invite a member" }).click();
@@ -24,13 +23,12 @@ test("the email field explains why an admin cannot replace an owner invitation",
   const email = "mara@example.com";
   await field.fill(email);
   await check(dialog.getByRole("radio", { name: /^Member/ }));
-  // A refusal of access can mean the role changed: the session is read again, and is held.
-  const session = hub.session.hold();
   await dialog.getByRole("button", { name: "Create invitation" }).click();
-  await session.arrived;
   await expect
     .element(field)
-    .toHaveAccessibleDescription("This address has an invitation only an owner can replace.");
+    .toHaveAccessibleDescription(
+      "This address already has a pending invitation. If you can't see it in the list, ask an owner to review it.",
+    );
   await expect.element(field).toHaveAttribute("aria-invalid", "true");
   await expect.element(field).toHaveValue(email);
   await expect.element(field).toHaveFocus();
@@ -39,7 +37,6 @@ test("the email field explains why an admin cannot replace an owner invitation",
   ]);
   await field.fill("another@example.com");
   await expect.element(field).not.toHaveAttribute("aria-invalid");
-  session.release();
 });
 
 test("an admin changing their own role immediately loses the management controls", async ({

@@ -1,20 +1,17 @@
-import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, inject, test } from "vite-plus/test";
+import { INVITATION_HEADER } from "contract";
+import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { openDatabase } from "../src/db/database.ts";
-import { problemResponse, OWNER, startSystem } from "./harness.ts";
+import { OWNER, startSystem } from "./harness.ts";
 
 const system = startSystem();
 let organizationId: string;
 
-async function start() {
+beforeAll(async () => {
   await system.start();
   const [organization] = await system.ownerAuth().organization.list();
   if (!organization) throw new Error("The hub has no Organization");
   organizationId = organization.id;
-}
-
-beforeAll(start);
+});
 afterAll(() => system.stop());
 
 const password = "the invited person's password";
@@ -36,17 +33,48 @@ async function memberId(email: string) {
   return member.id;
 }
 
-function authPost(path: string, body: object, cookie?: string) {
+function authPost(path: string, body: object, cookie?: string, invitationId?: string) {
   return system.hub.fetch(`/api/auth/${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       origin: system.origin,
       ...(cookie && { cookie }),
+      ...(invitationId && { [INVITATION_HEADER]: invitationId }),
     },
     body: JSON.stringify(body),
   });
 }
+
+test("the only owner can register a Runner with a combined role and cannot give up ownership", async () => {
+  const id = await memberId(OWNER.email);
+  const organization = system.ownerAuth().organization;
+  await organization.updateMemberRole({ memberId: id, role: ["admin", "owner"], organizationId });
+  const registration = await system.createRegistrationKey();
+  await system.runnerClient({ "x-api-key": registration }).register({ name: "First Runner" });
+
+  for (const [action, body, code] of [
+    [
+      "remove-member",
+      { memberIdOrEmail: id },
+      "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
+    ],
+    [
+      "update-member-role",
+      { memberId: id, role: "admin" },
+      "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
+    ],
+  ] as const) {
+    const response = await authPost(
+      `organization/${action}`,
+      { organizationId, ...body },
+      system.ownerCookie(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code });
+  }
+  await organization.updateMemberRole({ memberId: id, role: "owner", organizationId });
+});
 
 test("a new account can redeem a live invitation once and sign in with the granted role", async () => {
   const email = "new@example.com";
@@ -58,19 +86,19 @@ test("a new account can redeem a live invitation once and sign in with the grant
     organizationName: "Organization",
     expiresAt: expect.any(Date),
   });
-  const input = { invitationId, name: "New member", password };
-  await expect(anyone.accept({ ...input, password: "short" })).rejects.toMatchObject({
-    code: "BAD_REQUEST",
-    cause: problemResponse({ errors: [{ detail: "At least 8 characters", pointer: "/password" }] }),
-  });
-  const results = await Promise.allSettled([anyone.accept(input), anyone.accept(input)]);
-  expect(results).toContainEqual({ status: "fulfilled", value: { email } });
-  expect(results).toContainEqual({
-    status: "rejected",
-    reason: expect.objectContaining({ code: "NOT_FOUND" }),
-  });
+  const cookie = await register(email, invitationId);
+  const accept = () => authPost("organization/accept-invitation", { invitationId }, cookie);
+  const results = await Promise.all([accept(), accept()]);
+  expect(results.map((result) => result.status).toSorted((left, right) => left - right)).toEqual([
+    200, 400,
+  ]);
   await expect(anyone.preview({ invitationId })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  const cookie = await system.signIn({ email, password });
+  const revoke = await authPost(
+    "organization/cancel-invitation",
+    { invitationId },
+    system.ownerCookie(),
+  );
+  expect(await revoke.json()).toMatchObject({ code: "INVITATION_NOT_FOUND" });
   await system.client({ cookie }).apiKeys.list();
 });
 
@@ -79,43 +107,68 @@ test("only the invited account can rejoin with its existing credentials", async 
   const person = await system.addMember({ name: "Returning member", email });
   await system.ownerAuth().organization.removeMember({ memberIdOrEmail: email, organizationId });
   const { id: invitationId } = await invite(email, "member");
-  await expect(
-    system.client().invitations.accept({ invitationId, name: "Replacement", password }),
-  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-  await expect(system.owner().invitations.accept({ invitationId })).rejects.toMatchObject({
-    code: "FORBIDDEN",
-  });
-  expect(await person.client.invitations.accept({ invitationId })).toEqual({ email });
+  const replacement = await authPost(
+    "sign-up/email",
+    { email, name: "Replacement", password },
+    undefined,
+    invitationId,
+  );
+  expect(await replacement.json()).toMatchObject({ code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL" });
+  expect(
+    (await authPost("organization/accept-invitation", { invitationId }, system.ownerCookie()))
+      .status,
+  ).toBe(403);
+  await system.authClient(person.cookie).organization.acceptInvitation({ invitationId });
   await person.client.runners.list();
   await expect(person.client.invitations.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
-test("public sign-up and native invitation redemption stay closed", async () => {
+test("registration needs a live invitation for the same address, and registration alone grants no membership", async () => {
   const email = "closed@example.com";
-  const { id: invitationId } = await invite(email, "member");
-  expect((await authPost("sign-up/email", { name: "Closed", email, password })).status).toBe(400);
-  for (const action of ["accept", "reject"]) {
-    expect((await authPost(`organization/${action}-invitation`, { invitationId })).status).toBe(
-      404,
-    );
-  }
-  await system.client().invitations.accept({ invitationId, name: "Invited", password });
+  const { id } = await invite(email, "member");
+  const body = { name: "Invited", email, password };
+  expect((await authPost("sign-up/email", body)).status).toBe(403);
+  expect(
+    (await authPost("sign-up/email", { ...body, email: "other@example.com" }, undefined, id))
+      .status,
+  ).toBe(403);
+  const cookie = await register(email, id);
+  await expect(system.client({ cookie }).runners.list()).rejects.toMatchObject({
+    code: "FORBIDDEN",
+  });
+  await system.authClient(cookie).organization.rejectInvitation({ invitationId: id });
+  await expectUnavailable(id);
 });
+
+async function register(email: string, id: string) {
+  const response = await authPost(
+    "sign-up/email",
+    { name: "Inviter", email, password },
+    undefined,
+    id,
+  );
+  expect(response.status).toBe(200);
+  const cookie = response.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Sign-up did not sign the invitee in");
+  return cookie;
+}
+
+async function join(email: string, id: string) {
+  const cookie = await register(email, id);
+  await system.authClient(cookie).organization.acceptInvitation({ invitationId: id });
+  return cookie;
+}
 
 /** Invites and admits an account with the role, and returns that account's signed-in cookie. */
 async function joinAsInviter(email: string, role: "admin" | ("owner" | "admin")[]) {
   const { id: invitationId } = await invite(email, role);
-  await system.client().invitations.accept({ invitationId, name: "Inviter", password });
-  return system.signIn({ email, password });
+  return join(email, invitationId);
 }
 
 async function expectUnavailable(invitationId: string) {
   const dead = { code: "NOT_FOUND", message: "This invitation is no longer available" };
   const client = system.client().invitations;
   await expect(client.preview({ invitationId })).rejects.toMatchObject(dead);
-  await expect(client.accept({ invitationId, name: "Unclaimed", password })).rejects.toMatchObject(
-    dead,
-  );
   expect((await system.owner().invitations.list()).map((row) => row.id)).not.toContain(
     invitationId,
   );
@@ -130,14 +183,14 @@ test("an admin's re-invite preserves a live owner invitation and its grant", asy
     { email: email.toUpperCase(), role: "member", organizationId },
     cookie,
   );
-  expect(response.status).toBe(403);
+  expect(response.status).toBe(400);
   expect(await response.json()).toMatchObject({
-    code: "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE",
+    code: "USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION",
   });
 
   const invitations = system.client().invitations;
   expect(await invitations.preview({ invitationId })).toMatchObject({ email, role: "owner" });
-  await invitations.accept({ invitationId, name: "Invited owner", password });
+  await join(email, invitationId);
   const { members } = await system
     .ownerAuth()
     .organization.listMembers({ query: { organizationId } });
@@ -157,10 +210,11 @@ test("only an owner can cancel an invitation granting owner by ID", async () => 
   await expectUnavailable(invitationId);
 });
 
-test("an owner can replace an admin's member invitation in one call", async () => {
+test("an owner can revoke an invitation and issue one with a different role", async () => {
   const cookie = await joinAsInviter("replaced-inviter@example.com", "admin");
   const email = "replacement@example.com";
   const original = await invite(email, "member", cookie);
+  await system.ownerAuth().organization.cancelInvitation({ invitationId: original.id });
   const replacement = await invite(email, "admin");
   await expectUnavailable(original.id);
   const invitations = system.client().invitations;
@@ -168,59 +222,10 @@ test("an owner can replace an admin's member invitation in one call", async () =
     email,
     role: "admin",
   });
-  await invitations.accept({ invitationId: replacement.id, name: "Replacement", password });
+  await join(email, replacement.id);
 });
 
-test("a resend renews while the inviter can grant the role, is refused after demotion without spending the session's renewal, and a replacement works", async () => {
-  const inviterEmail = "demoted-owner@example.com";
-  const inviter = await joinAsInviter(inviterEmail, ["owner"]);
-  const admin = await joinAsInviter("replacement-admin@example.com", "admin");
-  const email = "reinvited-member@example.com";
-  const original = await invite(email, "owner", inviter);
-  const resend = () =>
-    authPost(
-      "organization/invite-member",
-      { email, role: "owner", organizationId, resend: true },
-      system.ownerCookie(),
-    );
-  const renewed = await resend();
-  expect(renewed.status).toBe(200);
-  expect(await renewed.json()).toMatchObject({ id: original.id });
-  const inviterMemberId = await memberId(inviterEmail);
-  await system.ownerAuth().organization.updateMemberRole({
-    memberId: inviterMemberId,
-    role: "admin",
-    organizationId,
-  });
-
-  await system.makeSessionDueForRenewal(system.ownerCookie());
-  const refused = await resend();
-  expect(refused.status).toBe(409);
-  expect(await refused.json()).toMatchObject({
-    message: "This invitation can no longer be renewed. Create a new invitation.",
-  });
-  // The refusal leaves the renewal to get-session, which sends the cookie.
-  const session = await system.hub.fetch("/api/auth/get-session", {
-    headers: { cookie: system.ownerCookie() },
-  });
-  expect(session.headers.get("set-cookie")).toContain("session_token=");
-
-  const replacement = await invite(email, "member", admin);
-  await system.ownerAuth().organization.updateMemberRole({
-    memberId: inviterMemberId,
-    role: "owner",
-    organizationId,
-  });
-  await expectUnavailable(original.id);
-  expect(await system.client().invitations.preview({ invitationId: replacement.id })).toMatchObject(
-    {
-      email,
-      role: "member",
-    },
-  );
-});
-
-test("demotion to admin voids owner grants, hides owner invitations and prevents removing an owner", async () => {
+test("an admin cannot list owner invitations or remove an owner", async () => {
   const email = "inviter@example.com";
   const cookie = await joinAsInviter(email, ["owner", "admin"]);
   const ownerGrant = await invite("another-owner@example.com", ["admin", "owner"], cookie);
@@ -248,104 +253,24 @@ test("demotion to admin voids owner grants, hides owner invitations and prevents
   expect(asAdmin.map((row) => row.id)).toContain(memberGrant.id);
   expect(asAdmin.map((row) => row.id)).not.toContain(ownerOnly.id);
 
-  await expectUnavailable(ownerGrant.id);
+  expect((await system.owner().invitations.list()).map((row) => row.id)).toContain(ownerGrant.id);
 });
 
-test("removal voids an inviter's outstanding grants and preserves key attribution", async () => {
+test("a manager can see and revoke a departed member's invitation and see who created their key", async () => {
   const email = "departing-admin@example.com";
   const cookie = await joinAsInviter(email, "admin");
-  const memberGrant = await invite("another-member@example.com", "member", cookie);
+  const memberGrant = await invite("departed-inviter-recipient@example.com", "member", cookie);
   const { id: keyId } = await system
     .client({ cookie })
     .apiKeys.create({ name: "Shared", permissions: { runner: ["read"] } });
   await system.ownerAuth().organization.removeMember({ memberIdOrEmail: email, organizationId });
-  await expectUnavailable(memberGrant.id);
+  await system.client().invitations.preview({ invitationId: memberGrant.id });
+  expect((await system.owner().invitations.list()).map((row) => row.id)).toContain(memberGrant.id);
   const keys = await system.owner().apiKeys.list();
   expect(keys.find((key) => key.id === keyId)?.creator).toMatchObject({
     name: "Inviter",
     isMember: false,
   });
-  const replacement = await invite(memberGrant.email, "member");
-  expect(replacement.id).not.toBe(memberGrant.id);
-  await system.client().invitations.preview({ invitationId: replacement.id });
-});
-
-describe("owner races", () => {
-  // Each race needs exactly two owners and may remove the hub's first owner, so it starts on a
-  // fresh database.
-  beforeEach(async () => {
-    await system.stop();
-    await start();
-  });
-
-  test.each(["leave", "self-demotion"] as const)(
-    "an owner's %s racing another owner's departure leaves one owner who can register Runners",
-    async (firstAction) => {
-      const email = "second-owner@example.com";
-      const { id: invitationId } = await invite(email, ["admin", "owner"]);
-      await system.client().invitations.accept({ invitationId, name: "Second owner", password });
-      const firstOwner = await memberId(OWNER.email);
-      await system.ownerAuth().organization.updateMemberRole({
-        memberId: firstOwner,
-        role: ["owner", "admin"],
-        organizationId,
-      });
-      const registration = await system.createRegistrationKey();
-      const firstCookie = system.ownerCookie();
-      const secondCookie = await system.signIn({ email, password });
-      await using database = openDatabase(inject("databaseUrl"));
-      const writes = await database.transaction().execute(async (tx) => {
-        // Let both requests finish Better Auth's owner count before either can change a membership.
-        await sql`lock table elflodge.member in share mode`.execute(tx);
-        const pending = Promise.all([
-          firstAction === "leave"
-            ? authPost("organization/leave", { organizationId }, firstCookie)
-            : authPost(
-                "organization/update-member-role",
-                { memberId: firstOwner, role: "admin", organizationId },
-                firstCookie,
-              ),
-          authPost("organization/leave", { organizationId }, secondCookie),
-        ]);
-        await expect
-          .poll(async () => {
-            const waiting = await sql<{ count: number }>`select count(*) from pg_locks
-        where relation = 'elflodge.member'::regclass and mode = 'RowExclusiveLock' and not granted`.execute(
-              tx,
-            );
-            return waiting.rows[0]?.count;
-          })
-          .toBe(2);
-        return { pending };
-      });
-      const [first, second] = await writes.pending;
-      expect(first.ok).not.toBe(second.ok);
-      await system.runnerClient({ "x-api-key": registration }).register({ name: "After handoff" });
-      const cookie = first.ok ? secondCookie : firstCookie;
-      const { members } = await system
-        .authClient(cookie)
-        .organization.listMembers({ query: { organizationId } });
-      const owners = members.filter((member) => member.role.split(",").includes("owner"));
-      expect(owners).toHaveLength(1);
-      const [remaining] = owners;
-      if (!remaining) throw new Error("The Organization has no owner");
-      for (const [action, body] of [
-        ["remove-member", { memberIdOrEmail: remaining.id }],
-        ["update-member-role", { memberId: remaining.id, role: "admin" }],
-      ] as const) {
-        const response = await authPost(
-          `organization/${action}`,
-          { organizationId, ...body },
-          cookie,
-        );
-        expect(response.status).toBe(400);
-        expect(await response.json()).toMatchObject({
-          code:
-            action === "remove-member"
-              ? "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER"
-              : "YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER",
-        });
-      }
-    },
-  );
+  await system.ownerAuth().organization.cancelInvitation({ invitationId: memberGrant.id });
+  await expectUnavailable(memberGrant.id);
 });

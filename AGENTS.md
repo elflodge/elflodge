@@ -56,7 +56,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 - Read a record in one statement and include the facts the hub derives about it in its own answer, so callers can report them from one snapshot.
 - The contract defines the caller-visible input, output and errors; handlers stay thin and the logic lives in the hub's modules.
-- Each procedure declares in the contract who may make it (`byKey`, `byMember` or `byKeyOrMember`, with the key's permissions, or `byAnyone` for calls anyone can start, including setup and invitation preview or acceptance); the hub checks it before every call and never runs one that declares none. A call a member may make is built on `forMembers`, which declares the 403 a signed-in account that is not a member gets.
+- Each procedure declares in the contract who may make it (`byKey`, `byMember` or `byKeyOrMember`, with the key's permissions, or `byAnyone` for calls anyone can start, including setup and invitation preview); the hub checks it before every call and never runs one that declares none. A call a member may make is built on `forMembers`, which declares the 403 a signed-in account that is not a member gets.
 - A route's method and full path are declared on the procedure and verified at runtime and in the generated OpenAPI document; contract nesting does not build the path.
 - An output schema's nullability follows its source: a not-null column passed through is non-null, a nullable one is `.nullable()`, a computed field that may be absent is `.optional()`; a `T | null | undefined` from a module is normalised before the contract.
 - A stored enum in the API matches the database enum; a value SQL widened to `string` is parsed with the schema, not asserted.

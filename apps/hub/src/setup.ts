@@ -3,12 +3,7 @@ import { generateRandomString } from "better-auth/crypto";
 import type { Kysely } from "kysely";
 
 import { findOrganization } from "./auth/auth.ts";
-import {
-  offlineAuthOptions,
-  signUpAuth,
-  SETUP_LINK_VALUE,
-  SETUP_TOKEN_PREFIX,
-} from "./auth/options.ts";
+import { offlineAuthOptions, SETUP_LINK_VALUE, SETUP_TOKEN_PREFIX } from "./auth/options.ts";
 import { dashboardUrl } from "./dashboard.ts";
 import { DB_SCHEMA, openDatabase } from "./db/database.ts";
 import type { Database } from "./db/types.ts";
@@ -160,7 +155,7 @@ export async function createOwnerAndOrganization(
   try {
     return await db.transaction().execute(async (transaction) => {
       if (await findOrganization(transaction.withSchema(DB_SCHEMA))) return "alreadySetUp";
-      const auth = signUpAuth(offlineAuthOptions(transaction));
+      const auth = betterAuth(offlineAuthOptions(transaction));
       const context = await auth.$context;
       if (token !== undefined) {
         // See `issueSetupLink` on the internal adapter. Consuming is atomic, so a token works once.

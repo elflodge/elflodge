@@ -62,7 +62,7 @@ const app = createApp<Env>({
 
 export default {
   fetch: app.fetch,
-  // The hourly Cron Trigger sweeps unused Blobs and expired or closed invitations. Cloudflare
+  // The hourly Cron Trigger sweeps unused Blobs and expired invitations. Cloudflare
   // records a failure with this invocation and the next trigger tries again.
   scheduled: (_controller, env, context) => {
     context.waitUntil(

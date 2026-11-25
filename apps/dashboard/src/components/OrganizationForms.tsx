@@ -1,4 +1,3 @@
-import { BetterFetchError } from "@better-fetch/fetch";
 import type { JSX } from "@solidjs/web";
 import { useMutation } from "@tanstack/solid-query";
 import type { DialogController } from "@ui-sdk/solid/dialog";
@@ -132,14 +131,10 @@ export function InviteMember(props: {
         let message;
         if (hasAuthCode(error, "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION"))
           message = "This address is already a member.";
-        // For a Member or Admin grant, this refusal refers to the invitation already at the address.
-        else if (
-          hasAuthCode(error, "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE") &&
-          error instanceof BetterFetchError &&
-          error.status === 403 &&
-          inviting.variables?.role !== "owner"
-        )
-          message = "This address has an invitation only an owner can replace.";
+        else if (hasAuthCode(error, "USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION"))
+          message = props.owner
+            ? "This address already has a pending invitation."
+            : "This address already has a pending invitation. If you can't see it in the list, ask an owner to review it.";
         if (message) return { fields: new Map([["email", message]]), alert: undefined };
         return undefined;
       }}
@@ -180,9 +175,8 @@ export function InviteMember(props: {
       {(fields) => (
         <>
           <p class="note">
-            The hub sends no email. You get a link to send them yourself. To replace an earlier
-            invitation, invite the address again. Only an owner can replace an invitation that
-            grants owner.
+            The hub sends no email. You get a link to send them yourself. To change a pending
+            invitation, revoke it first and then invite the address again.
           </p>
           <Field label="Email" error={fields.refused("email")}>
             <Input name="email" type="email" required readonly={fields.pending()} />
