@@ -172,7 +172,6 @@ export const test = base
       // network fails a request. MSW fails a request the page aborts, as a deadline does.
       pageNetwork.use(
         http.all("*", async ({ request }) => {
-          if (ended.signal.aborted) return never();
           if (offline) return Response.error();
           const entry: Outgoing = {
             described: `${request.method} ${request.url}`,
