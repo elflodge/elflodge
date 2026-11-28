@@ -132,7 +132,7 @@ catalog:
   # `npm view vite-plus@<version> dependencies` (`vp migrate` would also add release-age
   # exceptions the cooldown rules out).
   vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
-  vite-plus: 1.7.0
+  vite-plus: 1.8.0
   vitest: 5.1.0
   wrangler: ^4.165.0
   # A different ws version resolves pi-ai twice through its optional peers and makes pnpm deploy
