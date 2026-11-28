@@ -29,10 +29,10 @@ allowBuilds:
   "@google/genai": false
 catalog:
   "@anthropic-ai/sandbox-runtime": ^0.0.83
-  "@better-auth/api-key": 1.7.26
+  "@better-auth/api-key": 1.7.28
   # Better Auth's own, at Better Auth's version: the dashboard's tests take its route paths and error
   # answers from it.
-  "@better-auth/core": 1.7.26
+  "@better-auth/core": 1.7.28
   "@better-fetch/fetch": 1.3.3
   "@commitlint/cli": ^21.2.4
   "@commitlint/config-conventional": ^21.2.4
@@ -77,9 +77,9 @@ catalog:
   # At the Vitest version Vite+ bundles, which it takes as a peer.
   "@vitest/browser-playwright": 5.1.0
   atomically: ^2.1.1
-  auth: 1.7.26
+  auth: 1.7.28
   birpc: ^4.2.0
-  better-auth: 1.7.26
+  better-auth: 1.7.28
   canonicalize: ^5.1.0
   chunk-data: ^0.1.0
   cidr-tools: ^13.0.4
